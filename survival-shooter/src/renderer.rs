@@ -2,6 +2,8 @@ use super::*;
 
 use anyhow::Result;
 
+use wgpu::util::DeviceExt;
+
 type VertexPosition = [f32; 3];
 type VertexTextureCoords = [f32; 2];
 
@@ -75,18 +77,259 @@ impl RendererState {
         let sphere_obj = wavefront_obj::obj::parse(std::fs::read_to_string("./src/sphere.obj")?)?
             .objects
             .remove(0);
+        let sphere_vtindices: Vec<wavefront_obj::obj::VTNIndex> = sphere_obj
+            .geometry
+            .iter()
+            .flat_map(|geometry| -> Vec<wavefront_obj::obj::VTNIndex> {
+                geometry
+                    .shapes
+                    .iter()
+                    .flat_map(|shape| match shape.primitive {
+                        wavefront_obj::obj::Primitive::Triangle(f1, f2, f3) => vec![f1, f2, f3],
+                        _ => Vec::new(),
+                    })
+                    .collect()
+            })
+            .collect();
         let sphere_vertices: Vec<TexturedVertex> = sphere_obj
             .vertices
             .iter()
-            .map(|wavefront_obj::obj::Vertex { x, y, z }| {
-                // TODO: get texture coordinates from obj
+            .enumerate()
+            .map(|(index, wavefront_obj::obj::Vertex { x, y, z })| {
+                // TODO: is this correct? this might be the wrong index to use
+                // let wavefront_obj::obj::TVertex { u, v, .. } = sphere_obj.tex_vertices[index];
+                let first_vtindex = sphere_vtindices
+                    .iter()
+                    .filter(|vtindex| vtindex.0 == index)
+                    .next()
+                    .unwrap();
+                let last_vtindex = sphere_vtindices
+                    .iter()
+                    .filter(|vtindex| vtindex.0 == index)
+                    .last()
+                    .unwrap();
+                let wavefront_obj::obj::TVertex { u, v, .. } =
+                    sphere_obj.tex_vertices[last_vtindex.1.unwrap()];
                 TexturedVertex {
                     position: [*x as f32, *y as f32, *z as f32],
-                    tex_coords: [0.0, 0.0],
+                    tex_coords: [u as f32, 1.0 - v as f32],
                 }
             })
             .collect();
-        todo!()
+        let sphere_indices: Vec<u16> = sphere_vtindices.iter().map(|face| face.0 as u16).collect();
+        let backends = wgpu::Backends::all();
+        let instance = wgpu::Instance::new(backends);
+        let size = window.inner_size();
+        let surface = unsafe { instance.create_surface(&window) };
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::default(),
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .expect("Failed to find an appropriate adapter");
+        let adapter_info = adapter.get_info();
+        println!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
+
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: None,
+                    features: wgpu::Features::empty(),
+                    limits: wgpu::Limits::default(),
+                },
+                None,
+            )
+            .await
+            .expect("Failed to create device");
+
+        let swapchain_format = surface.get_preferred_format(&adapter).unwrap();
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: swapchain_format,
+            width: size.width,
+            height: size.height,
+            present_mode: wgpu::PresentMode::Fifo,
+        };
+
+        surface.configure(&device, &config);
+
+        let sphere_texture_bytes = include_bytes!("2k_mars.png");
+        let sphere_texture =
+            texture::Texture::from_bytes(&device, &queue, sphere_texture_bytes, "2k_mars.png")
+                .unwrap();
+
+        let sphere_texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("sphere texture_bind_group_layout"),
+            });
+
+        let star_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &sphere_texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&sphere_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sphere_texture.sampler),
+                },
+            ],
+            label: Some("sphere diffuse_bind_group"),
+        });
+
+        let texture_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            label: Some("Texture Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("texture_shader.wgsl").into()),
+        });
+
+        let camera = Camera {
+            eye: (0.0, 1.0, 2.0).into(),
+            target: (0.0, 0.0, 0.0).into(),
+            up: cgmath::Vector3::unit_y(),
+            aspect: config.width as f32 / config.height as f32,
+            fovy: 45.0,
+            znear: 0.1,
+            zfar: 100.0,
+        };
+
+        let camera_controller = CameraController::new(0.2);
+
+        let mut camera_uniform = CameraUniform::new();
+        camera_uniform.update_view_proj(&camera);
+
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Camera Buffer"),
+            contents: bytemuck::cast_slice(&[camera_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("camera_bind_group_layout"),
+            });
+
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &camera_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+            label: Some("camera_bind_group"),
+        });
+
+        let sphere_render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Sphere Render Pipeline Layout"),
+                bind_group_layouts: &[&sphere_texture_bind_group_layout, &camera_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let sphere_render_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Sphere Render Pipeline"),
+                layout: Some(&sphere_render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &texture_shader,
+                    entry_point: "vs_main",
+                    buffers: &[TexturedVertex::desc()],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &texture_shader,
+                    entry_point: "fs_main",
+                    targets: &[wgpu::ColorTargetState {
+                        format: config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+            });
+
+        let sphere_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Sphere Vertex Buffer"),
+            contents: bytemuck::cast_slice(&sphere_vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let sphere_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Star Index Buffer"),
+            contents: bytemuck::cast_slice(&sphere_indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        let sphere_vertex_count = sphere_vertices.len() as u32;
+        let sphere_index_count = sphere_indices.len() as u32;
+
+        Ok(Self {
+            surface,
+            device,
+            queue,
+            config,
+            size,
+
+            camera,
+            camera_controller,
+            camera_uniform,
+            camera_buffer,
+            camera_bind_group,
+
+            sphere: MeshComponent {
+                pipeline: sphere_render_pipeline,
+                vertex_buffer: sphere_vertex_buffer,
+                index_buffer: sphere_index_buffer,
+                num_indices: sphere_index_count,
+                num_vertices: sphere_vertex_count,
+                diffuse_texture: sphere_texture,
+                diffuse_texture_bind_group: star_texture_bind_group,
+            },
+        })
     }
 
     pub fn process_input(&mut self, event: &winit::event::WindowEvent) -> bool {

@@ -4,6 +4,7 @@ mod helpers;
 mod renderer;
 mod texture;
 
+use anyhow::Result;
 use std::rc::Rc;
 
 use camera::*;
@@ -28,8 +29,9 @@ async fn start() {
         .build(&event_loop)
         .unwrap();
 
-    // TODO: use ? operator + anyhow
-    let renderer_state = RendererState::new(&window).await.unwrap();
+    let renderer_state = RendererState::new(&window)
+        .await
+        .expect("Failed to create renderer state");
 
     run(window, event_loop, renderer_state).await;
 }

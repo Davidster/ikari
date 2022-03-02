@@ -17,7 +17,7 @@ pub async fn run<'a>(
         *control_flow = ControlFlow::Wait;
         match event {
             Event::RedrawRequested(_) => {
-                // state.update();
+                renderer_state.update();
                 match renderer_state.render() {
                     Ok(_) => {}
                     // Reconfigure the surface if lost
@@ -37,36 +37,39 @@ pub async fn run<'a>(
             }
             Event::WindowEvent {
                 event, window_id, ..
-            } if window_id == window.id() => match event {
-                WindowEvent::Resized(size) => {
-                    renderer_state.resize(size);
-                }
-                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                    renderer_state.resize(*new_inner_size);
-                }
-                WindowEvent::CloseRequested
-                | WindowEvent::KeyboardInput {
-                    input:
-                        KeyboardInput {
-                            state: ElementState::Pressed,
-                            virtual_keycode: Some(VirtualKeyCode::Escape),
-                            ..
-                        },
-                    ..
-                } => *control_flow = winit::event_loop::ControlFlow::Exit,
-                WindowEvent::KeyboardInput {
-                    input:
-                        KeyboardInput {
-                            state: ElementState::Pressed,
-                            virtual_keycode: Some(VirtualKeyCode::Space),
-                            ..
-                        },
-                    ..
-                } => {
-                    // state.toggle_shape()
-                }
-                _ => {}
-            },
+            } if window_id == window.id() => {
+                renderer_state.process_input(&event);
+                match event {
+                    WindowEvent::Resized(size) => {
+                        renderer_state.resize(size);
+                    }
+                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                        renderer_state.resize(*new_inner_size);
+                    }
+                    WindowEvent::CloseRequested
+                    | WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                state: ElementState::Pressed,
+                                virtual_keycode: Some(VirtualKeyCode::Escape),
+                                ..
+                            },
+                        ..
+                    } => *control_flow = winit::event_loop::ControlFlow::Exit,
+                    WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                state: ElementState::Pressed,
+                                virtual_keycode: Some(VirtualKeyCode::Space),
+                                ..
+                            },
+                        ..
+                    } => {
+                        // state.toggle_shape()
+                    }
+                    _ => {}
+                };
+            }
             _ => {}
         }
     });
