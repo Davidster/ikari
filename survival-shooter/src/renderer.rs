@@ -79,83 +79,47 @@ impl RendererState {
         let sphere_obj = wavefront_obj::obj::parse(std::fs::read_to_string("./src/sphere.obj")?)?
             .objects
             .remove(0);
-        let mut pos_uv_map: HashMap<(usize, usize), TexturedVertex> = HashMap::new();
-        let mut pos_uv_pairs: HashSet<(usize, usize)> = HashSet::new();
-        let mut sphere_vertices_2: Vec<TexturedVertex> = Vec::new();
-        let mut sphere_indices_2: Vec<u16> = Vec::new();
 
-        // god damn
-        // https://gamedev.stackexchange.com/questions/156956/which-uvs-to-use-when-i-have-more-uvs-coordinates-than-vertices-obj
+        let before = std::time::Instant::now();
 
-        let sphere_vtindices: Vec<wavefront_obj::obj::VTNIndex> = sphere_obj
+        let vt_indices: Vec<wavefront_obj::obj::VTNIndex> = sphere_obj
             .geometry
             .iter()
             .flat_map(|geometry| -> Vec<wavefront_obj::obj::VTNIndex> {
                 geometry
                     .shapes
                     .iter()
-                    .flat_map(|shape| match shape.primitive {
-                        wavefront_obj::obj::Primitive::Triangle(vti1, vti2, vti3) => {
+                    .flat_map(|shape| {
+                        if let wavefront_obj::obj::Primitive::Triangle(vti1, vti2, vti3) =
+                            shape.primitive
+                        {
                             vec![vti1, vti2, vti3]
+                        } else {
+                            vec![]
                         }
-                        _ => Vec::new(),
                     })
                     .collect()
             })
             .collect();
-
-        let faces: Vec<(
-            wavefront_obj::obj::VTNIndex,
-            wavefront_obj::obj::VTNIndex,
-            wavefront_obj::obj::VTNIndex,
-        )> = sphere_obj
-            .geometry
-            .iter()
-            .flat_map(
-                |geometry| -> Vec<(
-                    wavefront_obj::obj::VTNIndex,
-                    wavefront_obj::obj::VTNIndex,
-                    wavefront_obj::obj::VTNIndex,
-                )> {
-                    geometry
-                        .shapes
-                        .iter()
-                        .flat_map(|shape| {
-                            if let wavefront_obj::obj::Primitive::Triangle(vti1, vti2, vti3) =
-                                shape.primitive
-                            {
-                                Some((vti1, vti2, vti3))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect()
-                },
-            )
-            .collect();
-
-        faces.iter().for_each(|(vti1, vti2, vti3)| {
-            vec![vti1, vti2, vti3].iter().for_each(|vti| {
-                let pos_index = vti.0;
-                let uv_index = vti.1.unwrap();
-                let key = (pos_index, uv_index);
-                if !pos_uv_map.contains_key(&key) {
-                    let wavefront_obj::obj::Vertex { x, y, z } = sphere_obj.vertices[pos_index];
-                    let wavefront_obj::obj::TVertex { u, v, .. } =
-                        sphere_obj.tex_vertices[uv_index];
-                    pos_uv_map.insert(
-                        key,
-                        TexturedVertex {
-                            position: [x as f32, y as f32, z as f32],
-                            tex_coords: [u as f32, 1.0 - v as f32],
-                        },
-                    );
-                }
-            });
+        let mut pos_uv_map: HashMap<(usize, usize), TexturedVertex> = HashMap::new();
+        vt_indices.iter().for_each(|vti| {
+            let pos_index = vti.0;
+            let uv_index = vti.1.unwrap();
+            let key = (pos_index, uv_index);
+            if !pos_uv_map.contains_key(&key) {
+                let wavefront_obj::obj::Vertex { x, y, z } = sphere_obj.vertices[pos_index];
+                let wavefront_obj::obj::TVertex { u, v, .. } = sphere_obj.tex_vertices[uv_index];
+                pos_uv_map.insert(
+                    key,
+                    TexturedVertex {
+                        position: [x as f32, y as f32, z as f32],
+                        tex_coords: [u as f32, 1.0 - v as f32],
+                    },
+                );
+            }
         });
         let mut index_map: HashMap<(usize, usize), usize> = HashMap::new();
         let mut final_vertices: Vec<TexturedVertex> = Vec::new();
-        let mut final_indices: Vec<u16> = Vec::new();
         pos_uv_map
             .iter()
             .enumerate()
@@ -163,16 +127,19 @@ impl RendererState {
                 index_map.insert(*key, i);
                 final_vertices.push(*vertex);
             });
-        faces.iter().for_each(|(vti1, vti2, vti3)| {
-            vec![vti1, vti2, vti3].iter().for_each(|vti| {
+        let final_indices: Vec<_> = vt_indices
+            .iter()
+            .flat_map(|vti| {
                 let pos_index = vti.0;
                 let uv_index = vti.1.unwrap();
                 let key = (pos_index, uv_index);
-                if let Some(final_index) = index_map.get(&key) {
-                    final_indices.push(*final_index as u16);
-                }
-            });
-        });
+                index_map.get(&key).map(|final_index| *final_index as u16)
+            })
+            .collect();
+
+        dbg!(final_vertices.len());
+        dbg!(sphere_obj.vertices.len());
+        dbg!(before.elapsed());
 
         // sphere_obj
         //     .geometry
