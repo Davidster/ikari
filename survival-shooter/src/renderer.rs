@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use super::*;
 
 use anyhow::Result;
@@ -77,6 +79,14 @@ impl RendererState {
         let sphere_obj = wavefront_obj::obj::parse(std::fs::read_to_string("./src/sphere.obj")?)?
             .objects
             .remove(0);
+        let mut pos_uv_map: HashMap<(usize, usize), TexturedVertex> = HashMap::new();
+        let mut pos_uv_pairs: HashSet<(usize, usize)> = HashSet::new();
+        let mut sphere_vertices_2: Vec<TexturedVertex> = Vec::new();
+        let mut sphere_indices_2: Vec<u16> = Vec::new();
+
+        // god damn
+        // https://gamedev.stackexchange.com/questions/156956/which-uvs-to-use-when-i-have-more-uvs-coordinates-than-vertices-obj
+
         let sphere_vtindices: Vec<wavefront_obj::obj::VTNIndex> = sphere_obj
             .geometry
             .iter()
@@ -85,38 +95,135 @@ impl RendererState {
                     .shapes
                     .iter()
                     .flat_map(|shape| match shape.primitive {
-                        wavefront_obj::obj::Primitive::Triangle(f1, f2, f3) => vec![f1, f2, f3],
+                        wavefront_obj::obj::Primitive::Triangle(vti1, vti2, vti3) => {
+                            vec![vti1, vti2, vti3]
+                        }
                         _ => Vec::new(),
                     })
                     .collect()
             })
             .collect();
-        let sphere_vertices: Vec<TexturedVertex> = sphere_obj
-            .vertices
+
+        let faces: Vec<(
+            wavefront_obj::obj::VTNIndex,
+            wavefront_obj::obj::VTNIndex,
+            wavefront_obj::obj::VTNIndex,
+        )> = sphere_obj
+            .geometry
+            .iter()
+            .flat_map(
+                |geometry| -> Vec<(
+                    wavefront_obj::obj::VTNIndex,
+                    wavefront_obj::obj::VTNIndex,
+                    wavefront_obj::obj::VTNIndex,
+                )> {
+                    geometry
+                        .shapes
+                        .iter()
+                        .flat_map(|shape| {
+                            if let wavefront_obj::obj::Primitive::Triangle(vti1, vti2, vti3) =
+                                shape.primitive
+                            {
+                                Some((vti1, vti2, vti3))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                },
+            )
+            .collect();
+
+        faces.iter().for_each(|(vti1, vti2, vti3)| {
+            vec![vti1, vti2, vti3].iter().for_each(|vti| {
+                let pos_index = vti.0;
+                let uv_index = vti.1.unwrap();
+                let key = (pos_index, uv_index);
+                if !pos_uv_map.contains_key(&key) {
+                    let wavefront_obj::obj::Vertex { x, y, z } = sphere_obj.vertices[pos_index];
+                    let wavefront_obj::obj::TVertex { u, v, .. } =
+                        sphere_obj.tex_vertices[uv_index];
+                    pos_uv_map.insert(
+                        key,
+                        TexturedVertex {
+                            position: [x as f32, y as f32, z as f32],
+                            tex_coords: [u as f32, 1.0 - v as f32],
+                        },
+                    );
+                }
+            });
+        });
+        let mut index_map: HashMap<(usize, usize), usize> = HashMap::new();
+        let mut final_vertices: Vec<TexturedVertex> = Vec::new();
+        let mut final_indices: Vec<u16> = Vec::new();
+        pos_uv_map
             .iter()
             .enumerate()
-            .map(|(index, wavefront_obj::obj::Vertex { x, y, z })| {
-                // TODO: is this correct? this might be the wrong index to use
-                // let wavefront_obj::obj::TVertex { u, v, .. } = sphere_obj.tex_vertices[index];
-                let first_vtindex = sphere_vtindices
-                    .iter()
-                    .filter(|vtindex| vtindex.0 == index)
-                    .next()
-                    .unwrap();
-                let last_vtindex = sphere_vtindices
-                    .iter()
-                    .filter(|vtindex| vtindex.0 == index)
-                    .last()
-                    .unwrap();
-                let wavefront_obj::obj::TVertex { u, v, .. } =
-                    sphere_obj.tex_vertices[last_vtindex.1.unwrap()];
-                TexturedVertex {
-                    position: [*x as f32, *y as f32, *z as f32],
-                    tex_coords: [u as f32, 1.0 - v as f32],
+            .for_each(|(i, (key, vertex))| {
+                index_map.insert(*key, i);
+                final_vertices.push(*vertex);
+            });
+        faces.iter().for_each(|(vti1, vti2, vti3)| {
+            vec![vti1, vti2, vti3].iter().for_each(|vti| {
+                let pos_index = vti.0;
+                let uv_index = vti.1.unwrap();
+                let key = (pos_index, uv_index);
+                if let Some(final_index) = index_map.get(&key) {
+                    final_indices.push(*final_index as u16);
                 }
-            })
-            .collect();
-        let sphere_indices: Vec<u16> = sphere_vtindices.iter().map(|face| face.0 as u16).collect();
+            });
+        });
+
+        // sphere_obj
+        //     .geometry
+        //     .iter()
+        //     .for_each(|geometry| -> Vec<wavefront_obj::obj::VTNIndex> {
+        //         geometry
+        //             .shapes
+        //             .iter()
+        //             .for_each(|shape| match shape.primitive {
+        //                 wavefront_obj::obj::Primitive::Triangle(f1, f2, f3) => {
+        //                     sphere_vertices_2.push([f1, f2, f3].to_vec().iter().map(|face| TexturedVertex))
+        //                 },
+        //                 _ => Vec::new(),
+        //             })
+        //             .collect()
+        //     });
+        let mut extra_vertices: Vec<wavefront_obj::obj::VTNIndex> = Vec::new();
+        // let mut sphere_indices: Vec<u16> =
+        //     sphere_vtindices.iter().map(|face| face.0 as u16).collect();
+        // let mut sphere_vertices: Vec<TexturedVertex> = sphere_obj
+        //     .vertices
+        //     .iter()
+        //     .enumerate()
+        //     .map(|(index, wavefront_obj::obj::Vertex { x, y, z })| {
+        //         // TODO: is this correct? this might be the wrong index to use
+        //         // let wavefront_obj::obj::TVertex { u, v, .. } = sphere_obj.tex_vertices[index];
+        //         let unique_face_vertices: Vec<wavefront_obj::obj::VTNIndex> = sphere_vtindices
+        //             .iter()
+        //             .filter(|vtindex| vtindex.0 == index)
+        //             .cloned()
+        //             .collect::<HashSet<wavefront_obj::obj::VTNIndex>>()
+        //             .iter()
+        //             .cloned()
+        //             .collect();
+        //         let to_textured_vertex = |face: &wavefront_obj::obj::VTNIndex| {
+        //             let wavefront_obj::obj::TVertex { u, v, .. } =
+        //                 sphere_obj.tex_vertices[face.1.unwrap()];
+        //             TexturedVertex {
+        //                 position: [*x as f32, *y as f32, *z as f32],
+        //                 tex_coords: [u as f32, 1.0 - v as f32],
+        //             }
+        //         };
+        //         let mut vtindex_iterator = unique_face_vertices.iter();
+        //         let first_face_vertex = vtindex_iterator.next().unwrap();
+        //         extra_vertices.append(&mut vtindex_iterator.cloned().collect());
+        //         to_textured_vertex(first_face_vertex)
+        //     })
+        //     .collect();
+        // extra_vertices.iter().for_each(|extra_vertex|);
+        // let sphere_count
+        // sphere_vertices.append(extra_vertices);
         let backends = wgpu::Backends::all();
         let instance = wgpu::Instance::new(backends);
         let size = window.inner_size();
@@ -294,18 +401,18 @@ impl RendererState {
 
         let sphere_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Sphere Vertex Buffer"),
-            contents: bytemuck::cast_slice(&sphere_vertices),
+            contents: bytemuck::cast_slice(&final_vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         let sphere_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Star Index Buffer"),
-            contents: bytemuck::cast_slice(&sphere_indices),
+            contents: bytemuck::cast_slice(&final_indices),
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        let sphere_vertex_count = sphere_vertices.len() as u32;
-        let sphere_index_count = sphere_indices.len() as u32;
+        let sphere_vertex_count = final_vertices.len() as u32;
+        let sphere_index_count = final_indices.len() as u32;
 
         Ok(Self {
             surface,
