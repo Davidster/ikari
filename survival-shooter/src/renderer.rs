@@ -4,7 +4,9 @@ use super::*;
 
 use anyhow::Result;
 
+use cgmath::{Matrix4, One};
 use wgpu::util::DeviceExt;
+use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
 type VertexPosition = [f32; 3];
 type VertexTextureCoords = [f32; 2];
@@ -37,9 +39,8 @@ struct CameraUniform {
 
 impl CameraUniform {
     fn new() -> Self {
-        use cgmath::SquareMatrix;
         Self {
-            view_proj: cgmath::Matrix4::identity().into(),
+            view_proj: Matrix4::one().into(),
         }
     }
 
@@ -56,6 +57,9 @@ struct MeshComponent {
     num_vertices: u32,
     diffuse_texture: texture::Texture,
     diffuse_texture_bind_group: wgpu::BindGroup,
+    transform_buffer: wgpu::Buffer,
+    transform_bind_group: wgpu::BindGroup,
+    transform: Transform,
 }
 
 pub struct RendererState {
@@ -70,6 +74,11 @@ pub struct RendererState {
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
+
+    is_forward_pressed: bool,
+    is_backward_pressed: bool,
+    is_left_pressed: bool,
+    is_right_pressed: bool,
 
     sphere: MeshComponent,
 }
@@ -141,56 +150,6 @@ impl RendererState {
         dbg!(sphere_obj.vertices.len());
         dbg!(before.elapsed());
 
-        // sphere_obj
-        //     .geometry
-        //     .iter()
-        //     .for_each(|geometry| -> Vec<wavefront_obj::obj::VTNIndex> {
-        //         geometry
-        //             .shapes
-        //             .iter()
-        //             .for_each(|shape| match shape.primitive {
-        //                 wavefront_obj::obj::Primitive::Triangle(f1, f2, f3) => {
-        //                     sphere_vertices_2.push([f1, f2, f3].to_vec().iter().map(|face| TexturedVertex))
-        //                 },
-        //                 _ => Vec::new(),
-        //             })
-        //             .collect()
-        //     });
-        let mut extra_vertices: Vec<wavefront_obj::obj::VTNIndex> = Vec::new();
-        // let mut sphere_indices: Vec<u16> =
-        //     sphere_vtindices.iter().map(|face| face.0 as u16).collect();
-        // let mut sphere_vertices: Vec<TexturedVertex> = sphere_obj
-        //     .vertices
-        //     .iter()
-        //     .enumerate()
-        //     .map(|(index, wavefront_obj::obj::Vertex { x, y, z })| {
-        //         // TODO: is this correct? this might be the wrong index to use
-        //         // let wavefront_obj::obj::TVertex { u, v, .. } = sphere_obj.tex_vertices[index];
-        //         let unique_face_vertices: Vec<wavefront_obj::obj::VTNIndex> = sphere_vtindices
-        //             .iter()
-        //             .filter(|vtindex| vtindex.0 == index)
-        //             .cloned()
-        //             .collect::<HashSet<wavefront_obj::obj::VTNIndex>>()
-        //             .iter()
-        //             .cloned()
-        //             .collect();
-        //         let to_textured_vertex = |face: &wavefront_obj::obj::VTNIndex| {
-        //             let wavefront_obj::obj::TVertex { u, v, .. } =
-        //                 sphere_obj.tex_vertices[face.1.unwrap()];
-        //             TexturedVertex {
-        //                 position: [*x as f32, *y as f32, *z as f32],
-        //                 tex_coords: [u as f32, 1.0 - v as f32],
-        //             }
-        //         };
-        //         let mut vtindex_iterator = unique_face_vertices.iter();
-        //         let first_face_vertex = vtindex_iterator.next().unwrap();
-        //         extra_vertices.append(&mut vtindex_iterator.cloned().collect());
-        //         to_textured_vertex(first_face_vertex)
-        //     })
-        //     .collect();
-        // extra_vertices.iter().for_each(|extra_vertex|);
-        // let sphere_count
-        // sphere_vertices.append(extra_vertices);
         let backends = wgpu::Backends::all();
         let instance = wgpu::Instance::new(backends);
         let size = window.inner_size();
@@ -283,7 +242,9 @@ impl RendererState {
             target: (0.0, 0.0, 0.0).into(),
             up: cgmath::Vector3::unit_y(),
             aspect: config.width as f32 / config.height as f32,
-            fovy: 45.0,
+            fovy: cgmath::Deg(45.0),
+            // znear: 0.1,
+            // zfar: 100.0,
             znear: 0.1,
             zfar: 100.0,
         };
@@ -292,6 +253,30 @@ impl RendererState {
 
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_proj(&camera);
+
+        let sphere_transform = Transform::new();
+
+        let sphere_transform_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Sphere Transform Buffer"),
+                contents: bytemuck::cast_slice(&[GpuMatrix4(sphere_transform.matrix.get())]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        let sphere_transform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("sphere_transform_bind_group_layout"),
+            });
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
@@ -314,6 +299,15 @@ impl RendererState {
                 label: Some("camera_bind_group_layout"),
             });
 
+        let sphere_transform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &sphere_transform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: sphere_transform_buffer.as_entire_binding(),
+            }],
+            label: Some("sphere_transform_bind_group"),
+        });
+
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &camera_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
@@ -326,7 +320,11 @@ impl RendererState {
         let sphere_render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Sphere Render Pipeline Layout"),
-                bind_group_layouts: &[&sphere_texture_bind_group_layout, &camera_bind_group_layout],
+                bind_group_layouts: &[
+                    &sphere_texture_bind_group_layout,
+                    &camera_bind_group_layout,
+                    &sphere_transform_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
@@ -394,6 +392,11 @@ impl RendererState {
             camera_buffer,
             camera_bind_group,
 
+            is_forward_pressed: false,
+            is_backward_pressed: false,
+            is_left_pressed: false,
+            is_right_pressed: false,
+
             sphere: MeshComponent {
                 pipeline: sphere_render_pipeline,
                 vertex_buffer: sphere_vertex_buffer,
@@ -402,13 +405,44 @@ impl RendererState {
                 num_vertices: sphere_vertex_count,
                 diffuse_texture: sphere_texture,
                 diffuse_texture_bind_group: star_texture_bind_group,
+                transform_buffer: sphere_transform_buffer,
+                transform_bind_group: sphere_transform_bind_group,
+                transform: sphere_transform,
             },
         })
     }
 
-    pub fn process_input(&mut self, event: &winit::event::WindowEvent) -> bool {
-        self.camera_controller.process_events(event);
-        false
+    pub fn process_input(&mut self, event: &winit::event::WindowEvent) {
+        // TODO: move out of renderer
+        match event {
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        state,
+                        virtual_keycode: Some(keycode),
+                        ..
+                    },
+                ..
+            } => {
+                let is_pressed = *state == ElementState::Pressed;
+                match keycode {
+                    VirtualKeyCode::W | VirtualKeyCode::Up => {
+                        self.is_forward_pressed = is_pressed;
+                    }
+                    VirtualKeyCode::A | VirtualKeyCode::Left => {
+                        self.is_left_pressed = is_pressed;
+                    }
+                    VirtualKeyCode::S | VirtualKeyCode::Down => {
+                        self.is_backward_pressed = is_pressed;
+                    }
+                    VirtualKeyCode::D | VirtualKeyCode::Right => {
+                        self.is_right_pressed = is_pressed;
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -420,13 +454,49 @@ impl RendererState {
     }
 
     pub fn update(&mut self) {
-        self.camera_controller.update_camera(&mut self.camera);
-        self.camera_uniform.update_view_proj(&self.camera);
+        enum RotationAxis {
+            PITCH,
+            YAW,
+            ROLL,
+        }
+        let increment_rotation = |axis: RotationAxis, val: f32| {
+            let mut rotation = self.sphere.transform.rotation.get();
+            match axis {
+                RotationAxis::PITCH => {
+                    rotation.y += val;
+                }
+                RotationAxis::YAW => {
+                    rotation.x += val;
+                }
+                RotationAxis::ROLL => {
+                    rotation.z += val;
+                }
+            }
+            self.sphere.transform.set_rotation(rotation);
+        };
+        if self.is_right_pressed {
+            increment_rotation(RotationAxis::YAW, 0.1);
+        } else if self.is_left_pressed {
+            increment_rotation(RotationAxis::YAW, -0.1);
+        }
+        if self.is_forward_pressed {
+            increment_rotation(RotationAxis::PITCH, 0.1);
+        } else if self.is_backward_pressed {
+            increment_rotation(RotationAxis::PITCH, -0.1);
+        }
         self.queue.write_buffer(
-            &self.camera_buffer,
+            &self.sphere.transform_buffer,
             0,
-            bytemuck::cast_slice(&[self.camera_uniform]),
+            bytemuck::cast_slice(&[GpuMatrix4(self.sphere.transform.matrix.get())]),
         );
+        // self.specific.transform.
+        // self.camera_controller.update_camera(&mut self.camera);
+        // self.camera_uniform.update_view_proj(&self.camera);
+        // self.queue.write_buffer(
+        //     &self.camera_buffer,
+        //     0,
+        //     bytemuck::cast_slice(&[self.camera_uniform]),
+        // );
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -471,6 +541,7 @@ impl RendererState {
             render_pass.set_pipeline(pipeline);
             render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(2, &self.sphere.transform_bind_group, &[]);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..*num_indices, 0, 0..1);

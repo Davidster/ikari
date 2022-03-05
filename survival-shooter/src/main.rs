@@ -3,15 +3,21 @@ mod gameloop;
 mod helpers;
 mod renderer;
 mod texture;
-
-use anyhow::Result;
-use std::rc::Rc;
+mod transform;
 
 use camera::*;
 use gameloop::*;
 use helpers::*;
 use renderer::*;
 use texture::*;
+use transform::*;
+
+#[repr(C)]
+#[derive(Copy, Clone, PartialEq)]
+struct GpuMatrix4(cgmath::Matrix4<f32>);
+
+unsafe impl bytemuck::Pod for GpuMatrix4 {}
+unsafe impl bytemuck::Zeroable for GpuMatrix4 {}
 
 const FRAME_WIDTH: i64 = 1000;
 const FRAME_HEIGHT: i64 = 1000;
