@@ -9,18 +9,20 @@ use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
 type VertexPosition = [f32; 3];
+type VertexNormal = [f32; 3];
 type VertexTextureCoords = [f32; 2];
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct TexturedVertex {
     position: VertexPosition,
+    normal: VertexNormal,
     tex_coords: VertexTextureCoords,
 }
 
 impl TexturedVertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 2] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
+    const ATTRIBS: [wgpu::VertexAttribute; 3] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2];
 
     fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
@@ -49,6 +51,20 @@ impl CameraUniform {
     }
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, PartialEq)]
+struct GpuMatrix4(cgmath::Matrix4<f32>);
+
+unsafe impl bytemuck::Pod for GpuMatrix4 {}
+unsafe impl bytemuck::Zeroable for GpuMatrix4 {}
+
+#[repr(C)]
+#[derive(Copy, Clone, PartialEq)]
+struct GpuMatrix3(cgmath::Matrix3<f32>);
+
+unsafe impl bytemuck::Pod for GpuMatrix3 {}
+unsafe impl bytemuck::Zeroable for GpuMatrix3 {}
+
 struct MeshComponent {
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
@@ -59,6 +75,8 @@ struct MeshComponent {
     diffuse_texture_bind_group: wgpu::BindGroup,
     transform_buffer: wgpu::Buffer,
     transform_bind_group: wgpu::BindGroup,
+    normal_rotation_buffer: wgpu::Buffer,
+    normal_rotation_bind_group: wgpu::BindGroup,
     transform: Transform,
 }
 
@@ -110,24 +128,35 @@ impl RendererState {
                     .collect()
             })
             .collect();
-        let mut pos_uv_map: HashMap<(usize, usize), TexturedVertex> = HashMap::new();
+        let mut pos_uv_map: HashMap<(usize, usize, usize), TexturedVertex> = HashMap::new();
         vt_indices.iter().for_each(|vti| {
             let pos_index = vti.0;
-            let uv_index = vti.1.unwrap();
-            let key = (pos_index, uv_index);
+            let normal_index = vti.2.expect("Obj file is missing normal");
+            let uv_index = vti.1.expect("Obj file is missing uv index");
+            let key = (pos_index, normal_index, uv_index);
             if !pos_uv_map.contains_key(&key) {
-                let wavefront_obj::obj::Vertex { x, y, z } = sphere_obj.vertices[pos_index];
+                let wavefront_obj::obj::Vertex {
+                    x: p_x,
+                    y: p_y,
+                    z: p_z,
+                } = sphere_obj.vertices[pos_index];
+                let wavefront_obj::obj::Normal {
+                    x: n_x,
+                    y: n_y,
+                    z: n_z,
+                } = sphere_obj.normals[normal_index];
                 let wavefront_obj::obj::TVertex { u, v, .. } = sphere_obj.tex_vertices[uv_index];
                 pos_uv_map.insert(
                     key,
                     TexturedVertex {
-                        position: [x as f32, y as f32, z as f32],
+                        position: [p_x as f32, p_y as f32, p_z as f32],
+                        normal: [n_x as f32, n_y as f32, n_z as f32],
                         tex_coords: [u as f32, 1.0 - v as f32],
                     },
                 );
             }
         });
-        let mut index_map: HashMap<(usize, usize), usize> = HashMap::new();
+        let mut index_map: HashMap<(usize, usize, usize), usize> = HashMap::new();
         let mut final_vertices: Vec<TexturedVertex> = Vec::new();
         pos_uv_map
             .iter()
@@ -140,8 +169,9 @@ impl RendererState {
             .iter()
             .flat_map(|vti| {
                 let pos_index = vti.0;
+                let normal_index = vti.2.expect("Obj file is missing normal");
                 let uv_index = vti.1.unwrap();
-                let key = (pos_index, uv_index);
+                let key = (pos_index, normal_index, uv_index);
                 index_map.get(&key).map(|final_index| *final_index as u16)
             })
             .collect();
@@ -278,6 +308,30 @@ impl RendererState {
                 label: Some("sphere_transform_bind_group_layout"),
             });
 
+        let sphere_normal_rotation_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Sphere Normal Rotation Buffer"),
+                contents: bytemuck::cast_slice(&[GpuMatrix4(
+                    sphere_transform.get_rotation_matrix(),
+                )]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        let sphere_normal_rotation_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("sphere_normal_rotation_bind_group_layout"),
+            });
+
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
             contents: bytemuck::cast_slice(&[camera_uniform]),
@@ -308,6 +362,16 @@ impl RendererState {
             label: Some("sphere_transform_bind_group"),
         });
 
+        let sphere_normal_rotation_bind_group =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &sphere_normal_rotation_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: sphere_normal_rotation_buffer.as_entire_binding(),
+                }],
+                label: Some("sphere_normal_rotation_bind_group"),
+            });
+
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &camera_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
@@ -324,6 +388,7 @@ impl RendererState {
                     &sphere_texture_bind_group_layout,
                     &camera_bind_group_layout,
                     &sphere_transform_bind_group_layout,
+                    &sphere_normal_rotation_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -407,6 +472,8 @@ impl RendererState {
                 diffuse_texture_bind_group: star_texture_bind_group,
                 transform_buffer: sphere_transform_buffer,
                 transform_bind_group: sphere_transform_bind_group,
+                normal_rotation_buffer: sphere_normal_rotation_buffer,
+                normal_rotation_bind_group: sphere_normal_rotation_bind_group,
                 transform: sphere_transform,
             },
         })
@@ -489,6 +556,11 @@ impl RendererState {
             0,
             bytemuck::cast_slice(&[GpuMatrix4(self.sphere.transform.matrix.get())]),
         );
+        self.queue.write_buffer(
+            &self.sphere.normal_rotation_buffer,
+            0,
+            bytemuck::cast_slice(&[GpuMatrix4(self.sphere.transform.get_rotation_matrix())]),
+        );
         // self.specific.transform.
         // self.camera_controller.update_camera(&mut self.camera);
         // self.camera_uniform.update_view_proj(&self.camera);
@@ -542,6 +614,7 @@ impl RendererState {
             render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.set_bind_group(2, &self.sphere.transform_bind_group, &[]);
+            render_pass.set_bind_group(3, &self.sphere.normal_rotation_bind_group, &[]);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..*num_indices, 0, 0..1);

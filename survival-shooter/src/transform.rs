@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-use cgmath::{Matrix4, One, Vector3};
+use cgmath::{Matrix3, Matrix4, One, Vector3};
 
 use super::*;
 
@@ -55,6 +55,32 @@ impl Transform {
     pub fn set_scale(&self, new_scale: Vector3<f32>) {
         self.scale.set(new_scale);
         self.resync_matrix();
+    }
+
+    pub fn get_rotation_matrix(&self) -> Matrix4<f32> {
+        let rotation = self.rotation.get();
+        make_rotation_matrix(rotation.x, rotation.y, rotation.z)
+    }
+
+    pub fn get_rotation_matrix3(&self) -> Matrix3<f32> {
+        let rotation_matrix = self.get_rotation_matrix();
+        return Matrix3::from_cols(
+            Vector3::new(
+                rotation_matrix.x.x,
+                rotation_matrix.x.y,
+                rotation_matrix.x.z,
+            ),
+            Vector3::new(
+                rotation_matrix.y.x,
+                rotation_matrix.y.y,
+                rotation_matrix.y.z,
+            ),
+            Vector3::new(
+                rotation_matrix.z.x,
+                rotation_matrix.z.y,
+                rotation_matrix.z.z,
+            ),
+        );
     }
 
     fn resync_matrix(&self) {
