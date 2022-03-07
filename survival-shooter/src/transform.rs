@@ -41,9 +41,9 @@ impl Transform {
     pub fn set_position(&self, new_position: Vector3<f32>) {
         self.position.set(new_position);
         let mut matrix = self.matrix.get();
-        matrix.x.w = new_position.x;
-        matrix.y.w = new_position.x;
-        matrix.z.w = new_position.x;
+        matrix.w.x = new_position.x;
+        matrix.w.y = new_position.y;
+        matrix.w.z = new_position.z;
         self.matrix.set(matrix);
     }
 

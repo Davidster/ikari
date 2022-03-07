@@ -4,7 +4,7 @@ use super::*;
 
 use anyhow::Result;
 
-use cgmath::{Matrix4, One};
+use cgmath::{Matrix4, One, Vector3};
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -66,7 +66,6 @@ unsafe impl bytemuck::Pod for GpuMatrix3 {}
 unsafe impl bytemuck::Zeroable for GpuMatrix3 {}
 
 struct MeshComponent {
-    pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
@@ -98,18 +97,30 @@ pub struct RendererState {
     is_left_pressed: bool,
     is_right_pressed: bool,
 
+    textured_mesh_pipeline: wgpu::RenderPipeline,
+    depth_texture: texture::Texture,
+
     sphere: MeshComponent,
+    plane: MeshComponent,
 }
 
-impl RendererState {
-    pub async fn new(window: &winit::window::Window) -> Result<Self> {
-        let sphere_obj = wavefront_obj::obj::parse(std::fs::read_to_string("./src/sphere.obj")?)?
+impl MeshComponent {
+    pub fn new(
+        obj_file_path: &str,
+        diffuse_texture_file_path: &str,
+        diffuse_texture_bind_group_layout: &wgpu::BindGroupLayout,
+        uniform_var_bind_group_layout: &wgpu::BindGroupLayout,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Result<MeshComponent> {
+        let diffuse_texture_bytes = std::fs::read(diffuse_texture_file_path)?;
+        let obj_file_string = std::fs::read_to_string(obj_file_path)?;
+
+        let obj = wavefront_obj::obj::parse(obj_file_string)?
             .objects
             .remove(0);
 
-        let before = std::time::Instant::now();
-
-        let vt_indices: Vec<wavefront_obj::obj::VTNIndex> = sphere_obj
+        let vt_indices: Vec<wavefront_obj::obj::VTNIndex> = obj
             .geometry
             .iter()
             .flat_map(|geometry| -> Vec<wavefront_obj::obj::VTNIndex> {
@@ -128,25 +139,26 @@ impl RendererState {
                     .collect()
             })
             .collect();
-        let mut pos_uv_map: HashMap<(usize, usize, usize), TexturedVertex> = HashMap::new();
+        let mut composite_index_map: HashMap<(usize, usize, usize), TexturedVertex> =
+            HashMap::new();
         vt_indices.iter().for_each(|vti| {
             let pos_index = vti.0;
             let normal_index = vti.2.expect("Obj file is missing normal");
             let uv_index = vti.1.expect("Obj file is missing uv index");
             let key = (pos_index, normal_index, uv_index);
-            if !pos_uv_map.contains_key(&key) {
+            if !composite_index_map.contains_key(&key) {
                 let wavefront_obj::obj::Vertex {
                     x: p_x,
                     y: p_y,
                     z: p_z,
-                } = sphere_obj.vertices[pos_index];
+                } = obj.vertices[pos_index];
                 let wavefront_obj::obj::Normal {
                     x: n_x,
                     y: n_y,
                     z: n_z,
-                } = sphere_obj.normals[normal_index];
-                let wavefront_obj::obj::TVertex { u, v, .. } = sphere_obj.tex_vertices[uv_index];
-                pos_uv_map.insert(
+                } = obj.normals[normal_index];
+                let wavefront_obj::obj::TVertex { u, v, .. } = obj.tex_vertices[uv_index];
+                composite_index_map.insert(
                     key,
                     TexturedVertex {
                         position: [p_x as f32, p_y as f32, p_z as f32],
@@ -157,15 +169,15 @@ impl RendererState {
             }
         });
         let mut index_map: HashMap<(usize, usize, usize), usize> = HashMap::new();
-        let mut final_vertices: Vec<TexturedVertex> = Vec::new();
-        pos_uv_map
+        let mut mesh_vertices: Vec<TexturedVertex> = Vec::new();
+        composite_index_map
             .iter()
             .enumerate()
             .for_each(|(i, (key, vertex))| {
                 index_map.insert(*key, i);
-                final_vertices.push(*vertex);
+                mesh_vertices.push(*vertex);
             });
-        let final_indices: Vec<_> = vt_indices
+        let mesh_indices: Vec<_> = vt_indices
             .iter()
             .flat_map(|vti| {
                 let pos_index = vti.0;
@@ -176,10 +188,93 @@ impl RendererState {
             })
             .collect();
 
-        dbg!(final_vertices.len());
-        dbg!(sphere_obj.vertices.len());
-        dbg!(before.elapsed());
+        let sphere_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("MeshComponent Vertex Buffer"),
+            contents: bytemuck::cast_slice(&mesh_vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
 
+        let sphere_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("MeshComponent Index Buffer"),
+            contents: bytemuck::cast_slice(&mesh_indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        let vertex_count = mesh_vertices.len() as u32;
+        let index_count = mesh_indices.len() as u32;
+
+        let diffuse_texture = texture::Texture::from_bytes(
+            &device,
+            &queue,
+            &diffuse_texture_bytes,
+            diffuse_texture_file_path,
+        )?;
+
+        let diffuse_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &diffuse_texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                },
+            ],
+            label: Some("MeshComponent diffuse_texture_bind_group"),
+        });
+
+        let transform = Transform::new();
+
+        let transform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("MeshComponent Transform Buffer"),
+            contents: bytemuck::cast_slice(&[GpuMatrix4(transform.matrix.get())]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let transform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &uniform_var_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: transform_buffer.as_entire_binding(),
+            }],
+            label: Some("MeshComponent transform_bind_group"),
+        });
+
+        let normal_rotation_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Sphere Normal Rotation Buffer"),
+            contents: bytemuck::cast_slice(&[GpuMatrix4(transform.get_rotation_matrix())]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let normal_rotation_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &uniform_var_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: normal_rotation_buffer.as_entire_binding(),
+            }],
+            label: Some("MeshComponent normal_rotation_bind_group"),
+        });
+
+        Ok(MeshComponent {
+            vertex_buffer: sphere_vertex_buffer,
+            index_buffer: sphere_index_buffer,
+            num_indices: index_count,
+            num_vertices: vertex_count,
+            diffuse_texture,
+            diffuse_texture_bind_group,
+            transform_buffer,
+            transform_bind_group,
+            normal_rotation_buffer,
+            normal_rotation_bind_group,
+            transform,
+        })
+    }
+}
+
+impl RendererState {
+    pub async fn new(window: &winit::window::Window) -> Result<Self> {
         let backends = wgpu::Backends::all();
         let instance = wgpu::Instance::new(backends);
         let size = window.inner_size();
@@ -219,12 +314,12 @@ impl RendererState {
 
         surface.configure(&device, &config);
 
-        let sphere_texture_bytes = include_bytes!("2k_mars.png");
-        let sphere_texture =
-            texture::Texture::from_bytes(&device, &queue, sphere_texture_bytes, "2k_mars.png")
-                .unwrap();
+        let texture_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            label: Some("Texture Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("texture_shader.wgsl").into()),
+        });
 
-        let sphere_texture_bind_group_layout =
+        let diffuse_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -244,56 +339,10 @@ impl RendererState {
                         count: None,
                     },
                 ],
-                label: Some("sphere texture_bind_group_layout"),
+                label: Some("diffuse_texture_bind_group_layout"),
             });
 
-        let star_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &sphere_texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&sphere_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sphere_texture.sampler),
-                },
-            ],
-            label: Some("sphere diffuse_bind_group"),
-        });
-
-        let texture_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-            label: Some("Texture Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("texture_shader.wgsl").into()),
-        });
-
-        let camera = Camera {
-            eye: (0.0, 1.5, 3.0).into(),
-            target: (0.0, 0.0, 0.0).into(),
-            up: cgmath::Vector3::unit_y(),
-            aspect: config.width as f32 / config.height as f32,
-            fovy: cgmath::Deg(45.0),
-            // znear: 0.1,
-            // zfar: 100.0,
-            znear: 0.1,
-            zfar: 100.0,
-        };
-
-        let camera_controller = CameraController::new(0.2);
-
-        let mut camera_uniform = CameraUniform::new();
-        camera_uniform.update_view_proj(&camera);
-
-        let sphere_transform = Transform::new();
-
-        let sphere_transform_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Sphere Transform Buffer"),
-                contents: bytemuck::cast_slice(&[GpuMatrix4(sphere_transform.matrix.get())]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-
-        let sphere_transform_bind_group_layout =
+        let uniform_var_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -305,95 +354,25 @@ impl RendererState {
                     },
                     count: None,
                 }],
-                label: Some("sphere_transform_bind_group_layout"),
+                label: Some("uniform_var_bind_group_layout"),
             });
-
-        let sphere_normal_rotation_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Sphere Normal Rotation Buffer"),
-                contents: bytemuck::cast_slice(&[GpuMatrix4(
-                    sphere_transform.get_rotation_matrix(),
-                )]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-
-        let sphere_normal_rotation_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some("sphere_normal_rotation_bind_group_layout"),
-            });
-
-        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Camera Buffer"),
-            contents: bytemuck::cast_slice(&[camera_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let camera_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some("camera_bind_group_layout"),
-            });
-
-        let sphere_transform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &sphere_transform_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: sphere_transform_buffer.as_entire_binding(),
-            }],
-            label: Some("sphere_transform_bind_group"),
-        });
-
-        let sphere_normal_rotation_bind_group =
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &sphere_normal_rotation_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: sphere_normal_rotation_buffer.as_entire_binding(),
-                }],
-                label: Some("sphere_normal_rotation_bind_group"),
-            });
-
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
-            label: Some("camera_bind_group"),
-        });
 
         let sphere_render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Sphere Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &sphere_texture_bind_group_layout,
-                    &camera_bind_group_layout,
-                    &sphere_transform_bind_group_layout,
-                    &sphere_normal_rotation_bind_group_layout,
+                    &diffuse_texture_bind_group_layout,
+                    &uniform_var_bind_group_layout,
+                    &uniform_var_bind_group_layout,
+                    &uniform_var_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
 
-        let sphere_render_pipeline =
+        let depth_texture =
+            texture::Texture::create_depth_texture(&device, &config, "depth_texture");
+
+        let textured_mesh_pipeline =
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Sphere Render Pipeline"),
                 layout: Some(&sphere_render_pipeline_layout),
@@ -420,7 +399,13 @@ impl RendererState {
                     unclipped_depth: false,
                     conservative: false,
                 },
-                depth_stencil: None,
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: texture::Texture::DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less, // 1.
+                    stencil: wgpu::StencilState::default(),     // 2.
+                    bias: wgpu::DepthBiasState::default(),
+                }),
                 multisample: wgpu::MultisampleState {
                     count: 1,
                     mask: !0,
@@ -429,20 +414,77 @@ impl RendererState {
                 multiview: None,
             });
 
-        let sphere_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Sphere Vertex Buffer"),
-            contents: bytemuck::cast_slice(&final_vertices),
-            usage: wgpu::BufferUsages::VERTEX,
+        let sphere = MeshComponent::new(
+            "./src/sphere.obj",
+            "./src/2k_mars.png",
+            &diffuse_texture_bind_group_layout,
+            &uniform_var_bind_group_layout,
+            &device,
+            &queue,
+        )?;
+
+        dbg!(sphere.transform.position());
+
+        sphere.transform.set_scale(Vector3::new(0.25, 0.25, 0.25));
+        sphere.transform.set_position(Vector3::new(0.0, -2.0, 0.0));
+
+        dbg!(sphere.transform.position());
+
+        queue.write_buffer(
+            &sphere.transform_buffer,
+            0,
+            bytemuck::cast_slice(&[GpuMatrix4(sphere.transform.matrix.get())]),
+        );
+        queue.write_buffer(
+            &sphere.normal_rotation_buffer,
+            0,
+            bytemuck::cast_slice(&[GpuMatrix4(sphere.transform.get_rotation_matrix())]),
+        );
+
+        let plane = MeshComponent::new(
+            "./src/plane.obj",
+            "./src/2k_checkerboard.png",
+            &diffuse_texture_bind_group_layout,
+            &uniform_var_bind_group_layout,
+            &device,
+            &queue,
+        )?;
+
+        plane.transform.set_position(Vector3::new(0.0, -3.0, 0.0));
+        plane.transform.set_scale(Vector3::new(10.0, 1.0, 10.0));
+
+        queue.write_buffer(
+            &plane.transform_buffer,
+            0,
+            bytemuck::cast_slice(&[GpuMatrix4(plane.transform.matrix.get())]),
+        );
+        queue.write_buffer(
+            &plane.normal_rotation_buffer,
+            0,
+            bytemuck::cast_slice(&[GpuMatrix4(plane.transform.get_rotation_matrix())]),
+        );
+
+        let camera = Camera::new((0.0, 2.0, 7.0).into());
+
+        let camera_controller = CameraController::new(0.2);
+
+        let mut camera_uniform = CameraUniform::new();
+        camera_uniform.update_view_proj(&camera);
+
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Camera Buffer"),
+            contents: bytemuck::cast_slice(&[camera_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let sphere_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Star Index Buffer"),
-            contents: bytemuck::cast_slice(&final_indices),
-            usage: wgpu::BufferUsages::INDEX,
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &uniform_var_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+            label: Some("camera_bind_group"),
         });
-
-        let sphere_vertex_count = final_vertices.len() as u32;
-        let sphere_index_count = final_indices.len() as u32;
 
         Ok(Self {
             surface,
@@ -462,24 +504,16 @@ impl RendererState {
             is_left_pressed: false,
             is_right_pressed: false,
 
-            sphere: MeshComponent {
-                pipeline: sphere_render_pipeline,
-                vertex_buffer: sphere_vertex_buffer,
-                index_buffer: sphere_index_buffer,
-                num_indices: sphere_index_count,
-                num_vertices: sphere_vertex_count,
-                diffuse_texture: sphere_texture,
-                diffuse_texture_bind_group: star_texture_bind_group,
-                transform_buffer: sphere_transform_buffer,
-                transform_bind_group: sphere_transform_bind_group,
-                normal_rotation_buffer: sphere_normal_rotation_buffer,
-                normal_rotation_bind_group: sphere_normal_rotation_bind_group,
-                transform: sphere_transform,
-            },
+            textured_mesh_pipeline,
+            depth_texture,
+
+            sphere,
+            plane,
         })
     }
 
     pub fn process_input(&mut self, event: &winit::event::WindowEvent) {
+        self.camera_controller.process_events(event);
         // TODO: move out of renderer
         match event {
             WindowEvent::KeyboardInput {
@@ -514,6 +548,8 @@ impl RendererState {
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         // Reconfigure the surface with the new size
+        self.depth_texture =
+            texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
         self.size = new_size;
         self.config.width = new_size.width;
         self.config.height = new_size.height;
@@ -551,6 +587,7 @@ impl RendererState {
         } else if self.is_backward_pressed {
             increment_rotation(RotationAxis::PITCH, -0.1);
         }
+        // dbg!(self.sphere.transform.position());
         self.queue.write_buffer(
             &self.sphere.transform_buffer,
             0,
@@ -561,14 +598,13 @@ impl RendererState {
             0,
             bytemuck::cast_slice(&[GpuMatrix4(self.sphere.transform.get_rotation_matrix())]),
         );
-        // self.specific.transform.
-        // self.camera_controller.update_camera(&mut self.camera);
-        // self.camera_uniform.update_view_proj(&self.camera);
-        // self.queue.write_buffer(
-        //     &self.camera_buffer,
-        //     0,
-        //     bytemuck::cast_slice(&[self.camera_uniform]),
-        // );
+        self.camera_controller.update_camera(&mut self.camera);
+        self.camera_uniform.update_view_proj(&self.camera);
+        self.queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(&[self.camera_uniform]),
+        );
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -598,26 +634,37 @@ impl RendererState {
                         store: true,
                     },
                 }],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
             });
 
-            let MeshComponent {
-                pipeline,
-                diffuse_texture_bind_group,
-                vertex_buffer,
-                index_buffer,
-                num_indices,
-                ..
-            } = &self.sphere;
+            render_pass.set_pipeline(&self.textured_mesh_pipeline);
 
-            render_pass.set_pipeline(pipeline);
-            render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
-            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(2, &self.sphere.transform_bind_group, &[]);
-            render_pass.set_bind_group(3, &self.sphere.normal_rotation_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+            vec![&self.sphere, &self.plane].iter().for_each(
+                |MeshComponent {
+                     diffuse_texture_bind_group,
+                     vertex_buffer,
+                     index_buffer,
+                     num_indices,
+                     transform_bind_group,
+                     normal_rotation_bind_group,
+                     ..
+                 }| {
+                    render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
+                    render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+                    render_pass.set_bind_group(2, transform_bind_group, &[]);
+                    render_pass.set_bind_group(3, normal_rotation_bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                    render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+                },
+            );
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();

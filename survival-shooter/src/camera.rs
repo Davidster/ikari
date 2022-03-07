@@ -1,135 +1,126 @@
 use super::*;
-use cgmath::Deg;
-use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
+use cgmath::{Deg, Matrix4, Rad, Vector3};
+use winit::{
+    dpi::PhysicalPosition,
+    event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent},
+};
 
 #[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
+pub const OPENGL_TO_WGPU_MATRIX: Matrix4<f32> = Matrix4::new(
     1.0, 0.0, 0.0, 0.0,
     0.0, 1.0, 0.0, 0.0,
     0.0, 0.0, 0.5, 0.0,
     0.0, 0.0, 0.5, 1.0,
 );
 
+const Z_NEAR: f32 = 0.01;
+const Z_FAR: f32 = 100.0;
+const FOV_Y: Deg<f32> = Deg(45.0);
+const ASPECT_RATION: f32 = FRAME_WIDTH as f32 / FRAME_HEIGHT as f32;
+
 pub struct Camera {
-    pub eye: cgmath::Point3<f32>,
-    pub target: cgmath::Point3<f32>,
-    pub up: cgmath::Vector3<f32>,
-    pub aspect: f32,
-    pub fovy: cgmath::Deg<f32>,
-    pub znear: f32,
-    pub zfar: f32,
+    horizontal_rotation: Rad<f32>,
+    vertical_rotation: Rad<f32>,
+    position: Vector3<f32>,
 }
 
 impl Camera {
-    pub fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
-        let view = cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
-        let proj = make_perspective_matrix(
-            self.znear,
-            self.zfar,
-            cgmath::Rad::from(self.fovy),
-            self.aspect,
-        );
+    pub fn new(initial_position: Vector3<f32>) -> Self {
+        Camera {
+            horizontal_rotation: Rad(0.0),
+            vertical_rotation: Rad(0.0),
+            position: initial_position,
+        }
+    }
 
-        return OPENGL_TO_WGPU_MATRIX * proj * view;
+    pub fn build_view_projection_matrix(&self) -> Matrix4<f32> {
+        OPENGL_TO_WGPU_MATRIX
+            * make_perspective_matrix(Z_NEAR, Z_FAR, FOV_Y.into(), ASPECT_RATION)
+            // * make_translation_matrix(self.position) //TODO: try to re-add the position here, might need to apply it in a weird order doe
+            // * make_rotation_matrix(0.0, Rad::from(Deg(180.0)).0, 0.0)
+        * make_rotation_matrix(0.0, 0.0, self.vertical_rotation.0)
+        * make_rotation_matrix(self.horizontal_rotation.0, 0.0, 0.0)
     }
 }
 
+#[derive(Clone, Debug)]
+enum MouseState {
+    NEVER_ENTERED,
+    RESET,
+    ACTIVE(MousePositionState),
+}
+
+#[derive(Clone, Debug)]
+struct MousePositionState {
+    last_processed: PhysicalPosition<f64>,
+    current: PhysicalPosition<f64>,
+}
+
 pub struct CameraController {
+    mouse_state: MouseState,
     pub speed: f32,
-    is_forward_pressed: bool,
-    is_backward_pressed: bool,
-    is_left_pressed: bool,
-    is_right_pressed: bool,
 }
 
 impl CameraController {
     pub fn new(speed: f32) -> Self {
         Self {
+            mouse_state: MouseState::NEVER_ENTERED,
             speed,
-            is_forward_pressed: false,
-            is_backward_pressed: false,
-            is_left_pressed: false,
-            is_right_pressed: false,
         }
     }
 
-    pub fn process_events(&mut self, event: &WindowEvent) -> bool {
+    pub fn process_events(&mut self, event: &WindowEvent) {
         match event {
-            WindowEvent::KeyboardInput {
-                input:
-                    KeyboardInput {
-                        state,
-                        virtual_keycode: Some(keycode),
-                        ..
-                    },
+            WindowEvent::CursorMoved {
+                position: new_position,
                 ..
             } => {
-                let is_pressed = *state == ElementState::Pressed;
-                match keycode {
-                    VirtualKeyCode::W | VirtualKeyCode::Up => {
-                        self.is_forward_pressed = is_pressed;
-                        true
+                self.mouse_state = match self.mouse_state {
+                    MouseState::NEVER_ENTERED => MouseState::NEVER_ENTERED,
+                    MouseState::RESET => MouseState::ACTIVE(MousePositionState {
+                        current: *new_position,
+                        last_processed: *new_position,
+                    }),
+                    MouseState::ACTIVE(MousePositionState { last_processed, .. }) => {
+                        MouseState::ACTIVE(MousePositionState {
+                            current: *new_position,
+                            last_processed,
+                        })
                     }
-                    VirtualKeyCode::A | VirtualKeyCode::Left => {
-                        self.is_left_pressed = is_pressed;
-                        true
-                    }
-                    VirtualKeyCode::S | VirtualKeyCode::Down => {
-                        self.is_backward_pressed = is_pressed;
-                        true
-                    }
-                    VirtualKeyCode::D | VirtualKeyCode::Right => {
-                        self.is_right_pressed = is_pressed;
-                        true
-                    }
-                    _ => false,
-                }
+                };
             }
-            _ => false,
-        }
+            WindowEvent::CursorLeft { .. } => {
+                println!("Cursor left");
+                self.mouse_state = MouseState::RESET;
+            }
+            WindowEvent::CursorEntered { .. } => {
+                println!("Cursor entered");
+                self.mouse_state = MouseState::RESET;
+            }
+            _ => {}
+        };
     }
 
-    pub fn update_camera(&self, camera: &mut Camera) {
-        use cgmath::InnerSpace;
-        let forward = camera.target - camera.eye;
-        let forward_norm = forward.normalize();
-        let forward_mag = forward.magnitude();
+    pub fn update_camera(&mut self, camera: &mut Camera) {
+        self.mouse_state = if let MouseState::ACTIVE(mut mouse_state) = self.mouse_state.clone() {
+            if !mouse_state.current.eq(&mouse_state.last_processed) {
+                let mouse_sensitivity = 0.01;
+                let d_x =
+                    (mouse_state.current.x - mouse_state.last_processed.x) * mouse_sensitivity;
+                let d_y =
+                    (mouse_state.current.y - mouse_state.last_processed.y) * mouse_sensitivity;
 
-        // Prevents glitching when camera gets too close to the
-        // center of the scene.
-        // if self.is_forward_pressed && forward_mag > self.speed {
-        //     camera.eye += forward_norm * self.speed;
-        // }
-        // if self.is_backward_pressed {
-        //     camera.eye -= forward_norm * self.speed;
-        // }
-
-        let right = forward_norm.cross(camera.up);
-
-        // Redo radius calc in case the fowrard/backward is pressed.
-        let forward = camera.target - camera.eye;
-        let forward_mag = forward.magnitude();
-
-        if self.is_right_pressed {
-            // Rescale the distance between the target and eye so
-            // that it doesn't change. The eye therefore still
-            // lies on the circle made by the target and eye.
-            camera.eye = camera.target - (forward + right * self.speed).normalize() * forward_mag;
-        }
-        if self.is_left_pressed {
-            camera.eye = camera.target - (forward - right * self.speed).normalize() * forward_mag;
-        }
-
-        if self.is_forward_pressed {
-            // Rescale the distance between the target and eye so
-            // that it doesn't change. The eye therefore still
-            // lies on the circle made by the target and eye.
-            camera.eye = camera.target
-                - (forward + camera.up.normalize() * self.speed).normalize() * forward_mag;
-        }
-        if self.is_backward_pressed {
-            camera.eye = camera.target
-                - (forward - camera.up.normalize() * self.speed).normalize() * forward_mag;
+                camera.horizontal_rotation += Rad(d_x as f32);
+                camera.vertical_rotation = Rad((camera.vertical_rotation.0 + Rad(d_y as f32).0)
+                    .min(Rad::from(Deg(90.0)).0)
+                    .max(Rad::from(Deg(-90.0)).0));
+                mouse_state.last_processed = mouse_state.current;
+                MouseState::ACTIVE(mouse_state)
+            } else {
+                self.mouse_state.clone()
+            }
+        } else {
+            self.mouse_state.clone()
         }
     }
 }

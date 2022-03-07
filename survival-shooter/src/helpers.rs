@@ -2,6 +2,8 @@ use cgmath::Matrix;
 use cgmath::Matrix4;
 use cgmath::Vector3;
 
+// TODO: use cgmath::Rad instead of f32 for rotations
+
 pub fn to_srgb(val: f32) -> f32 {
     val.powf(2.2)
 }

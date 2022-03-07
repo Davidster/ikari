@@ -61,7 +61,7 @@ var s_diffuse: sampler;
 
 [[stage(fragment)]]
 fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-    let to_light_vec = normalize(vec3<f32>(1.0, 1.0, 5.0) - in.world_position);
+    let to_light_vec = normalize(vec3<f32>(0.0, 3.0, 0.0) - in.world_position);
     let light_intensity = max(dot(in.world_normal, to_light_vec), 0.0);
     let albedo = textureSample(t_diffuse, s_diffuse, in.tex_coords);
     let max_light_intensity = 1.0;
