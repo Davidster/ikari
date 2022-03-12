@@ -4,8 +4,16 @@ use cgmath::Vector3;
 
 // TODO: use cgmath::Rad instead of f32 for rotations
 
-pub fn to_srgb(val: f32) -> f32 {
+pub fn _to_srgb(val: f32) -> f32 {
     val.powf(2.2)
+}
+
+pub fn lerp_f32(from: f32, to: f32, alpha: f32) -> f32 {
+    (alpha * to) + ((1.0 - alpha) * from)
+}
+
+pub fn _lerp_f64(from: f64, to: f64, alpha: f64) -> f64 {
+    (alpha * to) + ((1.0 - alpha) * from)
 }
 
 // from https://en.wikipedia.org/wiki/Rotation_matrix

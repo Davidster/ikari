@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use super::*;
 
@@ -46,8 +46,8 @@ impl CameraUniform {
         }
     }
 
-    fn update_view_proj(&mut self, camera: &Camera) {
-        self.view_proj = camera.build_view_projection_matrix().into();
+    fn update_view_proj(&mut self, camera: &Camera, window: &winit::window::Window) {
+        self.view_proj = camera.build_view_projection_matrix(&window).into();
     }
 }
 
@@ -69,14 +69,14 @@ struct MeshComponent {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     num_indices: u32,
-    num_vertices: u32,
-    diffuse_texture: texture::Texture,
+    _num_vertices: u32,
+    _diffuse_texture: Texture,
     diffuse_texture_bind_group: wgpu::BindGroup,
     transform_buffer: wgpu::Buffer,
     transform_bind_group: wgpu::BindGroup,
     normal_rotation_buffer: wgpu::Buffer,
     normal_rotation_bind_group: wgpu::BindGroup,
-    transform: Transform,
+    transform: super::transform::Transform,
 }
 
 pub struct RendererState {
@@ -98,7 +98,7 @@ pub struct RendererState {
     is_right_pressed: bool,
 
     textured_mesh_pipeline: wgpu::RenderPipeline,
-    depth_texture: texture::Texture,
+    depth_texture: Texture,
 
     sphere: MeshComponent,
     plane: MeshComponent,
@@ -203,7 +203,7 @@ impl MeshComponent {
         let vertex_count = mesh_vertices.len() as u32;
         let index_count = mesh_indices.len() as u32;
 
-        let diffuse_texture = texture::Texture::from_bytes(
+        let diffuse_texture = Texture::from_bytes(
             &device,
             &queue,
             &diffuse_texture_bytes,
@@ -225,7 +225,7 @@ impl MeshComponent {
             label: Some("MeshComponent diffuse_texture_bind_group"),
         });
 
-        let transform = Transform::new();
+        let transform = super::transform::Transform::new();
 
         let transform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("MeshComponent Transform Buffer"),
@@ -261,8 +261,8 @@ impl MeshComponent {
             vertex_buffer: sphere_vertex_buffer,
             index_buffer: sphere_index_buffer,
             num_indices: index_count,
-            num_vertices: vertex_count,
-            diffuse_texture,
+            _num_vertices: vertex_count,
+            _diffuse_texture: diffuse_texture,
             diffuse_texture_bind_group,
             transform_buffer,
             transform_bind_group,
@@ -310,6 +310,8 @@ impl RendererState {
             width: size.width,
             height: size.height,
             present_mode: wgpu::PresentMode::Fifo,
+            // TODO: switching to immediate requires to scale the movement by deltaT
+            // present_mode: wgpu::PresentMode::Immediate,
         };
 
         surface.configure(&device, &config);
@@ -369,8 +371,7 @@ impl RendererState {
                 push_constant_ranges: &[],
             });
 
-        let depth_texture =
-            texture::Texture::create_depth_texture(&device, &config, "depth_texture");
+        let depth_texture = Texture::create_depth_texture(&device, &config, "depth_texture");
 
         let textured_mesh_pipeline =
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -400,7 +401,7 @@ impl RendererState {
                     conservative: false,
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
-                    format: texture::Texture::DEPTH_FORMAT,
+                    format: Texture::DEPTH_FORMAT,
                     depth_write_enabled: true,
                     depth_compare: wgpu::CompareFunction::Less, // 1.
                     stencil: wgpu::StencilState::default(),     // 2.
@@ -423,12 +424,8 @@ impl RendererState {
             &queue,
         )?;
 
-        dbg!(sphere.transform.position());
-
         sphere.transform.set_scale(Vector3::new(0.25, 0.25, 0.25));
-        sphere.transform.set_position(Vector3::new(0.0, -2.0, 0.0));
-
-        dbg!(sphere.transform.position());
+        sphere.transform.set_position(Vector3::new(0.0, 1.0, -2.0));
 
         queue.write_buffer(
             &sphere.transform_buffer,
@@ -450,7 +447,7 @@ impl RendererState {
             &queue,
         )?;
 
-        plane.transform.set_position(Vector3::new(0.0, -3.0, 0.0));
+        plane.transform.set_position(Vector3::new(0.0, 0.0, -2.0));
         plane.transform.set_scale(Vector3::new(10.0, 1.0, 10.0));
 
         queue.write_buffer(
@@ -466,10 +463,10 @@ impl RendererState {
 
         let camera = Camera::new((0.0, 2.0, 7.0).into());
 
-        let camera_controller = CameraController::new(0.2);
+        let camera_controller = CameraController::new(0.1, &camera);
 
         let mut camera_uniform = CameraUniform::new();
-        camera_uniform.update_view_proj(&camera);
+        camera_uniform.update_view_proj(&camera, &window);
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
@@ -512,8 +509,20 @@ impl RendererState {
         })
     }
 
-    pub fn process_input(&mut self, event: &winit::event::WindowEvent) {
-        self.camera_controller.process_events(event);
+    pub fn process_device_input(
+        &mut self,
+        event: &winit::event::DeviceEvent,
+        window: &mut winit::window::Window,
+    ) {
+        self.camera_controller.process_device_events(event, window);
+    }
+
+    pub fn process_window_input(
+        &mut self,
+        event: &winit::event::WindowEvent,
+        window: &mut winit::window::Window,
+    ) {
+        self.camera_controller.process_window_events(event, window);
         // TODO: move out of renderer
         match event {
             WindowEvent::KeyboardInput {
@@ -547,20 +556,19 @@ impl RendererState {
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        // Reconfigure the surface with the new size
-        self.depth_texture =
-            texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
         self.size = new_size;
         self.config.width = new_size.width;
         self.config.height = new_size.height;
         self.surface.configure(&self.device, &self.config);
+        self.depth_texture =
+            Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
     }
 
-    pub fn update(&mut self) {
+    pub fn update(&mut self, window: &winit::window::Window) {
         enum RotationAxis {
             PITCH,
             YAW,
-            ROLL,
+            _ROLL,
         }
         let increment_rotation = |axis: RotationAxis, val: f32| {
             let mut rotation = self.sphere.transform.rotation.get();
@@ -571,7 +579,7 @@ impl RendererState {
                 RotationAxis::YAW => {
                     rotation.x += val;
                 }
-                RotationAxis::ROLL => {
+                RotationAxis::_ROLL => {
                     rotation.z += val;
                 }
             }
@@ -587,7 +595,6 @@ impl RendererState {
         } else if self.is_backward_pressed {
             increment_rotation(RotationAxis::PITCH, -0.1);
         }
-        // dbg!(self.sphere.transform.position());
         self.queue.write_buffer(
             &self.sphere.transform_buffer,
             0,
@@ -599,7 +606,7 @@ impl RendererState {
             bytemuck::cast_slice(&[GpuMatrix4(self.sphere.transform.get_rotation_matrix())]),
         );
         self.camera_controller.update_camera(&mut self.camera);
-        self.camera_uniform.update_view_proj(&self.camera);
+        self.camera_uniform.update_view_proj(&self.camera, window);
         self.queue.write_buffer(
             &self.camera_buffer,
             0,

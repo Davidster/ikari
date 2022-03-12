@@ -68,6 +68,7 @@ fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     let ambient_light = 0.05;
     let final_light_intensity = ambient_light + (light_intensity * max_light_intensity);
     let final = final_light_intensity * albedo;
+    // let final = final_light_intensity * vec4<f32>(0.5, 0.5, 0.5, 1.0);
     let some_color = vec3<f32>(0.5, 0.5, 0.5);
     return final;
 }

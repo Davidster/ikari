@@ -22,19 +22,19 @@ impl Transform {
         }
     }
 
-    pub fn position(&self) -> Vector3<f32> {
+    pub fn _position(&self) -> Vector3<f32> {
         self.position.get()
     }
 
-    pub fn rotation(&self) -> Vector3<f32> {
+    pub fn _rotation(&self) -> Vector3<f32> {
         self.rotation.get()
     }
 
-    pub fn scale(&self) -> Vector3<f32> {
+    pub fn _scale(&self) -> Vector3<f32> {
         self.scale.get()
     }
 
-    pub fn matrix(&self) -> Matrix4<f32> {
+    pub fn _matrix(&self) -> Matrix4<f32> {
         self.matrix.get()
     }
 
@@ -62,7 +62,7 @@ impl Transform {
         make_rotation_matrix(rotation.x, rotation.y, rotation.z)
     }
 
-    pub fn get_rotation_matrix3(&self) -> Matrix3<f32> {
+    pub fn _get_rotation_matrix3(&self) -> Matrix3<f32> {
         let rotation_matrix = self.get_rotation_matrix();
         return Matrix3::from_cols(
             Vector3::new(

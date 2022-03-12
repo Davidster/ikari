@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use winit::{
     event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -9,15 +7,15 @@ use winit::{
 use super::*;
 
 pub async fn run<'a>(
-    window: Window,
+    mut window: Window,
     event_loop: EventLoop<()>,
     mut renderer_state: RendererState,
-) -> () {
+) {
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
         match event {
             Event::RedrawRequested(_) => {
-                renderer_state.update();
+                renderer_state.update(&window);
                 match renderer_state.render() {
                     Ok(_) => {}
                     // Reconfigure the surface if lost
@@ -35,10 +33,13 @@ pub async fn run<'a>(
                 // request it.
                 window.request_redraw();
             }
+            Event::DeviceEvent { event, .. } => {
+                renderer_state.process_device_input(&event, &mut window);
+            }
             Event::WindowEvent {
                 event, window_id, ..
             } if window_id == window.id() => {
-                renderer_state.process_input(&event);
+                renderer_state.process_window_input(&event, &mut window);
                 match event {
                     WindowEvent::Resized(size) => {
                         renderer_state.resize(size);
@@ -73,5 +74,4 @@ pub async fn run<'a>(
             _ => {}
         }
     });
-    ()
 }

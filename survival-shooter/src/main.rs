@@ -10,20 +10,14 @@ use gameloop::*;
 use helpers::*;
 use renderer::*;
 use texture::*;
-use transform::*;
 
-const FRAME_WIDTH: i64 = 1000;
-const FRAME_HEIGHT: i64 = 1000;
+use cgmath::prelude::*;
 
 async fn start() {
-    // let mut state = State::new(&window).await;
-
     let event_loop = winit::event_loop::EventLoop::new();
     let window = winit::window::WindowBuilder::new()
-        .with_inner_size(winit::dpi::PhysicalSize::new(
-            FRAME_WIDTH as f64,
-            FRAME_HEIGHT as f64,
-        ))
+        // .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
+        .with_inner_size(winit::dpi::PhysicalSize::new(1000.0, 1000.0))
         .with_title("David's window name")
         .build(&event_loop)
         .unwrap();
