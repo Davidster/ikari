@@ -69,7 +69,7 @@ impl Camera {
 pub struct CameraController {
     // mouse_state: MouseState,
     unprocessed_delta: Option<(f64, f64)>,
-    cursor_in_window: bool,
+    window_focused: bool,
 
     is_forward_pressed: bool,
     is_backward_pressed: bool,
@@ -87,7 +87,7 @@ impl CameraController {
     pub fn new(speed: f32, camera: &Camera) -> Self {
         Self {
             unprocessed_delta: None,
-            cursor_in_window: false,
+            window_focused: false,
 
             is_forward_pressed: false,
             is_backward_pressed: false,
@@ -109,13 +109,13 @@ impl CameraController {
         logger: &mut Logger,
     ) {
         match event {
-            DeviceEvent::MouseMotion { delta: (d_x, d_y) } if self.cursor_in_window => {
+            DeviceEvent::MouseMotion { delta: (d_x, d_y) } if self.window_focused => {
                 self.unprocessed_delta = match self.unprocessed_delta {
                     Some((x, y)) => Some((x + d_x, y + d_y)),
                     None => Some((*d_x, *d_y)),
                 };
             }
-            DeviceEvent::MouseWheel { delta } if self.cursor_in_window => {
+            DeviceEvent::MouseWheel { delta } if self.window_focused => {
                 let scroll_amount = match delta {
                     MouseScrollDelta::LineDelta(_, y) => *y,
                     MouseScrollDelta::PixelDelta(PhysicalPosition { y, .. }) => *y as f32,
@@ -127,7 +127,12 @@ impl CameraController {
         };
     }
 
-    pub fn process_window_events(&mut self, event: &WindowEvent, window: &mut Window) {
+    pub fn process_window_events(
+        &mut self,
+        event: &WindowEvent,
+        window: &mut Window,
+        logger: &mut Logger,
+    ) {
         match event {
             WindowEvent::KeyboardInput {
                 input:
@@ -161,24 +166,23 @@ impl CameraController {
                     _ => {}
                 }
             }
-            // TODO: use window focus event instead of cursor events
-            WindowEvent::CursorLeft { .. } => {
-                window.set_cursor_visible(true);
-                self.cursor_in_window = false;
-                window
-                    .set_cursor_grab(false)
-                    .expect("Couldn't release cursor");
-            }
-            WindowEvent::CursorEntered { .. } => {
-                window.set_cursor_visible(false);
-                self.cursor_in_window = true;
-                window.set_cursor_grab(true).expect("Couldn't grab cursor");
+            WindowEvent::Focused(focused) => {
+                logger.log(&format!("Window focused: {:?}", focused));
+                window.set_cursor_grab(*focused).unwrap_or_else(|err| {
+                    logger.log(&format!(
+                        "Couldn't {:?} cursor: {:?}",
+                        if *focused { "grab" } else { "release" },
+                        err
+                    ))
+                });
+                window.set_cursor_visible(!*focused);
+                self.window_focused = *focused;
             }
             _ => {}
         };
     }
 
-    pub fn update_camera(&mut self, camera: &mut Camera) {
+    pub fn update_camera(&mut self, camera: &mut Camera, dt: f32) {
         if let Some((d_x, d_y)) = self.unprocessed_delta {
             let mouse_sensitivity = 0.003;
 
@@ -226,7 +230,7 @@ impl CameraController {
         };
 
         if let Some(movement_vector) = movement_vector {
-            self.target_pose.position += movement_vector.normalize() * self.speed;
+            self.target_pose.position += movement_vector.normalize() * self.speed * dt;
         }
 
         if self.target_pose.position.y < 0.0 {

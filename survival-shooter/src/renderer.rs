@@ -1,4 +1,7 @@
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use super::*;
 
@@ -84,6 +87,8 @@ pub struct RendererState {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
+    last_update_time: Option<Instant>,
+    pub rendered_first_frame: bool,
     pub size: winit::dpi::PhysicalSize<u32>,
     pub logger: Logger,
 
@@ -303,16 +308,17 @@ impl RendererState {
             .await
             .expect("Failed to create device");
 
-        let swapchain_format = surface.get_preferred_format(&adapter).unwrap();
+        let swapchain_format = surface
+            .get_preferred_format(&adapter)
+            .expect("Window surface is incompatible with the graphics adapter");
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: swapchain_format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
-            // TODO: switching to immediate requires to scale the movement by deltaT
-            // present_mode: wgpu::PresentMode::Immediate,
+            // present_mode: wgpu::PresentMode::Fifo,
+            present_mode: wgpu::PresentMode::Immediate,
         };
 
         surface.configure(&device, &config);
@@ -489,6 +495,8 @@ impl RendererState {
             device,
             queue,
             config,
+            last_update_time: None,
+            rendered_first_frame: false,
             size,
             logger: Logger::new(),
 
@@ -525,7 +533,8 @@ impl RendererState {
         event: &winit::event::WindowEvent,
         window: &mut winit::window::Window,
     ) {
-        self.camera_controller.process_window_events(event, window);
+        self.camera_controller
+            .process_window_events(event, window, &mut self.logger);
         // TODO: move out of renderer
         match event {
             WindowEvent::KeyboardInput {
@@ -568,35 +577,43 @@ impl RendererState {
     }
 
     pub fn update(&mut self, window: &winit::window::Window) {
+        let one_milli_in_nanos = 1_000_000.0;
+        let sixty_fps_frame_time_nanos = one_milli_in_nanos * 1_000.0 / 60.0;
+        let dt = if let Some(last_update_time) = self.last_update_time {
+            (last_update_time.elapsed().as_nanos() as f32) / sixty_fps_frame_time_nanos
+        } else {
+            0.0
+        };
         enum RotationAxis {
             PITCH,
             YAW,
             _ROLL,
         }
-        let increment_rotation = |axis: RotationAxis, val: f32| {
+        let rotate_sphere = |axis: RotationAxis, val: f32| {
             let mut rotation = self.sphere.transform.rotation.get();
+            let scaled_val = val * dt;
             match axis {
                 RotationAxis::PITCH => {
-                    rotation.y += val;
+                    rotation.y += scaled_val;
                 }
                 RotationAxis::YAW => {
-                    rotation.x += val;
+                    rotation.x += scaled_val;
                 }
                 RotationAxis::_ROLL => {
-                    rotation.z += val;
+                    rotation.z += scaled_val;
                 }
             }
             self.sphere.transform.set_rotation(rotation);
         };
         if self.is_right_pressed {
-            increment_rotation(RotationAxis::YAW, 0.1);
+            rotate_sphere(RotationAxis::YAW, 0.1);
         } else if self.is_left_pressed {
-            increment_rotation(RotationAxis::YAW, -0.1);
+            rotate_sphere(RotationAxis::YAW, -0.1);
         }
         if self.is_forward_pressed {
-            increment_rotation(RotationAxis::PITCH, 0.1);
+            rotate_sphere(RotationAxis::PITCH, 0.1);
         } else if self.is_backward_pressed {
-            increment_rotation(RotationAxis::PITCH, -0.1);
+            rotate_sphere(RotationAxis::PITCH, -0.1);
         }
         self.queue.write_buffer(
             &self.sphere.transform_buffer,
@@ -608,13 +625,14 @@ impl RendererState {
             0,
             bytemuck::cast_slice(&[GpuMatrix4(self.sphere.transform.get_rotation_matrix())]),
         );
-        self.camera_controller.update_camera(&mut self.camera);
+        self.camera_controller.update_camera(&mut self.camera, dt);
         self.camera_uniform.update_view_proj(&self.camera, window);
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
+        self.last_update_time = Some(Instant::now());
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {

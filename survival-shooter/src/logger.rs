@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::time::{Duration, Instant};
 
-const FRAME_TIME_HISTORY_SIZE: usize = 25;
+const FRAME_TIME_HISTORY_SIZE: usize = 5000;
 
 pub struct Logger {
     recent_frame_times: Vec<Duration>,
@@ -26,17 +26,12 @@ impl Logger {
             if self.recent_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
                 self.recent_frame_times.remove(0);
             }
-
-            self.recent_frame_times.last()
-        } else {
-            None
-        };
+        }
         self.last_update_time = Some(Instant::now());
     }
 
     pub fn log(&mut self, text: &str) {
         self.log_buffer.push(text.to_string());
-        dbg!(self.terminal.size());
         if self.log_buffer.len() > (self.terminal.size().0 - 2).into() {
             self.log_buffer.remove(0);
         }
@@ -44,12 +39,25 @@ impl Logger {
 
     pub fn write_to_term(&self) -> Result<()> {
         self.terminal.clear_screen()?;
-        // TODO: exponential falloff instead of just checking the most recent frame time
-        if let Some(avg_frame_time) = self.recent_frame_times.last() {
+        let avg_frame_time_millis: Option<f64> = if self.recent_frame_times.len() != 0 {
+            let alpha = 0.005;
+            let mut frame_times_iterator = self
+                .recent_frame_times
+                .iter()
+                .map(|frame_time| frame_time.as_nanos() as f64 / 1_000_000.0);
+            let mut res = frame_times_iterator.next().unwrap(); // checked that length isnt 0
+            for frame_time in frame_times_iterator {
+                res = (1.0 - alpha) * res + (alpha * frame_time);
+            }
+            Some(res)
+        } else {
+            None
+        };
+        if let Some(avg_frame_time_millis) = avg_frame_time_millis {
             self.terminal.write_line(&format!(
-                "Frametime: {:?} ({:?}fps)",
-                avg_frame_time,
-                1_000_000 / avg_frame_time.as_micros()
+                "Frametime: {:.2}ms ({:.2}fps)",
+                avg_frame_time_millis,
+                1_000.0 / avg_frame_time_millis
             ))?;
         }
 
