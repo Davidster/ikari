@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use winit::{
     event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -16,6 +18,11 @@ pub async fn run<'a>(
         match event {
             Event::RedrawRequested(_) => {
                 renderer_state.update(&window);
+                renderer_state.logger.on_frame_completed();
+                renderer_state
+                    .logger
+                    .write_to_term()
+                    .expect("Failed to write to terminal");
                 match renderer_state.render() {
                     Ok(_) => {}
                     // Reconfigure the surface if lost

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
 use super::*;
 
@@ -85,6 +85,7 @@ pub struct RendererState {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
+    pub logger: Logger,
 
     camera: Camera,
     camera_controller: CameraController,
@@ -489,6 +490,7 @@ impl RendererState {
             queue,
             config,
             size,
+            logger: Logger::new(),
 
             camera,
             camera_controller,
@@ -514,7 +516,8 @@ impl RendererState {
         event: &winit::event::DeviceEvent,
         window: &mut winit::window::Window,
     ) {
-        self.camera_controller.process_device_events(event, window);
+        self.camera_controller
+            .process_device_events(event, window, &mut self.logger);
     }
 
     pub fn process_window_input(

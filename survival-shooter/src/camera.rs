@@ -102,7 +102,12 @@ impl CameraController {
         }
     }
 
-    pub fn process_device_events(&mut self, event: &DeviceEvent, _window: &mut Window) {
+    pub fn process_device_events(
+        &mut self,
+        event: &DeviceEvent,
+        _window: &mut Window,
+        logger: &mut Logger,
+    ) {
         match event {
             DeviceEvent::MouseMotion { delta: (d_x, d_y) } if self.cursor_in_window => {
                 self.unprocessed_delta = match self.unprocessed_delta {
@@ -116,6 +121,7 @@ impl CameraController {
                     MouseScrollDelta::PixelDelta(PhysicalPosition { y, .. }) => *y as f32,
                 };
                 self.speed = (self.speed - (scroll_amount * 0.0001)).max(0.01).min(5.0);
+                logger.log(&format!("Speed: {:?}", self.speed));
             }
             _ => {}
         };
