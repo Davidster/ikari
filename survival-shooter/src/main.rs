@@ -1,15 +1,19 @@
+mod ball;
 mod camera;
 mod gameloop;
 mod helpers;
 mod logger;
+mod mesh;
 mod renderer;
 mod texture;
 mod transform;
 
+use ball::*;
 use camera::*;
 use gameloop::*;
 use helpers::*;
 use logger::*;
+use mesh::*;
 use renderer::*;
 use texture::*;
 
