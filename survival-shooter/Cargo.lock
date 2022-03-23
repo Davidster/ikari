@@ -1435,6 +1435,7 @@ dependencies = [
  "obj-rs",
  "pollster",
  "rand",
+ "threadpool",
  "wavefront_obj",
  "wgpu",
  "winit",
@@ -1502,6 +1503,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "threadpool"
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d050e60b33d41c19108b32cea32164033a9013fe3b46cbd4457559bfbf77afaa"
+dependencies = [
+ "num_cpus",
 ]
 
 [[package]]

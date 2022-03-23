@@ -11,7 +11,7 @@ pub struct BallComponent {
 
 impl BallComponent {
     pub fn new(
-        sphere_mesh: MeshComponent,
+        mut sphere_mesh: MeshComponent,
         position: Vector2<f32>,
         direction: Vector2<f32>,
         radius: f32,
@@ -37,13 +37,13 @@ impl BallComponent {
 
     pub fn update(&mut self, dt: f32, logger: &mut Logger) {
         // update position
-        let curr_position = self.mesh.transform.position.get();
+        let curr_position = self.mesh.transform.position;
         let displacement = self.direction * self.speed * dt;
         let new_position = curr_position + (displacement / 1.0);
         self.mesh.transform.set_position(new_position);
 
         // update rotation
-        let curr_rotation = self.mesh.transform.rotation.get();
+        let curr_rotation = self.mesh.transform.rotation;
         let up = Vector3::new(0.0, 1.0, 0.0);
         let axis_of_rotation = self.direction.cross(up);
         let circumference = 2.0 * std::f32::consts::PI * self.radius;

@@ -1,5 +1,7 @@
+use std::ops::Deref;
 use std::{
     collections::HashMap,
+    sync::{Arc, Mutex, RwLock},
     time::{Duration, Instant},
 };
 
@@ -46,9 +48,11 @@ impl CameraUniform {
 pub const ARENA_SIDE_LENGTH: f32 = 10.0;
 
 pub struct RendererState {
+    render_thread_pool: threadpool::ThreadPool,
+
     surface: wgpu::Surface,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
     config: wgpu::SurfaceConfiguration,
     last_update_time: Option<Instant>,
     pub rendered_first_frame: bool,
@@ -59,19 +63,19 @@ pub struct RendererState {
     camera_controller: CameraController,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
-    camera_bind_group: wgpu::BindGroup,
+    camera_bind_group: Arc<wgpu::BindGroup>,
 
     is_forward_pressed: bool,
     is_backward_pressed: bool,
     is_left_pressed: bool,
     is_right_pressed: bool,
 
-    textured_mesh_pipeline: wgpu::RenderPipeline,
-    depth_texture: Texture,
+    textured_mesh_pipeline: Arc<wgpu::RenderPipeline>,
+    depth_texture: Arc<Texture>,
 
-    balls: Vec<BallComponent>,
-    sphere: MeshComponent,
-    plane: MeshComponent,
+    balls: Arc<RwLock<Vec<BallComponent>>>,
+    sphere: Arc<MeshComponent>,
+    plane: Arc<MeshComponent>,
 }
 
 impl RendererState {
@@ -91,7 +95,7 @@ impl RendererState {
         let adapter_info = adapter.get_info();
         println!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
 
-        let (device, queue) = adapter
+        let (_device, _queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
@@ -102,6 +106,8 @@ impl RendererState {
             )
             .await
             .expect("Failed to create device");
+        let device = Arc::new(_device);
+        let queue = Arc::new(_queue);
 
         let swapchain_format = surface
             .get_preferred_format(&adapter)
@@ -173,10 +179,14 @@ impl RendererState {
                 push_constant_ranges: &[],
             });
 
-        let depth_texture = Texture::create_depth_texture(&device, &config, "depth_texture");
+        let depth_texture = Arc::new(Texture::create_depth_texture(
+            &device,
+            &config,
+            "depth_texture",
+        ));
 
-        let textured_mesh_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let textured_mesh_pipeline = Arc::new(device.create_render_pipeline(
+            &wgpu::RenderPipelineDescriptor {
                 label: Some("Sphere Render Pipeline"),
                 layout: Some(&sphere_render_pipeline_layout),
                 vertex: wgpu::VertexState {
@@ -215,7 +225,8 @@ impl RendererState {
                     alpha_to_coverage_enabled: false,
                 },
                 multiview: None,
-            });
+            },
+        ));
 
         let mars_texture_path = "./src/2k_mars.png";
         let mars_texture_bytes = std::fs::read(mars_texture_path)?;
@@ -223,7 +234,7 @@ impl RendererState {
             Texture::from_bytes(&device, &queue, &mars_texture_bytes, mars_texture_path)?;
         let sphere_mesh = BasicMesh::new("./src/sphere.obj")?;
 
-        let sphere = MeshComponent::new(
+        let mut _sphere = MeshComponent::new(
             &sphere_mesh,
             &mars_texture,
             &diffuse_texture_bind_group_layout,
@@ -241,13 +252,14 @@ impl RendererState {
             &queue,
         )?;
 
-        sphere.transform.set_scale(Vector3::new(0.25, 0.25, 0.25));
-        sphere.transform.set_position(Vector3::new(0.0, 1.0, -2.0));
+        _sphere.transform.set_scale(Vector3::new(0.25, 0.25, 0.25));
+        _sphere.transform.set_position(Vector3::new(0.0, 1.0, -2.0));
+        let sphere = Arc::new(_sphere);
 
         queue.write_buffer(
             &sphere.transform_buffer,
             0,
-            bytemuck::cast_slice(&[GpuMatrix4(sphere.transform.matrix.get())]),
+            bytemuck::cast_slice(&[GpuMatrix4(sphere.transform.matrix)]),
         );
         queue.write_buffer(
             &sphere.normal_rotation_buffer,
@@ -265,7 +277,7 @@ impl RendererState {
         )?;
         let plane_mesh = BasicMesh::new("./src/plane.obj")?;
 
-        let plane = MeshComponent::new(
+        let mut _plane = MeshComponent::new(
             &plane_mesh,
             &checkerboard_texture,
             &diffuse_texture_bind_group_layout,
@@ -274,15 +286,17 @@ impl RendererState {
             &queue,
         )?;
 
-        plane.transform.set_position(Vector3::new(0.0, 0.0, 0.0));
-        plane
+        _plane.transform.set_position(Vector3::new(0.0, 0.0, 0.0));
+        _plane
             .transform
             .set_scale(Vector3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH));
+
+        let plane = Arc::new(_plane);
 
         queue.write_buffer(
             &plane.transform_buffer,
             0,
-            bytemuck::cast_slice(&[GpuMatrix4(plane.transform.matrix.get())]),
+            bytemuck::cast_slice(&[GpuMatrix4(plane.transform.matrix)]),
         );
         queue.write_buffer(
             &plane.normal_rotation_buffer,
@@ -303,16 +317,16 @@ impl RendererState {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let camera_bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &uniform_var_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: camera_buffer.as_entire_binding(),
             }],
             label: Some("camera_bind_group"),
-        });
+        }));
 
-        let balls: Vec<_> = (0..1000)
+        let _balls: Vec<_> = (0..10000)
             .into_iter()
             .map(|_| {
                 BallComponent::new(
@@ -335,8 +349,11 @@ impl RendererState {
                 )
             })
             .collect();
+        let balls = Arc::new(RwLock::new(_balls));
 
         Ok(Self {
+            render_thread_pool: threadpool::ThreadPool::new(2),
+
             surface,
             device,
             queue,
@@ -389,11 +406,17 @@ impl RendererState {
         self.config.width = new_size.width;
         self.config.height = new_size.height;
         self.surface.configure(&self.device, &self.config);
-        self.depth_texture =
-            Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+        // drop(self.depth_texture);
+        // TODO: is this a memory leak?
+        self.depth_texture = Arc::new(Texture::create_depth_texture(
+            &self.device,
+            &self.config,
+            "depth_texture",
+        ));
     }
 
     pub fn update(&mut self, window: &winit::window::Window) {
+        // calculate dt
         let one_milli_in_nanos = 1_000_000.0;
         let sixty_fps_frame_time_nanos = one_milli_in_nanos * 1_000.0 / 60.0;
         let dt = if let Some(last_update_time) = self.last_update_time {
@@ -401,109 +424,208 @@ impl RendererState {
         } else {
             0.0
         };
-        let mut balls = &mut self.balls;
-        balls.iter_mut().for_each(|ball| {
+
+        // update scene objects
+        let update_scene_objects_start = Instant::now();
+        self.balls.write().unwrap().iter_mut().for_each(|ball| {
             ball.update(dt, &mut self.logger);
-            self.queue.write_buffer(
-                &ball.mesh.transform_buffer,
-                0,
-                bytemuck::cast_slice(&[GpuMatrix4(ball.mesh.transform.matrix.get())]),
-            );
-            self.queue.write_buffer(
-                &ball.mesh.normal_rotation_buffer,
-                0,
-                bytemuck::cast_slice(&[GpuMatrix4(ball.mesh.transform.get_rotation_matrix())]),
-            );
         });
+        self.camera_controller.update_camera(&mut self.camera, dt);
+        self.camera_uniform.update_view_proj(&self.camera, window);
+
+        self.logger.log(&format!(
+            "update_scene_objects: {:?}",
+            update_scene_objects_start.elapsed()
+        ));
+
+        // write uniform buffers
+        let write_buffers_start = Instant::now();
         self.queue.write_buffer(
             &self.sphere.transform_buffer,
             0,
-            bytemuck::cast_slice(&[GpuMatrix4(self.sphere.transform.matrix.get())]),
+            bytemuck::cast_slice(&[GpuMatrix4(self.sphere.transform.matrix)]),
         );
         self.queue.write_buffer(
             &self.sphere.normal_rotation_buffer,
             0,
             bytemuck::cast_slice(&[GpuMatrix4(self.sphere.transform.get_rotation_matrix())]),
         );
-        self.camera_controller.update_camera(&mut self.camera, dt);
-        self.camera_uniform.update_view_proj(&self.camera, window);
+
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
         self.last_update_time = Some(Instant::now());
+        self.logger.log(&format!(
+            "write_buffers: {:?}",
+            write_buffers_start.elapsed()
+        ));
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        let render_start = Instant::now();
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
-            });
         let clear_color = wgpu::Color {
             r: 0.0,
             g: 0.0,
             b: 1.0,
             a: 1.0,
         };
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
-                color_attachments: &[wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(clear_color),
-                        store: true,
-                    },
-                }],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_texture.view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: true,
+
+        let chunk_size = 500;
+        let (ball_ready_t, ball_ready_r) = std::sync::mpsc::channel();
+        let queue_clone_1 = self.queue.clone();
+        let queue_clone_2 = self.queue.clone();
+        let balls_clone_1 = self.balls.clone();
+        let balls_clone_2 = self.balls.clone();
+        let depth_texture_clone_1 = self.depth_texture.clone();
+        let sphere_clone_1 = self.sphere.clone();
+        let plane_clone_1 = self.plane.clone();
+        let camera_bind_group_clone_1 = self.camera_bind_group.clone();
+        let textured_mesh_pipeline_clone_1 = self.textured_mesh_pipeline.clone();
+        let device_clone_1 = self.device.clone();
+
+        self.render_thread_pool.execute(move || {
+            let display_thread_start = Instant::now();
+            // do the static elements
+            let mut encoder =
+                device_clone_1.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Render Encoder"),
+                });
+            {
+                let static_scene_objects = vec![sphere_clone_1, plane_clone_1];
+
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Render Pass"),
+                    color_attachments: &[wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(clear_color),
+                            store: true,
+                        },
+                    }],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &depth_texture_clone_1.view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: true,
+                        }),
+                        stencil_ops: None,
                     }),
-                    stencil_ops: None,
-                }),
-            });
+                });
 
-            render_pass.set_pipeline(&self.textured_mesh_pipeline);
+                render_pass.set_pipeline(&textured_mesh_pipeline_clone_1);
 
-            let balls = &self.balls;
-            let balls_mesh_iterator = balls.iter().map(|ball| &ball.mesh);
+                static_scene_objects.iter().for_each(|mesh| {
+                    render_pass.set_bind_group(0, &mesh.diffuse_texture_bind_group, &[]);
+                    render_pass.set_bind_group(1, &camera_bind_group_clone_1, &[]);
+                    render_pass.set_bind_group(2, &mesh.transform_bind_group, &[]);
+                    render_pass.set_bind_group(3, &mesh.normal_rotation_bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                    render_pass
+                        .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                    render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
+                });
+            }
+            queue_clone_2.submit(std::iter::once(encoder.finish()));
 
-            vec![&self.sphere, &self.plane]
+            // do the balls
+            let mut curr_index_chunk: Vec<usize> = Vec::new();
+            let balls = balls_clone_2.read().unwrap();
+            let flush_curr_chunk = |curr_index_chunk: &mut Vec<usize>| {
+                if curr_index_chunk.len() == 0 {
+                    return;
+                }
+                let mut encoder =
+                    device_clone_1.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("Render Encoder"),
+                    });
+                {
+                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Render Pass"),
+                        color_attachments: &[wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: true,
+                            },
+                        }],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &depth_texture_clone_1.view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: true,
+                            }),
+                            stencil_ops: None,
+                        }),
+                    });
+
+                    render_pass.set_pipeline(&textured_mesh_pipeline_clone_1);
+
+                    curr_index_chunk.drain(..).for_each(|ball_index| {
+                        let ball = &balls[ball_index];
+                        let mesh = &ball.mesh;
+                        render_pass.set_bind_group(0, &mesh.diffuse_texture_bind_group, &[]);
+                        render_pass.set_bind_group(1, &camera_bind_group_clone_1, &[]);
+                        render_pass.set_bind_group(2, &mesh.transform_bind_group, &[]);
+                        render_pass.set_bind_group(3, &mesh.normal_rotation_bind_group, &[]);
+                        render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(
+                            mesh.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint16,
+                        );
+                        render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
+                    });
+                }
+                queue_clone_2.submit(std::iter::once(encoder.finish()));
+            };
+            for ready_ball_index in ball_ready_r {
+                curr_index_chunk.push(ready_ball_index);
+                if curr_index_chunk.len() == chunk_size {
+                    flush_curr_chunk(&mut curr_index_chunk);
+                }
+            }
+            flush_curr_chunk(&mut curr_index_chunk);
+            dbg!(display_thread_start.elapsed());
+        });
+
+        self.render_thread_pool.execute(move || {
+            let load_thread_start = Instant::now();
+            balls_clone_1
+                .read()
+                .unwrap()
                 .iter()
-                .map(|mesh| *mesh)
-                .chain(balls_mesh_iterator)
-                .for_each(
-                    |MeshComponent {
-                         diffuse_texture_bind_group,
-                         vertex_buffer,
-                         index_buffer,
-                         num_indices,
-                         transform_bind_group,
-                         normal_rotation_bind_group,
-                         ..
-                     }| {
-                        render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
-                        render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-                        render_pass.set_bind_group(2, transform_bind_group, &[]);
-                        render_pass.set_bind_group(3, normal_rotation_bind_group, &[]);
-                        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                        render_pass
-                            .set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        render_pass.draw_indexed(0..*num_indices, 0, 0..1);
-                    },
-                );
-        }
-        self.queue.submit(std::iter::once(encoder.finish()));
+                .enumerate()
+                .for_each(|(i, ball)| {
+                    queue_clone_1.write_buffer(
+                        &ball.mesh.transform_buffer,
+                        0,
+                        bytemuck::cast_slice(&[GpuMatrix4(ball.mesh.transform.matrix)]),
+                    );
+                    queue_clone_1.write_buffer(
+                        &ball.mesh.normal_rotation_buffer,
+                        0,
+                        bytemuck::cast_slice(&[GpuMatrix4(
+                            ball.mesh.transform.get_rotation_matrix(),
+                        )]),
+                    );
+                    ball_ready_t.send(i).unwrap();
+                });
+            dbg!(load_thread_start.elapsed());
+        });
+
+        self.render_thread_pool.join();
         output.present();
+        self.logger.log(&format!(
+            "Render function time: {:?}",
+            render_start.elapsed()
+        ));
         Ok(())
     }
 }

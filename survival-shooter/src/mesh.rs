@@ -90,7 +90,7 @@ impl MeshComponent {
 
         let transform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("MeshComponent Transform Buffer"),
-            contents: bytemuck::cast_slice(&[GpuMatrix4(transform.matrix.get())]),
+            contents: bytemuck::cast_slice(&[GpuMatrix4(transform.matrix)]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
