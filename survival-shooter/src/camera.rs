@@ -1,5 +1,5 @@
 use super::*;
-use cgmath::{Deg, InnerSpace, Matrix4, Rad, Vector3};
+use cgmath::{Deg, Euler, InnerSpace, Matrix4, Quaternion, Rad, Vector3};
 use winit::{
     dpi::PhysicalPosition,
     event::{
@@ -50,8 +50,16 @@ impl Camera {
                 FOV_Y.into(),
                 window.inner_size().width as f32 / window.inner_size().height as f32,
             )
-            * make_rotation_matrix(0.0, 0.0, -self.pose.vertical_rotation.0)
-            * make_rotation_matrix(-self.pose.horizontal_rotation.0, 0.0, 0.0)
+            * make_rotation_matrix(Quaternion::from(Euler::new(
+                -self.pose.vertical_rotation,
+                Rad(0.0),
+                Rad(0.0),
+            )))
+            * make_rotation_matrix(Quaternion::from(Euler::new(
+                Rad(0.0),
+                -self.pose.horizontal_rotation,
+                Rad(0.0),
+            )))
             * make_translation_matrix(-self.pose.position)
     }
 
@@ -121,7 +129,7 @@ impl CameraController {
                     MouseScrollDelta::PixelDelta(PhysicalPosition { y, .. }) => *y as f32,
                 };
                 self.speed = (self.speed - (scroll_amount * 0.0001)).max(0.01).min(5.0);
-                logger.log(&format!("Speed: {:?}", self.speed));
+                // logger.log(&format!("Speed: {:?}", self.speed));
             }
             _ => {}
         };

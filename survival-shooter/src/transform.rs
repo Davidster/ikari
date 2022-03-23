@@ -1,13 +1,13 @@
 use std::cell::Cell;
 
-use cgmath::{Matrix3, Matrix4, One, Vector3};
+use cgmath::{Matrix3, Matrix4, One, Quaternion, Rad, Vector3};
 
 use super::*;
 
 #[derive(Clone, Debug)]
 pub struct Transform {
     pub position: Cell<Vector3<f32>>,
-    pub rotation: Cell<Vector3<f32>>, // euler angles
+    pub rotation: Cell<Quaternion<f32>>, // euler angles
     pub scale: Cell<Vector3<f32>>,
     pub matrix: Cell<Matrix4<f32>>,
 }
@@ -16,7 +16,7 @@ impl Transform {
     pub fn new() -> Transform {
         Transform {
             position: Cell::new(Vector3::new(0.0, 0.0, 0.0)),
-            rotation: Cell::new(Vector3::new(0.0, 0.0, 0.0)),
+            rotation: Cell::new(Quaternion::new(0.0, 0.0, 1.0, 0.0)),
             scale: Cell::new(Vector3::new(1.0, 1.0, 1.0)),
             matrix: Cell::new(Matrix4::one()),
         }
@@ -26,7 +26,7 @@ impl Transform {
         self.position.get()
     }
 
-    pub fn _rotation(&self) -> Vector3<f32> {
+    pub fn _rotation(&self) -> Quaternion<f32> {
         self.rotation.get()
     }
 
@@ -47,10 +47,12 @@ impl Transform {
         self.matrix.set(matrix);
     }
 
-    pub fn set_rotation(&self, new_rotation: Vector3<f32>) {
+    pub fn set_rotation(&self, new_rotation: Quaternion<f32>) {
         self.rotation.set(new_rotation);
         self.resync_matrix();
     }
+
+    pub fn rotate_around_axis(&self, axis: Vector3<f32>, angle: Rad<f32>) {}
 
     pub fn set_scale(&self, new_scale: Vector3<f32>) {
         self.scale.set(new_scale);
@@ -59,7 +61,7 @@ impl Transform {
 
     pub fn get_rotation_matrix(&self) -> Matrix4<f32> {
         let rotation = self.rotation.get();
-        make_rotation_matrix(rotation.x, rotation.y, rotation.z)
+        make_rotation_matrix(self.rotation.get())
     }
 
     pub fn _get_rotation_matrix3(&self) -> Matrix3<f32> {
@@ -84,10 +86,9 @@ impl Transform {
     }
 
     fn resync_matrix(&self) {
-        let rotation = self.rotation.get();
         self.matrix.set(
             make_translation_matrix(self.position.get())
-                * make_rotation_matrix(rotation.x, rotation.y, rotation.z)
+                * make_rotation_matrix(self.rotation.get())
                 * make_scale_matrix(self.scale.get()),
         );
     }

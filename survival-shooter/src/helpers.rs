@@ -1,6 +1,4 @@
-use cgmath::Matrix;
-use cgmath::Matrix4;
-use cgmath::Vector3;
+use cgmath::{InnerSpace, Matrix, Matrix4, Quaternion, Vector3};
 
 // TODO: use cgmath::Rad instead of f32 for rotations
 
@@ -16,8 +14,58 @@ pub fn _lerp_f64(from: f64, to: f64, alpha: f64) -> f64 {
     (alpha * to) + ((1.0 - alpha) * from)
 }
 
+// from https://stackoverflow.com/questions/4436764/rotating-a-quaternion-on-1-axis
+pub fn make_quat_from_axis_angle(axis: Vector3<f32>, angle: f32) -> Quaternion<f32> {
+    let factor = (angle / 2.0).sin();
+
+    let x = axis.x * factor;
+    let y = axis.y * factor;
+    let z = axis.z * factor;
+
+    let w = (angle / 2.0).cos();
+
+    return Quaternion::new(w, x, y, z);
+}
+
+// from https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation#Quaternion-derived_rotation_matrix
+pub fn make_rotation_matrix(r: Quaternion<f32>) -> Matrix4<f32> {
+    let qr = r.s;
+    let qi = r.v.x;
+    let qj = r.v.y;
+    let qk = r.v.z;
+    let qr_2 = qr * qr;
+    let qi_2 = qi * qi;
+    let qj_2 = qj * qj;
+    let qk_2 = qk * qk;
+    let s = (qr_2 + qi_2 + qj_2 + qk_2).sqrt();
+    #[rustfmt::skip]
+    let result = Matrix4::new(
+        1.0 - (2.0 * s * (qj_2 + qk_2)),
+        2.0 * s * (qi*qj - qk*qr),
+        2.0 * s * (qi*qk + qj*qr),
+        0.0,
+  
+        2.0 * s * (qi*qj + qk*qr),
+        1.0 - (2.0 * s * (qi_2 + qk_2)),
+        2.0 * s * (qj*qk - qi*qr),
+        0.0,
+  
+        
+        2.0 * s * (qi*qk - qj*qr),
+        2.0 * s * (qj*qk + qi*qr),
+        1.0 - (2.0 * s * (qi_2 + qj_2)),
+        0.0,
+        
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    ).transpose();
+    result
+}
+
 // from https://en.wikipedia.org/wiki/Rotation_matrix
-pub fn make_rotation_matrix(pitch: f32, yaw: f32, roll: f32) -> Matrix4<f32> {
+pub fn make_rotation_matrix_from_eulers(pitch: f32, yaw: f32, roll: f32) -> Matrix4<f32> {
     #[rustfmt::skip]
     let result = Matrix4::new(
         yaw.cos() * pitch.cos(),

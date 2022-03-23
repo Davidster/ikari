@@ -32,13 +32,20 @@ impl Logger {
 
     pub fn log(&mut self, text: &str) {
         self.log_buffer.push(text.to_string());
-        if self.log_buffer.len() > (self.terminal.size().0 - 2).into() {
+        if self.log_buffer.len() > (self.max_free_lines()).into() {
             self.log_buffer.remove(0);
         }
     }
 
-    pub fn write_to_term(&self) -> Result<()> {
-        self.terminal.clear_screen()?;
+    fn max_free_lines(&self) -> u16 {
+        self.terminal.size().0 - 2
+    }
+
+    // TODO: do error handling!
+    pub fn write_to_term(&self) {
+        self.terminal
+            .clear_screen()
+            .expect("Failed to clear terminal");
         let avg_frame_time_millis: Option<f64> = if self.recent_frame_times.len() != 0 {
             let alpha = 0.005;
             let mut frame_times_iterator = self
@@ -54,20 +61,27 @@ impl Logger {
             None
         };
         if let Some(avg_frame_time_millis) = avg_frame_time_millis {
-            self.terminal.write_line(&format!(
-                "Frametime: {:.2}ms ({:.2}fps)",
-                avg_frame_time_millis,
-                1_000.0 / avg_frame_time_millis
-            ))?;
+            self.terminal
+                .write_line(&format!(
+                    "Frametime: {:.2}ms ({:.2}fps)",
+                    avg_frame_time_millis,
+                    1_000.0 / avg_frame_time_millis
+                ))
+                .expect("Failed to write line to terminal");
         }
+        let max_free_lines = self.max_free_lines();
+        let mut lines_used = 0;
 
-        // voodoo magic:
-        // https://stackoverflow.com/questions/26368288/how-do-i-stop-iteration-and-return-an-error-when-iteratormap-returns-a-result
-        let results: std::result::Result<Vec<_>, _> = self
-            .log_buffer
-            .iter()
-            .map(|log| self.terminal.write_line(log))
-            .collect();
-        Ok(results.map(|_| ())?)
+        'outer: for log in &self.log_buffer {
+            for log_line in log.split("\n") {
+                self.terminal
+                    .write_line(log_line)
+                    .expect("Failed to write line to terminal");
+                lines_used += 1;
+                if lines_used == max_free_lines {
+                    break 'outer;
+                }
+            }
+        }
     }
 }

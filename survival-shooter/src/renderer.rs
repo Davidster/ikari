@@ -7,7 +7,7 @@ use super::*;
 
 use anyhow::Result;
 
-use cgmath::{Matrix4, One, Vector3};
+use cgmath::{Matrix4, One, Vector2, Vector3};
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -43,6 +43,8 @@ impl CameraUniform {
     }
 }
 
+pub const ARENA_SIDE_LENGTH: f32 = 10.0;
+
 pub struct RendererState {
     surface: wgpu::Surface,
     device: wgpu::Device,
@@ -67,7 +69,7 @@ pub struct RendererState {
     textured_mesh_pipeline: wgpu::RenderPipeline,
     depth_texture: Texture,
 
-    ball: BallComponent,
+    balls: Vec<BallComponent>,
     sphere: MeshComponent,
     plane: MeshComponent,
 }
@@ -272,8 +274,10 @@ impl RendererState {
             &queue,
         )?;
 
-        plane.transform.set_position(Vector3::new(0.0, 0.0, -2.0));
-        plane.transform.set_scale(Vector3::new(10.0, 1.0, 10.0));
+        plane.transform.set_position(Vector3::new(0.0, 0.0, 0.0));
+        plane
+            .transform
+            .set_scale(Vector3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH));
 
         queue.write_buffer(
             &plane.transform_buffer,
@@ -308,6 +312,30 @@ impl RendererState {
             label: Some("camera_bind_group"),
         });
 
+        let balls: Vec<_> = (0..1000)
+            .into_iter()
+            .map(|_| {
+                BallComponent::new(
+                    MeshComponent::new(
+                        &sphere_mesh,
+                        &mars_texture,
+                        &diffuse_texture_bind_group_layout,
+                        &uniform_var_bind_group_layout,
+                        &device,
+                        &queue,
+                    )
+                    .unwrap(), // TODO: add error handler
+                    Vector2::new(0.0, 0.0),
+                    Vector2::new(
+                        -1.0 + rand::random::<f32>() * 2.0,
+                        -1.0 + rand::random::<f32>() * 2.0,
+                    ),
+                    0.5 + (rand::random::<f32>() * 0.75),
+                    (0.5 + (rand::random::<f32>() * 0.75)) / 10.0,
+                )
+            })
+            .collect();
+
         Ok(Self {
             surface,
             device,
@@ -332,12 +360,7 @@ impl RendererState {
             textured_mesh_pipeline,
             depth_texture,
 
-            ball: BallComponent::new(
-                ball_mesh_component,
-                Vector3::new(0.0, 0.0, 0.0),
-                Vector3::new(1.0, 0.0, 0.0),
-                1.0,
-            ),
+            balls,
             sphere,
             plane,
         })
@@ -359,36 +382,6 @@ impl RendererState {
     ) {
         self.camera_controller
             .process_window_events(event, window, &mut self.logger);
-        // TODO: move out of renderer
-        match event {
-            WindowEvent::KeyboardInput {
-                input:
-                    KeyboardInput {
-                        state,
-                        virtual_keycode: Some(keycode),
-                        ..
-                    },
-                ..
-            } => {
-                let is_pressed = *state == ElementState::Pressed;
-                match keycode {
-                    VirtualKeyCode::W | VirtualKeyCode::Up => {
-                        self.is_forward_pressed = is_pressed;
-                    }
-                    VirtualKeyCode::A | VirtualKeyCode::Left => {
-                        self.is_left_pressed = is_pressed;
-                    }
-                    VirtualKeyCode::S | VirtualKeyCode::Down => {
-                        self.is_backward_pressed = is_pressed;
-                    }
-                    VirtualKeyCode::D | VirtualKeyCode::Right => {
-                        self.is_right_pressed = is_pressed;
-                    }
-                    _ => {}
-                }
-            }
-            _ => {}
-        }
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -408,37 +401,20 @@ impl RendererState {
         } else {
             0.0
         };
-        enum RotationAxis {
-            PITCH,
-            YAW,
-            _ROLL,
-        }
-        let rotate_sphere = |axis: RotationAxis, val: f32| {
-            let mut rotation = self.sphere.transform.rotation.get();
-            let scaled_val = val * dt;
-            match axis {
-                RotationAxis::PITCH => {
-                    rotation.y += scaled_val;
-                }
-                RotationAxis::YAW => {
-                    rotation.x += scaled_val;
-                }
-                RotationAxis::_ROLL => {
-                    rotation.z += scaled_val;
-                }
-            }
-            self.sphere.transform.set_rotation(rotation);
-        };
-        if self.is_right_pressed {
-            rotate_sphere(RotationAxis::YAW, 0.1);
-        } else if self.is_left_pressed {
-            rotate_sphere(RotationAxis::YAW, -0.1);
-        }
-        if self.is_forward_pressed {
-            rotate_sphere(RotationAxis::PITCH, 0.1);
-        } else if self.is_backward_pressed {
-            rotate_sphere(RotationAxis::PITCH, -0.1);
-        }
+        let mut balls = &mut self.balls;
+        balls.iter_mut().for_each(|ball| {
+            ball.update(dt, &mut self.logger);
+            self.queue.write_buffer(
+                &ball.mesh.transform_buffer,
+                0,
+                bytemuck::cast_slice(&[GpuMatrix4(ball.mesh.transform.matrix.get())]),
+            );
+            self.queue.write_buffer(
+                &ball.mesh.normal_rotation_buffer,
+                0,
+                bytemuck::cast_slice(&[GpuMatrix4(ball.mesh.transform.get_rotation_matrix())]),
+            );
+        });
         self.queue.write_buffer(
             &self.sphere.transform_buffer,
             0,
@@ -498,25 +474,33 @@ impl RendererState {
 
             render_pass.set_pipeline(&self.textured_mesh_pipeline);
 
-            vec![&self.sphere, &self.plane].iter().for_each(
-                |MeshComponent {
-                     diffuse_texture_bind_group,
-                     vertex_buffer,
-                     index_buffer,
-                     num_indices,
-                     transform_bind_group,
-                     normal_rotation_bind_group,
-                     ..
-                 }| {
-                    render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
-                    render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-                    render_pass.set_bind_group(2, transform_bind_group, &[]);
-                    render_pass.set_bind_group(3, normal_rotation_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                    render_pass.draw_indexed(0..*num_indices, 0, 0..1);
-                },
-            );
+            let balls = &self.balls;
+            let balls_mesh_iterator = balls.iter().map(|ball| &ball.mesh);
+
+            vec![&self.sphere, &self.plane]
+                .iter()
+                .map(|mesh| *mesh)
+                .chain(balls_mesh_iterator)
+                .for_each(
+                    |MeshComponent {
+                         diffuse_texture_bind_group,
+                         vertex_buffer,
+                         index_buffer,
+                         num_indices,
+                         transform_bind_group,
+                         normal_rotation_bind_group,
+                         ..
+                     }| {
+                        render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
+                        render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+                        render_pass.set_bind_group(2, transform_bind_group, &[]);
+                        render_pass.set_bind_group(3, normal_rotation_bind_group, &[]);
+                        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                        render_pass
+                            .set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                        render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+                    },
+                );
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();

@@ -17,3 +17,4 @@ bytemuck = { version = "1.7.3", features = [ "derive" ] }
 cgmath = "0.18.0"
 console = "0.15.0"
 dialoguer = "0.10.0"
+rand = "0.8.5"

@@ -15,6 +15,7 @@ pub async fn run<'a>(
     event_loop: EventLoop<()>,
     mut renderer_state: RendererState,
 ) {
+    let mut i = 0;
     let mut last_log_time: Option<Instant> = None;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -25,10 +26,7 @@ pub async fn run<'a>(
 
                 let last_log_time_clone = last_log_time.clone();
                 let mut write_logs = || {
-                    renderer_state
-                        .logger
-                        .write_to_term()
-                        .expect("Failed to write to terminal");
+                    renderer_state.logger.write_to_term();
                     last_log_time = Some(Instant::now());
                 };
 
@@ -63,7 +61,10 @@ pub async fn run<'a>(
             Event::MainEventsCleared => {
                 // RedrawRequested will only trigger once, unless we manually
                 // request it.
+                i += 1;
+                // if i % 2 == 0 {
                 window.request_redraw();
+                // }
             }
             Event::DeviceEvent { event, .. } => {
                 renderer_state.process_device_input(&event, &mut window);
