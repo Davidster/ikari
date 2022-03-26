@@ -12,14 +12,14 @@ use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
 #[repr(C)]
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub struct GpuMatrix4(pub cgmath::Matrix4<f32>);
 
 unsafe impl bytemuck::Pod for GpuMatrix4 {}
 unsafe impl bytemuck::Zeroable for GpuMatrix4 {}
 
 #[repr(C)]
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub struct GpuMatrix3(pub cgmath::Matrix3<f32>);
 
 unsafe impl bytemuck::Pod for GpuMatrix3 {}
@@ -43,7 +43,7 @@ impl CameraUniform {
     }
 }
 
-pub const ARENA_SIDE_LENGTH: f32 = 10.0;
+pub const ARENA_SIDE_LENGTH: f32 = 100.0;
 
 pub struct RendererState {
     surface: wgpu::Surface,
@@ -67,9 +67,11 @@ pub struct RendererState {
     is_right_pressed: bool,
 
     textured_mesh_pipeline: wgpu::RenderPipeline,
+    instanced_mesh_pipeline: wgpu::RenderPipeline,
     depth_texture: Texture,
 
     balls: Vec<BallComponent>,
+    balls_mesh: InstancedMeshComponent,
     sphere: MeshComponent,
     plane: MeshComponent,
 }
@@ -118,9 +120,14 @@ impl RendererState {
 
         surface.configure(&device, &config);
 
-        let texture_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-            label: Some("Texture Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("texture_shader.wgsl").into()),
+        let textured_mesh_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            label: Some("Textured Mesh Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("textured_mesh_shader.wgsl").into()),
+        });
+
+        let instanced_mesh_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            label: Some("Instanced Mesh Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("instanced_mesh_shader.wgsl").into()),
         });
 
         let diffuse_texture_bind_group_layout =
@@ -161,9 +168,9 @@ impl RendererState {
                 label: Some("uniform_var_bind_group_layout"),
             });
 
-        let sphere_render_pipeline_layout =
+        let textured_mesh_render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Sphere Render Pipeline Layout"),
+                label: Some("Textured Mesh Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &diffuse_texture_bind_group_layout,
                     &uniform_var_bind_group_layout,
@@ -173,19 +180,17 @@ impl RendererState {
                 push_constant_ranges: &[],
             });
 
-        let depth_texture = Texture::create_depth_texture(&device, &config, "depth_texture");
-
         let textured_mesh_pipeline =
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Sphere Render Pipeline"),
-                layout: Some(&sphere_render_pipeline_layout),
+                label: Some("Textured Mesh Render Pipeline"),
+                layout: Some(&textured_mesh_render_pipeline_layout),
                 vertex: wgpu::VertexState {
-                    module: &texture_shader,
+                    module: &textured_mesh_shader,
                     entry_point: "vs_main",
                     buffers: &[TexturedVertex::desc()],
                 },
                 fragment: Some(wgpu::FragmentState {
-                    module: &texture_shader,
+                    module: &textured_mesh_shader,
                     entry_point: "fs_main",
                     targets: &[wgpu::ColorTargetState {
                         format: config.format,
@@ -217,6 +222,60 @@ impl RendererState {
                 multiview: None,
             });
 
+        let instanced_mesh_render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Instanced Mesh Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &diffuse_texture_bind_group_layout,
+                    &uniform_var_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
+        let instanced_mesh_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Instanced Mesh Render Pipeline"),
+                layout: Some(&instanced_mesh_render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &instanced_mesh_shader,
+                    entry_point: "vs_main",
+                    buffers: &[TexturedVertex::desc(), GpuMeshInstance::desc()],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &instanced_mesh_shader,
+                    entry_point: "fs_main",
+                    targets: &[wgpu::ColorTargetState {
+                        format: config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: Texture::DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less, // 1.
+                    stencil: wgpu::StencilState::default(),     // 2.
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+            });
+
+        let depth_texture = Texture::create_depth_texture(&device, &config, "depth_texture");
+
         let mars_texture_path = "./src/2k_mars.png";
         let mars_texture_bytes = std::fs::read(mars_texture_path)?;
         let mars_texture =
@@ -224,15 +283,6 @@ impl RendererState {
         let sphere_mesh = BasicMesh::new("./src/sphere.obj")?;
 
         let sphere = MeshComponent::new(
-            &sphere_mesh,
-            &mars_texture,
-            &diffuse_texture_bind_group_layout,
-            &uniform_var_bind_group_layout,
-            &device,
-            &queue,
-        )?;
-
-        let ball_mesh_component = MeshComponent::new(
             &sphere_mesh,
             &mars_texture,
             &diffuse_texture_bind_group_layout,
@@ -312,29 +362,40 @@ impl RendererState {
             label: Some("camera_bind_group"),
         });
 
-        let balls: Vec<_> = (0..1000)
+        let balls: Vec<_> = (0..10000)
             .into_iter()
             .map(|_| {
                 BallComponent::new(
-                    MeshComponent::new(
-                        &sphere_mesh,
-                        &mars_texture,
-                        &diffuse_texture_bind_group_layout,
-                        &uniform_var_bind_group_layout,
-                        &device,
-                        &queue,
-                    )
-                    .unwrap(), // TODO: add error handler
                     Vector2::new(0.0, 0.0),
                     Vector2::new(
                         -1.0 + rand::random::<f32>() * 2.0,
                         -1.0 + rand::random::<f32>() * 2.0,
                     ),
                     0.5 + (rand::random::<f32>() * 0.75),
-                    (0.5 + (rand::random::<f32>() * 0.75)) / 10.0,
+                    0.025 + (rand::random::<f32>() * 0.2),
                 )
             })
             .collect();
+
+        let balls_transforms: Vec<_> = balls
+            .iter()
+            .map(|ball| {
+                GpuMeshInstance::new(
+                    ball.transform.matrix.get(),
+                    ball.transform.get_rotation_matrix(),
+                )
+            })
+            .collect();
+
+        let balls_mesh = InstancedMeshComponent::new(
+            &sphere_mesh,
+            &mars_texture,
+            &diffuse_texture_bind_group_layout,
+            &uniform_var_bind_group_layout,
+            &device,
+            &queue,
+            &balls_transforms,
+        )?;
 
         Ok(Self {
             surface,
@@ -358,9 +419,11 @@ impl RendererState {
             is_right_pressed: false,
 
             textured_mesh_pipeline,
+            instanced_mesh_pipeline,
             depth_texture,
 
             balls,
+            balls_mesh,
             sphere,
             plane,
         })
@@ -401,20 +464,25 @@ impl RendererState {
         } else {
             0.0
         };
-        let mut balls = &mut self.balls;
-        balls.iter_mut().for_each(|ball| {
-            ball.update(dt, &mut self.logger);
-            self.queue.write_buffer(
-                &ball.mesh.transform_buffer,
-                0,
-                bytemuck::cast_slice(&[GpuMatrix4(ball.mesh.transform.matrix.get())]),
-            );
-            self.queue.write_buffer(
-                &ball.mesh.normal_rotation_buffer,
-                0,
-                bytemuck::cast_slice(&[GpuMatrix4(ball.mesh.transform.get_rotation_matrix())]),
-            );
-        });
+        // self.logger.log(&format!("dt: {:?}", dt));
+        self.balls
+            .iter_mut()
+            .for_each(|ball| ball.update(dt, &mut self.logger));
+        let balls_transforms: Vec<_> = self
+            .balls
+            .iter()
+            .map(|ball| {
+                GpuMeshInstance::new(
+                    ball.transform.matrix.get(),
+                    ball.transform.get_rotation_matrix(),
+                )
+            })
+            .collect();
+        self.queue.write_buffer(
+            &self.balls_mesh.instance_buffer,
+            0,
+            bytemuck::cast_slice(&balls_transforms),
+        );
         self.queue.write_buffer(
             &self.sphere.transform_buffer,
             0,
@@ -473,14 +541,11 @@ impl RendererState {
             });
 
             render_pass.set_pipeline(&self.textured_mesh_pipeline);
-
-            let balls = &self.balls;
-            let balls_mesh_iterator = balls.iter().map(|ball| &ball.mesh);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
 
             vec![&self.sphere, &self.plane]
                 .iter()
                 .map(|mesh| *mesh)
-                .chain(balls_mesh_iterator)
                 .for_each(
                     |MeshComponent {
                          diffuse_texture_bind_group,
@@ -492,7 +557,6 @@ impl RendererState {
                          ..
                      }| {
                         render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
-                        render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
                         render_pass.set_bind_group(2, transform_bind_group, &[]);
                         render_pass.set_bind_group(3, normal_rotation_bind_group, &[]);
                         render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
@@ -501,6 +565,21 @@ impl RendererState {
                         render_pass.draw_indexed(0..*num_indices, 0, 0..1);
                     },
                 );
+
+            render_pass.set_pipeline(&self.instanced_mesh_pipeline);
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.balls_mesh.diffuse_texture_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.balls_mesh.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.balls_mesh.instance_buffer.slice(..));
+            render_pass.set_index_buffer(
+                self.balls_mesh.index_buffer.slice(..),
+                wgpu::IndexFormat::Uint16,
+            );
+            render_pass.draw_indexed(
+                0..self.balls_mesh.num_indices,
+                0,
+                0..self.balls.len() as u32,
+            );
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();

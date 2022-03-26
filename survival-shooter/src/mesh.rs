@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use super::*;
 
 use anyhow::Result;
+use cgmath::Matrix4;
 use wgpu::util::DeviceExt;
 
 type VertexPosition = [f32; 3];
@@ -26,6 +27,38 @@ impl TexturedVertex {
             array_stride: std::mem::size_of::<TexturedVertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &Self::ATTRIBS,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GpuMeshInstance {
+    model_transform: GpuMatrix4,
+    normal_rotation_transform: GpuMatrix4, // this can be a matrix 3 in theory but probs not important, would only save around 500KB per 10k instances
+}
+
+impl GpuMeshInstance {
+    const ATTRIBS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
+        5 => Float32x4,  6 => Float32x4,  7 => Float32x4,  8 => Float32x4,
+        9 => Float32x4, 10 => Float32x4, 11 => Float32x4, 12 => Float32x4
+    ];
+
+    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<GpuMeshInstance>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &Self::ATTRIBS,
+        }
+    }
+
+    pub fn new(
+        model_transform: Matrix4<f32>,
+        normal_rotation_transform: Matrix4<f32>,
+    ) -> GpuMeshInstance {
+        GpuMeshInstance {
+            model_transform: GpuMatrix4(model_transform),
+            normal_rotation_transform: GpuMatrix4(normal_rotation_transform),
         }
     }
 }
@@ -129,6 +162,51 @@ impl MeshComponent {
             normal_rotation_buffer,
             normal_rotation_bind_group,
             transform,
+        })
+    }
+}
+
+pub struct InstancedMeshComponent {
+    pub vertex_buffer: wgpu::Buffer,
+    pub index_buffer: wgpu::Buffer,
+    pub instance_buffer: wgpu::Buffer,
+    pub num_indices: u32,
+    pub _num_vertices: u32,
+    pub diffuse_texture_bind_group: wgpu::BindGroup,
+}
+
+impl InstancedMeshComponent {
+    pub fn new(
+        mesh: &BasicMesh,
+        diffuse_texture: &Texture,
+        diffuse_texture_bind_group_layout: &wgpu::BindGroupLayout,
+        uniform_var_bind_group_layout: &wgpu::BindGroupLayout,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        instances: &[GpuMeshInstance],
+    ) -> Result<InstancedMeshComponent> {
+        let mesh_component = MeshComponent::new(
+            mesh,
+            diffuse_texture,
+            diffuse_texture_bind_group_layout,
+            uniform_var_bind_group_layout,
+            device,
+            queue,
+        )?;
+
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("InstancedMeshComponent instance_buffer"),
+            contents: bytemuck::cast_slice(instances),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
+        Ok(InstancedMeshComponent {
+            vertex_buffer: mesh_component.vertex_buffer,
+            index_buffer: mesh_component.index_buffer,
+            num_indices: mesh_component.num_indices,
+            _num_vertices: mesh_component._num_vertices,
+            diffuse_texture_bind_group: mesh_component.diffuse_texture_bind_group,
+            instance_buffer,
         })
     }
 }

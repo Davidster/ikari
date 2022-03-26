@@ -1,34 +1,25 @@
-use cgmath::{Vector2, Vector3};
+use cgmath::{Quaternion, Vector2, Vector3};
 
 use super::*;
 
 pub struct BallComponent {
-    pub mesh: MeshComponent,
+    pub transform: super::transform::Transform,
     direction: Vector3<f32>,
     speed: f32,
     radius: f32,
 }
 
 impl BallComponent {
-    pub fn new(
-        sphere_mesh: MeshComponent,
-        position: Vector2<f32>,
-        direction: Vector2<f32>,
-        radius: f32,
-        speed: f32,
-    ) -> Self {
-        sphere_mesh
-            .transform
-            .set_position(Vector3::new(position.x, radius, position.y));
-        sphere_mesh
-            .transform
-            .set_scale(Vector3::new(radius, radius, radius));
+    pub fn new(position: Vector2<f32>, direction: Vector2<f32>, radius: f32, speed: f32) -> Self {
+        let transform = super::transform::Transform::new();
+        transform.set_position(Vector3::new(position.x, radius, position.y));
+        transform.set_scale(Vector3::new(radius, radius, radius));
         let Vector2 {
             x: direction_x,
             y: direction_z,
         } = direction;
         BallComponent {
-            mesh: sphere_mesh,
+            transform,
             direction: Vector3::new(direction_x, 0.0, direction_z).normalize(),
             speed,
             radius,
@@ -37,13 +28,13 @@ impl BallComponent {
 
     pub fn update(&mut self, dt: f32, logger: &mut Logger) {
         // update position
-        let curr_position = self.mesh.transform.position.get();
+        let curr_position = self.transform.position.get();
         let displacement = self.direction * self.speed * dt;
         let new_position = curr_position + (displacement / 1.0);
-        self.mesh.transform.set_position(new_position);
+        self.transform.set_position(new_position);
 
         // update rotation
-        let curr_rotation = self.mesh.transform.rotation.get();
+        let curr_rotation = self.transform.rotation.get();
         let up = Vector3::new(0.0, 1.0, 0.0);
         let axis_of_rotation = self.direction.cross(up);
         let circumference = 2.0 * std::f32::consts::PI * self.radius;
@@ -52,7 +43,7 @@ impl BallComponent {
         let rotational_displacement =
             make_quat_from_axis_angle(axis_of_rotation, -angle_of_rotation);
         let new_rotation = rotational_displacement * curr_rotation;
-        self.mesh.transform.set_rotation(new_rotation);
+        self.transform.set_rotation(new_rotation);
 
         // nice log thingy
         // logger.log(&format!(

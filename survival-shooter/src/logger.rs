@@ -47,7 +47,7 @@ impl Logger {
             .clear_screen()
             .expect("Failed to clear terminal");
         let avg_frame_time_millis: Option<f64> = if self.recent_frame_times.len() != 0 {
-            let alpha = 0.005;
+            let alpha = 0.1;
             let mut frame_times_iterator = self
                 .recent_frame_times
                 .iter()
