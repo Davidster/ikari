@@ -27,7 +27,7 @@ async fn start() {
             // .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
             .with_inner_size(winit::dpi::PhysicalSize::new(1920.0, 1080.0))
             .with_title("David's window name")
-            .with_visible(false)
+            // .with_visible(false)
             .build(&event_loop)
             .expect("Failed to create window");
 

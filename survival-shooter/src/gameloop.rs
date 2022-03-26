@@ -18,7 +18,7 @@ pub async fn run<'a>(
     let mut i = 0;
     let mut last_log_time: Option<Instant> = None;
     event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
+        *control_flow = ControlFlow::Poll;
         match event {
             Event::RedrawRequested(_) => {
                 renderer_state.update(&window);
