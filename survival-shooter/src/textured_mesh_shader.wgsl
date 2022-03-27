@@ -5,22 +5,25 @@ struct CameraUniform {
 [[group(1), binding(0)]]
 var<uniform> camera: CameraUniform;
 
+// used for non-instanced renders
 struct ModelTransformUniform {
     value: mat4x4<f32>;
 };
 [[group(2), binding(0)]]
-var<uniform> model_transform:ModelTransformUniform;
-
-struct ModelNormalRotationUniform {
-    value: mat4x4<f32>;
-};
-[[group(3), binding(0)]]
-var<uniform> normal_rotation:ModelNormalRotationUniform;
+var<uniform> model_transform: ModelTransformUniform;
 
 struct VertexInput {
     [[location(0)]] object_position: vec3<f32>;
     [[location(1)]] object_normal: vec3<f32>;
     [[location(2)]] object_tex_coords: vec2<f32>;
+};
+
+// used for instanced renders
+struct ModelTransformInstance {
+    [[location(5)]]  model_transform_0: vec4<f32>;
+    [[location(6)]]  model_transform_1: vec4<f32>;
+    [[location(7)]]  model_transform_2: vec4<f32>;
+    [[location(8)]]  model_transform_3: vec4<f32>;
 };
 
 struct VertexOutput {
@@ -30,29 +33,50 @@ struct VertexOutput {
     [[location(2)]] tex_coords: vec2<f32>;
 };
 
-[[stage(vertex)]]
-fn vs_main(
-    vshader_input: VertexInput,
-) -> VertexOutput {
+fn do_vertex_shade(vshader_input: VertexInput, model_transform: mat4x4<f32>) -> VertexOutput {
     var out: VertexOutput;
     out.world_normal = vshader_input.object_normal;
     
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
-    let model_view_matrix = camera.view_proj * model_transform.value;
-    let world_position = model_transform.value * object_position;
+    let model_view_matrix = camera.view_proj * model_transform;
+    let world_position = model_transform * object_position;
 
     out.world_position = world_position.xyz;
     out.clip_position = model_view_matrix * object_position;
 
-    // out.world_normal = inverse(model_view_matrix) * vshader_input.object_normal;
-    out.world_normal = (normal_rotation.value * vec4<f32>(vshader_input.object_normal, 0.0)).xyz;
+    out.world_normal = normalize((model_transform * vec4<f32>(vshader_input.object_normal, 0.0)).xyz);
 
     out.tex_coords = vshader_input.object_tex_coords;
 
     return out;
 }
 
-// Fragment shader
+// non-instanced vertex shader:
+
+[[stage(vertex)]]
+fn vs_main(
+    vshader_input: VertexInput,
+) -> VertexOutput {
+    return do_vertex_shade(vshader_input, model_transform.value);
+}
+
+// instanced vertex shader:
+
+[[stage(vertex)]]
+fn instanced_vs_main(
+    vshader_input: VertexInput,
+    instance: ModelTransformInstance,
+) -> VertexOutput {
+    let model_transform = mat4x4<f32>(
+        instance.model_transform_0,
+        instance.model_transform_1,
+        instance.model_transform_2,
+        instance.model_transform_3,
+    );
+    return do_vertex_shade(vshader_input, model_transform);
+}
+
+// fragment shader
 
 [[group(0), binding(0)]]
 var t_diffuse: texture_2d<f32>;
@@ -74,4 +98,3 @@ fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     let some_color = vec3<f32>(0.5, 0.5, 0.5);
     return final;
 }
- 

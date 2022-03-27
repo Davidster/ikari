@@ -125,11 +125,6 @@ impl RendererState {
             source: wgpu::ShaderSource::Wgsl(include_str!("textured_mesh_shader.wgsl").into()),
         });
 
-        let instanced_mesh_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-            label: Some("Instanced Mesh Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("instanced_mesh_shader.wgsl").into()),
-        });
-
         let diffuse_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -180,48 +175,50 @@ impl RendererState {
                 push_constant_ranges: &[],
             });
 
-        let textured_mesh_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Textured Mesh Render Pipeline"),
-                layout: Some(&textured_mesh_render_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &textured_mesh_shader,
-                    entry_point: "vs_main",
-                    buffers: &[TexturedVertex::desc()],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &textured_mesh_shader,
-                    entry_point: "fs_main",
-                    targets: &[wgpu::ColorTargetState {
-                        format: config.format,
-                        blend: Some(wgpu::BlendState::REPLACE),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }],
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    strip_index_format: None,
-                    front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: Some(wgpu::Face::Back),
-                    polygon_mode: wgpu::PolygonMode::Fill,
-                    unclipped_depth: false,
-                    conservative: false,
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: Texture::DEPTH_FORMAT,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::Less, // 1.
-                    stencil: wgpu::StencilState::default(),     // 2.
-                    bias: wgpu::DepthBiasState::default(),
-                }),
-                multisample: wgpu::MultisampleState {
-                    count: 1,
-                    mask: !0,
-                    alpha_to_coverage_enabled: false,
-                },
-                multiview: None,
-            });
+        let fragment_shader_color_targets = &[wgpu::ColorTargetState {
+            format: config.format,
+            blend: Some(wgpu::BlendState::REPLACE),
+            write_mask: wgpu::ColorWrites::ALL,
+        }];
+        let textured_mesh_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("Textured Mesh Render Pipeline"),
+            layout: Some(&textured_mesh_render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &textured_mesh_shader,
+                entry_point: "vs_main",
+                buffers: &[TexturedVertex::desc()],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &textured_mesh_shader,
+                entry_point: "fs_main",
+                targets: fragment_shader_color_targets,
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less, // 1.
+                stencil: wgpu::StencilState::default(),     // 2.
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        };
 
+        // instanced pipeline is very similar to non-instanced with a few differences:
+        let mut instanced_mesh_pipeline_descriptor = textured_mesh_pipeline_descriptor.clone();
         let instanced_mesh_render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Instanced Mesh Render Pipeline Layout"),
@@ -231,48 +228,20 @@ impl RendererState {
                 ],
                 push_constant_ranges: &[],
             });
+        let instanced_mesh_pipeline_vertex_buffers_layout =
+            &[TexturedVertex::desc(), GpuMeshInstance::desc()];
+
+        instanced_mesh_pipeline_descriptor.label = Some("Instanced Mesh Render Pipeline");
+        instanced_mesh_pipeline_descriptor.layout = Some(&instanced_mesh_render_pipeline_layout);
+        instanced_mesh_pipeline_descriptor.vertex.entry_point = "instanced_vs_main";
+        instanced_mesh_pipeline_descriptor.vertex.buffers =
+            instanced_mesh_pipeline_vertex_buffers_layout;
+
+        let textured_mesh_pipeline =
+            device.create_render_pipeline(&textured_mesh_pipeline_descriptor);
 
         let instanced_mesh_pipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Instanced Mesh Render Pipeline"),
-                layout: Some(&instanced_mesh_render_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &instanced_mesh_shader,
-                    entry_point: "vs_main",
-                    buffers: &[TexturedVertex::desc(), GpuMeshInstance::desc()],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &instanced_mesh_shader,
-                    entry_point: "fs_main",
-                    targets: &[wgpu::ColorTargetState {
-                        format: config.format,
-                        blend: Some(wgpu::BlendState::REPLACE),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }],
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    strip_index_format: None,
-                    front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: Some(wgpu::Face::Back),
-                    polygon_mode: wgpu::PolygonMode::Fill,
-                    unclipped_depth: false,
-                    conservative: false,
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: Texture::DEPTH_FORMAT,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::Less, // 1.
-                    stencil: wgpu::StencilState::default(),     // 2.
-                    bias: wgpu::DepthBiasState::default(),
-                }),
-                multisample: wgpu::MultisampleState {
-                    count: 1,
-                    mask: !0,
-                    alpha_to_coverage_enabled: false,
-                },
-                multiview: None,
-            });
+            device.create_render_pipeline(&instanced_mesh_pipeline_descriptor);
 
         let depth_texture = Texture::create_depth_texture(&device, &config, "depth_texture");
 
@@ -379,12 +348,7 @@ impl RendererState {
 
         let balls_transforms: Vec<_> = balls
             .iter()
-            .map(|ball| {
-                GpuMeshInstance::new(
-                    ball.transform.matrix.get(),
-                    ball.transform.get_rotation_matrix(),
-                )
-            })
+            .map(|ball| GpuMeshInstance::new(ball.transform.matrix.get()))
             .collect();
 
         let balls_mesh = InstancedMeshComponent::new(
@@ -471,12 +435,7 @@ impl RendererState {
         let balls_transforms: Vec<_> = self
             .balls
             .iter()
-            .map(|ball| {
-                GpuMeshInstance::new(
-                    ball.transform.matrix.get(),
-                    ball.transform.get_rotation_matrix(),
-                )
-            })
+            .map(|ball| GpuMeshInstance::new(ball.transform.matrix.get()))
             .collect();
         self.queue.write_buffer(
             &self.balls_mesh.instance_buffer,

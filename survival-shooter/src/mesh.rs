@@ -35,7 +35,6 @@ impl TexturedVertex {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuMeshInstance {
     model_transform: GpuMatrix4,
-    normal_rotation_transform: GpuMatrix4, // this can be a matrix 3 in theory but probs not important, would only save around 500KB per 10k instances
 }
 
 impl GpuMeshInstance {
@@ -52,13 +51,9 @@ impl GpuMeshInstance {
         }
     }
 
-    pub fn new(
-        model_transform: Matrix4<f32>,
-        normal_rotation_transform: Matrix4<f32>,
-    ) -> GpuMeshInstance {
+    pub fn new(model_transform: Matrix4<f32>) -> GpuMeshInstance {
         GpuMeshInstance {
             model_transform: GpuMatrix4(model_transform),
-            normal_rotation_transform: GpuMatrix4(normal_rotation_transform),
         }
     }
 }
