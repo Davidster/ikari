@@ -86,17 +86,6 @@ pub async fn run<'a>(
                             },
                         ..
                     } => *control_flow = winit::event_loop::ControlFlow::Exit,
-                    WindowEvent::KeyboardInput {
-                        input:
-                            KeyboardInput {
-                                state: ElementState::Pressed,
-                                virtual_keycode: Some(VirtualKeyCode::Space),
-                                ..
-                            },
-                        ..
-                    } => {
-                        // state.toggle_shape()
-                    }
                     _ => {}
                 };
             }

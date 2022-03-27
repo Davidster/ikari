@@ -89,7 +89,7 @@ fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     let light_intensity = max(dot(in.world_normal, to_light_vec), 0.0);
     let albedo = textureSample(t_diffuse, s_diffuse, in.tex_coords);
     let max_light_intensity = 1.0;
-    let ambient_light = 0.05;
+    let ambient_light = 0.15;
     let distance_squared = dot(to_light_vec, to_light_vec) * 2.0;
     let final_light_intensity =
         ambient_light + ((light_intensity * max_light_intensity) / distance_squared);

@@ -257,7 +257,6 @@ impl RendererState {
             &diffuse_texture_bind_group_layout,
             &uniform_var_bind_group_layout,
             &device,
-            &queue,
         )?;
 
         sphere.transform.set_scale(Vector3::new(0.25, 0.25, 0.25));
@@ -276,12 +275,39 @@ impl RendererState {
 
         let checkerboard_texture_path = "./src/2k_checkerboard.png";
         let checkerboard_texture_bytes = std::fs::read(checkerboard_texture_path)?;
-        let checkerboard_texture = Texture::from_bytes(
+        let checkerboard_texture_img = {
+            let mut img = image::RgbaImage::new(20, 20);
+            // let mut img = image::RgbaIqmage::new(2000, 2000);
+            for x in 0..img.width() {
+                for y in 0..img.height() {
+                    img.put_pixel(
+                        x,
+                        y,
+                        if (x + y) % 2 == 0 {
+                            [0, 0, 0, 255].into()
+                        } else {
+                            [255, 255, 255, 255].into()
+                        },
+                    );
+                }
+            }
+            image::DynamicImage::ImageRgba8(img)
+        };
+        let mut checkerboard_texture = Texture::from_image(
             &device,
             &queue,
-            &checkerboard_texture_bytes,
-            checkerboard_texture_path,
+            &checkerboard_texture_img,
+            Some("checkerboard_texture"),
         )?;
+        checkerboard_texture.sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
         let plane_mesh = BasicMesh::new("./src/plane.obj")?;
 
         let plane = MeshComponent::new(
@@ -290,7 +316,6 @@ impl RendererState {
             &diffuse_texture_bind_group_layout,
             &uniform_var_bind_group_layout,
             &device,
-            &queue,
         )?;
 
         plane.transform.set_position(Vector3::new(0.0, 0.0, 0.0));
@@ -357,7 +382,6 @@ impl RendererState {
             &diffuse_texture_bind_group_layout,
             &uniform_var_bind_group_layout,
             &device,
-            &queue,
             &balls_transforms,
         )?;
 

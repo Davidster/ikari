@@ -82,7 +82,6 @@ impl MeshComponent {
         diffuse_texture_bind_group_layout: &wgpu::BindGroupLayout,
         uniform_var_bind_group_layout: &wgpu::BindGroupLayout,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
     ) -> Result<MeshComponent> {
         let sphere_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("MeshComponent Vertex Buffer"),
@@ -177,7 +176,6 @@ impl InstancedMeshComponent {
         diffuse_texture_bind_group_layout: &wgpu::BindGroupLayout,
         uniform_var_bind_group_layout: &wgpu::BindGroupLayout,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
         instances: &[GpuMeshInstance],
     ) -> Result<InstancedMeshComponent> {
         let mesh_component = MeshComponent::new(
@@ -186,7 +184,6 @@ impl InstancedMeshComponent {
             diffuse_texture_bind_group_layout,
             uniform_var_bind_group_layout,
             device,
-            queue,
         )?;
 
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
