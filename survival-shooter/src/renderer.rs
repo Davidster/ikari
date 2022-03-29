@@ -245,6 +245,7 @@ impl RendererState {
 
         let depth_texture = Texture::create_depth_texture(&device, &config, "depth_texture");
 
+        // source: https://www.solarsystemscope.com/textures/
         let mars_texture_path = "./src/8k_mars.png";
         let mars_texture_bytes = std::fs::read(mars_texture_path)?;
         let mars_texture = Texture::from_bytes(
