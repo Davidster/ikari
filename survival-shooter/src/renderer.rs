@@ -69,6 +69,7 @@ pub struct RendererState {
 
 impl RendererState {
     pub async fn new(window: &winit::window::Window) -> Result<Self> {
+        let mut logger = Logger::new();
         let backends = wgpu::Backends::all();
         let instance = wgpu::Instance::new(backends);
         let size = window.inner_size();
@@ -82,7 +83,10 @@ impl RendererState {
             .await
             .expect("Failed to find an appropriate adapter");
         let adapter_info = adapter.get_info();
-        println!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
+        logger.log(&format!(
+            "Using {} ({:?})",
+            adapter_info.name, adapter_info.backend
+        ));
 
         let (device, queue) = adapter
             .request_device(
@@ -351,7 +355,7 @@ impl RendererState {
             label: Some("camera_bind_group"),
         });
 
-        let balls: Vec<_> = (0..0)
+        let balls: Vec<_> = (0..1000)
             .into_iter()
             .map(|_| {
                 BallComponent::new(
@@ -388,7 +392,7 @@ impl RendererState {
             last_update_time: None,
             rendered_first_frame: false,
             size,
-            logger: Logger::new(),
+            logger,
 
             camera,
             camera_controller,

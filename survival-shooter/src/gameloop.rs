@@ -54,7 +54,7 @@ pub async fn run<'a>(
                         *control_flow = winit::event_loop::ControlFlow::Exit
                     }
                     // All other errors (Outdated, Timeout) should be resolved by the next frame
-                    Err(e) => eprintln!("{:?}", e),
+                    Err(e) => renderer_state.logger.log(&format!("{:?}", e)),
                 }
             }
             Event::MainEventsCleared => {

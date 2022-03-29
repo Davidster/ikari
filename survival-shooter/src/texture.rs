@@ -54,11 +54,10 @@ impl Texture {
         let dimensions = img.dimensions();
 
         let mip_level_count = if generate_mipmaps {
-            ((dimensions.0.max(dimensions.1) as f32).log2().floor() as u32) - 1
+            ((dimensions.0.max(dimensions.1) as f32).log2().floor() as u32) + 1
         } else {
             1
         };
-        eprintln!("mip_level_count={:?}", mip_level_count);
         let size = wgpu::Extent3d {
             width: dimensions.0,
             height: dimensions.1,
