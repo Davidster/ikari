@@ -114,8 +114,8 @@ impl RendererState {
             format: swapchain_format,
             width: size.width,
             height: size.height,
-            // present_mode: wgpu::PresentMode::Fifo,
-            present_mode: wgpu::PresentMode::Immediate,
+            present_mode: wgpu::PresentMode::Fifo,
+            // present_mode: wgpu::PresentMode::Immediate,
         };
 
         surface.configure(&device, &config);
@@ -205,8 +205,8 @@ impl RendererState {
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: Texture::DEPTH_FORMAT,
                 depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less, // 1.
-                stencil: wgpu::StencilState::default(),     // 2.
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState {
@@ -245,10 +245,18 @@ impl RendererState {
 
         let depth_texture = Texture::create_depth_texture(&device, &config, "depth_texture");
 
-        let mars_texture_path = "./src/2k_mars.png";
+        let mars_texture_path = "./src/8k_mars.png";
         let mars_texture_bytes = std::fs::read(mars_texture_path)?;
-        let mars_texture =
-            Texture::from_bytes(&device, &queue, &mars_texture_bytes, mars_texture_path)?;
+        let mars_texture = Texture::from_bytes(
+            &device,
+            &queue,
+            &mars_texture_bytes,
+            mars_texture_path,
+            true,
+            None,
+            None,
+            None,
+        )?;
         let sphere_mesh = BasicMesh::new("./src/sphere.obj")?;
 
         let sphere = MeshComponent::new(
@@ -273,17 +281,17 @@ impl RendererState {
             bytemuck::cast_slice(&[GpuMatrix4(sphere.transform.get_rotation_matrix())]),
         );
 
-        let checkerboard_texture_path = "./src/2k_checkerboard.png";
-        let checkerboard_texture_bytes = std::fs::read(checkerboard_texture_path)?;
         let checkerboard_texture_img = {
-            let mut img = image::RgbaImage::new(20, 20);
-            // let mut img = image::RgbaIqmage::new(2000, 2000);
+            let mut img = image::RgbaImage::new(4096, 4096);
             for x in 0..img.width() {
                 for y in 0..img.height() {
+                    let scale = 10;
+                    let x_scaled = x / scale;
+                    let y_scaled = y / scale;
                     img.put_pixel(
                         x,
                         y,
-                        if (x + y) % 2 == 0 {
+                        if (x_scaled + y_scaled) % 2 == 0 {
                             [0, 0, 0, 255].into()
                         } else {
                             [255, 255, 255, 255].into()
@@ -293,21 +301,16 @@ impl RendererState {
             }
             image::DynamicImage::ImageRgba8(img)
         };
-        let mut checkerboard_texture = Texture::from_image(
+        let checkerboard_texture = Texture::from_image(
             &device,
             &queue,
             &checkerboard_texture_img,
             Some("checkerboard_texture"),
+            true,
+            wgpu::FilterMode::Nearest.into(),
+            None,
+            None,
         )?;
-        checkerboard_texture.sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
         let plane_mesh = BasicMesh::new("./src/plane.obj")?;
 
         let plane = MeshComponent::new(
@@ -356,7 +359,7 @@ impl RendererState {
             label: Some("camera_bind_group"),
         });
 
-        let balls: Vec<_> = (0..10000)
+        let balls: Vec<_> = (0..0)
             .into_iter()
             .map(|_| {
                 BallComponent::new(

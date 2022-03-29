@@ -245,8 +245,8 @@ impl CameraController {
             self.target_pose.position.y = 0.1;
         }
 
-        let pos_lerp_factor = 0.3;
-        let rot_lerp_factor = 0.5;
+        let pos_lerp_factor = 0.3 * dt;
+        let rot_lerp_factor = 0.5 * dt;
 
         camera.pose.position = camera
             .pose
