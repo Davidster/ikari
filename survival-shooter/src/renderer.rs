@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    time::{Duration, Instant},
-};
+use std::time::Instant;
 
 use super::*;
 
@@ -9,7 +6,6 @@ use anyhow::Result;
 
 use cgmath::{Matrix4, One, Vector2, Vector3};
 use wgpu::util::DeviceExt;
-use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -60,11 +56,6 @@ pub struct RendererState {
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
-
-    is_forward_pressed: bool,
-    is_backward_pressed: bool,
-    is_left_pressed: bool,
-    is_right_pressed: bool,
 
     textured_mesh_pipeline: wgpu::RenderPipeline,
     instanced_mesh_pipeline: wgpu::RenderPipeline,
@@ -404,11 +395,6 @@ impl RendererState {
             camera_uniform,
             camera_buffer,
             camera_bind_group,
-
-            is_forward_pressed: false,
-            is_backward_pressed: false,
-            is_left_pressed: false,
-            is_right_pressed: false,
 
             textured_mesh_pipeline,
             instanced_mesh_pipeline,

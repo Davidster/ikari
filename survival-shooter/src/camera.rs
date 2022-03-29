@@ -114,7 +114,7 @@ impl CameraController {
         &mut self,
         event: &DeviceEvent,
         _window: &mut Window,
-        logger: &mut Logger,
+        _logger: &mut Logger,
     ) {
         match event {
             DeviceEvent::MouseMotion { delta: (d_x, d_y) } if self.window_focused => {

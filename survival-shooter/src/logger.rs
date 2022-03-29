@@ -1,4 +1,3 @@
-use anyhow::Result;
 use std::time::{Duration, Instant};
 
 const FRAME_TIME_HISTORY_SIZE: usize = 5000;

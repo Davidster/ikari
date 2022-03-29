@@ -1,4 +1,4 @@
-use cgmath::{Quaternion, Vector2, Vector3};
+use cgmath::{Vector2, Vector3};
 
 use super::*;
 
@@ -26,7 +26,7 @@ impl BallComponent {
         }
     }
 
-    pub fn update(&mut self, dt: f32, logger: &mut Logger) {
+    pub fn update(&mut self, dt: f32, _logger: &mut Logger) {
         // update position
         let curr_position = self.transform.position.get();
         let displacement = self.direction * self.speed * dt;

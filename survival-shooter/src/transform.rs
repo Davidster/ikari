@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-use cgmath::{Matrix3, Matrix4, One, Quaternion, Rad, Vector3};
+use cgmath::{Matrix3, Matrix4, One, Quaternion, Vector3};
 
 use super::*;
 
@@ -52,15 +52,12 @@ impl Transform {
         self.resync_matrix();
     }
 
-    pub fn rotate_around_axis(&self, axis: Vector3<f32>, angle: Rad<f32>) {}
-
     pub fn set_scale(&self, new_scale: Vector3<f32>) {
         self.scale.set(new_scale);
         self.resync_matrix();
     }
 
     pub fn get_rotation_matrix(&self) -> Matrix4<f32> {
-        let rotation = self.rotation.get();
         make_rotation_matrix(self.rotation.get())
     }
 
