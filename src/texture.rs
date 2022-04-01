@@ -50,16 +50,12 @@ impl Texture {
             .expect("Failed to convert image into rgba8. Is the image missing the alpha channel?");
         let dimensions = img.dimensions();
 
-        let mip_level_count = if generate_mipmaps {
-            ((dimensions.0.max(dimensions.1) as f32).log2().floor() as u32) + 1
-        } else {
-            1
-        };
         let size = wgpu::Extent3d {
             width: dimensions.0,
             height: dimensions.1,
             depth_or_array_layers: 1,
         };
+        let mip_level_count = if generate_mipmaps { size.max_mips() } else { 1 };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label,
             size,
