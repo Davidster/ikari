@@ -1421,26 +1421,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
 
 [[package]]
-name = "survival-shooter"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytemuck",
- "cgmath",
- "console",
- "dialoguer",
- "env_logger",
- "image",
- "log",
- "obj-rs",
- "pollster",
- "rand",
- "wavefront_obj",
- "wgpu",
- "winit",
-]
-
-[[package]]
 name = "syn"
 version = "1.0.86"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1792,6 +1772,26 @@ dependencies = [
  "web-sys",
  "wgpu-types",
  "winapi",
+]
+
+[[package]]
+name = "wgpu-sandbox"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "cgmath",
+ "console",
+ "dialoguer",
+ "env_logger",
+ "image",
+ "log",
+ "obj-rs",
+ "pollster",
+ "rand",
+ "wavefront_obj",
+ "wgpu",
+ "winit",
 ]
 
 [[package]]

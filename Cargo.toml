@@ -1,5 +1,5 @@
 [package]
-name = "survival-shooter"
+name = "wgpu-sandbox"
 version = "0.1.0"
 edition = "2021"
 
