@@ -114,7 +114,7 @@ impl CameraController {
         &mut self,
         event: &DeviceEvent,
         _window: &mut Window,
-        _logger: &mut Logger,
+        logger: &mut Logger,
     ) {
         match event {
             DeviceEvent::MouseMotion { delta: (d_x, d_y) } if self.window_focused => {
@@ -129,7 +129,7 @@ impl CameraController {
                     MouseScrollDelta::PixelDelta(PhysicalPosition { y, .. }) => *y as f32,
                 };
                 self.speed = (self.speed - (scroll_amount * 0.0001)).max(0.01).min(5.0);
-                // logger.log(&format!("Speed: {:?}", self.speed));
+                logger.log(&format!("Speed: {:?}", self.speed));
             }
             _ => {}
         };

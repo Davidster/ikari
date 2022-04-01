@@ -48,7 +48,9 @@ pub async fn run<'a>(
                         }
                     }
                     // Reconfigure the surface if lost
-                    Err(wgpu::SurfaceError::Lost) => renderer_state.resize(renderer_state.size),
+                    Err(wgpu::SurfaceError::Lost) => {
+                        renderer_state.resize(renderer_state.current_window_size)
+                    }
                     // The system is out of memory, we should probably quit
                     Err(wgpu::SurfaceError::OutOfMemory) => {
                         *control_flow = winit::event_loop::ControlFlow::Exit

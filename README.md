@@ -9,10 +9,11 @@
 - [x] add a debug log and fps counter
 - [x] spawn as many planets as I can, make them bounce around the boundaries
 - [x] add mipmaps
-- [ ] add super sampling anti-aliasing
+- [x] add super sampling anti-aliasing
 - [ ] add a skybox
   - [ ] try to use one of my photospheres or panorama from comp-425
 - [ ] support normal maps
+- [ ] refactor the proj!
 - [ ] support gltf format
 - [ ] try to implement PBR shaders based on [article](https://learnopengl.com/PBR/Theory), implement some [sample models](https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0):
   - [ ] [Triangle Without Indices](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TriangleWithoutIndices)

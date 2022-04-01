@@ -6,6 +6,7 @@ use anyhow::Result;
 
 use cgmath::{Matrix4, One, Vector2, Vector3};
 use wgpu::util::DeviceExt;
+use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -46,9 +47,10 @@ pub struct RendererState {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
+    render_scale: f32,
     last_update_time: Option<Instant>,
     pub rendered_first_frame: bool,
-    pub size: winit::dpi::PhysicalSize<u32>,
+    pub current_window_size: winit::dpi::PhysicalSize<u32>,
     pub logger: Logger,
 
     camera: Camera,
@@ -59,6 +61,9 @@ pub struct RendererState {
 
     textured_mesh_pipeline: wgpu::RenderPipeline,
     instanced_mesh_pipeline: wgpu::RenderPipeline,
+    surface_blit_pipeline: wgpu::RenderPipeline,
+    render_texture: Texture,
+    render_texture_view: wgpu::TextureView,
     depth_texture: Texture,
 
     balls: Vec<BallComponent>,
@@ -120,6 +125,11 @@ impl RendererState {
             source: wgpu::ShaderSource::Wgsl(include_str!("textured_mesh_shader.wgsl").into()),
         });
 
+        let blit_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(include_str!("blit.wgsl").into()),
+        });
+
         let diffuse_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -141,6 +151,29 @@ impl RendererState {
                     },
                 ],
                 label: Some("diffuse_texture_bind_group_layout"),
+            });
+        let render_texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        // TODO: what difference does this param make? can i set it to NonFiltering?
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("render_texture_bind_group_layout"),
             });
 
         let uniform_var_bind_group_layout =
@@ -171,7 +204,7 @@ impl RendererState {
             });
 
         let fragment_shader_color_targets = &[wgpu::ColorTargetState {
-            format: config.format,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
         }];
@@ -228,17 +261,60 @@ impl RendererState {
 
         instanced_mesh_pipeline_descriptor.label = Some("Instanced Mesh Render Pipeline");
         instanced_mesh_pipeline_descriptor.layout = Some(&instanced_mesh_render_pipeline_layout);
+        // instanced_mesh_pipeline_descriptor.vertex.entry_point = "vs_main";
         instanced_mesh_pipeline_descriptor.vertex.entry_point = "instanced_vs_main";
         instanced_mesh_pipeline_descriptor.vertex.buffers =
             instanced_mesh_pipeline_vertex_buffers_layout;
 
+        let suface_blit_color_targets = &[wgpu::ColorTargetState {
+            format: config.format,
+            blend: Some(wgpu::BlendState::REPLACE),
+            write_mask: wgpu::ColorWrites::ALL,
+        }];
+        let surface_blit_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[&render_texture_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+        let surface_blit_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("Surface Blit Render Pipeline"),
+            layout: Some(&surface_blit_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &blit_shader,
+                entry_point: "vs_main",
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &blit_shader,
+                entry_point: "fs_main",
+                targets: suface_blit_color_targets,
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        };
+
         let textured_mesh_pipeline =
             device.create_render_pipeline(&textured_mesh_pipeline_descriptor);
-
         let instanced_mesh_pipeline =
             device.create_render_pipeline(&instanced_mesh_pipeline_descriptor);
+        let surface_blit_pipeline =
+            device.create_render_pipeline(&surface_blit_pipeline_descriptor);
 
-        let depth_texture = Texture::create_depth_texture(&device, &config, "depth_texture");
+        let render_scale = 2.0;
+
+        let render_texture =
+            Texture::create_render_texture(&device, &config, render_scale, "render_texture");
+        let render_texture_view = render_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let depth_texture =
+            Texture::create_depth_texture(&device, &config, render_scale, "depth_texture");
 
         // source: https://www.solarsystemscope.com/textures/
         let mars_texture_path = "./src/8k_mars.png";
@@ -389,10 +465,11 @@ impl RendererState {
             device,
             queue,
             config,
+            render_scale,
             last_update_time: None,
             rendered_first_frame: false,
-            size,
             logger,
+            current_window_size: size,
 
             camera,
             camera_controller,
@@ -402,6 +479,9 @@ impl RendererState {
 
             textured_mesh_pipeline,
             instanced_mesh_pipeline,
+            surface_blit_pipeline,
+            render_texture,
+            render_texture_view,
             depth_texture,
 
             balls,
@@ -425,17 +505,74 @@ impl RendererState {
         event: &winit::event::WindowEvent,
         window: &mut winit::window::Window,
     ) {
+        match event {
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        state,
+                        virtual_keycode: Some(keycode),
+                        ..
+                    },
+                ..
+            } => {
+                let mut inrcement_render_scale = |increase: bool| {
+                    let delta = 0.1;
+                    let change = if increase { delta } else { -delta };
+                    self.render_scale = (self.render_scale + change).max(0.1).min(4.0);
+                    self.logger
+                        .log(&format!("Render scale: {:?}", self.render_scale));
+                    self.render_texture = Texture::create_render_texture(
+                        &self.device,
+                        &self.config,
+                        self.render_scale,
+                        "render_texture",
+                    );
+                    self.render_texture_view = self
+                        .render_texture
+                        .texture
+                        .create_view(&wgpu::TextureViewDescriptor::default());
+                    self.depth_texture = Texture::create_depth_texture(
+                        &self.device,
+                        &self.config,
+                        self.render_scale,
+                        "depth_texture",
+                    );
+                };
+                if *state == ElementState::Released {
+                    match keycode {
+                        VirtualKeyCode::Z => {
+                            inrcement_render_scale(false);
+                        }
+                        VirtualKeyCode::X => {
+                            inrcement_render_scale(true);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        };
         self.camera_controller
             .process_window_events(event, window, &mut self.logger);
     }
 
-    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        self.size = new_size;
-        self.config.width = new_size.width;
-        self.config.height = new_size.height;
+    pub fn resize(&mut self, new_window_size: winit::dpi::PhysicalSize<u32>) {
+        self.current_window_size = new_window_size;
+        self.config.width = new_window_size.width;
+        self.config.height = new_window_size.height;
         self.surface.configure(&self.device, &self.config);
-        self.depth_texture =
-            Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+        self.render_texture = Texture::create_render_texture(
+            &self.device,
+            &self.config,
+            self.render_scale,
+            "render_texture",
+        );
+        self.depth_texture = Texture::create_depth_texture(
+            &self.device,
+            &self.config,
+            self.render_scale,
+            "depth_texture",
+        );
     }
 
     pub fn update(&mut self, window: &winit::window::Window) {
@@ -481,10 +618,24 @@ impl RendererState {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let output = self.surface.get_current_texture()?;
-        let view = output
+        let surface_texture = self.surface.get_current_texture()?;
+        let surface_texture_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+        let render_texture_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.surface_blit_pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.render_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.render_texture.sampler),
+                },
+            ],
+            label: Some("render_texture_bind_group"),
+        });
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -496,17 +647,20 @@ impl RendererState {
             b: 1.0,
             a: 1.0,
         };
+
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut scene_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    // view: &surface_texture,
+                    view: &self.render_texture_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(clear_color),
                         store: true,
                     },
                 }],
+                // depth_stencil_attachment: None,
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.depth_texture.view,
                     depth_ops: Some(wgpu::Operations {
@@ -517,8 +671,8 @@ impl RendererState {
                 }),
             });
 
-            render_pass.set_pipeline(&self.textured_mesh_pipeline);
-            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            scene_render_pass.set_pipeline(&self.textured_mesh_pipeline);
+            scene_render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
 
             vec![&self.sphere, &self.plane]
                 .iter()
@@ -533,33 +687,54 @@ impl RendererState {
                          normal_rotation_bind_group,
                          ..
                      }| {
-                        render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
-                        render_pass.set_bind_group(2, transform_bind_group, &[]);
-                        render_pass.set_bind_group(3, normal_rotation_bind_group, &[]);
-                        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                        render_pass
+                        scene_render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
+                        scene_render_pass.set_bind_group(2, transform_bind_group, &[]);
+                        scene_render_pass.set_bind_group(3, normal_rotation_bind_group, &[]);
+                        scene_render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                        scene_render_pass
                             .set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+                        scene_render_pass.draw_indexed(0..*num_indices, 0, 0..1);
                     },
                 );
 
-            render_pass.set_pipeline(&self.instanced_mesh_pipeline);
-            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            render_pass.set_bind_group(0, &self.balls_mesh.diffuse_texture_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.balls_mesh.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.balls_mesh.instance_buffer.slice(..));
-            render_pass.set_index_buffer(
+            scene_render_pass.set_pipeline(&self.instanced_mesh_pipeline);
+            scene_render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            scene_render_pass.set_bind_group(0, &self.balls_mesh.diffuse_texture_bind_group, &[]);
+            scene_render_pass.set_vertex_buffer(0, self.balls_mesh.vertex_buffer.slice(..));
+            scene_render_pass.set_vertex_buffer(1, self.balls_mesh.instance_buffer.slice(..));
+            scene_render_pass.set_index_buffer(
                 self.balls_mesh.index_buffer.slice(..),
                 wgpu::IndexFormat::Uint16,
             );
-            render_pass.draw_indexed(
+            scene_render_pass.draw_indexed(
                 0..self.balls_mesh.num_indices,
                 0,
                 0..self.balls.len() as u32,
             );
         }
+
+        {
+            let mut surface_blit_render_pass =
+                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: None,
+                    color_attachments: &[wgpu::RenderPassColorAttachment {
+                        view: &surface_texture_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                            store: true,
+                        },
+                    }],
+                    depth_stencil_attachment: None,
+                });
+
+            surface_blit_render_pass.set_pipeline(&self.surface_blit_pipeline);
+            surface_blit_render_pass.set_bind_group(0, &render_texture_bind_group, &[]);
+            surface_blit_render_pass.draw(0..3, 0..1);
+        }
+
         self.queue.submit(std::iter::once(encoder.finish()));
-        output.present();
+        surface_texture.present();
         Ok(())
     }
 }
