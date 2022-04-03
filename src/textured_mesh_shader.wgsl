@@ -76,7 +76,7 @@ fn instanced_vs_main(
     return do_vertex_shade(vshader_input, model_transform);
 }
 
-// fragment shader
+// main fragment shader
 
 [[group(0), binding(0)]]
 var t_diffuse: texture_2d<f32>;

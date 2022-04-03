@@ -12,6 +12,7 @@
 - [x] add super sampling anti-aliasing
 - [ ] add a skybox
   - [ ] try to use one of my photospheres or panorama from comp-425
+- [ ] use clippy with this project
 - [ ] support normal maps
 - [ ] refactor the proj!
 - [ ] support gltf format

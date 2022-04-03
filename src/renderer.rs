@@ -5,6 +5,7 @@ use super::*;
 use anyhow::Result;
 
 use cgmath::{Matrix4, One, Vector2, Vector3};
+use image::{DynamicImage, ImageError};
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -61,9 +62,12 @@ pub struct RendererState {
 
     textured_mesh_pipeline: wgpu::RenderPipeline,
     instanced_mesh_pipeline: wgpu::RenderPipeline,
+    skybox_pipeline: wgpu::RenderPipeline,
     surface_blit_pipeline: wgpu::RenderPipeline,
+
+    skybox_texture: Texture,
     render_texture: Texture,
-    render_texture_view: wgpu::TextureView,
+    // render_texture_view: wgpu::TextureView,
     depth_texture: Texture,
 
     balls: Vec<BallComponent>,
@@ -126,8 +130,13 @@ impl RendererState {
         });
 
         let blit_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-            label: None,
+            label: Some("Blit Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("blit.wgsl").into()),
+        });
+
+        let skybox_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            label: Some("Skybox Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("skybox_shader.wgsl").into()),
         });
 
         let diffuse_texture_bind_group_layout =
@@ -174,6 +183,39 @@ impl RendererState {
                     },
                 ],
                 label: Some("render_texture_bind_group_layout"),
+            });
+
+        // wgpu::BindGroupLayoutEntry {
+        //     binding: 0,
+        //     visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+        //     ty: wgpu::BindingType::Buffer {
+        //         ty: wgpu::BufferBindingType::Uniform,
+        //         has_dynamic_offset: false,
+        //         min_binding_size: None,
+        //     },
+        //     count: None,
+        // },
+        let skybox_texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::Cube,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
             });
 
         let uniform_var_bind_group_layout =
@@ -266,6 +308,50 @@ impl RendererState {
         instanced_mesh_pipeline_descriptor.vertex.buffers =
             instanced_mesh_pipeline_vertex_buffers_layout;
 
+        let skybox_render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Textured Mesh Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &skybox_texture_bind_group_layout,
+                    &uniform_var_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
+        let skybox_fragment_shader_color_targets = &[wgpu::ColorTargetState {
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            blend: Some(wgpu::BlendState::REPLACE),
+            write_mask: wgpu::ColorWrites::ALL,
+        }];
+        let skybox_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("Skybox Render Pipeline"),
+            layout: Some(&skybox_render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &skybox_shader,
+                entry_point: "vs_main",
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &skybox_shader,
+                entry_point: "fs_main",
+                targets: skybox_fragment_shader_color_targets,
+            }),
+            primitive: wgpu::PrimitiveState {
+                front_face: wgpu::FrontFace::Cw,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                // TODO: should this be LessEqual?
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        };
+
         let suface_blit_color_targets = &[wgpu::ColorTargetState {
             format: config.format,
             blend: Some(wgpu::BlendState::REPLACE),
@@ -306,6 +392,9 @@ impl RendererState {
         let surface_blit_pipeline =
             device.create_render_pipeline(&surface_blit_pipeline_descriptor);
 
+        // TODO: why is this line failing??
+        let skybox_pipeline = device.create_render_pipeline(&skybox_pipeline_descriptor);
+
         let render_scale = 2.0;
 
         let render_texture =
@@ -329,6 +418,34 @@ impl RendererState {
             None,
             None,
         )?;
+
+        let skybox_images = vec![
+            "./src/skybox/right.png",
+            "./src/skybox/left.png",
+            "./src/skybox/top.png",
+            "./src/skybox/bottom.png",
+            "./src/skybox/front.png",
+            "./src/skybox/back.png",
+        ]
+        .iter()
+        .map(|path| image::load_from_memory(&std::fs::read(path)?))
+        .collect::<Result<Vec<_>, _>>()?;
+        let skybox_texture = Texture::create_cubemap_texture(
+            &device,
+            &queue,
+            CreateCubeMapImagesParam {
+                pos_x: &skybox_images[0],
+                neg_x: &skybox_images[1],
+                pos_y: &skybox_images[2],
+                neg_y: &skybox_images[3],
+                pos_z: &skybox_images[4],
+                neg_z: &skybox_images[5],
+            },
+            Some("skybox_texture"),
+            // TODO: set to true!
+            false,
+        )?;
+
         let sphere_mesh = BasicMesh::new("./src/sphere.obj")?;
 
         let sphere = MeshComponent::new(
@@ -480,8 +597,10 @@ impl RendererState {
             textured_mesh_pipeline,
             instanced_mesh_pipeline,
             surface_blit_pipeline,
+            skybox_pipeline,
+            skybox_texture,
             render_texture,
-            render_texture_view,
+            // render_texture_view,
             depth_texture,
 
             balls,
@@ -527,10 +646,10 @@ impl RendererState {
                         self.render_scale,
                         "render_texture",
                     );
-                    self.render_texture_view = self
-                        .render_texture
-                        .texture
-                        .create_view(&wgpu::TextureViewDescriptor::default());
+                    // self.render_texture_view = self
+                    //     .render_texture
+                    //     .texture
+                    //     .create_view(&wgpu::TextureViewDescriptor::default());
                     self.depth_texture = Texture::create_depth_texture(
                         &self.device,
                         &self.config,
@@ -622,12 +741,28 @@ impl RendererState {
         let surface_texture_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+        // TODO: can I move these bind groups elsewhere?
+        let sky_box_texture_bind_group =
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.skybox_pipeline.get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&self.skybox_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.skybox_texture.sampler),
+                    },
+                ],
+                label: Some("skybox_texture_bind_group"),
+            });
         let render_texture_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &self.surface_blit_pipeline.get_bind_group_layout(0),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.render_texture_view),
+                    resource: wgpu::BindingResource::TextureView(&self.render_texture.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -653,7 +788,7 @@ impl RendererState {
                 label: Some("Render Pass"),
                 color_attachments: &[wgpu::RenderPassColorAttachment {
                     // view: &surface_texture,
-                    view: &self.render_texture_view,
+                    view: &self.render_texture.view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(clear_color),
@@ -711,6 +846,10 @@ impl RendererState {
                 0,
                 0..self.balls.len() as u32,
             );
+
+            scene_render_pass.set_pipeline(&self.skybox_pipeline);
+            scene_render_pass.set_bind_group(0, &sky_box_texture_bind_group, &[]);
+            scene_render_pass.draw(0..3, 0..1);
         }
 
         {

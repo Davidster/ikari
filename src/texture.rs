@@ -1,12 +1,22 @@
 use std::num::{NonZeroU32, NonZeroU8};
 
 use anyhow::*;
-use image::GenericImageView;
+use image::{GenericImageView, RgbaImage};
+use wgpu::util::DeviceExt;
 
 pub struct Texture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
+}
+
+pub struct CreateCubeMapImagesParam<'a> {
+    pub pos_x: &'a image::DynamicImage,
+    pub neg_x: &'a image::DynamicImage,
+    pub pos_y: &'a image::DynamicImage,
+    pub neg_y: &'a image::DynamicImage,
+    pub pos_z: &'a image::DynamicImage,
+    pub neg_z: &'a image::DynamicImage,
 }
 
 impl Texture {
@@ -45,9 +55,10 @@ impl Texture {
         min_filter: Option<wgpu::FilterMode>,
         anisotropy_clamp: Option<NonZeroU8>,
     ) -> Result<Self> {
-        let img_as_rgba = img
-            .as_rgba8()
-            .expect("Failed to convert image into rgba8. Is the image missing the alpha channel?");
+        let img_as_rgba = img.as_rgba8().ok_or_else(|| {
+            anyhow!("Failed to convert image into rgba8. Is the image missing the alpha channel?")
+        })?;
+
         let dimensions = img.dimensions();
 
         let size = wgpu::Extent3d {
@@ -106,97 +117,7 @@ impl Texture {
         });
 
         if generate_mipmaps {
-            let blit_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(include_str!("blit.wgsl").into()),
-            });
-
-            let mip_render_pipeline =
-                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("mip_render_pipeline"),
-                    layout: None,
-                    vertex: wgpu::VertexState {
-                        module: &blit_shader,
-                        entry_point: "vs_main",
-                        buffers: &[],
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: &blit_shader,
-                        entry_point: "fs_main",
-                        targets: &[wgpu::TextureFormat::Rgba8UnormSrgb.into()],
-                    }),
-                    primitive: wgpu::PrimitiveState {
-                        topology: wgpu::PrimitiveTopology::TriangleList,
-                        ..Default::default()
-                    },
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState::default(),
-                    multiview: None,
-                });
-
-            let mip_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-                label: Some("mip_sampler"),
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Nearest,
-                ..Default::default()
-            });
-
-            let mip_bind_group_layout = mip_render_pipeline.get_bind_group_layout(0);
-            let mip_texure_views = (0..mip_level_count)
-                .map(|mip| {
-                    texture.create_view(&wgpu::TextureViewDescriptor {
-                        label: Some("mip"),
-                        format: None,
-                        dimension: None,
-                        aspect: wgpu::TextureAspect::All,
-                        base_mip_level: mip,
-                        mip_level_count: NonZeroU32::new(1),
-                        base_array_layer: 0,
-                        array_layer_count: None,
-                    })
-                })
-                .collect::<Vec<_>>();
-
-            for target_mip in 1..mip_level_count as usize {
-                let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &mip_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(
-                                &mip_texure_views[target_mip - 1],
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(&mip_sampler),
-                        },
-                    ],
-                    label: None,
-                });
-
-                let mut rpass = mip_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[wgpu::RenderPassColorAttachment {
-                        view: &mip_texure_views[target_mip],
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                            store: true,
-                        },
-                    }],
-                    depth_stencil_attachment: None,
-                });
-                rpass.set_pipeline(&mip_render_pipeline);
-                rpass.set_bind_group(0, &bind_group, &[]);
-                rpass.draw(0..3, 0..1);
-            }
-
-            queue.submit(Some(mip_encoder.finish()));
+            generate_mipmaps_for_texture(device, queue, mip_encoder, &texture, mip_level_count);
         }
 
         Ok(Self {
@@ -288,4 +209,186 @@ impl Texture {
             sampler,
         }
     }
+
+    // each image should have the same dimensions!
+    pub fn create_cubemap_texture(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        images: CreateCubeMapImagesParam,
+        label: Option<&str>,
+        generate_mipmaps: bool,
+    ) -> Result<Self> {
+        // order of the images for a cubemap is documented here:
+        // https://www.khronos.org/opengl/wiki/Cubemap_Texture
+        let images_as_rgba = vec![
+            images.pos_x,
+            images.neg_x,
+            images.pos_y,
+            images.neg_y,
+            images.pos_z,
+            images.neg_z,
+        ]
+        .iter()
+        .map(|img| {
+            img.as_rgba8().ok_or_else(|| {
+                anyhow!(
+                    "Failed to convert image into rgba8. Is the image missing the alpha channel?"
+                )
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+        let dimensions = images_as_rgba[0].dimensions();
+
+        let size = wgpu::Extent3d {
+            width: dimensions.0,
+            height: dimensions.1,
+            depth_or_array_layers: 6,
+        };
+
+        let layer_size = wgpu::Extent3d {
+            depth_or_array_layers: 1,
+            ..size
+        };
+
+        let mip_level_count = if generate_mipmaps {
+            layer_size.max_mips()
+        } else {
+            1
+        };
+
+        let texture = device.create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label,
+                size,
+                mip_level_count,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            },
+            // pack images into one big byte array
+            &images_as_rgba
+                .iter()
+                .flat_map(|image| image.to_vec())
+                .collect::<Vec<_>>(),
+        );
+
+        if generate_mipmaps {
+            todo!("Call generate_mipmaps_for_texture for each side of the cubemap");
+        }
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::Cube),
+            ..wgpu::TextureViewDescriptor::default()
+        });
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        Ok(Self {
+            texture,
+            view,
+            sampler,
+        })
+    }
+}
+
+fn generate_mipmaps_for_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    mut mip_encoder: wgpu::CommandEncoder,
+    texture: &wgpu::Texture,
+    mip_level_count: u32,
+) {
+    let blit_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        label: None,
+        source: wgpu::ShaderSource::Wgsl(include_str!("blit.wgsl").into()),
+    });
+    let mip_render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("mip_render_pipeline"),
+        layout: None,
+        vertex: wgpu::VertexState {
+            module: &blit_shader,
+            entry_point: "vs_main",
+            buffers: &[],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &blit_shader,
+            entry_point: "fs_main",
+            targets: &[wgpu::TextureFormat::Rgba8UnormSrgb.into()],
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+    });
+    let mip_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("mip_sampler"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::FilterMode::Nearest,
+        ..Default::default()
+    });
+    let mip_bind_group_layout = mip_render_pipeline.get_bind_group_layout(0);
+    let mip_texure_views = (0..mip_level_count)
+        .map(|mip| {
+            texture.create_view(&wgpu::TextureViewDescriptor {
+                label: Some("mip"),
+                format: None,
+                dimension: None,
+                aspect: wgpu::TextureAspect::All,
+                base_mip_level: mip,
+                mip_level_count: NonZeroU32::new(1),
+                base_array_layer: 0,
+                array_layer_count: None,
+            })
+        })
+        .collect::<Vec<_>>();
+    for target_mip in 1..mip_level_count as usize {
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &mip_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&mip_texure_views[target_mip - 1]),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&mip_sampler),
+                },
+            ],
+            label: None,
+        });
+
+        let mut rpass = mip_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[wgpu::RenderPassColorAttachment {
+                view: &mip_texure_views[target_mip],
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                    store: true,
+                },
+            }],
+            depth_stencil_attachment: None,
+        });
+        rpass.set_pipeline(&mip_render_pipeline);
+        rpass.set_bind_group(0, &bind_group, &[]);
+        rpass.draw(0..3, 0..1);
+    }
+    queue.submit(Some(mip_encoder.finish()));
 }
