@@ -65,7 +65,7 @@ pub struct MeshComponent {
     pub num_indices: u32,
     pub _num_vertices: u32,
 
-    pub diffuse_texture_bind_group: wgpu::BindGroup,
+    pub diffuse_texture_bind_group: Option<wgpu::BindGroup>,
 
     pub normal_rotation_buffer: wgpu::Buffer,
     pub normal_rotation_bind_group: wgpu::BindGroup,
@@ -78,8 +78,7 @@ pub struct MeshComponent {
 impl MeshComponent {
     pub fn new(
         mesh: &BasicMesh,
-        diffuse_texture: &Texture,
-        diffuse_texture_bind_group_layout: &wgpu::BindGroupLayout,
+        diffuse_texture: Option<&Texture>,
         uniform_var_bind_group_layout: &wgpu::BindGroupLayout,
         device: &wgpu::Device,
     ) -> Result<MeshComponent> {
@@ -98,20 +97,46 @@ impl MeshComponent {
         let vertex_count = mesh.vertices.len() as u32;
         let index_count = mesh.indices.len() as u32;
 
-        let diffuse_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &diffuse_texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
-                },
-            ],
-            label: Some("MeshComponent diffuse_texture_bind_group"),
-        });
+        let diffuse_texture_bind_group = if let Some(diffuse_texture) = diffuse_texture {
+            let diffuse_texture_bind_group_layout =
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                multisampled: false,
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                    ],
+                    label: Some("diffuse_texture_bind_group_layout"),
+                });
+            Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &diffuse_texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                    },
+                ],
+                label: Some("MeshComponent diffuse_texture_bind_group"),
+            }))
+        } else {
+            None
+        };
 
         let transform = super::transform::Transform::new();
 
@@ -166,25 +191,19 @@ pub struct InstancedMeshComponent {
     pub instance_buffer: wgpu::Buffer,
     pub num_indices: u32,
     pub _num_vertices: u32,
-    pub diffuse_texture_bind_group: wgpu::BindGroup,
+    pub diffuse_texture_bind_group: Option<wgpu::BindGroup>,
 }
 
 impl InstancedMeshComponent {
     pub fn new(
         mesh: &BasicMesh,
-        diffuse_texture: &Texture,
-        diffuse_texture_bind_group_layout: &wgpu::BindGroupLayout,
+        diffuse_texture: Option<&Texture>,
         uniform_var_bind_group_layout: &wgpu::BindGroupLayout,
         device: &wgpu::Device,
         instances: &[GpuMeshInstance],
     ) -> Result<InstancedMeshComponent> {
-        let mesh_component = MeshComponent::new(
-            mesh,
-            diffuse_texture,
-            diffuse_texture_bind_group_layout,
-            uniform_var_bind_group_layout,
-            device,
-        )?;
+        let mesh_component =
+            MeshComponent::new(mesh, diffuse_texture, uniform_var_bind_group_layout, device)?;
 
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("InstancedMeshComponent instance_buffer"),

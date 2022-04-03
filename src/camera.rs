@@ -31,6 +31,12 @@ pub struct Camera {
     pose: CameraPose,
 }
 
+pub struct CameraViewProjMatrices {
+    pub proj: Matrix4<f32>,
+    pub view: Matrix4<f32>,
+    pub rotation_only_view: Matrix4<f32>,
+}
+
 impl Camera {
     pub fn new(initial_position: Vector3<f32>) -> Self {
         Camera {
@@ -42,25 +48,32 @@ impl Camera {
         }
     }
 
-    pub fn build_view_projection_matrix(&self, window: &winit::window::Window) -> Matrix4<f32> {
-        OPENGL_TO_WGPU_MATRIX
+    pub fn build_view_projection_matrices(
+        &self,
+        window: &winit::window::Window,
+    ) -> CameraViewProjMatrices {
+        let proj = OPENGL_TO_WGPU_MATRIX
             * make_perspective_matrix(
                 Z_NEAR,
                 Z_FAR,
                 FOV_Y.into(),
                 window.inner_size().width as f32 / window.inner_size().height as f32,
-            )
-            * make_rotation_matrix(Quaternion::from(Euler::new(
-                -self.pose.vertical_rotation,
-                Rad(0.0),
-                Rad(0.0),
-            )))
-            * make_rotation_matrix(Quaternion::from(Euler::new(
-                Rad(0.0),
-                -self.pose.horizontal_rotation,
-                Rad(0.0),
-            )))
-            * make_translation_matrix(-self.pose.position)
+            );
+        let rotation_only_view = make_rotation_matrix(Quaternion::from(Euler::new(
+            -self.pose.vertical_rotation,
+            Rad(0.0),
+            Rad(0.0),
+        ))) * make_rotation_matrix(Quaternion::from(Euler::new(
+            Rad(0.0),
+            -self.pose.horizontal_rotation,
+            Rad(0.0),
+        )));
+        let view = rotation_only_view * make_translation_matrix(-self.pose.position);
+        CameraViewProjMatrices {
+            proj,
+            view,
+            rotation_only_view,
+        }
     }
 
     pub fn get_direction_vector(&self) -> Vector3<f32> {

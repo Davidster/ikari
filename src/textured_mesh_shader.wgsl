@@ -1,6 +1,8 @@
 // Vertex shader
 struct CameraUniform {
-    view_proj: mat4x4<f32>;
+    proj: mat4x4<f32>;
+    view: mat4x4<f32>;
+    rotation_only_view: mat4x4<f32>;
 };
 [[group(1), binding(0)]]
 var<uniform> camera: CameraUniform;
@@ -37,8 +39,9 @@ fn do_vertex_shade(vshader_input: VertexInput, model_transform: mat4x4<f32>) -> 
     var out: VertexOutput;
     out.world_normal = vshader_input.object_normal;
     
+    let camera_view_proj = camera.proj * camera.view;
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
-    let model_view_matrix = camera.view_proj * model_transform;
+    let model_view_matrix = camera_view_proj * model_transform;
     let world_position = model_transform * object_position;
 
     out.world_position = world_position.xyz;

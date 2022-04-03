@@ -26,18 +26,29 @@ unsafe impl bytemuck::Zeroable for GpuMatrix3 {}
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct CameraUniform {
-    view_proj: [[f32; 4]; 4],
+    proj: [[f32; 4]; 4],
+    view: [[f32; 4]; 4],
+    rotation_only_view: [[f32; 4]; 4],
 }
 
 impl CameraUniform {
     fn new() -> Self {
         Self {
-            view_proj: Matrix4::one().into(),
+            proj: Matrix4::one().into(),
+            view: Matrix4::one().into(),
+            rotation_only_view: Matrix4::one().into(),
         }
     }
 
     fn update_view_proj(&mut self, camera: &Camera, window: &winit::window::Window) {
-        self.view_proj = camera.build_view_projection_matrix(&window).into();
+        let CameraViewProjMatrices {
+            proj,
+            view,
+            rotation_only_view,
+        } = camera.build_view_projection_matrices(&window);
+        self.proj = proj.into();
+        self.view = view.into();
+        self.rotation_only_view = rotation_only_view.into();
     }
 }
 
@@ -74,6 +85,7 @@ pub struct RendererState {
     balls_mesh: InstancedMeshComponent,
     sphere: MeshComponent,
     plane: MeshComponent,
+    skybox_mesh: MeshComponent,
 }
 
 impl RendererState {
@@ -139,6 +151,8 @@ impl RendererState {
             source: wgpu::ShaderSource::Wgsl(include_str!("skybox_shader.wgsl").into()),
         });
 
+        // TODO: make this be a global variable for the renderer, so everyone can read it
+        // and it doesn't get duplicated in mesh.rs
         let diffuse_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -329,7 +343,7 @@ impl RendererState {
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
-                buffers: &[],
+                buffers: &[TexturedVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
@@ -399,9 +413,6 @@ impl RendererState {
 
         let render_texture =
             Texture::create_render_texture(&device, &config, render_scale, "render_texture");
-        let render_texture_view = render_texture
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
         let depth_texture =
             Texture::create_depth_texture(&device, &config, render_scale, "depth_texture");
 
@@ -447,11 +458,14 @@ impl RendererState {
         )?;
 
         let sphere_mesh = BasicMesh::new("./src/sphere.obj")?;
+        let cube_mesh = BasicMesh::new("./src/cube.obj")?;
+
+        let skybox_mesh =
+            MeshComponent::new(&cube_mesh, None, &uniform_var_bind_group_layout, &device)?;
 
         let sphere = MeshComponent::new(
             &sphere_mesh,
-            &mars_texture,
-            &diffuse_texture_bind_group_layout,
+            Some(&mars_texture),
             &uniform_var_bind_group_layout,
             &device,
         )?;
@@ -504,8 +518,7 @@ impl RendererState {
 
         let plane = MeshComponent::new(
             &plane_mesh,
-            &checkerboard_texture,
-            &diffuse_texture_bind_group_layout,
+            Some(&checkerboard_texture),
             &uniform_var_bind_group_layout,
             &device,
         )?;
@@ -570,8 +583,7 @@ impl RendererState {
 
         let balls_mesh = InstancedMeshComponent::new(
             &sphere_mesh,
-            &mars_texture,
-            &diffuse_texture_bind_group_layout,
+            Some(&mars_texture),
             &uniform_var_bind_group_layout,
             &device,
             &balls_transforms,
@@ -607,6 +619,7 @@ impl RendererState {
             balls_mesh,
             sphere,
             plane,
+            skybox_mesh,
         })
     }
 
@@ -822,7 +835,9 @@ impl RendererState {
                          normal_rotation_bind_group,
                          ..
                      }| {
-                        scene_render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
+                        if let Some(diffuse_texture_bind_group) = diffuse_texture_bind_group {
+                            scene_render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
+                        }
                         scene_render_pass.set_bind_group(2, transform_bind_group, &[]);
                         scene_render_pass.set_bind_group(3, normal_rotation_bind_group, &[]);
                         scene_render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
@@ -834,7 +849,9 @@ impl RendererState {
 
             scene_render_pass.set_pipeline(&self.instanced_mesh_pipeline);
             scene_render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            scene_render_pass.set_bind_group(0, &self.balls_mesh.diffuse_texture_bind_group, &[]);
+            if let Some(diffuse_texture_bind_group) = &self.balls_mesh.diffuse_texture_bind_group {
+                scene_render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
+            }
             scene_render_pass.set_vertex_buffer(0, self.balls_mesh.vertex_buffer.slice(..));
             scene_render_pass.set_vertex_buffer(1, self.balls_mesh.instance_buffer.slice(..));
             scene_render_pass.set_index_buffer(
@@ -849,7 +866,12 @@ impl RendererState {
 
             scene_render_pass.set_pipeline(&self.skybox_pipeline);
             scene_render_pass.set_bind_group(0, &sky_box_texture_bind_group, &[]);
-            scene_render_pass.draw(0..3, 0..1);
+            scene_render_pass.set_vertex_buffer(0, self.skybox_mesh.vertex_buffer.slice(..));
+            scene_render_pass.set_index_buffer(
+                self.skybox_mesh.index_buffer.slice(..),
+                wgpu::IndexFormat::Uint16,
+            );
+            scene_render_pass.draw_indexed(0..self.skybox_mesh.num_indices, 0, 0..1);
         }
 
         {
