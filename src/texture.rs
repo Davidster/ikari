@@ -1,7 +1,7 @@
 use std::num::{NonZeroU32, NonZeroU8};
 
 use anyhow::*;
-use image::{GenericImageView, RgbaImage};
+use image::GenericImageView;
 use wgpu::util::DeviceExt;
 
 pub struct Texture {
@@ -28,6 +28,9 @@ impl Texture {
         bytes: &[u8],
         label: &str,
         generate_mipmaps: bool,
+        lod_min_clamp: Option<f32>,
+        lod_max_clamp: Option<f32>,
+        mipmap_filter: Option<wgpu::FilterMode>,
         mag_filter: Option<wgpu::FilterMode>,
         min_filter: Option<wgpu::FilterMode>,
         anisotropy_clamp: Option<NonZeroU8>,
@@ -39,18 +42,25 @@ impl Texture {
             &img,
             Some(label),
             generate_mipmaps,
+            lod_min_clamp,
+            lod_max_clamp,
+            mipmap_filter,
             mag_filter,
             min_filter,
             anisotropy_clamp,
         )
     }
 
+    // TODO: instead of a million parameters, use a struct that implements default or a wgpu::SamplerDescriptor
     pub fn from_image(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         img: &image::DynamicImage,
         label: Option<&str>,
         generate_mipmaps: bool,
+        lod_min_clamp: Option<f32>,
+        lod_max_clamp: Option<f32>,
+        mipmap_filter: Option<wgpu::FilterMode>,
         mag_filter: Option<wgpu::FilterMode>,
         min_filter: Option<wgpu::FilterMode>,
         anisotropy_clamp: Option<NonZeroU8>,
@@ -99,6 +109,11 @@ impl Texture {
         let sampler_mag_filter = mag_filter.unwrap_or(wgpu::FilterMode::Linear);
         let sampler_min_filter = min_filter.unwrap_or(wgpu::FilterMode::Linear);
         let sampler_anisotropy_clamp = anisotropy_clamp.or(NonZeroU8::new(8));
+        let mipmap_filter = mipmap_filter.unwrap_or(wgpu::FilterMode::Nearest);
+        let lod_min_clamp =
+            lod_min_clamp.unwrap_or(wgpu::SamplerDescriptor::default().lod_min_clamp);
+        let lod_max_clamp =
+            lod_max_clamp.unwrap_or(wgpu::SamplerDescriptor::default().lod_max_clamp);
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -107,12 +122,14 @@ impl Texture {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: sampler_mag_filter,
             min_filter: sampler_min_filter,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter,
             anisotropy_clamp: sampler_anisotropy_clamp,
+            lod_min_clamp,
+            lod_max_clamp,
             ..Default::default()
         });
 
-        let mut mip_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        let mip_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("mip_encoder"),
         });
 

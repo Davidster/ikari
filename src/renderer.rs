@@ -5,7 +5,6 @@ use super::*;
 use anyhow::Result;
 
 use cgmath::{Matrix4, One, Vector2, Vector3};
-use image::{DynamicImage, ImageError};
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -53,6 +52,7 @@ impl CameraUniform {
 }
 
 pub const ARENA_SIDE_LENGTH: f32 = 100.0;
+pub const USE_PHOTOSPHERE_SKYBOX: bool = true;
 
 pub struct RendererState {
     surface: wgpu::Surface,
@@ -73,12 +73,12 @@ pub struct RendererState {
 
     textured_mesh_pipeline: wgpu::RenderPipeline,
     instanced_mesh_pipeline: wgpu::RenderPipeline,
+
     skybox_pipeline: wgpu::RenderPipeline,
     surface_blit_pipeline: wgpu::RenderPipeline,
 
     skybox_texture: Texture,
     render_texture: Texture,
-    // render_texture_view: wgpu::TextureView,
     depth_texture: Texture,
 
     balls: Vec<BallComponent>,
@@ -91,6 +91,8 @@ pub struct RendererState {
 impl RendererState {
     pub async fn new(window: &winit::window::Window) -> Result<Self> {
         let mut logger = Logger::new();
+        // force it to vulkan to get renderdoc to work:
+        // let backends = wgpu::Backends::from(wgpu::Backend::Vulkan);
         let backends = wgpu::Backends::all();
         let instance = wgpu::Instance::new(backends);
         let size = window.inner_size();
@@ -150,6 +152,14 @@ impl RendererState {
             label: Some("Skybox Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("skybox_shader.wgsl").into()),
         });
+
+        let photosphere_skybox_shader =
+            device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                label: Some("Photosphere Skybox Shader"),
+                source: wgpu::ShaderSource::Wgsl(
+                    include_str!("photosphere_skybox_shader.wgsl").into(),
+                ),
+            });
 
         // TODO: make this be a global variable for the renderer, so everyone can read it
         // and it doesn't get duplicated in mesh.rs
@@ -211,7 +221,6 @@ impl RendererState {
         // },
         let skybox_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: None,
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
@@ -230,6 +239,29 @@ impl RendererState {
                         count: None,
                     },
                 ],
+                label: Some("skybox_texture_bind_group_layout"),
+            });
+        let photosphere_skybox_texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("photosphere_skybox_texture_bind_group_layout"),
             });
 
         let uniform_var_bind_group_layout =
@@ -322,50 +354,6 @@ impl RendererState {
         instanced_mesh_pipeline_descriptor.vertex.buffers =
             instanced_mesh_pipeline_vertex_buffers_layout;
 
-        let skybox_render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Textured Mesh Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &skybox_texture_bind_group_layout,
-                    &uniform_var_bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-
-        let skybox_fragment_shader_color_targets = &[wgpu::ColorTargetState {
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            blend: Some(wgpu::BlendState::REPLACE),
-            write_mask: wgpu::ColorWrites::ALL,
-        }];
-        let skybox_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("Skybox Render Pipeline"),
-            layout: Some(&skybox_render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &skybox_shader,
-                entry_point: "vs_main",
-                buffers: &[TexturedVertex::desc()],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &skybox_shader,
-                entry_point: "fs_main",
-                targets: skybox_fragment_shader_color_targets,
-            }),
-            primitive: wgpu::PrimitiveState {
-                front_face: wgpu::FrontFace::Cw,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: Texture::DEPTH_FORMAT,
-                depth_write_enabled: true,
-                // TODO: should this be LessEqual?
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        };
-
         let suface_blit_color_targets = &[wgpu::ColorTargetState {
             format: config.format,
             blend: Some(wgpu::BlendState::REPLACE),
@@ -406,10 +394,7 @@ impl RendererState {
         let surface_blit_pipeline =
             device.create_render_pipeline(&surface_blit_pipeline_descriptor);
 
-        // TODO: why is this line failing??
-        let skybox_pipeline = device.create_render_pipeline(&skybox_pipeline_descriptor);
-
-        let render_scale = 2.0;
+        let render_scale = 1.0;
 
         let render_texture =
             Texture::create_render_texture(&device, &config, render_scale, "render_texture");
@@ -428,34 +413,146 @@ impl RendererState {
             None,
             None,
             None,
+            None,
+            None,
+            None,
         )?;
 
-        let skybox_images = vec![
-            "./src/skybox/right.png",
-            "./src/skybox/left.png",
-            "./src/skybox/top.png",
-            "./src/skybox/bottom.png",
-            "./src/skybox/front.png",
-            "./src/skybox/back.png",
-        ]
-        .iter()
-        .map(|path| image::load_from_memory(&std::fs::read(path)?))
-        .collect::<Result<Vec<_>, _>>()?;
-        let skybox_texture = Texture::create_cubemap_texture(
-            &device,
-            &queue,
-            CreateCubeMapImagesParam {
-                pos_x: &skybox_images[0],
-                neg_x: &skybox_images[1],
-                pos_y: &skybox_images[2],
-                neg_y: &skybox_images[3],
-                pos_z: &skybox_images[4],
-                neg_z: &skybox_images[5],
-            },
-            Some("skybox_texture"),
-            // TODO: set to true!
-            false,
-        )?;
+        let skybox_fragment_shader_color_targets = &[wgpu::ColorTargetState {
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            blend: Some(wgpu::BlendState::REPLACE),
+            write_mask: wgpu::ColorWrites::ALL,
+        }];
+
+        let (skybox_pipeline, skybox_texture) = if USE_PHOTOSPHERE_SKYBOX {
+            let photosphere_skybox_render_pipeline_layout =
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Photosphere Skybox Render Pipeline Layout"),
+                    bind_group_layouts: &[
+                        &photosphere_skybox_texture_bind_group_layout,
+                        &uniform_var_bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
+                });
+
+            let photosphere_skybox_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+                label: Some("Photosphere Skybox Render Pipeline"),
+                layout: Some(&photosphere_skybox_render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &photosphere_skybox_shader,
+                    entry_point: "vs_main",
+                    buffers: &[TexturedVertex::desc()],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &photosphere_skybox_shader,
+                    entry_point: "fs_main",
+                    targets: skybox_fragment_shader_color_targets,
+                }),
+                primitive: wgpu::PrimitiveState {
+                    front_face: wgpu::FrontFace::Cw,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: Texture::DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    // TODO: should this be LessEqual?
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+            };
+
+            let photosphere_skybox_pipeline =
+                device.create_render_pipeline(&photosphere_skybox_pipeline_descriptor);
+            let photosphere_skybox_texture_path = "./src/photosphere_skybox.png";
+            let photosphere_skybox_texture_bytes = std::fs::read(photosphere_skybox_texture_path)?;
+            let photosphere_skybox_texture = Texture::from_bytes(
+                &device,
+                &queue,
+                &photosphere_skybox_texture_bytes,
+                photosphere_skybox_texture_path,
+                false, // an artifact occurs between the edges of the texture with mipmaps enabled
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )?;
+
+            (photosphere_skybox_pipeline, photosphere_skybox_texture)
+        } else {
+            let skybox_render_pipeline_layout =
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Skybox Render Pipeline Layout"),
+                    bind_group_layouts: &[
+                        &skybox_texture_bind_group_layout,
+                        &uniform_var_bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
+                });
+
+            let skybox_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+                label: Some("Skybox Render Pipeline"),
+                layout: Some(&skybox_render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &skybox_shader,
+                    entry_point: "vs_main",
+                    buffers: &[TexturedVertex::desc()],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &skybox_shader,
+                    entry_point: "fs_main",
+                    targets: skybox_fragment_shader_color_targets,
+                }),
+                primitive: wgpu::PrimitiveState {
+                    front_face: wgpu::FrontFace::Cw,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: Texture::DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    // TODO: should this be LessEqual?
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+            };
+            let skybox_pipeline = device.create_render_pipeline(&skybox_pipeline_descriptor);
+
+            let cubemap_skybox_images = vec![
+                "./src/skybox/right.png",
+                "./src/skybox/left.png",
+                "./src/skybox/top.png",
+                "./src/skybox/bottom.png",
+                "./src/skybox/front.png",
+                "./src/skybox/back.png",
+            ]
+            .iter()
+            .map(|path| image::load_from_memory(&std::fs::read(path)?))
+            .collect::<Result<Vec<_>, _>>()?;
+            let cubemap_skybox_texture = Texture::create_cubemap_texture(
+                &device,
+                &queue,
+                CreateCubeMapImagesParam {
+                    pos_x: &cubemap_skybox_images[0],
+                    neg_x: &cubemap_skybox_images[1],
+                    pos_y: &cubemap_skybox_images[2],
+                    neg_y: &cubemap_skybox_images[3],
+                    pos_z: &cubemap_skybox_images[4],
+                    neg_z: &cubemap_skybox_images[5],
+                },
+                Some("skybox_texture"),
+                // TODO: set to true!
+                false,
+            )?;
+
+            (skybox_pipeline, cubemap_skybox_texture)
+        };
 
         let sphere_mesh = BasicMesh::new("./src/sphere.obj")?;
         let cube_mesh = BasicMesh::new("./src/cube.obj")?;
@@ -510,6 +607,9 @@ impl RendererState {
             &checkerboard_texture_img,
             Some("checkerboard_texture"),
             true,
+            None,
+            None,
+            None,
             wgpu::FilterMode::Nearest.into(),
             None,
             None,
@@ -561,7 +661,7 @@ impl RendererState {
             label: Some("camera_bind_group"),
         });
 
-        let balls: Vec<_> = (0..1000)
+        let balls: Vec<_> = (0..25000)
             .into_iter()
             .map(|_| {
                 BallComponent::new(
@@ -612,7 +712,6 @@ impl RendererState {
             skybox_pipeline,
             skybox_texture,
             render_texture,
-            // render_texture_view,
             depth_texture,
 
             balls,
@@ -864,6 +963,8 @@ impl RendererState {
                 0..self.balls.len() as u32,
             );
 
+            // TODO: does it make sense to render the skybox here?
+            // doing it in the surface blit pass is faster and might not change the quality when using SSAA
             scene_render_pass.set_pipeline(&self.skybox_pipeline);
             scene_render_pass.set_bind_group(0, &sky_box_texture_bind_group, &[]);
             scene_render_pass.set_vertex_buffer(0, self.skybox_mesh.vertex_buffer.slice(..));
