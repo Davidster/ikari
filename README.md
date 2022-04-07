@@ -12,6 +12,7 @@
 - [x] add super sampling anti-aliasing
 - [x] add a skybox
   - [x] try to use one of my photospheres or panorama from comp-425 - it worked!
+- [ ] see if rust 1.60 improves the stability of the simulation with the std::Instant changes
 - [ ] use clippy with this project
 - [ ] support normal maps
 - [ ] refactor the proj!
