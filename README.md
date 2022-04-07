@@ -1,6 +1,6 @@
 ## Latest screenshot:
 
-![image](https://user-images.githubusercontent.com/2389735/161167636-31e7215f-0c7d-4c11-b4bb-d33b7343a48b.png)
+![image](https://user-images.githubusercontent.com/2389735/162113906-6e92e045-5057-41d0-9fec-258a742522fd.png)
 
 ## TODO List
 - [x] basic phong shading 
@@ -10,8 +10,8 @@
 - [x] spawn as many planets as I can, make them bounce around the boundaries
 - [x] add mipmaps
 - [x] add super sampling anti-aliasing
-- [ ] add a skybox
-  - [ ] try to use one of my photospheres or panorama from comp-425
+- [x] add a skybox
+  - [x] try to use one of my photospheres or panorama from comp-425 - it worked!
 - [ ] use clippy with this project
 - [ ] support normal maps
 - [ ] refactor the proj!
