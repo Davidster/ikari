@@ -132,8 +132,8 @@ impl RendererState {
             format: swapchain_format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
-            // present_mode: wgpu::PresentMode::Immediate,
+            // present_mode: wgpu::PresentMode::Fifo,
+            present_mode: wgpu::PresentMode::Immediate,
         };
 
         surface.configure(&device, &config);
@@ -661,7 +661,7 @@ impl RendererState {
             label: Some("camera_bind_group"),
         });
 
-        let balls: Vec<_> = (0..25000)
+        let balls: Vec<_> = (0..10000)
             .into_iter()
             .map(|_| {
                 BallComponent::new(

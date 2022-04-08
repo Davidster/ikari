@@ -24,8 +24,8 @@ async fn start() {
     let window = {
         let window = winit::window::WindowBuilder::new()
             // .with_inner_size(winit::dpi::LogicalSize::new(1000.0f32, 1000.0f32))
-            .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
-            // .with_inner_size(winit::dpi::PhysicalSize::new(1920.0, 1080.0))
+            // .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
+            .with_inner_size(winit::dpi::PhysicalSize::new(1920.0, 1080.0))
             .with_title("David's window name")
             // .with_visible(false)
             .build(&event_loop)
