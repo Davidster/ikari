@@ -51,7 +51,6 @@ impl Texture {
         )
     }
 
-    // TODO: instead of a million parameters, use a struct that implements default or a wgpu::SamplerDescriptor
     pub fn from_image(
         device: &wgpu::Device,
         queue: &wgpu::Queue,

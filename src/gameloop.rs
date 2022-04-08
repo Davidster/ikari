@@ -23,7 +23,7 @@ pub async fn run<'a>(
                 renderer_state.update(&window);
                 renderer_state.logger.on_frame_completed();
 
-                let last_log_time_clone = last_log_time.clone();
+                let last_log_time_clone = last_log_time;
                 let mut write_logs = || {
                     renderer_state.logger.write_to_term();
                     last_log_time = Some(Instant::now());

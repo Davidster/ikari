@@ -44,7 +44,7 @@ impl CameraUniform {
             proj,
             view,
             rotation_only_view,
-        } = camera.build_view_projection_matrices(&window);
+        } = camera.build_view_projection_matrices(window);
         self.proj = proj.into();
         self.view = view.into();
         self.rotation_only_view = rotation_only_view.into();
@@ -644,7 +644,7 @@ impl RendererState {
         let camera_controller = CameraController::new(0.1, &camera);
 
         let mut camera_uniform = CameraUniform::new();
-        camera_uniform.update_view_proj(&camera, &window);
+        camera_uniform.update_view_proj(&camera, window);
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
@@ -736,53 +736,51 @@ impl RendererState {
         event: &winit::event::WindowEvent,
         window: &mut winit::window::Window,
     ) {
-        match event {
-            WindowEvent::KeyboardInput {
-                input:
-                    KeyboardInput {
-                        state,
-                        virtual_keycode: Some(keycode),
-                        ..
-                    },
-                ..
-            } => {
-                let mut inrcement_render_scale = |increase: bool| {
-                    let delta = 0.1;
-                    let change = if increase { delta } else { -delta };
-                    self.render_scale = (self.render_scale + change).max(0.1).min(4.0);
-                    self.logger
-                        .log(&format!("Render scale: {:?}", self.render_scale));
-                    self.render_texture = Texture::create_render_texture(
-                        &self.device,
-                        &self.config,
-                        self.render_scale,
-                        "render_texture",
-                    );
-                    // self.render_texture_view = self
-                    //     .render_texture
-                    //     .texture
-                    //     .create_view(&wgpu::TextureViewDescriptor::default());
-                    self.depth_texture = Texture::create_depth_texture(
-                        &self.device,
-                        &self.config,
-                        self.render_scale,
-                        "depth_texture",
-                    );
-                };
-                if *state == ElementState::Released {
-                    match keycode {
-                        VirtualKeyCode::Z => {
-                            inrcement_render_scale(false);
-                        }
-                        VirtualKeyCode::X => {
-                            inrcement_render_scale(true);
-                        }
-                        _ => {}
+        if let WindowEvent::KeyboardInput {
+            input:
+                KeyboardInput {
+                    state,
+                    virtual_keycode: Some(keycode),
+                    ..
+                },
+            ..
+        } = event
+        {
+            let mut inrcement_render_scale = |increase: bool| {
+                let delta = 0.1;
+                let change = if increase { delta } else { -delta };
+                self.render_scale = (self.render_scale + change).max(0.1).min(4.0);
+                self.logger
+                    .log(&format!("Render scale: {:?}", self.render_scale));
+                self.render_texture = Texture::create_render_texture(
+                    &self.device,
+                    &self.config,
+                    self.render_scale,
+                    "render_texture",
+                );
+                // self.render_texture_view = self
+                //     .render_texture
+                //     .texture
+                //     .create_view(&wgpu::TextureViewDescriptor::default());
+                self.depth_texture = Texture::create_depth_texture(
+                    &self.device,
+                    &self.config,
+                    self.render_scale,
+                    "depth_texture",
+                );
+            };
+            if *state == ElementState::Released {
+                match keycode {
+                    VirtualKeyCode::Z => {
+                        inrcement_render_scale(false);
                     }
+                    VirtualKeyCode::X => {
+                        inrcement_render_scale(true);
+                    }
+                    _ => {}
                 }
             }
-            _ => {}
-        };
+        }
         self.camera_controller
             .process_window_events(event, window, &mut self.logger);
     }
@@ -921,30 +919,27 @@ impl RendererState {
             scene_render_pass.set_pipeline(&self.textured_mesh_pipeline);
             scene_render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
 
-            vec![&self.sphere, &self.plane]
-                .iter()
-                .map(|mesh| *mesh)
-                .for_each(
-                    |MeshComponent {
-                         diffuse_texture_bind_group,
-                         vertex_buffer,
-                         index_buffer,
-                         num_indices,
-                         transform_bind_group,
-                         normal_rotation_bind_group,
-                         ..
-                     }| {
-                        if let Some(diffuse_texture_bind_group) = diffuse_texture_bind_group {
-                            scene_render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
-                        }
-                        scene_render_pass.set_bind_group(2, transform_bind_group, &[]);
-                        scene_render_pass.set_bind_group(3, normal_rotation_bind_group, &[]);
-                        scene_render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                        scene_render_pass
-                            .set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                        scene_render_pass.draw_indexed(0..*num_indices, 0, 0..1);
-                    },
-                );
+            vec![&self.sphere, &self.plane].iter().copied().for_each(
+                |MeshComponent {
+                     diffuse_texture_bind_group,
+                     vertex_buffer,
+                     index_buffer,
+                     num_indices,
+                     transform_bind_group,
+                     normal_rotation_bind_group,
+                     ..
+                 }| {
+                    if let Some(diffuse_texture_bind_group) = diffuse_texture_bind_group {
+                        scene_render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
+                    }
+                    scene_render_pass.set_bind_group(2, transform_bind_group, &[]);
+                    scene_render_pass.set_bind_group(3, normal_rotation_bind_group, &[]);
+                    scene_render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                    scene_render_pass
+                        .set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                    scene_render_pass.draw_indexed(0..*num_indices, 0, 0..1);
+                },
+            );
 
             scene_render_pass.set_pipeline(&self.instanced_mesh_pipeline);
             scene_render_pass.set_bind_group(1, &self.camera_bind_group, &[]);

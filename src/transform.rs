@@ -63,7 +63,7 @@ impl Transform {
 
     pub fn _get_rotation_matrix3(&self) -> Matrix3<f32> {
         let rotation_matrix = self.get_rotation_matrix();
-        return Matrix3::from_cols(
+        Matrix3::from_cols(
             Vector3::new(
                 rotation_matrix.x.x,
                 rotation_matrix.x.y,
@@ -79,7 +79,7 @@ impl Transform {
                 rotation_matrix.z.y,
                 rotation_matrix.z.z,
             ),
-        );
+        )
     }
 
     fn resync_matrix(&self) {

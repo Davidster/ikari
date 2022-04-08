@@ -24,7 +24,7 @@ pub fn make_quat_from_axis_angle(axis: Vector3<f32>, angle: f32) -> Quaternion<f
 
     let w = (angle / 2.0).cos();
 
-    return Quaternion::new(w, x, y, z);
+    Quaternion::new(w, x, y, z)
 }
 
 // from https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation#Quaternion-derived_rotation_matrix

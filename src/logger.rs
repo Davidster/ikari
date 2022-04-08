@@ -45,7 +45,7 @@ impl Logger {
         self.terminal
             .clear_screen()
             .expect("Failed to clear terminal");
-        let avg_frame_time_millis: Option<f64> = if self.recent_frame_times.len() != 0 {
+        let avg_frame_time_millis: Option<f64> = if !self.recent_frame_times.is_empty() {
             let alpha = 0.1;
             let mut frame_times_iterator = self
                 .recent_frame_times
@@ -72,7 +72,7 @@ impl Logger {
         let mut lines_used = 0;
 
         'outer: for log in &self.log_buffer {
-            for log_line in log.split("\n") {
+            for log_line in log.split('\n') {
                 self.terminal
                     .write_line(log_line)
                     .expect("Failed to write line to terminal");

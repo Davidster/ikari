@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{hash_map, HashMap};
 
 use super::*;
 
@@ -147,7 +147,7 @@ impl MeshComponent {
         });
 
         let transform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &uniform_var_bind_group_layout,
+            layout: uniform_var_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: transform_buffer.as_entire_binding(),
@@ -162,7 +162,7 @@ impl MeshComponent {
         });
 
         let normal_rotation_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &uniform_var_bind_group_layout,
+            layout: uniform_var_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: normal_rotation_buffer.as_entire_binding(),
@@ -261,7 +261,7 @@ impl BasicMesh {
             let normal_index = vti.2.expect("Obj file is missing normal");
             let uv_index = vti.1.expect("Obj file is missing uv index");
             let key = (pos_index, normal_index, uv_index);
-            if !composite_index_map.contains_key(&key) {
+            if let hash_map::Entry::Vacant(vacant_entry) = composite_index_map.entry(key) {
                 let wavefront_obj::obj::Vertex {
                     x: p_x,
                     y: p_y,
@@ -273,14 +273,11 @@ impl BasicMesh {
                     z: n_z,
                 } = obj.normals[normal_index];
                 let wavefront_obj::obj::TVertex { u, v, .. } = obj.tex_vertices[uv_index];
-                composite_index_map.insert(
-                    key,
-                    TexturedVertex {
-                        position: [p_x as f32, p_y as f32, p_z as f32],
-                        normal: [n_x as f32, n_y as f32, n_z as f32],
-                        tex_coords: [u as f32, 1.0 - v as f32],
-                    },
-                );
+                vacant_entry.insert(TexturedVertex {
+                    position: [p_x as f32, p_y as f32, p_z as f32],
+                    normal: [n_x as f32, n_y as f32, n_z as f32],
+                    tex_coords: [u as f32, 1.0 - v as f32],
+                });
             }
         });
         let mut index_map: HashMap<(usize, usize, usize), usize> = HashMap::new();
