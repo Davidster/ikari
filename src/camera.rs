@@ -17,7 +17,7 @@ pub const OPENGL_TO_WGPU_MATRIX: Matrix4<f32> = Matrix4::new(
 );
 
 pub const Z_NEAR: f32 = 0.01;
-pub const Z_FAR: f32 = 10000.0;
+pub const Z_FAR: f32 = 100000.0;
 pub const FOV_Y: Deg<f32> = Deg(45.0);
 
 #[derive(Copy, Clone, Debug, PartialEq)]

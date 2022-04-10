@@ -3,6 +3,7 @@ struct CameraUniform {
     proj: mat4x4<f32>;
     view: mat4x4<f32>;
     rotation_only_view: mat4x4<f32>;
+    near_plane_distance: f32;
     far_plane_distance: f32;
 };
 [[group(1), binding(0)]]
@@ -34,6 +35,12 @@ struct VertexOutput {
     [[location(0)]] world_position: vec3<f32>;
     [[location(1)]] world_normal: vec3<f32>;
     [[location(2)]] tex_coords: vec2<f32>;
+    [[location(3)]] clip_position_nopersp: vec4<f32>; // clip position without perspective division
+};
+
+struct FragmentOutput {
+    [[location(0)]] color: vec4<f32>;
+    [[builtin(frag_depth)]] depth: f32;
 };
 
 fn do_vertex_shade(vshader_input: VertexInput, model_transform: mat4x4<f32>) -> VertexOutput {
@@ -46,15 +53,9 @@ fn do_vertex_shade(vshader_input: VertexInput, model_transform: mat4x4<f32>) -> 
     let world_position = model_transform * object_position;
     var clip_position = model_view_matrix * object_position;
 
-    // apply logarithmic depth
-    // https://outerra.blogspot.com/2009/08/logarithmic-z-buffer.html
-    let nearby_object_resolution_scalar = 1.0;
-    clip_position.z = log(nearby_object_resolution_scalar * clip_position.w + 1.0)
-            / log(nearby_object_resolution_scalar * camera.far_plane_distance + 1.0);
-    clip_position.z = clip_position.z * clip_position.w;
-
     out.world_position = world_position.xyz;
     out.clip_position = clip_position;
+    out.clip_position_nopersp = clip_position;
 
     out.world_normal = normalize((model_transform * vec4<f32>(vshader_input.object_normal, 0.0)).xyz);
 
@@ -96,7 +97,14 @@ var t_diffuse: texture_2d<f32>;
 var s_diffuse: sampler;
 
 [[stage(fragment)]]
-fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+fn fs_main(in: VertexOutput) -> FragmentOutput {
+    // apply logarithmic depth
+    // https://outerra.blogspot.com/2009/08/logarithmic-z-buffer.html
+    // https://www.gamedev.net/blog/73/entry-2006307-tip-of-the-day-logarithmic-zbuffer-artifacts-fix/
+    let c = 1.0;
+    let depth_override = log(1.0 + in.clip_position_nopersp.z * c)
+            / log(1.0 + camera.far_plane_distance * c);
+
     let to_light_vec = normalize(vec3<f32>(0.0, 3.0, 0.0) - in.world_position);
     let light_intensity = max(dot(in.world_normal, to_light_vec), 0.0);
     let albedo = textureSample(t_diffuse, s_diffuse, in.tex_coords);
@@ -105,9 +113,12 @@ fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     let distance_squared = dot(to_light_vec, to_light_vec) * 2.0;
     let final_light_intensity =
         ambient_light + ((light_intensity * max_light_intensity) / distance_squared);
-    let final = final_light_intensity * albedo;
-    // let final = final_light_intensity * vec4<f32>(0.5, 0.5, 0.5, 1.0);
-    let some_color = vec4<f32>(0.5, 1.0, 0.5, 1.0);
-    // return some_color;
-    return final;
+    let final_color = final_light_intensity * albedo;
+    // let final_color = final_light_intensity * vec4<f32>(0.5, 0.5, 0.5, 1.0);
+    // let some_color = vec4<f32>(0.5, 1.0, 0.5, 1.0);
+    
+    var out: FragmentOutput;
+    out.color = final_color;
+    out.depth = depth_override;
+    return out;
 }

@@ -28,8 +28,9 @@ struct CameraUniform {
     proj: [[f32; 4]; 4],
     view: [[f32; 4]; 4],
     rotation_only_view: [[f32; 4]; 4],
+    near_plane_distance: f32,
     far_plane_distance: f32,
-    padding: [f32; 3],
+    padding: [f32; 2],
 }
 
 impl CameraUniform {
@@ -38,8 +39,9 @@ impl CameraUniform {
             proj: Matrix4::one().into(),
             view: Matrix4::one().into(),
             rotation_only_view: Matrix4::one().into(),
+            near_plane_distance: camera::Z_NEAR,
             far_plane_distance: camera::Z_FAR,
-            padding: [0.0; 3],
+            padding: [0.0; 2],
         }
     }
 
@@ -140,8 +142,8 @@ impl RendererState {
             format: swapchain_format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
-            // present_mode: wgpu::PresentMode::Immediate,
+            // present_mode: wgpu::PresentMode::Fifo,
+            present_mode: wgpu::PresentMode::Immediate,
         };
 
         surface.configure(&device, &config);
@@ -276,7 +278,7 @@ impl RendererState {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -622,7 +624,7 @@ impl RendererState {
             None,
             None,
         )?;
-        let plane_mesh = BasicMesh::new("./src/plane_subdivided.obj")?;
+        let plane_mesh = BasicMesh::new("./src/plane.obj")?;
 
         let plane = MeshComponent::new(
             &plane_mesh,
@@ -669,7 +671,7 @@ impl RendererState {
             label: Some("camera_bind_group"),
         });
 
-        let balls: Vec<_> = (0..50000)
+        let balls: Vec<_> = (0..10000)
             .into_iter()
             .map(|_| {
                 BallComponent::new(
