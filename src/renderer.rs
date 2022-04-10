@@ -51,8 +51,8 @@ impl CameraUniform {
     }
 }
 
-pub const ARENA_SIDE_LENGTH: f32 = 100.0;
-pub const USE_PHOTOSPHERE_SKYBOX: bool = true;
+pub const ARENA_SIDE_LENGTH: f32 = 1000.0;
+pub const USE_PHOTOSPHERE_SKYBOX: bool = false;
 
 pub struct RendererState {
     surface: wgpu::Surface,
@@ -60,7 +60,8 @@ pub struct RendererState {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     render_scale: f32,
-    last_update_time: Option<Instant>,
+    state_update_time_accumulator: f32,
+    last_frame_instant: Option<Instant>,
     pub rendered_first_frame: bool,
     pub current_window_size: winit::dpi::PhysicalSize<u32>,
     pub logger: Logger,
@@ -80,8 +81,11 @@ pub struct RendererState {
     skybox_texture: Texture,
     render_texture: Texture,
     depth_texture: Texture,
+    // store the previous state and next state and interpolate between them
+    next_balls: Vec<BallComponent>,
+    prev_balls: Vec<BallComponent>,
+    actual_balls: Vec<BallComponent>,
 
-    balls: Vec<BallComponent>,
     balls_mesh: InstancedMeshComponent,
     sphere: MeshComponent,
     plane: MeshComponent,
@@ -132,8 +136,8 @@ impl RendererState {
             format: swapchain_format,
             width: size.width,
             height: size.height,
-            // present_mode: wgpu::PresentMode::Fifo,
-            present_mode: wgpu::PresentMode::Immediate,
+            present_mode: wgpu::PresentMode::Fifo,
+            // present_mode: wgpu::PresentMode::Immediate,
         };
 
         surface.configure(&device, &config);
@@ -394,7 +398,7 @@ impl RendererState {
         let surface_blit_pipeline =
             device.create_render_pipeline(&surface_blit_pipeline_descriptor);
 
-        let render_scale = 1.0;
+        let render_scale = 2.0;
 
         let render_texture =
             Texture::create_render_texture(&device, &config, render_scale, "render_texture");
@@ -641,7 +645,7 @@ impl RendererState {
 
         let camera = Camera::new((0.0, 2.0, 7.0).into());
 
-        let camera_controller = CameraController::new(0.1, &camera);
+        let camera_controller = CameraController::new(6.0, &camera);
 
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_proj(&camera, window);
@@ -661,17 +665,20 @@ impl RendererState {
             label: Some("camera_bind_group"),
         });
 
-        let balls: Vec<_> = (0..10000)
+        let balls: Vec<_> = (0..50000)
             .into_iter()
             .map(|_| {
                 BallComponent::new(
-                    Vector2::new(0.0, 0.0),
+                    Vector2::new(
+                        -10.0 + rand::random::<f32>() * 20.0,
+                        -10.0 + rand::random::<f32>() * 20.0,
+                    ),
                     Vector2::new(
                         -1.0 + rand::random::<f32>() * 2.0,
                         -1.0 + rand::random::<f32>() * 2.0,
                     ),
                     0.5 + (rand::random::<f32>() * 0.75),
-                    0.025 + (rand::random::<f32>() * 0.2),
+                    1.0 + (rand::random::<f32>() * 15.0),
                 )
             })
             .collect();
@@ -695,7 +702,8 @@ impl RendererState {
             queue,
             config,
             render_scale,
-            last_update_time: None,
+            state_update_time_accumulator: 0.0,
+            last_frame_instant: None,
             rendered_first_frame: false,
             logger,
             current_window_size: size,
@@ -714,7 +722,10 @@ impl RendererState {
             render_texture,
             depth_texture,
 
-            balls,
+            next_balls: balls.clone(),
+            prev_balls: balls.clone(),
+            actual_balls: balls,
+
             balls_mesh,
             sphere,
             plane,
@@ -805,19 +816,54 @@ impl RendererState {
     }
 
     pub fn update(&mut self, window: &winit::window::Window) {
-        let one_milli_in_nanos = 1_000_000.0;
-        let sixty_fps_frame_time_nanos = one_milli_in_nanos * 1_000.0 / 60.0;
-        let dt = if let Some(last_update_time) = self.last_update_time {
-            (last_update_time.elapsed().as_nanos() as f32) / sixty_fps_frame_time_nanos
+        // results in ~60 state changes per second
+        let min_update_timestep_seconds = 1.0 / 60.0;
+        // if frametime takes longer than this, we give up on trying to catch up completely
+        // prevents the game from getting stuck in a spiral of death
+        let max_delay_catchup_seconds = 0.25;
+        let frame_instant = Instant::now();
+        let one_second_in_nanos = 1_000_000_000.0;
+        let mut frame_time_seconds = if let Some(last_frame_instant) = self.last_frame_instant {
+            (frame_instant.duration_since(last_frame_instant).as_nanos() as f32)
+                / one_second_in_nanos
         } else {
             0.0
         };
-        // self.logger.log(&format!("dt: {:?}", dt));
-        self.balls
-            .iter_mut()
-            .for_each(|ball| ball.update(dt, &mut self.logger));
+        if frame_time_seconds > max_delay_catchup_seconds {
+            frame_time_seconds = max_delay_catchup_seconds;
+        }
+        self.last_frame_instant = Some(frame_instant);
+        self.state_update_time_accumulator += frame_time_seconds;
+
+        // update ball positions
+        while self.state_update_time_accumulator >= min_update_timestep_seconds {
+            if self.state_update_time_accumulator < min_update_timestep_seconds * 2.0 {
+                self.prev_balls = self.next_balls.clone();
+            }
+            self.prev_balls = self.next_balls.clone();
+            self.next_balls
+                .iter_mut()
+                .for_each(|ball| ball.update(min_update_timestep_seconds, &mut self.logger));
+            self.state_update_time_accumulator -= min_update_timestep_seconds;
+        }
+        let alpha = self.state_update_time_accumulator / min_update_timestep_seconds;
+        self.actual_balls = self
+            .prev_balls
+            .iter()
+            .zip(self.next_balls.iter())
+            .map(|(prev_ball, next_ball)| prev_ball.lerp(next_ball, alpha))
+            .collect();
+
+        // self.logger
+        //     .log(&format!("Frame time: {:?}", frame_time_seconds));
+        // self.logger.log(&format!(
+        //     "state_update_time_accumulator: {:?}",
+        //     self.state_update_time_accumulator
+        // ));
+
+        // send data to gpu
         let balls_transforms: Vec<_> = self
-            .balls
+            .actual_balls
             .iter()
             .map(|ball| GpuMeshInstance::new(ball.transform.matrix.get()))
             .collect();
@@ -836,14 +882,14 @@ impl RendererState {
             0,
             bytemuck::cast_slice(&[GpuMatrix4(self.sphere.transform.get_rotation_matrix())]),
         );
-        self.camera_controller.update_camera(&mut self.camera, dt);
+        self.camera_controller
+            .update_camera(&mut self.camera, frame_time_seconds);
         self.camera_uniform.update_view_proj(&self.camera, window);
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
-        self.last_update_time = Some(Instant::now());
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -919,7 +965,7 @@ impl RendererState {
             scene_render_pass.set_pipeline(&self.textured_mesh_pipeline);
             scene_render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
 
-            vec![&self.sphere, &self.plane].iter().copied().for_each(
+            vec![&self.sphere, &self.plane].iter().for_each(
                 |MeshComponent {
                      diffuse_texture_bind_group,
                      vertex_buffer,
@@ -955,7 +1001,7 @@ impl RendererState {
             scene_render_pass.draw_indexed(
                 0..self.balls_mesh.num_indices,
                 0,
-                0..self.balls.len() as u32,
+                0..self.actual_balls.len() as u32,
             );
 
             // TODO: does it make sense to render the skybox here?

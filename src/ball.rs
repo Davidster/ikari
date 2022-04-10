@@ -2,6 +2,7 @@ use cgmath::{Vector2, Vector3};
 
 use super::*;
 
+#[derive(Clone, Debug)]
 pub struct BallComponent {
     pub transform: super::transform::Transform,
     direction: Vector3<f32>,
@@ -77,5 +78,33 @@ impl BallComponent {
                 self.direction.z = -self.direction.z;
             }
         });
+    }
+
+    pub fn lerp(&self, other: &Self, alpha: f32) -> Self {
+        let lerpf = |a: f32, b: f32| b * alpha + a * (1.0 - alpha);
+        let lerpvec = |a: Vector3<f32>, b: Vector3<f32>| b * alpha + a * (1.0 - alpha);
+
+        let transform = super::transform::Transform::new();
+        transform.set_position(lerpvec(
+            self.transform.position.get(),
+            other.transform.position.get(),
+        ));
+        transform.set_scale(lerpvec(
+            self.transform.scale.get(),
+            other.transform.scale.get(),
+        ));
+        transform.set_rotation(
+            self.transform
+                .rotation
+                .get()
+                .nlerp(other.transform.rotation.get(), alpha),
+        );
+
+        BallComponent {
+            transform,
+            direction: lerpvec(self.direction, other.direction),
+            speed: lerpf(self.speed, other.speed),
+            radius: lerpf(self.radius, other.radius),
+        }
     }
 }

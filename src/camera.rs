@@ -141,7 +141,7 @@ impl CameraController {
                     MouseScrollDelta::LineDelta(_, y) => *y,
                     MouseScrollDelta::PixelDelta(PhysicalPosition { y, .. }) => *y as f32,
                 };
-                self.speed = (self.speed - (scroll_amount * 0.0001)).max(0.01).min(5.0);
+                self.speed = (self.speed - (scroll_amount * 0.01)).max(0.5).min(300.0);
                 logger.log(&format!("Speed: {:?}", self.speed));
             }
             _ => {}
@@ -258,8 +258,9 @@ impl CameraController {
             self.target_pose.position.y = 0.1;
         }
 
-        let pos_lerp_factor = 0.3 * dt;
-        let rot_lerp_factor = 0.5 * dt;
+        let ema_adjusted_dt = dt * 60.0;
+        let pos_lerp_factor = 0.3 * ema_adjusted_dt;
+        let rot_lerp_factor = 0.5 * ema_adjusted_dt;
 
         camera.pose.position = camera
             .pose
