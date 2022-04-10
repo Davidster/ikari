@@ -3,6 +3,7 @@ struct CameraUniform {
     proj: mat4x4<f32>;
     view: mat4x4<f32>;
     rotation_only_view: mat4x4<f32>;
+    far_plane_distance: f32;
 };
 [[group(1), binding(0)]]
 var<uniform> camera: CameraUniform;
@@ -43,9 +44,17 @@ fn do_vertex_shade(vshader_input: VertexInput, model_transform: mat4x4<f32>) -> 
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
     let model_view_matrix = camera_view_proj * model_transform;
     let world_position = model_transform * object_position;
+    var clip_position = model_view_matrix * object_position;
+
+    // apply logarithmic depth
+    // https://outerra.blogspot.com/2009/08/logarithmic-z-buffer.html
+    let nearby_object_resolution_scalar = 1.0;
+    clip_position.z = log(nearby_object_resolution_scalar * clip_position.w + 1.0)
+            / log(nearby_object_resolution_scalar * camera.far_plane_distance + 1.0);
+    clip_position.z = clip_position.z * clip_position.w;
 
     out.world_position = world_position.xyz;
-    out.clip_position = model_view_matrix * object_position;
+    out.clip_position = clip_position;
 
     out.world_normal = normalize((model_transform * vec4<f32>(vshader_input.object_normal, 0.0)).xyz);
 

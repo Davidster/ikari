@@ -28,6 +28,8 @@ struct CameraUniform {
     proj: [[f32; 4]; 4],
     view: [[f32; 4]; 4],
     rotation_only_view: [[f32; 4]; 4],
+    far_plane_distance: f32,
+    padding: [f32; 3],
 }
 
 impl CameraUniform {
@@ -36,6 +38,8 @@ impl CameraUniform {
             proj: Matrix4::one().into(),
             view: Matrix4::one().into(),
             rotation_only_view: Matrix4::one().into(),
+            far_plane_distance: camera::Z_FAR,
+            padding: [0.0; 3],
         }
     }
 
@@ -618,7 +622,7 @@ impl RendererState {
             None,
             None,
         )?;
-        let plane_mesh = BasicMesh::new("./src/plane.obj")?;
+        let plane_mesh = BasicMesh::new("./src/plane_subdivided.obj")?;
 
         let plane = MeshComponent::new(
             &plane_mesh,
