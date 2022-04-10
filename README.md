@@ -17,6 +17,7 @@
 - [x] use clippy with this project
 - [x] fix simulation stability (dt seems to be wrong!)
 - [x] do logarithmic depth buffer to prevent z fighting
+- [ ] try reverse depth instead of / in addition to logarithmic depth
 - [ ] support normal maps
 - [ ] refactor the proj!
 - [ ] support gltf format
