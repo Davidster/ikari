@@ -16,7 +16,7 @@
   - It did not
 - [x] use clippy with this project
 - [x] fix simulation stability (dt seems to be wrong!)
-- [ ] do logarithmic depth buffer to prevent z fighting
+- [x] do logarithmic depth buffer to prevent z fighting
 - [ ] support normal maps
 - [ ] refactor the proj!
 - [ ] support gltf format
