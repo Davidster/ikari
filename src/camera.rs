@@ -259,8 +259,8 @@ impl CameraController {
         }
 
         let ema_adjusted_dt = dt * 60.0;
-        let pos_lerp_factor = 0.3 * ema_adjusted_dt;
-        let rot_lerp_factor = 0.5 * ema_adjusted_dt;
+        let pos_lerp_factor = (0.3 * ema_adjusted_dt).min(1.0);
+        let rot_lerp_factor = (0.5 * ema_adjusted_dt).min(1.0);
 
         camera.pose.position = camera
             .pose
