@@ -115,7 +115,6 @@ pub struct RendererState {
 
     balls_mesh: InstancedMeshComponent,
     test_object: MeshComponent,
-    test_object_normal_map: Texture,
     test_object_textures_bind_group: wgpu::BindGroup,
     floor: MeshComponent,
     skybox_mesh: MeshComponent,
@@ -664,7 +663,7 @@ impl RendererState {
 
         let simple_normal_map_path = "./src/simple_normal_map.png";
         let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
-        let simple_normal_map = Texture::from_bytes(
+        let _simple_normal_map = Texture::from_bytes(
             &device,
             &queue,
             &simple_normal_map_bytes,
@@ -1055,7 +1054,6 @@ impl RendererState {
 
             balls_mesh,
             test_object,
-            test_object_normal_map: simple_normal_map,
             test_object_textures_bind_group,
             floor,
             skybox_mesh,
@@ -1141,7 +1139,7 @@ impl RendererState {
     }
 
     pub fn update(&mut self, window: &winit::window::Window) {
-        let first_frame_instant = self.first_frame_instant.unwrap_or_else(|| Instant::now());
+        let first_frame_instant = self.first_frame_instant.unwrap_or_else(Instant::now);
         let time_seconds = first_frame_instant.elapsed().as_secs_f32();
         self.first_frame_instant = Some(first_frame_instant);
 
