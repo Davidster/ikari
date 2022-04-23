@@ -1,4 +1,4 @@
-use cgmath::{Vector2, Vector3};
+use cgmath::{Rad, Vector2, Vector3};
 
 use super::*;
 
@@ -42,7 +42,7 @@ impl BallComponent {
         let angle_of_rotation =
             1.0 * (displacement.magnitude() / circumference) * 2.0 * std::f32::consts::PI;
         let rotational_displacement =
-            make_quat_from_axis_angle(axis_of_rotation, -angle_of_rotation);
+            make_quat_from_axis_angle(axis_of_rotation, Rad(-angle_of_rotation));
         let new_rotation = rotational_displacement * curr_rotation;
         self.transform.set_rotation(new_rotation);
 

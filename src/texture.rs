@@ -34,6 +34,7 @@ impl Texture {
         mag_filter: Option<wgpu::FilterMode>,
         min_filter: Option<wgpu::FilterMode>,
         anisotropy_clamp: Option<NonZeroU8>,
+        format: Option<wgpu::TextureFormat>,
     ) -> Result<Self> {
         let img = image::load_from_memory(bytes)?;
         Self::from_image(
@@ -48,6 +49,7 @@ impl Texture {
             mag_filter,
             min_filter,
             anisotropy_clamp,
+            format,
         )
     }
 
@@ -63,6 +65,7 @@ impl Texture {
         mag_filter: Option<wgpu::FilterMode>,
         min_filter: Option<wgpu::FilterMode>,
         anisotropy_clamp: Option<NonZeroU8>,
+        format: Option<wgpu::TextureFormat>,
     ) -> Result<Self> {
         let img_as_rgba = img.as_rgba8().ok_or_else(|| {
             anyhow!("Failed to convert image into rgba8. Is the image missing the alpha channel?")
@@ -76,13 +79,14 @@ impl Texture {
             depth_or_array_layers: 1,
         };
         let mip_level_count = if generate_mipmaps { size.max_mips() } else { 1 };
+        let format = format.unwrap_or(wgpu::TextureFormat::Rgba8UnormSrgb);
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label,
             size,
             mip_level_count,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_DST
                 | wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -133,7 +137,14 @@ impl Texture {
         });
 
         if generate_mipmaps {
-            generate_mipmaps_for_texture(device, queue, mip_encoder, &texture, mip_level_count);
+            generate_mipmaps_for_texture(
+                device,
+                queue,
+                mip_encoder,
+                &texture,
+                mip_level_count,
+                format,
+            );
         }
 
         Ok(Self {
@@ -323,6 +334,7 @@ fn generate_mipmaps_for_texture(
     mut mip_encoder: wgpu::CommandEncoder,
     texture: &wgpu::Texture,
     mip_level_count: u32,
+    format: wgpu::TextureFormat,
 ) {
     let blit_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
         label: None,
@@ -339,7 +351,7 @@ fn generate_mipmaps_for_texture(
         fragment: Some(wgpu::FragmentState {
             module: &blit_shader,
             entry_point: "fs_main",
-            targets: &[wgpu::TextureFormat::Rgba8UnormSrgb.into()],
+            targets: &[format.into()],
         }),
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,

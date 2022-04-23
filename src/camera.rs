@@ -254,8 +254,9 @@ impl CameraController {
             self.target_pose.position += movement_vector.normalize() * self.speed * dt;
         }
 
-        if self.target_pose.position.y < 0.0 {
-            self.target_pose.position.y = 0.1;
+        let min_y = 0.1;
+        if self.target_pose.position.y < min_y {
+            self.target_pose.position.y = min_y;
         }
 
         let ema_adjusted_dt = dt * 60.0;

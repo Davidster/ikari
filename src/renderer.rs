@@ -4,7 +4,7 @@ use super::*;
 
 use anyhow::Result;
 
-use cgmath::{Matrix4, One, Vector2, Vector3};
+use cgmath::{Matrix4, One, Rad, Vector2, Vector3};
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -21,6 +21,20 @@ pub struct GpuMatrix3(pub cgmath::Matrix3<f32>);
 
 unsafe impl bytemuck::Pod for GpuMatrix3 {}
 unsafe impl bytemuck::Zeroable for GpuMatrix3 {}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct LightUniform {
+    position: [f32; 4],
+}
+
+impl From<Vector3<f32>> for LightUniform {
+    fn from(v: Vector3<f32>) -> Self {
+        Self {
+            position: [v.x, v.y, v.z, 1.0],
+        }
+    }
+}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -68,6 +82,7 @@ pub struct RendererState {
     render_scale: f32,
     state_update_time_accumulator: f32,
     last_frame_instant: Option<Instant>,
+    first_frame_instant: Option<Instant>,
     pub rendered_first_frame: bool,
     pub current_window_size: winit::dpi::PhysicalSize<u32>,
     pub logger: Logger,
@@ -76,10 +91,16 @@ pub struct RendererState {
     camera_controller: CameraController,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
-    camera_bind_group: wgpu::BindGroup,
+
+    light: MeshComponent,
+    light_buffer: wgpu::Buffer,
+
+    camera_light_bind_group: wgpu::BindGroup,
 
     textured_mesh_pipeline: wgpu::RenderPipeline,
+    normal_mapped_mesh_pipeline: wgpu::RenderPipeline,
     instanced_mesh_pipeline: wgpu::RenderPipeline,
+    flat_color_mesh_pipeline: wgpu::RenderPipeline,
 
     skybox_pipeline: wgpu::RenderPipeline,
     surface_blit_pipeline: wgpu::RenderPipeline,
@@ -93,8 +114,10 @@ pub struct RendererState {
     actual_balls: Vec<BallComponent>,
 
     balls_mesh: InstancedMeshComponent,
-    sphere: MeshComponent,
-    plane: MeshComponent,
+    test_object: MeshComponent,
+    test_object_normal_map: Texture,
+    test_object_textures_bind_group: wgpu::BindGroup,
+    floor: MeshComponent,
     skybox_mesh: MeshComponent,
 }
 
@@ -102,8 +125,8 @@ impl RendererState {
     pub async fn new(window: &winit::window::Window) -> Result<Self> {
         let mut logger = Logger::new();
         // force it to vulkan to get renderdoc to work:
-        // let backends = wgpu::Backends::from(wgpu::Backend::Vulkan);
-        let backends = wgpu::Backends::all();
+        let backends = wgpu::Backends::from(wgpu::Backend::Vulkan);
+        // let backends = wgpu::Backends::all();
         let instance = wgpu::Instance::new(backends);
         let size = window.inner_size();
         let surface = unsafe { instance.create_surface(&window) };
@@ -142,32 +165,43 @@ impl RendererState {
             format: swapchain_format,
             width: size.width,
             height: size.height,
-            // present_mode: wgpu::PresentMode::Fifo,
-            present_mode: wgpu::PresentMode::Immediate,
+            present_mode: wgpu::PresentMode::Fifo,
+            // present_mode: wgpu::PresentMode::Immediate,
         };
 
         surface.configure(&device, &config);
 
         let textured_mesh_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
             label: Some("Textured Mesh Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("textured_mesh_shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                std::fs::read_to_string("./src/textured_mesh_shader.wgsl")?.into(),
+            ),
+        });
+
+        let flat_color_mesh_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+            label: Some("Flat Color Mesh Shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                std::fs::read_to_string("./src/flat_color_mesh_shader.wgsl")?.into(),
+            ),
         });
 
         let blit_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
             label: Some("Blit Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("blit.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(std::fs::read_to_string("./src/blit.wgsl")?.into()),
         });
 
         let skybox_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
             label: Some("Skybox Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("skybox_shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                std::fs::read_to_string("./src/skybox_shader.wgsl")?.into(),
+            ),
         });
 
         let photosphere_skybox_shader =
             device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                 label: Some("Photosphere Skybox Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    include_str!("photosphere_skybox_shader.wgsl").into(),
+                    std::fs::read_to_string("./src/photosphere_skybox_shader.wgsl")?.into(),
                 ),
             });
 
@@ -217,6 +251,44 @@ impl RendererState {
                     },
                 ],
                 label: Some("render_texture_bind_group_layout"),
+            });
+        let normal_mapped_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("normal_mapped_bind_group_layout"),
             });
 
         // wgpu::BindGroupLayoutEntry {
@@ -274,7 +346,7 @@ impl RendererState {
                 label: Some("photosphere_skybox_texture_bind_group_layout"),
             });
 
-        let uniform_var_bind_group_layout =
+        let model_trans_uniform_var_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -289,14 +361,61 @@ impl RendererState {
                 label: Some("uniform_var_bind_group_layout"),
             });
 
+        let camera_light_uniform_var_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+                label: Some("camera_light_uniform_var_bind_group_layout"),
+            });
+
+        let normal_mapped_mesh_render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Normal Mapped Textured Mesh Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &normal_mapped_bind_group_layout,
+                    &camera_light_uniform_var_bind_group_layout,
+                    &model_trans_uniform_var_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
         let textured_mesh_render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Textured Mesh Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &diffuse_texture_bind_group_layout,
-                    &uniform_var_bind_group_layout,
-                    &uniform_var_bind_group_layout,
-                    &uniform_var_bind_group_layout,
+                    &camera_light_uniform_var_bind_group_layout,
+                    &model_trans_uniform_var_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
+        let flat_color_mesh_render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Flat Color Mesh Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &camera_light_uniform_var_bind_group_layout,
+                    &model_trans_uniform_var_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -343,6 +462,82 @@ impl RendererState {
             multiview: None,
         };
 
+        // TODO: DRY
+        let normal_mapped_mesh_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("Normal Mapped Mesh Render Pipeline"),
+            layout: Some(&normal_mapped_mesh_render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &textured_mesh_shader,
+                entry_point: "vs_main",
+                buffers: &[TexturedVertex::desc()],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &textured_mesh_shader,
+                entry_point: "normal_mapped_fs_main",
+                targets: fragment_shader_color_targets,
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        };
+
+        // TODO: DRY
+        let flat_color_mesh_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("Flat Color Mesh Render Pipeline"),
+            layout: Some(&flat_color_mesh_render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &flat_color_mesh_shader,
+                entry_point: "vs_main",
+                buffers: &[TexturedVertex::desc()],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &flat_color_mesh_shader,
+                entry_point: "fs_main",
+                targets: fragment_shader_color_targets,
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        };
+
         // instanced pipeline is very similar to non-instanced with a few differences:
         let mut instanced_mesh_pipeline_descriptor = textured_mesh_pipeline_descriptor.clone();
         let instanced_mesh_render_pipeline_layout =
@@ -350,7 +545,7 @@ impl RendererState {
                 label: Some("Instanced Mesh Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &diffuse_texture_bind_group_layout,
-                    &uniform_var_bind_group_layout,
+                    &camera_light_uniform_var_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -399,6 +594,10 @@ impl RendererState {
 
         let textured_mesh_pipeline =
             device.create_render_pipeline(&textured_mesh_pipeline_descriptor);
+        let flat_color_mesh_pipeline =
+            device.create_render_pipeline(&flat_color_mesh_pipeline_descriptor);
+        let normal_mapped_mesh_pipeline =
+            device.create_render_pipeline(&normal_mapped_mesh_pipeline_descriptor);
         let instanced_mesh_pipeline =
             device.create_render_pipeline(&instanced_mesh_pipeline_descriptor);
         let surface_blit_pipeline =
@@ -426,6 +625,58 @@ impl RendererState {
             None,
             None,
             None,
+            None,
+        )?;
+
+        let earth_texture_path = "./src/8k_earth.png";
+        let earth_texture_bytes = std::fs::read(earth_texture_path)?;
+        let earth_texture = Texture::from_bytes(
+            &device,
+            &queue,
+            &earth_texture_bytes,
+            earth_texture_path,
+            true,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )?;
+
+        let earth_normal_map_path = "./src/8k_earth_normal_map.png";
+        let earth_normal_map_bytes = std::fs::read(earth_normal_map_path)?;
+        let earth_normal_map = Texture::from_bytes(
+            &device,
+            &queue,
+            &earth_normal_map_bytes,
+            earth_normal_map_path,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            wgpu::TextureFormat::Rgba8Unorm.into(),
+        )?;
+
+        let simple_normal_map_path = "./src/simple_normal_map.png";
+        let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
+        let simple_normal_map = Texture::from_bytes(
+            &device,
+            &queue,
+            &simple_normal_map_bytes,
+            simple_normal_map_path,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            wgpu::TextureFormat::Rgba8Unorm.into(),
         )?;
 
         let skybox_fragment_shader_color_targets = &[wgpu::ColorTargetState {
@@ -440,7 +691,7 @@ impl RendererState {
                     label: Some("Photosphere Skybox Render Pipeline Layout"),
                     bind_group_layouts: &[
                         &photosphere_skybox_texture_bind_group_layout,
-                        &uniform_var_bind_group_layout,
+                        &camera_light_uniform_var_bind_group_layout,
                     ],
                     push_constant_ranges: &[],
                 });
@@ -490,6 +741,7 @@ impl RendererState {
                 None,
                 None,
                 None,
+                None,
             )?;
 
             (photosphere_skybox_pipeline, photosphere_skybox_texture)
@@ -499,7 +751,7 @@ impl RendererState {
                     label: Some("Skybox Render Pipeline Layout"),
                     bind_group_layouts: &[
                         &skybox_texture_bind_group_layout,
-                        &uniform_var_bind_group_layout,
+                        &camera_light_uniform_var_bind_group_layout,
                     ],
                     push_constant_ranges: &[],
                 });
@@ -564,33 +816,6 @@ impl RendererState {
             (skybox_pipeline, cubemap_skybox_texture)
         };
 
-        let sphere_mesh = BasicMesh::new("./src/sphere.obj")?;
-        let cube_mesh = BasicMesh::new("./src/cube.obj")?;
-
-        let skybox_mesh =
-            MeshComponent::new(&cube_mesh, None, &uniform_var_bind_group_layout, &device)?;
-
-        let sphere = MeshComponent::new(
-            &sphere_mesh,
-            Some(&mars_texture),
-            &uniform_var_bind_group_layout,
-            &device,
-        )?;
-
-        sphere.transform.set_scale(Vector3::new(0.25, 0.25, 0.25));
-        sphere.transform.set_position(Vector3::new(0.0, 1.0, -2.0));
-
-        queue.write_buffer(
-            &sphere.transform_buffer,
-            0,
-            bytemuck::cast_slice(&[GpuMatrix4(sphere.transform.matrix.get())]),
-        );
-        queue.write_buffer(
-            &sphere.normal_rotation_buffer,
-            0,
-            bytemuck::cast_slice(&[GpuMatrix4(sphere.transform.get_rotation_matrix())]),
-        );
-
         let checkerboard_texture_img = {
             let mut img = image::RgbaImage::new(4096, 4096);
             for x in 0..img.width() {
@@ -623,33 +848,87 @@ impl RendererState {
             wgpu::FilterMode::Nearest.into(),
             None,
             None,
+            None,
         )?;
+
+        let sphere_mesh = BasicMesh::new("./src/sphere.obj")?;
+        let cube_mesh = BasicMesh::new("./src/cube.obj")?;
         let plane_mesh = BasicMesh::new("./src/plane.obj")?;
 
-        let plane = MeshComponent::new(
-            &plane_mesh,
-            Some(&checkerboard_texture),
-            &uniform_var_bind_group_layout,
+        let skybox_mesh = MeshComponent::new(
+            &cube_mesh,
+            None,
+            &model_trans_uniform_var_bind_group_layout,
             &device,
         )?;
 
-        plane.transform.set_position(Vector3::new(0.0, 0.0, 0.0));
-        plane
+        let light = MeshComponent::new(
+            &sphere_mesh,
+            None,
+            &model_trans_uniform_var_bind_group_layout,
+            &device,
+        )?;
+        light.transform.set_scale(Vector3::new(0.05, 0.05, 0.05));
+        light.transform.set_position(Vector3::new(0.0, 2.0, 0.0));
+
+        let test_object = MeshComponent::new(
+            &sphere_mesh,
+            Some(&earth_texture),
+            &model_trans_uniform_var_bind_group_layout,
+            &device,
+        )?;
+
+        // sphere.transform.set_scale(Vector3::new(0.25, 0.25, 0.25));
+        test_object
+            .transform
+            .set_position(Vector3::new(0.0, 1.0, 0.0));
+        // let rotational_displacement =
+        //     make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), frame_time_seconds);
+        // let new_rotation = rotational_displacement * self.test_object.transform.rotation.get();
+        // self.sphere.transform.set_rotation(new_rotation);
+        // let rotational_displacement = make_quat_from_axis_angle(
+        //     Vector3::new(1.0, 0.0, 0.0),
+        //     Rad(-std::f32::consts::PI / 2.0),
+        // );
+        // test_object
+        //     .transform
+        //     .set_rotation(rotational_displacement * test_object.transform.rotation.get());
+
+        queue.write_buffer(
+            &test_object.transform_buffer,
+            0,
+            bytemuck::cast_slice(&[GpuMatrix4(test_object.transform.matrix.get())]),
+        );
+        queue.write_buffer(
+            &test_object.normal_rotation_buffer,
+            0,
+            bytemuck::cast_slice(&[GpuMatrix4(test_object.transform.get_rotation_matrix())]),
+        );
+
+        let floor = MeshComponent::new(
+            &plane_mesh,
+            Some(&checkerboard_texture),
+            &model_trans_uniform_var_bind_group_layout,
+            &device,
+        )?;
+
+        floor.transform.set_position(Vector3::new(0.0, 0.0, 0.0));
+        floor
             .transform
             .set_scale(Vector3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH));
 
         queue.write_buffer(
-            &plane.transform_buffer,
+            &floor.transform_buffer,
             0,
-            bytemuck::cast_slice(&[GpuMatrix4(plane.transform.matrix.get())]),
+            bytemuck::cast_slice(&[GpuMatrix4(floor.transform.matrix.get())]),
         );
         queue.write_buffer(
-            &plane.normal_rotation_buffer,
+            &floor.normal_rotation_buffer,
             0,
-            bytemuck::cast_slice(&[GpuMatrix4(plane.transform.get_rotation_matrix())]),
+            bytemuck::cast_slice(&[GpuMatrix4(floor.transform.get_rotation_matrix())]),
         );
 
-        let camera = Camera::new((0.0, 2.0, 7.0).into());
+        let camera = Camera::new((0.0, 20.0, 7.0).into());
 
         let camera_controller = CameraController::new(6.0, &camera);
 
@@ -662,16 +941,52 @@ impl RendererState {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &uniform_var_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
-            label: Some("camera_bind_group"),
+        let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Light Buffer"),
+            contents: bytemuck::cast_slice(&[LightUniform::from(light.transform.position.get())]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let balls: Vec<_> = (0..10000)
+        let camera_light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &camera_light_uniform_var_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: light_buffer.as_entire_binding(),
+                },
+            ],
+            label: Some("camera_light_bind_group"),
+        });
+
+        let test_object_textures_bind_group =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &normal_mapped_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&earth_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&earth_texture.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&earth_normal_map.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Sampler(&earth_normal_map.sampler),
+                    },
+                ],
+                label: Some("test_object_textures_bind_group"),
+            });
+
+        let balls: Vec<_> = (0..100)
             .into_iter()
             .map(|_| {
                 BallComponent::new(
@@ -697,7 +1012,7 @@ impl RendererState {
         let balls_mesh = InstancedMeshComponent::new(
             &sphere_mesh,
             Some(&mars_texture),
-            &uniform_var_bind_group_layout,
+            &model_trans_uniform_var_bind_group_layout,
             &device,
             &balls_transforms,
         )?;
@@ -710,6 +1025,7 @@ impl RendererState {
             render_scale,
             state_update_time_accumulator: 0.0,
             last_frame_instant: None,
+            first_frame_instant: None,
             rendered_first_frame: false,
             logger,
             current_window_size: size,
@@ -718,9 +1034,14 @@ impl RendererState {
             camera_controller,
             camera_uniform,
             camera_buffer,
-            camera_bind_group,
+            camera_light_bind_group,
+
+            light,
+            light_buffer,
 
             textured_mesh_pipeline,
+            flat_color_mesh_pipeline,
+            normal_mapped_mesh_pipeline,
             instanced_mesh_pipeline,
             surface_blit_pipeline,
             skybox_pipeline,
@@ -733,8 +1054,10 @@ impl RendererState {
             actual_balls: balls,
 
             balls_mesh,
-            sphere,
-            plane,
+            test_object,
+            test_object_normal_map: simple_normal_map,
+            test_object_textures_bind_group,
+            floor,
             skybox_mesh,
         })
     }
@@ -763,7 +1086,7 @@ impl RendererState {
             ..
         } = event
         {
-            let mut inrcement_render_scale = |increase: bool| {
+            let mut increment_render_scale = |increase: bool| {
                 let delta = 0.1;
                 let change = if increase { delta } else { -delta };
                 self.render_scale = (self.render_scale + change).max(0.1).min(4.0);
@@ -775,10 +1098,6 @@ impl RendererState {
                     self.render_scale,
                     "render_texture",
                 );
-                // self.render_texture_view = self
-                //     .render_texture
-                //     .texture
-                //     .create_view(&wgpu::TextureViewDescriptor::default());
                 self.depth_texture = Texture::create_depth_texture(
                     &self.device,
                     &self.config,
@@ -789,10 +1108,10 @@ impl RendererState {
             if *state == ElementState::Released {
                 match keycode {
                     VirtualKeyCode::Z => {
-                        inrcement_render_scale(false);
+                        increment_render_scale(false);
                     }
                     VirtualKeyCode::X => {
-                        inrcement_render_scale(true);
+                        increment_render_scale(true);
                     }
                     _ => {}
                 }
@@ -822,16 +1141,20 @@ impl RendererState {
     }
 
     pub fn update(&mut self, window: &winit::window::Window) {
+        let first_frame_instant = self.first_frame_instant.unwrap_or_else(|| Instant::now());
+        let time_seconds = first_frame_instant.elapsed().as_secs_f32();
+        self.first_frame_instant = Some(first_frame_instant);
+
         // results in ~60 state changes per second
         let min_update_timestep_seconds = 1.0 / 60.0;
         // if frametime takes longer than this, we give up on trying to catch up completely
         // prevents the game from getting stuck in a spiral of death
         let max_delay_catchup_seconds = 0.25;
         let frame_instant = Instant::now();
-        let one_second_in_nanos = 1_000_000_000.0;
         let mut frame_time_seconds = if let Some(last_frame_instant) = self.last_frame_instant {
-            (frame_instant.duration_since(last_frame_instant).as_nanos() as f32)
-                / one_second_in_nanos
+            frame_instant
+                .duration_since(last_frame_instant)
+                .as_secs_f32()
         } else {
             0.0
         };
@@ -860,6 +1183,17 @@ impl RendererState {
             .map(|(prev_ball, next_ball)| prev_ball.lerp(next_ball, alpha))
             .collect();
 
+        self.light.transform.set_position(Vector3::new(
+            1.05 * time_seconds.cos(),
+            self.light.transform.position.get().y,
+            1.05 * time_seconds.sin(),
+        ));
+        let rotational_displacement =
+            make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(frame_time_seconds / 5.0));
+        self.test_object
+            .transform
+            .set_rotation(rotational_displacement * self.test_object.transform.rotation.get());
+
         // self.logger
         //     .log(&format!("Frame time: {:?}", frame_time_seconds));
         // self.logger.log(&format!(
@@ -879,14 +1213,14 @@ impl RendererState {
             bytemuck::cast_slice(&balls_transforms),
         );
         self.queue.write_buffer(
-            &self.sphere.transform_buffer,
+            &self.test_object.transform_buffer,
             0,
-            bytemuck::cast_slice(&[GpuMatrix4(self.sphere.transform.matrix.get())]),
+            bytemuck::cast_slice(&[GpuMatrix4(self.test_object.transform.matrix.get())]),
         );
         self.queue.write_buffer(
-            &self.sphere.normal_rotation_buffer,
+            &self.test_object.normal_rotation_buffer,
             0,
-            bytemuck::cast_slice(&[GpuMatrix4(self.sphere.transform.get_rotation_matrix())]),
+            bytemuck::cast_slice(&[GpuMatrix4(self.test_object.transform.get_rotation_matrix())]),
         );
         self.camera_controller
             .update_camera(&mut self.camera, frame_time_seconds);
@@ -895,6 +1229,16 @@ impl RendererState {
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
+        );
+        self.queue.write_buffer(
+            &self.light.transform_buffer,
+            0,
+            bytemuck::cast_slice(&[GpuMatrix4(self.light.transform.matrix.get())]),
+        );
+        self.queue.write_buffer(
+            &self.light_buffer,
+            0,
+            bytemuck::cast_slice(&[LightUniform::from(self.light.transform.position.get())]),
         );
     }
 
@@ -968,33 +1312,36 @@ impl RendererState {
                 }),
             });
 
-            scene_render_pass.set_pipeline(&self.textured_mesh_pipeline);
-            scene_render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            // render test object
+            scene_render_pass.set_pipeline(&self.normal_mapped_mesh_pipeline);
+            scene_render_pass.set_bind_group(0, &self.test_object_textures_bind_group, &[]);
+            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            scene_render_pass.set_bind_group(2, &self.test_object.transform_bind_group, &[]);
+            scene_render_pass.set_bind_group(3, &self.test_object.normal_rotation_bind_group, &[]);
 
-            vec![&self.sphere, &self.plane].iter().for_each(
-                |MeshComponent {
-                     diffuse_texture_bind_group,
-                     vertex_buffer,
-                     index_buffer,
-                     num_indices,
-                     transform_bind_group,
-                     normal_rotation_bind_group,
-                     ..
-                 }| {
-                    if let Some(diffuse_texture_bind_group) = diffuse_texture_bind_group {
-                        scene_render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
-                    }
-                    scene_render_pass.set_bind_group(2, transform_bind_group, &[]);
-                    scene_render_pass.set_bind_group(3, normal_rotation_bind_group, &[]);
-                    scene_render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                    scene_render_pass
-                        .set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                    scene_render_pass.draw_indexed(0..*num_indices, 0, 0..1);
-                },
+            scene_render_pass.set_vertex_buffer(0, self.test_object.vertex_buffer.slice(..));
+            scene_render_pass.set_index_buffer(
+                self.test_object.index_buffer.slice(..),
+                wgpu::IndexFormat::Uint16,
             );
+            scene_render_pass.draw_indexed(0..self.test_object.num_indices, 0, 0..1);
 
+            // render floor
+            scene_render_pass.set_pipeline(&self.textured_mesh_pipeline);
+            if let Some(diffuse_texture_bind_group) = &self.floor.diffuse_texture_bind_group {
+                scene_render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
+            }
+            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            scene_render_pass.set_bind_group(2, &self.floor.transform_bind_group, &[]);
+            scene_render_pass.set_bind_group(3, &self.floor.normal_rotation_bind_group, &[]);
+            scene_render_pass.set_vertex_buffer(0, self.floor.vertex_buffer.slice(..));
+            scene_render_pass
+                .set_index_buffer(self.floor.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            scene_render_pass.draw_indexed(0..self.floor.num_indices, 0, 0..1);
+
+            // render balls
             scene_render_pass.set_pipeline(&self.instanced_mesh_pipeline);
-            scene_render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
+            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
             if let Some(diffuse_texture_bind_group) = &self.balls_mesh.diffuse_texture_bind_group {
                 scene_render_pass.set_bind_group(0, diffuse_texture_bind_group, &[]);
             }
@@ -1010,10 +1357,21 @@ impl RendererState {
                 0..self.actual_balls.len() as u32,
             );
 
+            // render light
+            scene_render_pass.set_pipeline(&self.flat_color_mesh_pipeline);
+            scene_render_pass.set_bind_group(0, &self.camera_light_bind_group, &[]);
+            scene_render_pass.set_bind_group(1, &self.light.transform_bind_group, &[]);
+            scene_render_pass.set_vertex_buffer(0, self.light.vertex_buffer.slice(..));
+            scene_render_pass
+                .set_index_buffer(self.light.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            scene_render_pass.draw_indexed(0..self.light.num_indices, 0, 0..1);
+
+            // render skybox
             // TODO: does it make sense to render the skybox here?
             // doing it in the surface blit pass is faster and might not change the quality when using SSAA
             scene_render_pass.set_pipeline(&self.skybox_pipeline);
             scene_render_pass.set_bind_group(0, &sky_box_texture_bind_group, &[]);
+            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
             scene_render_pass.set_vertex_buffer(0, self.skybox_mesh.vertex_buffer.slice(..));
             scene_render_pass.set_index_buffer(
                 self.skybox_mesh.index_buffer.slice(..),

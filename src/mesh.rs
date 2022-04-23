@@ -3,7 +3,7 @@ use std::collections::{hash_map, HashMap};
 use super::*;
 
 use anyhow::Result;
-use cgmath::Matrix4;
+use cgmath::{Matrix4, Vector2, Vector3};
 use wgpu::util::DeviceExt;
 
 type VertexPosition = [f32; 3];
@@ -16,11 +16,18 @@ pub struct TexturedVertex {
     position: VertexPosition,
     normal: VertexNormal,
     tex_coords: VertexTextureCoords,
+    tangent: VertexNormal,
+    bitangent: VertexNormal,
 }
 
 impl TexturedVertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 3] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2];
+    const ATTRIBS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+        0 => Float32x3,
+        1 => Float32x3,
+        2 => Float32x2,
+        3 => Float32x3,
+        4 => Float32x3
+    ];
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
@@ -235,50 +242,99 @@ impl BasicMesh {
             .objects
             .remove(0);
 
-        let vt_indices: Vec<wavefront_obj::obj::VTNIndex> = obj
+        let triangles: Vec<(
+            wavefront_obj::obj::VTNIndex,
+            wavefront_obj::obj::VTNIndex,
+            wavefront_obj::obj::VTNIndex,
+        )> = obj
             .geometry
             .iter()
-            .flat_map(|geometry| -> Vec<wavefront_obj::obj::VTNIndex> {
-                geometry
-                    .shapes
-                    .iter()
-                    .flat_map(|shape| {
-                        if let wavefront_obj::obj::Primitive::Triangle(vti1, vti2, vti3) =
-                            shape.primitive
-                        {
-                            vec![vti1, vti2, vti3]
-                        } else {
-                            vec![]
-                        }
-                    })
-                    .collect()
-            })
+            .flat_map(
+                |geometry| -> Vec<(
+                    wavefront_obj::obj::VTNIndex,
+                    wavefront_obj::obj::VTNIndex,
+                    wavefront_obj::obj::VTNIndex,
+                )> {
+                    geometry
+                        .shapes
+                        .iter()
+                        .flat_map(|shape| {
+                            if let wavefront_obj::obj::Primitive::Triangle(vti1, vti2, vti3) =
+                                shape.primitive
+                            {
+                                Some((vti1, vti2, vti3))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                },
+            )
             .collect();
         let mut composite_index_map: HashMap<(usize, usize, usize), TexturedVertex> =
             HashMap::new();
-        vt_indices.iter().for_each(|vti| {
-            let pos_index = vti.0;
-            let normal_index = vti.2.expect("Obj file is missing normal");
-            let uv_index = vti.1.expect("Obj file is missing uv index");
-            let key = (pos_index, normal_index, uv_index);
-            if let hash_map::Entry::Vacant(vacant_entry) = composite_index_map.entry(key) {
-                let wavefront_obj::obj::Vertex {
-                    x: p_x,
-                    y: p_y,
-                    z: p_z,
-                } = obj.vertices[pos_index];
-                let wavefront_obj::obj::Normal {
-                    x: n_x,
-                    y: n_y,
-                    z: n_z,
-                } = obj.normals[normal_index];
-                let wavefront_obj::obj::TVertex { u, v, .. } = obj.tex_vertices[uv_index];
-                vacant_entry.insert(TexturedVertex {
-                    position: [p_x as f32, p_y as f32, p_z as f32],
-                    normal: [n_x as f32, n_y as f32, n_z as f32],
-                    tex_coords: [u as f32, 1.0 - v as f32],
+        triangles.iter().for_each(|(vti1, vti2, vti3)| {
+            let points = vec![vti1, vti2, vti3];
+            let points_with_attribs: Vec<_> = points
+                .iter()
+                .map(|vti| {
+                    let pos_index = vti.0;
+                    let normal_index = vti.2.expect("Obj file is missing normal");
+                    let uv_index = vti.1.expect("Obj file is missing uv index");
+                    let key = (pos_index, normal_index, uv_index);
+                    let wavefront_obj::obj::Vertex {
+                        x: p_x,
+                        y: p_y,
+                        z: p_z,
+                    } = obj.vertices[pos_index];
+                    let wavefront_obj::obj::Normal {
+                        x: n_x,
+                        y: n_y,
+                        z: n_z,
+                    } = obj.normals[normal_index];
+                    let wavefront_obj::obj::TVertex { u, v, .. } = obj.tex_vertices[uv_index];
+                    let position = Vector3::new(p_x as f32, p_y as f32, p_z as f32);
+                    let normal = Vector3::new(n_x as f32, n_y as f32, n_z as f32);
+                    // convert uv format into 0->1 range
+                    let tex_coords = Vector2::new(u as f32, 1.0 - v as f32);
+                    (key, position, normal, tex_coords)
+                })
+                .collect();
+
+            let edge_1 = points_with_attribs[1].1 - points_with_attribs[0].1;
+            let edge_2 = points_with_attribs[2].1 - points_with_attribs[0].1;
+
+            let delta_uv_1 = points_with_attribs[1].3 - points_with_attribs[0].3;
+            let delta_uv_2 = points_with_attribs[2].3 - points_with_attribs[0].3;
+
+            let f = 1.0 / (delta_uv_1.x * delta_uv_2.y - delta_uv_2.x * delta_uv_1.y);
+
+            let tangent = Vector3::new(
+                f * (delta_uv_2.y * edge_1.x - delta_uv_1.y * edge_2.x),
+                f * (delta_uv_2.y * edge_1.y - delta_uv_1.y * edge_2.y),
+                f * (delta_uv_2.y * edge_1.z - delta_uv_1.y * edge_2.z),
+            );
+
+            let bitangent = Vector3::new(
+                f * (-delta_uv_2.x * edge_1.x + delta_uv_1.x * edge_2.x),
+                f * (-delta_uv_2.x * edge_1.y + delta_uv_1.x * edge_2.y),
+                f * (-delta_uv_2.x * edge_1.z + delta_uv_1.x * edge_2.z),
+            );
+
+            points_with_attribs
+                .iter()
+                .for_each(|(key, position, normal, tex_coords)| {
+                    if let hash_map::Entry::Vacant(vacant_entry) = composite_index_map.entry(*key) {
+                        let to_arr = |vec: &Vector3<f32>| [vec.x, vec.y, vec.z];
+                        vacant_entry.insert(TexturedVertex {
+                            position: to_arr(position),
+                            normal: to_arr(normal),
+                            tex_coords: [tex_coords.x, tex_coords.y],
+                            tangent: to_arr(&tangent),
+                            bitangent: to_arr(&bitangent),
+                        });
+                    }
                 });
-            }
         });
         let mut index_map: HashMap<(usize, usize, usize), usize> = HashMap::new();
         let mut vertices: Vec<TexturedVertex> = Vec::new();
@@ -289,14 +345,19 @@ impl BasicMesh {
                 index_map.insert(*key, i);
                 vertices.push(*vertex);
             });
-        let indices: Vec<_> = vt_indices
+        let indices: Vec<_> = triangles
             .iter()
-            .flat_map(|vti| {
-                let pos_index = vti.0;
-                let normal_index = vti.2.expect("Obj file is missing normal");
-                let uv_index = vti.1.unwrap();
-                let key = (pos_index, normal_index, uv_index);
-                index_map.get(&key).map(|final_index| *final_index as u16)
+            .flat_map(|(vti1, vti2, vti3)| {
+                vec![vti1, vti2, vti3]
+                    .iter()
+                    .flat_map(|vti| {
+                        let pos_index = vti.0;
+                        let normal_index = vti.2.expect("Obj file is missing normal");
+                        let uv_index = vti.1.unwrap();
+                        let key = (pos_index, normal_index, uv_index);
+                        index_map.get(&key).map(|final_index| *final_index as u16)
+                    })
+                    .collect::<Vec<u16>>()
             })
             .collect();
         Ok(BasicMesh { vertices, indices })

@@ -1,4 +1,4 @@
-use cgmath::{Matrix, Matrix4, Quaternion, Vector3};
+use cgmath::{Matrix, Matrix4, Quaternion, Rad, Vector3};
 
 // TODO: use cgmath::Rad instead of f32 for rotations
 
@@ -15,14 +15,14 @@ pub fn _lerp_f64(from: f64, to: f64, alpha: f64) -> f64 {
 }
 
 // from https://stackoverflow.com/questions/4436764/rotating-a-quaternion-on-1-axis
-pub fn make_quat_from_axis_angle(axis: Vector3<f32>, angle: f32) -> Quaternion<f32> {
-    let factor = (angle / 2.0).sin();
+pub fn make_quat_from_axis_angle(axis: Vector3<f32>, angle: Rad<f32>) -> Quaternion<f32> {
+    let factor = (angle.0 / 2.0).sin();
 
     let x = axis.x * factor;
     let y = axis.y * factor;
     let z = axis.z * factor;
 
-    let w = (angle / 2.0).cos();
+    let w = (angle.0 / 2.0).cos();
 
     Quaternion::new(w, x, y, z)
 }
