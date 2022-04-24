@@ -40,7 +40,7 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     let clip_position = camera.proj * camera.rotation_only_view * vec4<f32>(vshader_input.object_position, 1.0);
-    out.clip_position = clip_position.xyww;
+    out.clip_position = vec4<f32>(clip_position.x, clip_position.y, 0.0, clip_position.w);
     out.world_position = vshader_input.object_position;
     return out;
 }

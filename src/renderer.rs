@@ -290,16 +290,6 @@ impl RendererState {
                 label: Some("normal_mapped_bind_group_layout"),
             });
 
-        // wgpu::BindGroupLayoutEntry {
-        //     binding: 0,
-        //     visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-        //     ty: wgpu::BindingType::Buffer {
-        //         ty: wgpu::BufferBindingType::Uniform,
-        //         has_dynamic_offset: false,
-        //         min_binding_size: None,
-        //     },
-        //     count: None,
-        // },
         let skybox_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -449,7 +439,7 @@ impl RendererState {
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: Texture::DEPTH_FORMAT,
                 depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_compare: wgpu::CompareFunction::GreaterEqual,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -487,7 +477,7 @@ impl RendererState {
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: Texture::DEPTH_FORMAT,
                 depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_compare: wgpu::CompareFunction::GreaterEqual,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -525,7 +515,7 @@ impl RendererState {
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: Texture::DEPTH_FORMAT,
                 depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_compare: wgpu::CompareFunction::GreaterEqual,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -716,7 +706,7 @@ impl RendererState {
                     format: Texture::DEPTH_FORMAT,
                     depth_write_enabled: true,
                     // TODO: should this be LessEqual?
-                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    depth_compare: wgpu::CompareFunction::GreaterEqual,
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
@@ -776,7 +766,7 @@ impl RendererState {
                     format: Texture::DEPTH_FORMAT,
                     depth_write_enabled: true,
                     // TODO: should this be LessEqual?
-                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    depth_compare: wgpu::CompareFunction::GreaterEqual,
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
@@ -1182,9 +1172,9 @@ impl RendererState {
             .collect();
 
         self.light.transform.set_position(Vector3::new(
-            1.05 * time_seconds.cos(),
+            1.05 * (time_seconds * 0.5).cos(),
             self.light.transform.position.get().y,
-            1.05 * time_seconds.sin(),
+            1.05 * (time_seconds * 0.5).sin(),
         ));
         let rotational_displacement =
             make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(frame_time_seconds / 5.0));
@@ -1303,7 +1293,7 @@ impl RendererState {
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.depth_texture.view,
                     depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
+                        load: wgpu::LoadOp::Clear(0.0),
                         store: true,
                     }),
                     stencil_ops: None,

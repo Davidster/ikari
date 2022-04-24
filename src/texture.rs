@@ -212,7 +212,7 @@ impl Texture {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: Self::DEPTH_FORMAT,
+            format: Texture::DEPTH_FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         });
 
@@ -224,7 +224,7 @@ impl Texture {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Nearest,
-            compare: Some(wgpu::CompareFunction::LessEqual),
+            compare: Some(wgpu::CompareFunction::GreaterEqual),
             lod_min_clamp: -100.0,
             lod_max_clamp: 100.0,
             ..Default::default()

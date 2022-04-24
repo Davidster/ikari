@@ -8,14 +8,6 @@ use winit::{
     window::Window,
 };
 
-#[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: Matrix4<f32> = Matrix4::new(
-    1.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 0.5, 0.0,
-    0.0, 0.0, 0.5, 1.0,
-);
-
 pub const Z_NEAR: f32 = 0.01;
 pub const Z_FAR: f32 = 100000.0;
 pub const FOV_Y: Deg<f32> = Deg(45.0);
@@ -52,13 +44,12 @@ impl Camera {
         &self,
         window: &winit::window::Window,
     ) -> CameraViewProjMatrices {
-        let proj = OPENGL_TO_WGPU_MATRIX
-            * make_perspective_matrix(
-                Z_NEAR,
-                Z_FAR,
-                FOV_Y.into(),
-                window.inner_size().width as f32 / window.inner_size().height as f32,
-            );
+        let proj = make_perspective_matrix(
+            Z_NEAR,
+            Z_FAR,
+            FOV_Y.into(),
+            window.inner_size().width as f32 / window.inner_size().height as f32,
+        );
         let rotation_only_view = make_rotation_matrix(Quaternion::from(Euler::new(
             -self.pose.vertical_rotation,
             Rad(0.0),

@@ -113,7 +113,7 @@ pub fn make_scale_matrix(scale: Vector3<f32>) -> Matrix4<f32> {
     result
 }
 
-// from http://www.songho.ca/opengl/gl_projectionmatrix.html
+// from https://vincent-p.github.io/posts/vulkan_perspective_matrix/ and https://thxforthefish.com/posts/reverse_z/
 pub fn make_perspective_matrix(
     near_plane_distance: f32,
     far_plane_distance: f32,
@@ -125,11 +125,18 @@ pub fn make_perspective_matrix(
     let cot = 1.0 / (vertical_fov.0 / 2.0).tan();
     let ar = aspect_ratio;
     #[rustfmt::skip]
-    let result = Matrix4::new(
-        cot/ar, 0.0, 0.0,                           0.0,
-        0.0,    cot, 0.0,                           0.0,
-        0.0,    0.0, (f+n)/(n-f), (2.0*f*n)/(n-f),
-        0.0,    0.0, -1.0,                          0.0,
+    let persp_matrix = Matrix4::new(
+        cot/ar, 0.0, 0.0,     0.0,
+        0.0,    cot, 0.0,     0.0,
+        0.0,    0.0, f/(n-f), n*f/(n-f),
+        0.0,    0.0, -1.0,     0.0,
     ).transpose();
-    result
+    #[rustfmt::skip]
+    let reverse_z = Matrix4::new(
+        1.0, 0.0, 0.0,  0.0,
+        0.0, 1.0, 0.0,  0.0,
+        0.0, 0.0, -1.0, 1.0,
+        0.0, 0.0, 0.0,  1.0,
+    ).transpose();
+    reverse_z * persp_matrix
 }

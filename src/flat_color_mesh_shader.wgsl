@@ -32,7 +32,6 @@ struct VertexOutput {
 
 struct FragmentOutput {
     [[location(0)]] color: vec4<f32>;
-    [[builtin(frag_depth)]] depth: f32;
 };
 
 [[stage(vertex)]]
@@ -53,17 +52,7 @@ fn vs_main(
 
 [[stage(fragment)]]
 fn fs_main(in: VertexOutput) -> FragmentOutput {
-    // apply logarithmic depth
-    // https://outerra.blogspot.com/2009/08/logarithmic-z-buffer.html
-    // https://www.gamedev.net/blog/73/entry-2006307-tip-of-the-day-logarithmic-zbuffer-artifacts-fix/
-    let c = 1.0;
-    let depth_override = log(1.0 + in.clip_position_nopersp.z * c)
-            / log(1.0 + camera.far_plane_distance * c);
-
-    let color = vec4<f32>(0.996078431372549, 0.9725490196078431, 0.6627450980392157, 1.0);
-    
     var out: FragmentOutput;
-    out.color = color;
-    out.depth = depth_override;
+    out.color = vec4<f32>(0.996078431372549, 0.9725490196078431, 0.6627450980392157, 1.0);
     return out;
 }

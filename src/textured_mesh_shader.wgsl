@@ -51,7 +51,6 @@ struct VertexOutput {
 
 struct FragmentOutput {
     [[location(0)]] color: vec4<f32>;
-    [[builtin(frag_depth)]] depth: f32;
 };
 
 fn do_vertex_shade(vshader_input: VertexInput, model_transform: mat4x4<f32>) -> VertexOutput {
@@ -117,15 +116,8 @@ fn do_fragment_shade(
     clip_position_nopersp: vec4<f32>, 
     world_position: vec3<f32>,
     world_normal: vec3<f32>, 
-    tex_coords: vec2<f32>
+    tex_coords: vec2<f32>,
 ) -> FragmentOutput {
-    // apply logarithmic depth
-    // https://outerra.blogspot.com/2009/08/logarithmic-z-buffer.html
-    // https://www.gamedev.net/blog/73/entry-2006307-tip-of-the-day-logarithmic-zbuffer-artifacts-fix/
-    let c = 1.0;
-    let depth_override = log(1.0 + clip_position_nopersp.z * c)
-            / log(1.0 + camera.far_plane_distance * c);
-
     let light_position = light_position.value.xyz;
     let to_light_vec = normalize(light_position - world_position);
     // let to_light_vec = normalize(vec3<f32>(0.0, 1.5, 0.0) - world_position);
@@ -143,7 +135,6 @@ fn do_fragment_shade(
     
     var out: FragmentOutput;
     out.color = final_color;
-    out.depth = depth_override;
     return out;
 }
 
