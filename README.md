@@ -17,8 +17,8 @@
 - [x] use clippy with this project
 - [x] fix simulation stability (dt seems to be wrong!)
 - [x] do logarithmic depth buffer to prevent z fighting
-- [ ] try reverse depth instead of / in addition to logarithmic depth
-- [ ] support normal maps
+- [x] try reverse depth instead of / in addition to logarithmic depth
+- [x] support normal maps
 - [ ] refactor the proj!
 - [ ] support gltf format
 - [ ] try to implement PBR shaders based on [article](https://learnopengl.com/PBR/Theory), implement some [sample models](https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0):
