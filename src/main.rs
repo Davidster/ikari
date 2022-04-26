@@ -10,7 +10,7 @@ mod transform;
 
 use ball::*;
 use camera::*;
-use gameloop::*;
+
 use helpers::*;
 use logger::*;
 use mesh::*;
@@ -69,7 +69,7 @@ async fn start() {
             .await
             .expect("Failed to create renderer state");
 
-        run(window, event_loop, renderer_state).await;
+        gameloop::run(window, event_loop, renderer_state).await;
     }
 }
 

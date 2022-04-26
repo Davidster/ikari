@@ -15,13 +15,6 @@ struct LightPositionUniform {
 [[group(1), binding(1)]]
 var<uniform> light_position: LightPositionUniform;
 
-// used for non-instanced renders
-struct ModelTransformUniform {
-    value: mat4x4<f32>;
-};
-[[group(2), binding(0)]]
-var<uniform> model_transform: ModelTransformUniform;
-
 struct VertexInput {
     [[location(0)]] object_position: vec3<f32>;
     [[location(1)]] object_normal: vec3<f32>;
@@ -30,7 +23,6 @@ struct VertexInput {
     [[location(4)]] object_bitangent: vec3<f32>;
 };
 
-// used for instanced renders
 struct ModelTransformInstance {
     [[location(5)]]  model_transform_0: vec4<f32>;
     [[location(6)]]  model_transform_1: vec4<f32>;
@@ -45,6 +37,7 @@ struct VertexOutput {
     [[location(2)]] world_tangent: vec3<f32>;
     [[location(3)]] world_bitangent: vec3<f32>;
     [[location(4)]] tex_coords: vec2<f32>;
+    // TODO: rename this with newfound knowledge of fragcoord
     [[location(5)]] clip_position_nopersp: vec4<f32>; // clip position without perspective division
    
 };
@@ -77,19 +70,8 @@ fn do_vertex_shade(vshader_input: VertexInput, model_transform: mat4x4<f32>) -> 
     return out;
 }
 
-// non-instanced vertex shader:
-
 [[stage(vertex)]]
 fn vs_main(
-    vshader_input: VertexInput,
-) -> VertexOutput {
-    return do_vertex_shade(vshader_input, model_transform.value);
-}
-
-// instanced vertex shader:
-
-[[stage(vertex)]]
-fn instanced_vs_main(
     vshader_input: VertexInput,
     instance: ModelTransformInstance,
 ) -> VertexOutput {
@@ -138,22 +120,8 @@ fn do_fragment_shade(
     return out;
 }
 
-// non-normal-mapped fragment shader:
-
 [[stage(fragment)]]
 fn fs_main(in: VertexOutput) -> FragmentOutput {
-    return do_fragment_shade(
-        in.clip_position_nopersp, 
-        in.world_position, 
-        in.world_normal, 
-        in.tex_coords
-    );
-}
-
-// normal-mapped fragment shader:
-
-[[stage(fragment)]]
-fn normal_mapped_fs_main(in: VertexOutput) -> FragmentOutput {
     let tbn = (mat3x3<f32>(
         in.world_tangent,
         in.world_bitangent,

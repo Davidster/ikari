@@ -41,12 +41,7 @@ pub async fn run<'a>(
                 }
 
                 match renderer_state.render() {
-                    Ok(_) => {
-                        if !renderer_state.rendered_first_frame {
-                            renderer_state.rendered_first_frame = true;
-                            window.set_visible(true);
-                        }
-                    }
+                    Ok(_) => {}
                     // Reconfigure the surface if lost
                     Err(wgpu::SurfaceError::Lost) => {
                         renderer_state.resize(renderer_state.current_window_size)

@@ -198,17 +198,21 @@ pub struct InstancedMeshComponent {
     pub instance_buffer: wgpu::Buffer,
     pub num_indices: u32,
     pub _num_vertices: u32,
-    pub diffuse_texture_bind_group: Option<wgpu::BindGroup>,
+    pub textures_bind_group: wgpu::BindGroup,
 }
 
 impl InstancedMeshComponent {
     pub fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
         mesh: &BasicMesh,
         diffuse_texture: Option<&Texture>,
+        normal_map: Option<&Texture>,
         uniform_var_bind_group_layout: &wgpu::BindGroupLayout,
-        device: &wgpu::Device,
         instances: &[GpuMeshInstance],
     ) -> Result<InstancedMeshComponent> {
+        // TODO: a bunch of stuff from the mesh component isn't used;
+        //       this should be DRY'd in a different way
         let mesh_component =
             MeshComponent::new(mesh, diffuse_texture, uniform_var_bind_group_layout, device)?;
 
@@ -218,12 +222,115 @@ impl InstancedMeshComponent {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
+        let one_pixel_white_image = {
+            let mut img = image::RgbaImage::new(1, 1);
+            img.put_pixel(0, 0, image::Rgba([255, 255, 255, 255]));
+            image::DynamicImage::ImageRgba8(img)
+        };
+        let one_pixel_white_texture = Texture::from_image(
+            device,
+            queue,
+            &one_pixel_white_image,
+            Some("one_pixel_white_texture"),
+            None,
+            false,
+            &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
+                mag_filter: wgpu::FilterMode::Nearest,
+                min_filter: wgpu::FilterMode::Nearest,
+                ..texture::SamplerDescriptor::default().0
+            }),
+        )?;
+
+        let one_pixel_up_image = {
+            let mut img = image::RgbaImage::new(1, 1);
+            img.put_pixel(0, 0, image::Rgba([127, 127, 255, 255]));
+            image::DynamicImage::ImageRgba8(img)
+        };
+        let one_pixel_up_texture = Texture::from_image(
+            device,
+            queue,
+            &one_pixel_up_image,
+            Some("one_pixel_up_image"),
+            wgpu::TextureFormat::Rgba8Unorm.into(),
+            false,
+            &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
+                mag_filter: wgpu::FilterMode::Nearest,
+                min_filter: wgpu::FilterMode::Nearest,
+                ..texture::SamplerDescriptor::default().0
+            }),
+        )?;
+
+        let diffuse_texture = diffuse_texture.unwrap_or(&one_pixel_white_texture);
+        let normal_map = normal_map.unwrap_or(&one_pixel_up_texture);
+
+        // TODO: copied in renderer.rs
+        let textures_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("InstancedMeshComponent textures_bind_group_layout"),
+            });
+        let textures_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &textures_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&normal_map.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&normal_map.sampler),
+                },
+            ],
+            label: Some("InstancedMeshComponent textures_bind_group"),
+        });
+
         Ok(InstancedMeshComponent {
             vertex_buffer: mesh_component.vertex_buffer,
             index_buffer: mesh_component.index_buffer,
             num_indices: mesh_component.num_indices,
             _num_vertices: mesh_component._num_vertices,
-            diffuse_texture_bind_group: mesh_component.diffuse_texture_bind_group,
+            textures_bind_group,
             instance_buffer,
         })
     }

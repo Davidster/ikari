@@ -1,4 +1,4 @@
-use std::num::{NonZeroU32, NonZeroU8};
+use std::{num::NonZeroU32, ops::Deref};
 
 use anyhow::*;
 use image::GenericImageView;
@@ -19,6 +19,30 @@ pub struct CreateCubeMapImagesParam<'a> {
     pub neg_z: &'a image::DynamicImage,
 }
 
+pub struct SamplerDescriptor<'a>(pub wgpu::SamplerDescriptor<'a>);
+
+impl<'a> Deref for SamplerDescriptor<'a> {
+    type Target = wgpu::SamplerDescriptor<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Default for SamplerDescriptor<'_> {
+    fn default() -> Self {
+        SamplerDescriptor(wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        })
+    }
+}
+
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
@@ -27,14 +51,9 @@ impl Texture {
         queue: &wgpu::Queue,
         bytes: &[u8],
         label: &str,
-        generate_mipmaps: bool,
-        lod_min_clamp: Option<f32>,
-        lod_max_clamp: Option<f32>,
-        mipmap_filter: Option<wgpu::FilterMode>,
-        mag_filter: Option<wgpu::FilterMode>,
-        min_filter: Option<wgpu::FilterMode>,
-        anisotropy_clamp: Option<NonZeroU8>,
         format: Option<wgpu::TextureFormat>,
+        generate_mipmaps: bool,
+        sampler_descriptor: &SamplerDescriptor,
     ) -> Result<Self> {
         let img = image::load_from_memory(bytes)?;
         Self::from_image(
@@ -42,14 +61,9 @@ impl Texture {
             queue,
             &img,
             Some(label),
-            generate_mipmaps,
-            lod_min_clamp,
-            lod_max_clamp,
-            mipmap_filter,
-            mag_filter,
-            min_filter,
-            anisotropy_clamp,
             format,
+            generate_mipmaps,
+            sampler_descriptor,
         )
     }
 
@@ -58,14 +72,9 @@ impl Texture {
         queue: &wgpu::Queue,
         img: &image::DynamicImage,
         label: Option<&str>,
-        generate_mipmaps: bool,
-        lod_min_clamp: Option<f32>,
-        lod_max_clamp: Option<f32>,
-        mipmap_filter: Option<wgpu::FilterMode>,
-        mag_filter: Option<wgpu::FilterMode>,
-        min_filter: Option<wgpu::FilterMode>,
-        anisotropy_clamp: Option<NonZeroU8>,
         format: Option<wgpu::TextureFormat>,
+        generate_mipmaps: bool,
+        sampler_descriptor: &SamplerDescriptor,
     ) -> Result<Self> {
         let img_as_rgba = img.as_rgba8().ok_or_else(|| {
             anyhow!("Failed to convert image into rgba8. Is the image missing the alpha channel?")
@@ -108,29 +117,8 @@ impl Texture {
             size,
         );
 
-        // apply defaults to sampler
-        let sampler_mag_filter = mag_filter.unwrap_or(wgpu::FilterMode::Linear);
-        let sampler_min_filter = min_filter.unwrap_or(wgpu::FilterMode::Linear);
-        let sampler_anisotropy_clamp = anisotropy_clamp.or(NonZeroU8::new(8));
-        let mipmap_filter = mipmap_filter.unwrap_or(wgpu::FilterMode::Nearest);
-        let lod_min_clamp =
-            lod_min_clamp.unwrap_or(wgpu::SamplerDescriptor::default().lod_min_clamp);
-        let lod_max_clamp =
-            lod_max_clamp.unwrap_or(wgpu::SamplerDescriptor::default().lod_max_clamp);
-
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: sampler_mag_filter,
-            min_filter: sampler_min_filter,
-            mipmap_filter,
-            anisotropy_clamp: sampler_anisotropy_clamp,
-            lod_min_clamp,
-            lod_max_clamp,
-            ..Default::default()
-        });
+        let view = texture.create_view(&Default::default());
+        let sampler = device.create_sampler(&sampler_descriptor.0);
 
         let mip_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("mip_encoder"),
@@ -177,7 +165,7 @@ impl Texture {
                 | wgpu::TextureUsages::RENDER_ATTACHMENT,
         });
 
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = texture.create_view(&Default::default());
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -216,7 +204,7 @@ impl Texture {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         });
 
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = texture.create_view(&Default::default());
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -307,7 +295,7 @@ impl Texture {
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::Cube),
-            ..wgpu::TextureViewDescriptor::default()
+            ..Default::default()
         });
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -338,7 +326,7 @@ fn generate_mipmaps_for_texture(
 ) {
     let blit_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
         label: None,
-        source: wgpu::ShaderSource::Wgsl(include_str!("blit.wgsl").into()),
+        source: wgpu::ShaderSource::Wgsl(include_str!("./shaders/blit.wgsl").into()),
     });
     let mip_render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("mip_render_pipeline"),
@@ -358,7 +346,7 @@ fn generate_mipmaps_for_texture(
             ..Default::default()
         },
         depth_stencil: None,
-        multisample: wgpu::MultisampleState::default(),
+        multisample: Default::default(),
         multiview: None,
     });
     let mip_sampler = device.create_sampler(&wgpu::SamplerDescriptor {

@@ -27,6 +27,7 @@ struct VertexInput {
 
 struct VertexOutput {
     [[builtin(position)]] clip_position: vec4<f32>;
+    // TODO: rename this with newfound knowledge of fragcoord
     [[location(0)]] clip_position_nopersp: vec4<f32>; // clip position without perspective division
 };
 
