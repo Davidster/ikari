@@ -1,4 +1,3 @@
-// Vertex shader
 struct CameraUniform {
     proj: mat4x4<f32>;
     view: mat4x4<f32>;
@@ -23,12 +22,14 @@ var<uniform> model_transform: ModelTransformUniform;
 
 struct VertexInput {
     [[location(0)]] object_position: vec3<f32>;
+    [[location(1)]] object_normal: vec3<f32>;
+    [[location(2)]] object_tex_coords: vec2<f32>;
+    [[location(3)]] object_tangent: vec3<f32>;
+    [[location(4)]] object_bitangent: vec3<f32>;
 };
 
 struct VertexOutput {
     [[builtin(position)]] clip_position: vec4<f32>;
-    // TODO: rename this with newfound knowledge of fragcoord
-    [[location(0)]] clip_position_nopersp: vec4<f32>; // clip position without perspective division
 };
 
 struct FragmentOutput {
@@ -47,7 +48,6 @@ fn vs_main(
     let clip_position     = model_view_matrix * object_position;
 
     out.clip_position = clip_position;
-    out.clip_position_nopersp = clip_position;
     return out;
 }
 

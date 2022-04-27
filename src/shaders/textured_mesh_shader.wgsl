@@ -1,4 +1,3 @@
-// Vertex shader
 struct CameraUniform {
     proj: mat4x4<f32>;
     view: mat4x4<f32>;
@@ -37,9 +36,6 @@ struct VertexOutput {
     [[location(2)]] world_tangent: vec3<f32>;
     [[location(3)]] world_bitangent: vec3<f32>;
     [[location(4)]] tex_coords: vec2<f32>;
-    // TODO: rename this with newfound knowledge of fragcoord
-    [[location(5)]] clip_position_nopersp: vec4<f32>; // clip position without perspective division
-   
 };
 
 struct FragmentOutput {
@@ -65,7 +61,6 @@ fn do_vertex_shade(vshader_input: VertexInput, model_transform: mat4x4<f32>) -> 
     out.world_tangent = world_tangent;
     out.world_bitangent = world_bitangent;
     out.tex_coords = vshader_input.object_tex_coords;
-    out.clip_position_nopersp = clip_position;
 
     return out;
 }
@@ -95,25 +90,25 @@ var normal_map_sampler: sampler;
 
 
 fn do_fragment_shade(
-    clip_position_nopersp: vec4<f32>, 
     world_position: vec3<f32>,
     world_normal: vec3<f32>, 
     tex_coords: vec2<f32>,
-) -> FragmentOutput {
+) -> FragmentOutput {    
+    let albedo = textureSample(diffuse_texture, diffuse_sampler, tex_coords);
+
+    let ambient_light_intensity = 0.05;
+    let ambient_light_color = vec4<f32>(1.0, 1.0, 1.0, 1.0);
+
     let light_position = light_position.value.xyz;
     let to_light_vec = normalize(light_position - world_position);
-    // let to_light_vec = normalize(vec3<f32>(0.0, 1.5, 0.0) - world_position);
-    let light_intensity = max(dot(world_normal, to_light_vec), 0.0);
-    let albedo = textureSample(diffuse_texture, diffuse_sampler, tex_coords);
-    let max_light_intensity = 1.0;
-    let ambient_light = 0.05;
     let distance_squared = dot(to_light_vec, to_light_vec) * 2.0;
-    let final_light_intensity =
-        ambient_light + ((light_intensity * max_light_intensity) / distance_squared);
+    let light_angle_factor = max(dot(world_normal, to_light_vec), 0.0);
+    let max_light_intensity = 1.0;
+    let light_intensity =
+        ((light_angle_factor * max_light_intensity) / distance_squared);
+    
     let light_color = vec4<f32>(0.996078431372549, 0.9725490196078431, 0.6627450980392157, 1.0);
-    let final_color = light_color * final_light_intensity * albedo;
-    // let final_color = final_light_intensity * vec4<f32>(0.5, 0.5, 0.5, 1.0);
-    // let some_color = vec4<f32>(0.5, 1.0, 0.5, 1.0);
+    let final_color = (ambient_light_color * ambient_light_intensity + light_color * light_intensity) * albedo;
     
     var out: FragmentOutput;
     out.color = final_color;
@@ -138,7 +133,6 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     let transformed_normal = normalize(tbn * tangent_space_normal);
 
     return do_fragment_shade(
-        in.clip_position_nopersp, 
         in.world_position, 
         transformed_normal, 
         in.tex_coords

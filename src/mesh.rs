@@ -89,13 +89,13 @@ impl MeshComponent {
         uniform_var_bind_group_layout: &wgpu::BindGroupLayout,
         device: &wgpu::Device,
     ) -> Result<MeshComponent> {
-        let sphere_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("MeshComponent Vertex Buffer"),
             contents: bytemuck::cast_slice(&mesh.vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let sphere_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("MeshComponent Index Buffer"),
             contents: bytemuck::cast_slice(&mesh.indices),
             usage: wgpu::BufferUsages::INDEX,
@@ -178,8 +178,8 @@ impl MeshComponent {
         });
 
         Ok(MeshComponent {
-            vertex_buffer: sphere_vertex_buffer,
-            index_buffer: sphere_index_buffer,
+            vertex_buffer,
+            index_buffer,
             num_indices: index_count,
             _num_vertices: vertex_count,
             diffuse_texture_bind_group,
@@ -208,13 +208,23 @@ impl InstancedMeshComponent {
         mesh: &BasicMesh,
         diffuse_texture: Option<&Texture>,
         normal_map: Option<&Texture>,
-        uniform_var_bind_group_layout: &wgpu::BindGroupLayout,
+        textures_bind_group_layout: &wgpu::BindGroupLayout,
         instances: &[GpuMeshInstance],
     ) -> Result<InstancedMeshComponent> {
-        // TODO: a bunch of stuff from the mesh component isn't used;
-        //       this should be DRY'd in a different way
-        let mesh_component =
-            MeshComponent::new(mesh, diffuse_texture, uniform_var_bind_group_layout, device)?;
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("InstancedMeshComponent Vertex Buffer"),
+            contents: bytemuck::cast_slice(&mesh.vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("InstancedMeshComponent Index Buffer"),
+            contents: bytemuck::cast_slice(&mesh.indices),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+
+        let vertex_count = mesh.vertices.len() as u32;
+        let index_count = mesh.indices.len() as u32;
 
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("InstancedMeshComponent instance_buffer"),
@@ -263,47 +273,8 @@ impl InstancedMeshComponent {
         let diffuse_texture = diffuse_texture.unwrap_or(&one_pixel_white_texture);
         let normal_map = normal_map.unwrap_or(&one_pixel_up_texture);
 
-        // TODO: copied in renderer.rs
-        let textures_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-                label: Some("InstancedMeshComponent textures_bind_group_layout"),
-            });
         let textures_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &textures_bind_group_layout,
+            layout: textures_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -326,10 +297,10 @@ impl InstancedMeshComponent {
         });
 
         Ok(InstancedMeshComponent {
-            vertex_buffer: mesh_component.vertex_buffer,
-            index_buffer: mesh_component.index_buffer,
-            num_indices: mesh_component.num_indices,
-            _num_vertices: mesh_component._num_vertices,
+            vertex_buffer,
+            index_buffer,
+            num_indices: index_count,
+            _num_vertices: vertex_count,
             textures_bind_group,
             instance_buffer,
         })

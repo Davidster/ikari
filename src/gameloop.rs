@@ -25,7 +25,9 @@ pub async fn run<'a>(
 
                 let last_log_time_clone = last_log_time;
                 let mut write_logs = || {
-                    renderer_state.logger.write_to_term();
+                    if let Err(err) = renderer_state.logger.write_to_term() {
+                        eprintln!("Error writing to terminal: {}", err);
+                    }
                     last_log_time = Some(Instant::now());
                 };
 

@@ -40,11 +40,8 @@ impl Logger {
         self.terminal.size().0 - 2
     }
 
-    // TODO: do error handling!
-    pub fn write_to_term(&self) {
-        self.terminal
-            .clear_screen()
-            .expect("Failed to clear terminal");
+    pub fn write_to_term(&self) -> anyhow::Result<()> {
+        self.terminal.clear_screen()?;
         let avg_frame_time_millis: Option<f64> = if !self.recent_frame_times.is_empty() {
             let alpha = 0.1;
             let mut frame_times_iterator = self
@@ -60,27 +57,24 @@ impl Logger {
             None
         };
         if let Some(avg_frame_time_millis) = avg_frame_time_millis {
-            self.terminal
-                .write_line(&format!(
-                    "Frametime: {:.2}ms ({:.2}fps)",
-                    avg_frame_time_millis,
-                    1_000.0 / avg_frame_time_millis
-                ))
-                .expect("Failed to write line to terminal");
+            self.terminal.write_line(&format!(
+                "Frametime: {:.2}ms ({:.2}fps)",
+                avg_frame_time_millis,
+                1_000.0 / avg_frame_time_millis
+            ))?;
         }
         let max_free_lines = self.max_free_lines();
         let mut lines_used = 0;
 
         'outer: for log in &self.log_buffer {
             for log_line in log.split('\n') {
-                self.terminal
-                    .write_line(log_line)
-                    .expect("Failed to write line to terminal");
+                self.terminal.write_line(log_line)?;
                 lines_used += 1;
                 if lines_used == max_free_lines {
                     break 'outer;
                 }
             }
         }
+        Ok(())
     }
 }

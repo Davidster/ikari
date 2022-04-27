@@ -100,9 +100,11 @@ pub struct RendererState {
     skybox_pipeline: wgpu::RenderPipeline,
     surface_blit_pipeline: wgpu::RenderPipeline,
 
-    skybox_texture: Texture,
     render_texture: Texture,
     depth_texture: Texture,
+
+    skybox_texture_bind_group: wgpu::BindGroup,
+    render_texture_bind_group: wgpu::BindGroup,
 
     // store the previous state and next state and interpolate between them
     next_balls: Vec<BallComponent>,
@@ -204,9 +206,7 @@ impl RendererState {
                 ),
             });
 
-        // TODO: make this be a global variable for the renderer, so everyone can read it
-        // and it doesn't get duplicated in mesh.rs
-        let diffuse_texture_bind_group_layout =
+        let single_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -226,32 +226,9 @@ impl RendererState {
                         count: None,
                     },
                 ],
-                label: Some("diffuse_texture_bind_group_layout"),
+                label: Some("single_texture_bind_group_layout"),
             });
-        let render_texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        // TODO: what difference does this param make? can i set it to NonFiltering?
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-                label: Some("render_texture_bind_group_layout"),
-            });
-        let normal_mapped_bind_group_layout =
+        let two_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -287,10 +264,10 @@ impl RendererState {
                         count: None,
                     },
                 ],
-                label: Some("normal_mapped_bind_group_layout"),
+                label: Some("two_texture_bind_group_layout"),
             });
 
-        let skybox_texture_bind_group_layout =
+        let single_cube_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -310,32 +287,10 @@ impl RendererState {
                         count: None,
                     },
                 ],
-                label: Some("skybox_texture_bind_group_layout"),
-            });
-        let photosphere_skybox_texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-                label: Some("photosphere_skybox_texture_bind_group_layout"),
+                label: Some("single_cube_texture_bind_group_layout"),
             });
 
-        let model_trans_uniform_var_bind_group_layout =
+        let single_uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -347,10 +302,10 @@ impl RendererState {
                     },
                     count: None,
                 }],
-                label: Some("model_trans_uniform_var_bind_group_layout"),
+                label: Some("single_uniform_bind_group_layout"),
             });
 
-        let camera_light_uniform_var_bind_group_layout =
+        let two_uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -374,167 +329,34 @@ impl RendererState {
                         count: None,
                     },
                 ],
-                label: Some("camera_light_uniform_var_bind_group_layout"),
+                label: Some("two_uniform_bind_group_layout"),
             });
 
-        let normal_mapped_mesh_render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Mesh Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &normal_mapped_bind_group_layout,
-                    &camera_light_uniform_var_bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
+        let initial_render_scale = 2.0;
 
-        let _textured_mesh_render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Textured Mesh Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &diffuse_texture_bind_group_layout,
-                    &camera_light_uniform_var_bind_group_layout,
-                    &model_trans_uniform_var_bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
+        let render_texture = Texture::create_render_texture(
+            &device,
+            &config,
+            initial_render_scale,
+            "render_texture",
+        );
+        let render_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &single_texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&render_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&render_texture.sampler),
+                },
+            ],
+            label: Some("render_texture_bind_group"),
+        });
 
-        let flat_color_mesh_render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Flat Color Mesh Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &camera_light_uniform_var_bind_group_layout,
-                    &model_trans_uniform_var_bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-
-        let fragment_shader_color_targets = &[wgpu::ColorTargetState {
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            blend: Some(wgpu::BlendState::REPLACE),
-            write_mask: wgpu::ColorWrites::ALL,
-        }];
-
-        // TODO: DRY
-        let mesh_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("Mesh Pipeline"),
-            layout: Some(&normal_mapped_mesh_render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &textured_mesh_shader,
-                entry_point: "vs_main",
-                buffers: &[TexturedVertex::desc(), GpuMeshInstance::desc()],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &textured_mesh_shader,
-                entry_point: "fs_main",
-                targets: fragment_shader_color_targets,
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: Texture::DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::GreaterEqual,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-        };
-
-        // TODO: DRY
-        let flat_color_mesh_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("Flat Color Mesh Render Pipeline"),
-            layout: Some(&flat_color_mesh_render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &flat_color_mesh_shader,
-                entry_point: "vs_main",
-                buffers: &[TexturedVertex::desc()],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &flat_color_mesh_shader,
-                entry_point: "fs_main",
-                targets: fragment_shader_color_targets,
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: Texture::DEPTH_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::GreaterEqual,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-        };
-
-        let suface_blit_color_targets = &[wgpu::ColorTargetState {
-            format: config.format,
-            blend: Some(wgpu::BlendState::REPLACE),
-            write_mask: wgpu::ColorWrites::ALL,
-        }];
-        let surface_blit_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: None,
-                bind_group_layouts: &[&render_texture_bind_group_layout],
-                push_constant_ranges: &[],
-            });
-        let surface_blit_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("Surface Blit Render Pipeline"),
-            layout: Some(&surface_blit_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &blit_shader,
-                entry_point: "vs_main",
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &blit_shader,
-                entry_point: "fs_main",
-                targets: suface_blit_color_targets,
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        };
-
-        let mesh_pipeline = device.create_render_pipeline(&mesh_pipeline_descriptor);
-        let flat_color_mesh_pipeline =
-            device.create_render_pipeline(&flat_color_mesh_pipeline_descriptor);
-        let surface_blit_pipeline =
-            device.create_render_pipeline(&surface_blit_pipeline_descriptor);
-
-        let render_scale = 2.0;
-
-        let render_texture =
-            Texture::create_render_texture(&device, &config, render_scale, "render_texture");
         let depth_texture =
-            Texture::create_depth_texture(&device, &config, render_scale, "depth_texture");
+            Texture::create_depth_texture(&device, &config, initial_render_scale, "depth_texture");
 
         // source: https://www.solarsystemscope.com/textures/
         let mars_texture_path = "./src/textures/8k_mars.png";
@@ -585,54 +407,7 @@ impl RendererState {
             &Default::default(),
         )?;
 
-        let skybox_fragment_shader_color_targets = &[wgpu::ColorTargetState {
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            blend: Some(wgpu::BlendState::REPLACE),
-            write_mask: wgpu::ColorWrites::ALL,
-        }];
-
-        let (skybox_pipeline, skybox_texture) = if USE_PHOTOSPHERE_SKYBOX {
-            let photosphere_skybox_render_pipeline_layout =
-                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Photosphere Skybox Render Pipeline Layout"),
-                    bind_group_layouts: &[
-                        &photosphere_skybox_texture_bind_group_layout,
-                        &camera_light_uniform_var_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
-                });
-
-            let photosphere_skybox_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-                label: Some("Photosphere Skybox Render Pipeline"),
-                layout: Some(&photosphere_skybox_render_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &photosphere_skybox_shader,
-                    entry_point: "vs_main",
-                    buffers: &[TexturedVertex::desc()],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &photosphere_skybox_shader,
-                    entry_point: "fs_main",
-                    targets: skybox_fragment_shader_color_targets,
-                }),
-                primitive: wgpu::PrimitiveState {
-                    front_face: wgpu::FrontFace::Cw,
-                    ..Default::default()
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: Texture::DEPTH_FORMAT,
-                    depth_write_enabled: true,
-                    // TODO: should this be LessEqual?
-                    depth_compare: wgpu::CompareFunction::GreaterEqual,
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
-                }),
-                multisample: wgpu::MultisampleState::default(),
-                multiview: None,
-            };
-
-            let photosphere_skybox_pipeline =
-                device.create_render_pipeline(&photosphere_skybox_pipeline_descriptor);
+        let (skybox_texture, skybox_texture_bind_group_layout) = if USE_PHOTOSPHERE_SKYBOX {
             let photosphere_skybox_texture_path = "./src/textures/photosphere_skybox.png";
             let photosphere_skybox_texture_bytes = std::fs::read(photosphere_skybox_texture_path)?;
             let photosphere_skybox_texture = Texture::from_bytes(
@@ -645,48 +420,11 @@ impl RendererState {
                 &Default::default(),
             )?;
 
-            (photosphere_skybox_pipeline, photosphere_skybox_texture)
+            (
+                photosphere_skybox_texture,
+                &single_texture_bind_group_layout,
+            )
         } else {
-            let skybox_render_pipeline_layout =
-                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Skybox Render Pipeline Layout"),
-                    bind_group_layouts: &[
-                        &skybox_texture_bind_group_layout,
-                        &camera_light_uniform_var_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
-                });
-
-            let skybox_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-                label: Some("Skybox Render Pipeline"),
-                layout: Some(&skybox_render_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &skybox_shader,
-                    entry_point: "vs_main",
-                    buffers: &[TexturedVertex::desc()],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &skybox_shader,
-                    entry_point: "fs_main",
-                    targets: skybox_fragment_shader_color_targets,
-                }),
-                primitive: wgpu::PrimitiveState {
-                    front_face: wgpu::FrontFace::Cw,
-                    ..Default::default()
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: Texture::DEPTH_FORMAT,
-                    depth_write_enabled: true,
-                    // TODO: should this be LessEqual?
-                    depth_compare: wgpu::CompareFunction::GreaterEqual,
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
-                }),
-                multisample: wgpu::MultisampleState::default(),
-                multiview: None,
-            };
-            let skybox_pipeline = device.create_render_pipeline(&skybox_pipeline_descriptor);
-
             let cubemap_skybox_images = vec![
                 "./src/textures/skybox/right.png",
                 "./src/textures/skybox/left.png",
@@ -709,12 +447,215 @@ impl RendererState {
                     pos_z: &cubemap_skybox_images[4],
                     neg_z: &cubemap_skybox_images[5],
                 },
-                Some("skybox_texture"),
+                Some("cubemap_skybox_texture"),
                 // TODO: set to true!
                 false,
             )?;
 
-            (skybox_pipeline, cubemap_skybox_texture)
+            (
+                cubemap_skybox_texture,
+                &single_cube_texture_bind_group_layout,
+            )
+        };
+        let skybox_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: skybox_texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&skybox_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&skybox_texture.sampler),
+                },
+            ],
+            label: Some("skybox_texture_bind_group"),
+        });
+
+        let fragment_shader_color_targets = &[wgpu::ColorTargetState {
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            blend: Some(wgpu::BlendState::REPLACE),
+            write_mask: wgpu::ColorWrites::ALL,
+        }];
+
+        let mesh_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Mesh Pipeline Layout"),
+            bind_group_layouts: &[
+                &two_texture_bind_group_layout,
+                &two_uniform_bind_group_layout,
+            ],
+            push_constant_ranges: &[],
+        });
+        let mesh_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("Mesh Pipeline"),
+            layout: Some(&mesh_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &textured_mesh_shader,
+                entry_point: "vs_main",
+                buffers: &[TexturedVertex::desc(), GpuMeshInstance::desc()],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &textured_mesh_shader,
+                entry_point: "fs_main",
+                targets: fragment_shader_color_targets,
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::GreaterEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        };
+        let mesh_pipeline = device.create_render_pipeline(&mesh_pipeline_descriptor);
+
+        let flat_color_mesh_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Flat Color Mesh Pipeline Layout"),
+                bind_group_layouts: &[
+                    &two_uniform_bind_group_layout,
+                    &single_uniform_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+        let mut flat_color_mesh_pipeline_descriptor = mesh_pipeline_descriptor.clone();
+        flat_color_mesh_pipeline_descriptor.label = Some("Flat Color Mesh Render Pipeline");
+        flat_color_mesh_pipeline_descriptor.layout = Some(&flat_color_mesh_pipeline_layout);
+        let flat_color_mesh_pipeline_v_buffers = &[TexturedVertex::desc()];
+        flat_color_mesh_pipeline_descriptor.vertex = wgpu::VertexState {
+            module: &flat_color_mesh_shader,
+            entry_point: "vs_main",
+            buffers: flat_color_mesh_pipeline_v_buffers,
+        };
+        flat_color_mesh_pipeline_descriptor.fragment = Some(wgpu::FragmentState {
+            module: &flat_color_mesh_shader,
+            entry_point: "fs_main",
+            targets: fragment_shader_color_targets,
+        });
+        let flat_color_mesh_pipeline =
+            device.create_render_pipeline(&flat_color_mesh_pipeline_descriptor);
+
+        let suface_blit_color_targets = &[wgpu::ColorTargetState {
+            format: config.format,
+            blend: Some(wgpu::BlendState::REPLACE),
+            write_mask: wgpu::ColorWrites::ALL,
+        }];
+        let surface_blit_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[&single_texture_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+        let surface_blit_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("Surface Blit Render Pipeline"),
+            layout: Some(&surface_blit_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &blit_shader,
+                entry_point: "vs_main",
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &blit_shader,
+                entry_point: "fs_main",
+                targets: suface_blit_color_targets,
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        };
+        let surface_blit_pipeline =
+            device.create_render_pipeline(&surface_blit_pipeline_descriptor);
+
+        let skybox_pipeline_primitive_state = wgpu::PrimitiveState {
+            front_face: wgpu::FrontFace::Cw,
+            ..Default::default()
+        };
+        let skybox_depth_stencil_state = Some(wgpu::DepthStencilState {
+            format: Texture::DEPTH_FORMAT,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::GreaterEqual,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        });
+        let skybox_pipeline = if USE_PHOTOSPHERE_SKYBOX {
+            let photosphere_skybox_render_pipeline_layout =
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Photosphere Skybox Render Pipeline Layout"),
+                    bind_group_layouts: &[
+                        &single_texture_bind_group_layout,
+                        &two_uniform_bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
+                });
+
+            let photosphere_skybox_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+                label: Some("Photosphere Skybox Render Pipeline"),
+                layout: Some(&photosphere_skybox_render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &photosphere_skybox_shader,
+                    entry_point: "vs_main",
+                    buffers: &[TexturedVertex::desc()],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &photosphere_skybox_shader,
+                    entry_point: "fs_main",
+                    targets: fragment_shader_color_targets,
+                }),
+                primitive: skybox_pipeline_primitive_state,
+                depth_stencil: skybox_depth_stencil_state,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+            };
+            device.create_render_pipeline(&photosphere_skybox_pipeline_descriptor)
+        } else {
+            let skybox_render_pipeline_layout =
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Skybox Render Pipeline Layout"),
+                    bind_group_layouts: &[
+                        &single_cube_texture_bind_group_layout,
+                        &two_uniform_bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
+                });
+
+            let skybox_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+                label: Some("Skybox Render Pipeline"),
+                layout: Some(&skybox_render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &skybox_shader,
+                    entry_point: "vs_main",
+                    buffers: &[TexturedVertex::desc()],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &skybox_shader,
+                    entry_point: "fs_main",
+                    targets: fragment_shader_color_targets,
+                }),
+                primitive: skybox_pipeline_primitive_state,
+                depth_stencil: skybox_depth_stencil_state,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+            };
+            device.create_render_pipeline(&skybox_pipeline_descriptor)
         };
 
         let checkerboard_texture_img = {
@@ -754,17 +695,13 @@ impl RendererState {
         let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
         let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
 
-        let skybox_mesh = MeshComponent::new(
-            &cube_mesh,
-            None,
-            &model_trans_uniform_var_bind_group_layout,
-            &device,
-        )?;
+        let skybox_mesh =
+            MeshComponent::new(&cube_mesh, None, &single_uniform_bind_group_layout, &device)?;
 
         let light = MeshComponent::new(
             &sphere_mesh,
             None,
-            &model_trans_uniform_var_bind_group_layout,
+            &single_uniform_bind_group_layout,
             &device,
         )?;
         light.transform.set_scale(Vector3::new(0.05, 0.05, 0.05));
@@ -784,7 +721,7 @@ impl RendererState {
             &sphere_mesh,
             Some(&earth_texture),
             Some(&earth_normal_map),
-            &model_trans_uniform_var_bind_group_layout,
+            &two_texture_bind_group_layout,
             &test_object_transforms_gpu,
         )?;
 
@@ -802,7 +739,7 @@ impl RendererState {
             &plane_mesh,
             Some(&checkerboard_texture),
             None,
-            &model_trans_uniform_var_bind_group_layout,
+            &two_texture_bind_group_layout,
             &plane_transforms_gpu,
         )?;
 
@@ -826,7 +763,7 @@ impl RendererState {
         });
 
         let camera_light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &camera_light_uniform_var_bind_group_layout,
+            layout: &two_uniform_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -842,7 +779,7 @@ impl RendererState {
 
         let _test_object_textures_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &normal_mapped_bind_group_layout,
+                layout: &two_texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -893,7 +830,7 @@ impl RendererState {
             &sphere_mesh,
             Some(&mars_texture),
             None,
-            &model_trans_uniform_var_bind_group_layout,
+            &two_texture_bind_group_layout,
             &balls_transforms,
         )?;
 
@@ -902,7 +839,7 @@ impl RendererState {
             device,
             queue,
             config,
-            render_scale,
+            render_scale: initial_render_scale,
             state_update_time_accumulator: 0.0,
             last_frame_instant: None,
             first_frame_instant: None,
@@ -923,9 +860,11 @@ impl RendererState {
             surface_blit_pipeline,
             skybox_pipeline,
 
-            skybox_texture,
             render_texture,
             depth_texture,
+
+            skybox_texture_bind_group,
+            render_texture_bind_group,
 
             next_balls: balls.clone(),
             prev_balls: balls.clone(),
@@ -977,6 +916,25 @@ impl RendererState {
                     self.render_scale,
                     "render_texture",
                 );
+                self.render_texture_bind_group =
+                    self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        layout: &self.surface_blit_pipeline.get_bind_group_layout(0),
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: wgpu::BindingResource::TextureView(
+                                    &self.render_texture.view,
+                                ),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::Sampler(
+                                    &self.render_texture.sampler,
+                                ),
+                            },
+                        ],
+                        label: Some("render_texture_bind_group"),
+                    });
                 self.depth_texture = Texture::create_depth_texture(
                     &self.device,
                     &self.config,
@@ -1011,6 +969,22 @@ impl RendererState {
             self.render_scale,
             "render_texture",
         );
+        // TODO: dry this up? it's repeated three times in this file
+        self.render_texture_bind_group =
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.surface_blit_pipeline.get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&self.render_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.render_texture.sampler),
+                    },
+                ],
+                label: Some("render_texture_bind_group"),
+            });
         self.depth_texture = Texture::create_depth_texture(
             &self.device,
             &self.config,
@@ -1125,36 +1099,6 @@ impl RendererState {
         let surface_texture_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        // TODO: can I move these bind groups elsewhere?
-        let sky_box_texture_bind_group =
-            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.skybox_pipeline.get_bind_group_layout(0),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&self.skybox_texture.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.skybox_texture.sampler),
-                    },
-                ],
-                label: Some("skybox_texture_bind_group"),
-            });
-        let render_texture_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &self.surface_blit_pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.render_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.render_texture.sampler),
-                },
-            ],
-            label: Some("render_texture_bind_group"),
-        });
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -1251,7 +1195,8 @@ impl RendererState {
             // TODO: does it make sense to render the skybox here?
             // doing it in the surface blit pass is faster and might not change the quality when using SSAA
             scene_render_pass.set_pipeline(&self.skybox_pipeline);
-            scene_render_pass.set_bind_group(0, &sky_box_texture_bind_group, &[]);
+            scene_render_pass.set_bind_group(0, &self.skybox_texture_bind_group, &[]);
+            // scene_render_pass.set_bind_group(0, &sky_box_texture_bind_group, &[]);
             scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
             scene_render_pass.set_vertex_buffer(0, self.skybox_mesh.vertex_buffer.slice(..));
             scene_render_pass.set_index_buffer(
@@ -1277,7 +1222,7 @@ impl RendererState {
                 });
 
             surface_blit_render_pass.set_pipeline(&self.surface_blit_pipeline);
-            surface_blit_render_pass.set_bind_group(0, &render_texture_bind_group, &[]);
+            surface_blit_render_pass.set_bind_group(0, &self.render_texture_bind_group, &[]);
             surface_blit_render_pass.draw(0..3, 0..1);
         }
 

@@ -1,17 +1,25 @@
-// Vertex shader
 struct CameraUniform {
     proj: mat4x4<f32>;
     view: mat4x4<f32>;
     rotation_only_view: mat4x4<f32>;
+    near_plane_distance: f32;
+    far_plane_distance: f32;
 };
 [[group(1), binding(0)]]
 var<uniform> camera: CameraUniform;
 
+struct LightPositionUniform {
+    value: vec4<f32>;
+};
+[[group(1), binding(1)]]
+var<uniform> light_position: LightPositionUniform;
+
 struct VertexInput {
     [[location(0)]] object_position: vec3<f32>;
-    // TODO: can these be removed?
     [[location(1)]] object_normal: vec3<f32>;
     [[location(2)]] object_tex_coords: vec2<f32>;
+    [[location(3)]] object_tangent: vec3<f32>;
+    [[location(4)]] object_bitangent: vec3<f32>;
 };
 
 struct VertexOutput {

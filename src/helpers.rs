@@ -1,7 +1,5 @@
 use cgmath::{Matrix, Matrix4, Quaternion, Rad, Vector3};
 
-// TODO: use cgmath::Rad instead of f32 for rotations
-
 pub fn _to_srgb(val: f32) -> f32 {
     val.powf(2.2)
 }
@@ -65,7 +63,14 @@ pub fn make_rotation_matrix(r: Quaternion<f32>) -> Matrix4<f32> {
 }
 
 // from https://en.wikipedia.org/wiki/Rotation_matrix
-pub fn _make_rotation_matrix_from_eulers(pitch: f32, yaw: f32, roll: f32) -> Matrix4<f32> {
+pub fn _make_rotation_matrix_from_eulers(
+    pitch: Rad<f32>,
+    yaw: Rad<f32>,
+    roll: Rad<f32>,
+) -> Matrix4<f32> {
+    let pitch = pitch.0;
+    let yaw = yaw.0;
+    let roll = roll.0;
     #[rustfmt::skip]
     let result = Matrix4::new(
         yaw.cos() * pitch.cos(),

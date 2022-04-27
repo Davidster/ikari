@@ -105,7 +105,7 @@ impl Texture {
             wgpu::ImageCopyTexture {
                 aspect: wgpu::TextureAspect::All,
                 texture: &texture,
-                mip_level: 0, // TODO: could this affect things?
+                mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
             },
             img_as_rgba,
@@ -359,7 +359,27 @@ fn generate_mipmaps_for_texture(
         mipmap_filter: wgpu::FilterMode::Nearest,
         ..Default::default()
     });
-    let mip_bind_group_layout = mip_render_pipeline.get_bind_group_layout(0);
+    let mip_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    multisampled: false,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+        label: Some("single_texture_bind_group_layout"),
+    });
     let mip_texure_views = (0..mip_level_count)
         .map(|mip| {
             texture.create_view(&wgpu::TextureViewDescriptor {
@@ -374,6 +394,7 @@ fn generate_mipmaps_for_texture(
             })
         })
         .collect::<Vec<_>>();
+
     for target_mip in 1..mip_level_count as usize {
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &mip_bind_group_layout,

@@ -20,7 +20,7 @@
 - [x] try reverse depth instead of / in addition to logarithmic depth
 - [x] support normal maps
 - [ ] refactor the proj!
-- [ ] pass color to flat color shader with uniform
+- [ ] implement flat color shader with 1x1 texture
 - [ ] support gltf format
 - [ ] try to implement PBR shaders based on [article](https://learnopengl.com/PBR/Theory), implement some [sample models](https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0):
   - [ ] [Triangle Without Indices](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TriangleWithoutIndices)
