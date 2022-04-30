@@ -88,7 +88,7 @@ impl CameraUniform {
 }
 
 pub const ARENA_SIDE_LENGTH: f32 = 1000.0;
-pub const USE_PHOTOSPHERE_SKYBOX: bool = true;
+pub const USE_PHOTOSPHERE_SKYBOX: bool = false;
 pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
 pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 
