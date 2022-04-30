@@ -8,17 +8,24 @@ struct CameraUniform {
 [[group(0), binding(0)]]
 var<uniform> camera: CameraUniform;
 
-struct LightPositionUniform {
-    value: vec3<f32>;
+struct LightUniform {
+    position: vec4<f32>;
+    color: vec4<f32>;
 };
 [[group(0), binding(1)]]
-var<uniform> light_position: LightPositionUniform;
+var<uniform> light: LightUniform;
 
 struct ModelTransformUniform {
     value: mat4x4<f32>;
 };
 [[group(1), binding(0)]]
 var<uniform> model_transform: ModelTransformUniform;
+
+struct ColorUniform {
+    value: vec4<f32>;
+};
+[[group(2), binding(0)]]
+var<uniform> color: ColorUniform;
 
 struct VertexInput {
     [[location(0)]] object_position: vec3<f32>;
@@ -54,6 +61,7 @@ fn vs_main(
 [[stage(fragment)]]
 fn fs_main(in: VertexOutput) -> FragmentOutput {
     var out: FragmentOutput;
-    out.color = vec4<f32>(0.996078431372549, 0.9725490196078431, 0.6627450980392157, 1.0);
+    // out.color = vec4<f32>(0.996078431372549, 0.9725490196078431, 0.6627450980392157, 1.0);
+    out.color = color.value;
     return out;
 }

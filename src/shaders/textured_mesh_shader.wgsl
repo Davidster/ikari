@@ -8,11 +8,12 @@ struct CameraUniform {
 [[group(1), binding(0)]]
 var<uniform> camera: CameraUniform;
 
-struct LightPositionUniform {
-    value: vec4<f32>;
+struct LightUniform {
+    position: vec4<f32>;
+    color: vec4<f32>;
 };
 [[group(1), binding(1)]]
-var<uniform> light_position: LightPositionUniform;
+var<uniform> light: LightUniform;
 
 struct VertexInput {
     [[location(0)]] object_position: vec3<f32>;
@@ -99,16 +100,14 @@ fn do_fragment_shade(
     let ambient_light_intensity = 0.05;
     let ambient_light_color = vec4<f32>(1.0, 1.0, 1.0, 1.0);
 
-    let light_position = light_position.value.xyz;
-    let to_light_vec = normalize(light_position - world_position);
+    let to_light_vec = normalize(light.position.xyz - world_position);
     let distance_squared = dot(to_light_vec, to_light_vec) * 2.0;
     let light_angle_factor = max(dot(world_normal, to_light_vec), 0.0);
     let max_light_intensity = 1.0;
     let light_intensity =
         ((light_angle_factor * max_light_intensity) / distance_squared);
     
-    let light_color = vec4<f32>(0.996078431372549, 0.9725490196078431, 0.6627450980392157, 1.0);
-    let final_color = (ambient_light_color * ambient_light_intensity + light_color * light_intensity) * albedo;
+    let final_color = (ambient_light_color * ambient_light_intensity + light.color * light_intensity) * albedo;
     
     var out: FragmentOutput;
     out.color = final_color;

@@ -12,6 +12,10 @@ pub fn _lerp_f64(from: f64, to: f64, alpha: f64) -> f64 {
     (alpha * to) + ((1.0 - alpha) * from)
 }
 
+pub fn lerp_vec(a: Vector3<f32>, b: Vector3<f32>, alpha: f32) -> Vector3<f32> {
+    b * alpha + a * (1.0 - alpha)
+}
+
 // from https://stackoverflow.com/questions/4436764/rotating-a-quaternion-on-1-axis
 pub fn make_quat_from_axis_angle(axis: Vector3<f32>, angle: Rad<f32>) -> Quaternion<f32> {
     let factor = (angle.0 / 2.0).sin();

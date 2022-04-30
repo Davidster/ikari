@@ -81,17 +81,16 @@ impl BallComponent {
     }
 
     pub fn lerp(&self, other: &Self, alpha: f32) -> Self {
-        let lerpf = |a: f32, b: f32| b * alpha + a * (1.0 - alpha);
-        let lerpvec = |a: Vector3<f32>, b: Vector3<f32>| b * alpha + a * (1.0 - alpha);
-
         let transform = super::transform::Transform::new();
-        transform.set_position(lerpvec(
+        transform.set_position(lerp_vec(
             self.transform.position.get(),
             other.transform.position.get(),
+            alpha,
         ));
-        transform.set_scale(lerpvec(
+        transform.set_scale(lerp_vec(
             self.transform.scale.get(),
             other.transform.scale.get(),
+            alpha,
         ));
         transform.set_rotation(
             self.transform
@@ -102,9 +101,9 @@ impl BallComponent {
 
         BallComponent {
             transform,
-            direction: lerpvec(self.direction, other.direction),
-            speed: lerpf(self.speed, other.speed),
-            radius: lerpf(self.radius, other.radius),
+            direction: lerp_vec(self.direction, other.direction, alpha),
+            speed: lerp_f32(self.speed, other.speed, alpha),
+            radius: lerp_f32(self.radius, other.radius, alpha),
         }
     }
 }

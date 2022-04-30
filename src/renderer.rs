@@ -26,12 +26,28 @@ unsafe impl bytemuck::Zeroable for GpuMatrix3 {}
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct LightUniform {
     position: [f32; 4],
+    color: [f32; 4],
 }
 
-impl From<Vector3<f32>> for LightUniform {
-    fn from(v: Vector3<f32>) -> Self {
+impl From<(Vector3<f32>, Vector3<f32>)> for LightUniform {
+    fn from((pos, color): (Vector3<f32>, Vector3<f32>)) -> Self {
         Self {
-            position: [v.x, v.y, v.z, 1.0],
+            position: [pos.x, pos.y, pos.z, 1.0],
+            color: [color.x, color.y, color.z, 1.0],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct FlatColorUniform {
+    color: [f32; 4],
+}
+
+impl From<Vector3<f32>> for FlatColorUniform {
+    fn from(color: Vector3<f32>) -> Self {
+        Self {
+            color: [color.x, color.y, color.z, 1.0],
         }
     }
 }
@@ -72,7 +88,9 @@ impl CameraUniform {
 }
 
 pub const ARENA_SIDE_LENGTH: f32 = 1000.0;
-pub const USE_PHOTOSPHERE_SKYBOX: bool = false;
+pub const USE_PHOTOSPHERE_SKYBOX: bool = true;
+pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
+pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 
 pub struct RendererState {
     surface: wgpu::Surface,
@@ -90,10 +108,12 @@ pub struct RendererState {
     camera_controller: CameraController,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
-    camera_light_bind_group: wgpu::BindGroup,
 
     light: MeshComponent,
     light_buffer: wgpu::Buffer,
+    light_color: Vector3<f32>,
+
+    camera_light_bind_group: wgpu::BindGroup,
 
     mesh_pipeline: wgpu::RenderPipeline,
     flat_color_mesh_pipeline: wgpu::RenderPipeline,
@@ -105,6 +125,9 @@ pub struct RendererState {
 
     skybox_texture_bind_group: wgpu::BindGroup,
     render_texture_bind_group: wgpu::BindGroup,
+
+    flat_color_buffer: wgpu::Buffer,
+    flat_color_bind_group: wgpu::BindGroup,
 
     // store the previous state and next state and interpolate between them
     next_balls: Vec<BallComponent>,
@@ -197,14 +220,6 @@ impl RendererState {
                 std::fs::read_to_string("./src/shaders/skybox_shader.wgsl")?.into(),
             ),
         });
-
-        let photosphere_skybox_shader =
-            device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-                label: Some("Photosphere Skybox Shader"),
-                source: wgpu::ShaderSource::Wgsl(
-                    std::fs::read_to_string("./src/shaders/photosphere_skybox_shader.wgsl")?.into(),
-                ),
-            });
 
         let single_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -530,6 +545,7 @@ impl RendererState {
                 bind_group_layouts: &[
                     &two_uniform_bind_group_layout,
                     &single_uniform_bind_group_layout,
+                    &single_uniform_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -611,13 +627,13 @@ impl RendererState {
                 label: Some("Photosphere Skybox Render Pipeline"),
                 layout: Some(&photosphere_skybox_render_pipeline_layout),
                 vertex: wgpu::VertexState {
-                    module: &photosphere_skybox_shader,
+                    module: &skybox_shader,
                     entry_point: "vs_main",
                     buffers: &[TexturedVertex::desc()],
                 },
                 fragment: Some(wgpu::FragmentState {
-                    module: &photosphere_skybox_shader,
-                    entry_point: "fs_main",
+                    module: &skybox_shader,
+                    entry_point: "photosphere_fs_main",
                     targets: fragment_shader_color_targets,
                 }),
                 primitive: skybox_pipeline_primitive_state,
@@ -647,7 +663,7 @@ impl RendererState {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &skybox_shader,
-                    entry_point: "fs_main",
+                    entry_point: "cubemap_fs_main",
                     targets: fragment_shader_color_targets,
                 }),
                 primitive: skybox_pipeline_primitive_state,
@@ -706,6 +722,8 @@ impl RendererState {
         )?;
         light.transform.set_scale(Vector3::new(0.05, 0.05, 0.05));
         light.transform.set_position(Vector3::new(0.0, 2.0, 0.0));
+        let light_color = LIGHT_COLOR_A;
+        // let light_color = Vector3::new(0.396, 0.973, 0.663);
 
         let test_object_transforms = vec![super::transform::Transform::new()];
         test_object_transforms[0].set_position(Vector3::new(0.0, 1.0, 0.0));
@@ -758,7 +776,16 @@ impl RendererState {
 
         let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Light Buffer"),
-            contents: bytemuck::cast_slice(&[LightUniform::from(light.transform.position.get())]),
+            contents: bytemuck::cast_slice(&[LightUniform::from((
+                light.transform.position.get(),
+                light_color,
+            ))]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let flat_color_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Flat Color Buffer"),
+            contents: bytemuck::cast_slice(&[FlatColorUniform::from(light_color)]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -775,6 +802,15 @@ impl RendererState {
                 },
             ],
             label: Some("camera_light_bind_group"),
+        });
+
+        let flat_color_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &single_uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: flat_color_buffer.as_entire_binding(),
+            }],
+            label: Some("flat_color_bind_group"),
         });
 
         let _test_object_textures_bind_group =
@@ -854,6 +890,7 @@ impl RendererState {
 
             light,
             light_buffer,
+            light_color,
 
             mesh_pipeline,
             flat_color_mesh_pipeline,
@@ -865,6 +902,9 @@ impl RendererState {
 
             skybox_texture_bind_group,
             render_texture_bind_group,
+
+            flat_color_buffer,
+            flat_color_bind_group,
 
             next_balls: balls.clone(),
             prev_balls: balls.clone(),
@@ -1046,6 +1086,8 @@ impl RendererState {
         self.test_object_transforms[0]
             .set_rotation(rotational_displacement * self.test_object_transforms[0].rotation.get());
 
+        self.light_color = lerp_vec(LIGHT_COLOR_A, LIGHT_COLOR_B, (time_seconds * 2.0).sin());
+
         // self.logger
         //     .log(&format!("Frame time: {:?}", frame_time_seconds));
         // self.logger.log(&format!(
@@ -1090,7 +1132,15 @@ impl RendererState {
         self.queue.write_buffer(
             &self.light_buffer,
             0,
-            bytemuck::cast_slice(&[LightUniform::from(self.light.transform.position.get())]),
+            bytemuck::cast_slice(&[LightUniform::from((
+                self.light.transform.position.get(),
+                self.light_color,
+            ))]),
+        );
+        self.queue.write_buffer(
+            &self.flat_color_buffer,
+            0,
+            bytemuck::cast_slice(&[FlatColorUniform::from(self.light_color)]),
         );
     }
 
@@ -1136,8 +1186,8 @@ impl RendererState {
 
             // render test object
             scene_render_pass.set_pipeline(&self.mesh_pipeline);
-            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
             scene_render_pass.set_bind_group(0, &self.test_object_mesh.textures_bind_group, &[]);
+            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
             scene_render_pass.set_vertex_buffer(0, self.test_object_mesh.vertex_buffer.slice(..));
             scene_render_pass.set_vertex_buffer(1, self.test_object_mesh.instance_buffer.slice(..));
             scene_render_pass.set_index_buffer(
@@ -1152,8 +1202,8 @@ impl RendererState {
 
             // render floor
             scene_render_pass.set_pipeline(&self.mesh_pipeline);
-            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
             scene_render_pass.set_bind_group(0, &self.plane_mesh.textures_bind_group, &[]);
+            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
             scene_render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
             scene_render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
             scene_render_pass.set_index_buffer(
@@ -1168,8 +1218,8 @@ impl RendererState {
 
             // render balls
             scene_render_pass.set_pipeline(&self.mesh_pipeline);
-            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
             scene_render_pass.set_bind_group(0, &self.sphere_mesh.textures_bind_group, &[]);
+            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
             scene_render_pass.set_vertex_buffer(0, self.sphere_mesh.vertex_buffer.slice(..));
             scene_render_pass.set_vertex_buffer(1, self.sphere_mesh.instance_buffer.slice(..));
             scene_render_pass.set_index_buffer(
@@ -1186,6 +1236,7 @@ impl RendererState {
             scene_render_pass.set_pipeline(&self.flat_color_mesh_pipeline);
             scene_render_pass.set_bind_group(0, &self.camera_light_bind_group, &[]);
             scene_render_pass.set_bind_group(1, &self.light.transform_bind_group, &[]);
+            scene_render_pass.set_bind_group(2, &self.flat_color_bind_group, &[]);
             scene_render_pass.set_vertex_buffer(0, self.light.vertex_buffer.slice(..));
             scene_render_pass
                 .set_index_buffer(self.light.index_buffer.slice(..), wgpu::IndexFormat::Uint16);

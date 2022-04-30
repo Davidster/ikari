@@ -8,11 +8,12 @@ struct CameraUniform {
 [[group(1), binding(0)]]
 var<uniform> camera: CameraUniform;
 
-struct LightPositionUniform {
-    value: vec4<f32>;
+struct LightUniform {
+    position: vec4<f32>;
+    color: vec4<f32>;
 };
 [[group(1), binding(1)]]
-var<uniform> light_position: LightPositionUniform;
+var<uniform> light: LightUniform;
 
 struct VertexInput {
     [[location(0)]] object_position: vec3<f32>;
@@ -38,13 +39,49 @@ fn vs_main(
     return out;
 }
 
+// cubemap version
+
 [[group(0), binding(0)]]
-var r_texture: texture_cube<f32>;
+var cubemap_texture: texture_cube<f32>;
 
 [[group(0), binding(1)]]
-var r_sampler: sampler;
+var cubemap_sampler: sampler;
 
 [[stage(fragment)]]
-fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-    return textureSample(r_texture, r_sampler, in.world_position);
+fn cubemap_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+    return textureSample(cubemap_texture, cubemap_sampler, in.world_position);
+}
+
+// photosphere version
+
+let pi: f32 = 3.141592653589793;
+let two_pi: f32 = 6.283185307179586;
+
+// in radians
+fn angle_modulo(angle: f32) -> f32 {
+  return (angle + two_pi) % two_pi;
+}
+
+fn latlng_to_uv(latitude: f32, longitude: f32) -> vec2<f32> {
+  return vec2<f32>(
+      angle_modulo(longitude) / two_pi,
+      -(latitude - (pi / 2.0)) / pi, 
+  );
+}
+
+[[group(0), binding(0)]]
+var photosphere_texture: texture_2d<f32>;
+
+[[group(0), binding(1)]]
+var photosphere_sampler: sampler;
+
+[[stage(fragment)]]
+fn photosphere_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+    let latitude = atan2(
+      in.world_position.y, 
+      sqrt(in.world_position.x * in.world_position.x + in.world_position.z * in.world_position.z)
+    );
+    let longitude = atan2(in.world_position.z, in.world_position.x);
+    
+    return textureSample(photosphere_texture, photosphere_sampler, latlng_to_uv(latitude, longitude));
 }
