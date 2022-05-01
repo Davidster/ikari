@@ -100,12 +100,14 @@ fn do_fragment_shade(
     let ambient_light_intensity = 0.05;
     let ambient_light_color = vec4<f32>(1.0, 1.0, 1.0, 1.0);
 
-    let to_light_vec = normalize(light.position.xyz - world_position);
-    let distance_squared = dot(to_light_vec, to_light_vec) * 2.0;
-    let light_angle_factor = max(dot(world_normal, to_light_vec), 0.0);
+    let to_light_vec = light.position.xyz - world_position;
+    let to_light_vec_norm = normalize(to_light_vec);
+    let distance = length(to_light_vec);
+    let light_angle_factor = max(dot(world_normal, to_light_vec_norm), 0.0);
     let max_light_intensity = 1.0;
+    // don't square the distance because gamma correction is applied which effectively squares it
     let light_intensity =
-        ((light_angle_factor * max_light_intensity) / distance_squared);
+        ((light_angle_factor * max_light_intensity) / distance);
     
     let final_color = (ambient_light_color * ambient_light_intensity + light.color * light_intensity) * albedo;
     
