@@ -2,6 +2,7 @@ struct CameraUniform {
     proj: mat4x4<f32>;
     view: mat4x4<f32>;
     rotation_only_view: mat4x4<f32>;
+    position: vec4<f32>;
     near_plane_distance: f32;
     far_plane_distance: f32;
 };
@@ -89,13 +90,27 @@ var normal_map_texture: texture_2d<f32>;
 [[group(0), binding(3)]]
 var normal_map_sampler: sampler;
 
+[[group(2), binding(0)]]
+var skybox_texture: texture_cube<f32>;
+[[group(2), binding(1)]]
+var skybox_sampler: sampler;
+
 
 fn do_fragment_shade(
     world_position: vec3<f32>,
     world_normal: vec3<f32>, 
     tex_coords: vec2<f32>,
+    camera_position: vec3<f32>,
 ) -> FragmentOutput {    
-    let albedo = textureSample(diffuse_texture, diffuse_sampler, tex_coords);
+
+    let surface_reflection = textureSample(
+        skybox_texture,
+        skybox_sampler,
+        reflect(normalize(world_position - camera_position), normalize(world_normal))
+    );
+
+    // let albedo = textureSample(diffuse_texture, diffuse_sampler, tex_coords);
+    let albedo = surface_reflection;
 
     let ambient_light_intensity = 0.05;
     let ambient_light_color = vec4<f32>(1.0, 1.0, 1.0, 1.0);
@@ -136,6 +151,7 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     return do_fragment_shade(
         in.world_position, 
         transformed_normal, 
-        in.tex_coords
+        in.tex_coords,
+        camera.position.xyz
     );
 }

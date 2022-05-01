@@ -58,6 +58,7 @@ struct CameraUniform {
     proj: [[f32; 4]; 4],
     view: [[f32; 4]; 4],
     rotation_only_view: [[f32; 4]; 4],
+    position: [f32; 4],
     near_plane_distance: f32,
     far_plane_distance: f32,
     padding: [f32; 2],
@@ -69,6 +70,7 @@ impl CameraUniform {
             proj: Matrix4::one().into(),
             view: Matrix4::one().into(),
             rotation_only_view: Matrix4::one().into(),
+            position: [0.0; 4],
             near_plane_distance: camera::Z_NEAR,
             far_plane_distance: camera::Z_FAR,
             padding: [0.0; 2],
@@ -80,10 +82,12 @@ impl CameraUniform {
             proj,
             view,
             rotation_only_view,
+            position,
         } = camera.build_view_projection_matrices(window);
         self.proj = proj.into();
         self.view = view.into();
         self.rotation_only_view = rotation_only_view.into();
+        self.position = [position.x, position.y, position.z, 1.0];
     }
 }
 
@@ -374,53 +378,53 @@ impl RendererState {
             Texture::create_depth_texture(&device, &config, initial_render_scale, "depth_texture");
 
         // source: https://www.solarsystemscope.com/textures/
-        let mars_texture_path = "./src/textures/8k_mars.png";
-        let mars_texture_bytes = std::fs::read(mars_texture_path)?;
-        let mars_texture = Texture::from_bytes(
-            &device,
-            &queue,
-            &mars_texture_bytes,
-            mars_texture_path,
-            None,
-            true,
-            &Default::default(),
-        )?;
+        // let mars_texture_path = "./src/textures/8k_mars.png";
+        // let mars_texture_bytes = std::fs::read(mars_texture_path)?;
+        // let mars_texture = Texture::from_bytes(
+        //     &device,
+        //     &queue,
+        //     &mars_texture_bytes,
+        //     mars_texture_path,
+        //     None,
+        //     true,
+        //     &Default::default(),
+        // )?;
 
-        let earth_texture_path = "./src/textures/8k_earth.png";
-        let earth_texture_bytes = std::fs::read(earth_texture_path)?;
-        let earth_texture = Texture::from_bytes(
-            &device,
-            &queue,
-            &earth_texture_bytes,
-            earth_texture_path,
-            None,
-            true,
-            &Default::default(),
-        )?;
+        // let earth_texture_path = "./src/textures/8k_earth.png";
+        // let earth_texture_bytes = std::fs::read(earth_texture_path)?;
+        // let earth_texture = Texture::from_bytes(
+        //     &device,
+        //     &queue,
+        //     &earth_texture_bytes,
+        //     earth_texture_path,
+        //     None,
+        //     true,
+        //     &Default::default(),
+        // )?;
 
-        let earth_normal_map_path = "./src/textures/8k_earth_normal_map.png";
-        let earth_normal_map_bytes = std::fs::read(earth_normal_map_path)?;
-        let earth_normal_map = Texture::from_bytes(
-            &device,
-            &queue,
-            &earth_normal_map_bytes,
-            earth_normal_map_path,
-            wgpu::TextureFormat::Rgba8Unorm.into(),
-            false,
-            &Default::default(),
-        )?;
+        // let earth_normal_map_path = "./src/textures/8k_earth_normal_map.png";
+        // let earth_normal_map_bytes = std::fs::read(earth_normal_map_path)?;
+        // let earth_normal_map = Texture::from_bytes(
+        //     &device,
+        //     &queue,
+        //     &earth_normal_map_bytes,
+        //     earth_normal_map_path,
+        //     wgpu::TextureFormat::Rgba8Unorm.into(),
+        //     false,
+        //     &Default::default(),
+        // )?;
 
-        let simple_normal_map_path = "./src/textures/simple_normal_map.png";
-        let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
-        let _simple_normal_map = Texture::from_bytes(
-            &device,
-            &queue,
-            &simple_normal_map_bytes,
-            simple_normal_map_path,
-            wgpu::TextureFormat::Rgba8Unorm.into(),
-            false,
-            &Default::default(),
-        )?;
+        // let simple_normal_map_path = "./src/textures/simple_normal_map.png";
+        // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
+        // let simple_normal_map = Texture::from_bytes(
+        //     &device,
+        //     &queue,
+        //     &simple_normal_map_bytes,
+        //     simple_normal_map_path,
+        //     wgpu::TextureFormat::Rgba8Unorm.into(),
+        //     false,
+        //     &Default::default(),
+        // )?;
 
         let (skybox_texture, skybox_texture_bind_group_layout) = if USE_PHOTOSPHERE_SKYBOX {
             let photosphere_skybox_texture_path = "./src/textures/photosphere_skybox.png";
@@ -498,6 +502,7 @@ impl RendererState {
             bind_group_layouts: &[
                 &two_texture_bind_group_layout,
                 &two_uniform_bind_group_layout,
+                &single_cube_texture_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -721,7 +726,7 @@ impl RendererState {
             &device,
         )?;
         light.transform.set_scale(Vector3::new(0.05, 0.05, 0.05));
-        light.transform.set_position(Vector3::new(0.0, 2.0, 0.0));
+        light.transform.set_position(Vector3::new(0.0, 2.0, 3.0));
         let light_color = LIGHT_COLOR_A;
         // let light_color = Vector3::new(0.396, 0.973, 0.663);
 
@@ -737,8 +742,10 @@ impl RendererState {
             &device,
             &queue,
             &sphere_mesh,
-            Some(&earth_texture),
-            Some(&earth_normal_map),
+            // Some(&earth_texture),
+            // Some(&earth_normal_map),
+            None,
+            None,
             &two_texture_bind_group_layout,
             &test_object_transforms_gpu,
         )?;
@@ -761,7 +768,7 @@ impl RendererState {
             &plane_transforms_gpu,
         )?;
 
-        let camera = Camera::new((0.0, 20.0, 7.0).into());
+        let camera = Camera::new((0.0, 3.0, 4.0).into());
 
         let camera_controller = CameraController::new(6.0, &camera);
 
@@ -813,30 +820,6 @@ impl RendererState {
             label: Some("flat_color_bind_group"),
         });
 
-        let _test_object_textures_bind_group =
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &two_texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&earth_texture.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&earth_texture.sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&earth_normal_map.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Sampler(&earth_normal_map.sampler),
-                    },
-                ],
-                label: Some("test_object_textures_bind_group"),
-            });
-
         let balls: Vec<_> = (0..100)
             .into_iter()
             .map(|_| {
@@ -864,7 +847,8 @@ impl RendererState {
             &device,
             &queue,
             &sphere_mesh,
-            Some(&mars_texture),
+            // Some(&mars_texture),
+            None,
             None,
             &two_texture_bind_group_layout,
             &balls_transforms,
@@ -1076,17 +1060,17 @@ impl RendererState {
             .map(|(prev_ball, next_ball)| prev_ball.lerp(next_ball, alpha))
             .collect();
 
-        self.light.transform.set_position(Vector3::new(
-            1.05 * (time_seconds * 0.5).cos(),
-            self.light.transform.position.get().y,
-            1.05 * (time_seconds * 0.5).sin(),
-        ));
-        let rotational_displacement =
-            make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(frame_time_seconds / 5.0));
-        self.test_object_transforms[0]
-            .set_rotation(rotational_displacement * self.test_object_transforms[0].rotation.get());
+        // self.light.transform.set_position(Vector3::new(
+        //     3.0 * (time_seconds * 0.5).cos(),
+        //     self.light.transform.position.get().y,
+        //     3.0 * (time_seconds * 0.5).sin(),
+        // ));
+        // let rotational_displacement =
+        //     make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(frame_time_seconds / 5.0));
+        // self.test_object_transforms[0]
+        //     .set_rotation(rotational_displacement * self.test_object_transforms[0].rotation.get());
 
-        self.light_color = lerp_vec(LIGHT_COLOR_A, LIGHT_COLOR_B, (time_seconds * 2.0).sin());
+        // self.light_color = lerp_vec(LIGHT_COLOR_A, LIGHT_COLOR_B, (time_seconds * 2.0).sin());
 
         // self.logger
         //     .log(&format!("Frame time: {:?}", frame_time_seconds));
@@ -1188,6 +1172,8 @@ impl RendererState {
             scene_render_pass.set_pipeline(&self.mesh_pipeline);
             scene_render_pass.set_bind_group(0, &self.test_object_mesh.textures_bind_group, &[]);
             scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            // TODO: this will fail for photosphere skybox!
+            scene_render_pass.set_bind_group(2, &self.skybox_texture_bind_group, &[]);
             scene_render_pass.set_vertex_buffer(0, self.test_object_mesh.vertex_buffer.slice(..));
             scene_render_pass.set_vertex_buffer(1, self.test_object_mesh.instance_buffer.slice(..));
             scene_render_pass.set_index_buffer(
@@ -1210,11 +1196,11 @@ impl RendererState {
                 self.plane_mesh.index_buffer.slice(..),
                 wgpu::IndexFormat::Uint16,
             );
-            scene_render_pass.draw_indexed(
-                0..self.plane_mesh.num_indices,
-                0,
-                0..self.plane_transforms.len() as u32,
-            );
+            // scene_render_pass.draw_indexed(
+            //     0..self.plane_mesh.num_indices,
+            //     0,
+            //     0..self.plane_transforms.len() as u32,
+            // );
 
             // render balls
             scene_render_pass.set_pipeline(&self.mesh_pipeline);
@@ -1226,11 +1212,11 @@ impl RendererState {
                 self.sphere_mesh.index_buffer.slice(..),
                 wgpu::IndexFormat::Uint16,
             );
-            scene_render_pass.draw_indexed(
-                0..self.sphere_mesh.num_indices,
-                0,
-                0..self.actual_balls.len() as u32,
-            );
+            // scene_render_pass.draw_indexed(
+            //     0..self.sphere_mesh.num_indices,
+            //     0,
+            //     0..self.actual_balls.len() as u32,
+            // );
 
             // render light
             scene_render_pass.set_pipeline(&self.flat_color_mesh_pipeline);

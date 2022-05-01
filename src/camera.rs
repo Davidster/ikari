@@ -27,6 +27,7 @@ pub struct CameraViewProjMatrices {
     pub proj: Matrix4<f32>,
     pub view: Matrix4<f32>,
     pub rotation_only_view: Matrix4<f32>,
+    pub position: Vector3<f32>,
 }
 
 impl Camera {
@@ -60,10 +61,12 @@ impl Camera {
             Rad(0.0),
         )));
         let view = rotation_only_view * make_translation_matrix(-self.pose.position);
+        let position = self.pose.position;
         CameraViewProjMatrices {
             proj,
             view,
             rotation_only_view,
+            position,
         }
     }
 
