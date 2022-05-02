@@ -95,36 +95,131 @@ var skybox_texture: texture_cube<f32>;
 [[group(2), binding(1)]]
 var skybox_sampler: sampler;
 
+let pi: f32 = 3.141592653589793;
+let two_pi: f32 = 6.283185307179586;
+let epsilon: f32 = 0.00001;
+
+// https://learnopengl.com/PBR/Theory
+fn normal_distribution_func_tr_ggx(
+    a: f32,
+    n: vec3<f32>,
+    h: vec3<f32>,
+) -> f32 {
+    let a2 = a * a;
+    let n_dot_h = dot(n, h);
+    let n_dot_h_2 = n_dot_h * n_dot_h;
+    let denom_temp = n_dot_h_2 * (a2 - 1.0) + 1.0;
+    return a2 / (pi * denom_temp * denom_temp + epsilon);
+}
+
+fn geometry_func_schlick_ggx_k_direct(
+    a: f32,
+) -> f32 {
+    let a_plus_1 = a + 1.0;
+    return (a_plus_1 * a_plus_1) / 8.0;
+}
+
+fn geometry_func_schlick_ggx_k_ibl(
+    a: f32,
+) -> f32 {
+    return (a * a) / 2.0;
+}
+
+fn geometry_func_schlick_ggx(
+    n_dot_v: f32,
+    k: f32,
+) -> f32 {
+    return n_dot_v / (n_dot_v * (1.0 - k) + k + epsilon);
+}
+
+fn geometry_func_smith(
+    k: f32,
+    n: vec3<f32>,
+    v: vec3<f32>,
+    l: vec3<f32>,
+) -> f32 {
+    let n_dot_v = max(dot(n, v), 0.0);
+    let n_dot_l = max(dot(n, l), 0.0);
+    let ggx_1 = geometry_func_schlick_ggx(n_dot_v, k);
+    let ggx_2 = geometry_func_schlick_ggx(n_dot_l, k);
+    return ggx_1 * ggx_2;
+}
+
+fn fresnel_func_schlick(
+    h_dot_v: f32,
+    f0: vec3<f32>,
+) -> vec3<f32> {
+    return f0 + (1.0 - f0) * pow(1.0 - h_dot_v, 5.0);
+}
 
 fn do_fragment_shade(
     world_position: vec3<f32>,
     world_normal: vec3<f32>, 
     tex_coords: vec2<f32>,
     camera_position: vec3<f32>,
-) -> FragmentOutput {    
+) -> FragmentOutput {
 
-    let surface_reflection = textureSample(
-        skybox_texture,
-        skybox_sampler,
-        reflect(normalize(world_position - camera_position), normalize(world_normal))
-    );
+    // let surface_reflection = textureSample(
+    //     skybox_texture,
+    //     skybox_sampler,
+    //     reflect(-to_viewer_vec, normalize(world_normal))
+    // );
 
-    // let albedo = textureSample(diffuse_texture, diffuse_sampler, tex_coords);
-    let albedo = surface_reflection;
+    let roughness = 1.0;
+    let metallicness = 0.0;
+    let albedo = textureSample(diffuse_texture, diffuse_sampler, tex_coords).xyz;
 
-    let ambient_light_intensity = 0.05;
-    let ambient_light_color = vec4<f32>(1.0, 1.0, 1.0, 1.0);
-
+    let to_viewer_vec = normalize(camera_position - world_position);
     let to_light_vec = light.position.xyz - world_position;
     let to_light_vec_norm = normalize(to_light_vec);
-    let distance = length(to_light_vec);
-    let light_angle_factor = max(dot(world_normal, to_light_vec_norm), 0.0);
-    let max_light_intensity = 1.0;
-    // don't square the distance because gamma correction is applied which effectively squares it
-    let light_intensity =
-        ((light_angle_factor * max_light_intensity) / distance);
+    let distance_from_light = length(to_light_vec);
+    let halfway_vec = normalize(to_viewer_vec + to_light_vec_norm);
+    let surface_reflection_at_zero_incidence_dialectric = vec3<f32>(0.04);
+    let surface_reflection_at_zero_incidence = mix(
+        surface_reflection_at_zero_incidence_dialectric, 
+        albedo, 
+        metallicness
+    );
+
+    // copy variable names from the math formulas
+    let n = world_normal;
+    let w0 = to_viewer_vec;
+    let v = w0;
+    let wi = to_light_vec_norm;
+    let l = wi;
+    let h = halfway_vec;
+    let a = roughness;
+    let f0 = surface_reflection_at_zero_incidence;
+    let k = geometry_func_schlick_ggx_k_direct(a); // use geometry_func_schlick_ggx_k_ibl for IBL
+
+    // specular
+    let h_dot_v = max(dot(h, v), 0.0);
+    let normal_distribution = normal_distribution_func_tr_ggx(a, n, h);
+    let geometry = geometry_func_smith(k, n, v, l);
+    let fresnel = fresnel_func_schlick(h_dot_v, f0);
+    let cook_torrance_denominator = 4.0 * max(dot(n, w0), 0.0) * max(dot(n, wi), 0.0) + epsilon;
+    let specular_component = normal_distribution * geometry * fresnel / cook_torrance_denominator;
+    let ks = fresnel;
+
+    // diffuse
+    let diffuse_component = albedo / pi; // lambertian
+    let kd = vec3<f32>(1.0) - ks;
+
+    // https://learnopengl.com/Lighting/Light-casters
+    let light_attenuation_factor = 1.0 / (1.0 + 0.22 * distance_from_light + 0.20 * distance_from_light * distance_from_light);
+    let incident_angle_factor = max(dot(n, wi), 0.0);      
+    //                                  ks was already multiplied by fresnel so it's omitted here       
+    let bdrf = kd * diffuse_component + specular_component;
+    let light_irradiance = bdrf * incident_angle_factor * light_attenuation_factor * light.color.xyz;
+
+    let ambient_light_intensity = 0.00;
+    let ambient_light_color = vec3<f32>(1.0, 1.0, 1.0);
+    let ambient_irradiance = ambient_light_intensity * ambient_light_color * albedo;
+
+    let combined_irradiance_hdr = ambient_irradiance + light_irradiance;
+    let combined_irradiance_ldr = combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0));
     
-    let final_color = (ambient_light_color * ambient_light_intensity + light.color * light_intensity) * albedo;
+    let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
     
     var out: FragmentOutput;
     out.color = final_color;

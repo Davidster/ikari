@@ -690,9 +690,9 @@ impl RendererState {
                         x,
                         y,
                         if (x_scaled + y_scaled) % 2 == 0 {
-                            [0, 0, 0, 255].into()
+                            [100, 100, 100, 100].into()
                         } else {
-                            [255, 255, 255, 255].into()
+                            [150, 150, 150, 150].into()
                         },
                     );
                 }
@@ -726,7 +726,7 @@ impl RendererState {
             &device,
         )?;
         light.transform.set_scale(Vector3::new(0.05, 0.05, 0.05));
-        light.transform.set_position(Vector3::new(0.0, 2.0, 3.0));
+        light.transform.set_position(Vector3::new(0.0, 3.0, 3.0));
         let light_color = LIGHT_COLOR_A;
         // let light_color = Vector3::new(0.396, 0.973, 0.663);
 
@@ -1060,17 +1060,17 @@ impl RendererState {
             .map(|(prev_ball, next_ball)| prev_ball.lerp(next_ball, alpha))
             .collect();
 
-        // self.light.transform.set_position(Vector3::new(
-        //     3.0 * (time_seconds * 0.5).cos(),
-        //     self.light.transform.position.get().y,
-        //     3.0 * (time_seconds * 0.5).sin(),
-        // ));
+        self.light.transform.set_position(Vector3::new(
+            3.0 * (time_seconds * 0.5).cos(),
+            self.light.transform.position.get().y,
+            3.0 * (time_seconds * 0.5).sin(),
+        ));
         // let rotational_displacement =
         //     make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(frame_time_seconds / 5.0));
         // self.test_object_transforms[0]
         //     .set_rotation(rotational_displacement * self.test_object_transforms[0].rotation.get());
 
-        // self.light_color = lerp_vec(LIGHT_COLOR_A, LIGHT_COLOR_B, (time_seconds * 2.0).sin());
+        self.light_color = lerp_vec(LIGHT_COLOR_A, LIGHT_COLOR_B, (time_seconds * 2.0).sin());
 
         // self.logger
         //     .log(&format!("Frame time: {:?}", frame_time_seconds));
@@ -1196,11 +1196,11 @@ impl RendererState {
                 self.plane_mesh.index_buffer.slice(..),
                 wgpu::IndexFormat::Uint16,
             );
-            // scene_render_pass.draw_indexed(
-            //     0..self.plane_mesh.num_indices,
-            //     0,
-            //     0..self.plane_transforms.len() as u32,
-            // );
+            scene_render_pass.draw_indexed(
+                0..self.plane_mesh.num_indices,
+                0,
+                0..self.plane_transforms.len() as u32,
+            );
 
             // render balls
             scene_render_pass.set_pipeline(&self.mesh_pipeline);
