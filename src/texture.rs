@@ -8,6 +8,7 @@ pub struct Texture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
+    pub size: wgpu::Extent3d,
 }
 
 pub struct CreateCubeMapImagesParam<'a> {
@@ -139,7 +140,50 @@ impl Texture {
             texture,
             view,
             sampler,
+            size,
         })
+    }
+
+    pub fn from_color(device: &wgpu::Device, queue: &wgpu::Queue, color: [u8; 4]) -> Result<Self> {
+        let one_pixel_image = {
+            let mut img = image::RgbaImage::new(1, 1);
+            img.put_pixel(0, 0, image::Rgba(color));
+            image::DynamicImage::ImageRgba8(img)
+        };
+        Texture::from_image(
+            device,
+            queue,
+            &one_pixel_image,
+            Some("from_color texture"),
+            None,
+            false,
+            &SamplerDescriptor(wgpu::SamplerDescriptor {
+                mag_filter: wgpu::FilterMode::Nearest,
+                min_filter: wgpu::FilterMode::Nearest,
+                ..SamplerDescriptor::default().0
+            }),
+        )
+    }
+
+    pub fn flat_normal_map(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self> {
+        let one_pixel_up_image = {
+            let mut img = image::RgbaImage::new(1, 1);
+            img.put_pixel(0, 0, image::Rgba([127, 127, 255, 255]));
+            image::DynamicImage::ImageRgba8(img)
+        };
+        Texture::from_image(
+            device,
+            queue,
+            &one_pixel_up_image,
+            Some("flat_normal_map texture"),
+            wgpu::TextureFormat::Rgba8Unorm.into(),
+            false,
+            &SamplerDescriptor(wgpu::SamplerDescriptor {
+                mag_filter: wgpu::FilterMode::Nearest,
+                min_filter: wgpu::FilterMode::Nearest,
+                ..SamplerDescriptor::default().0
+            }),
+        )
     }
 
     pub fn create_render_texture(
@@ -180,6 +224,7 @@ impl Texture {
             texture,
             view,
             sampler,
+            size,
         }
     }
 
@@ -222,7 +267,77 @@ impl Texture {
             texture,
             view,
             sampler,
+            size,
         }
+    }
+
+    // TODO: remove repeated code from create_cubemap_texture
+    pub fn create_cubemap_texture_from_equirectangular(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        label: Option<&str>,
+        equirectangular_to_cubemap_pipeline: &wgpu::RenderPipeline,
+        texture: &Texture, // should be equirectangular
+        generate_mipmaps: bool,
+    ) -> Result<Self> {
+        // let texture_size = texture.texture.
+        let size = wgpu::Extent3d {
+            width: texture.size.width / 3,
+            height: texture.size.width / 3,
+            depth_or_array_layers: 6,
+        };
+
+        let layer_size = wgpu::Extent3d {
+            depth_or_array_layers: 1,
+            ..size
+        };
+
+        let mip_level_count = if generate_mipmaps {
+            layer_size.max_mips()
+        } else {
+            1
+        };
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label,
+            size,
+            mip_level_count,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        });
+
+        let projection_matrix = 
+        let faces =  vec![
+           
+        ];
+
+        if generate_mipmaps {
+            todo!("Call generate_mipmaps_for_texture for each side of the cubemap");
+        }
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::Cube),
+            ..Default::default()
+        });
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        Ok(Self {
+            texture,
+            view,
+            sampler,
+            size,
+        })
     }
 
     // each image should have the same dimensions!
@@ -312,6 +427,7 @@ impl Texture {
             texture,
             view,
             sampler,
+            size,
         })
     }
 }

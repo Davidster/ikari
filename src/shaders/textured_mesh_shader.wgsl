@@ -165,8 +165,8 @@ fn do_fragment_shade(
     //     reflect(-to_viewer_vec, normalize(world_normal))
     // );
 
-    let roughness = 1.0;
-    let metallicness = 0.0;
+    let roughness = 0.1;
+    let metallicness = 0.2;
     let albedo = textureSample(diffuse_texture, diffuse_sampler, tex_coords).xyz;
 
     let to_viewer_vec = normalize(camera_position - world_position);
@@ -206,13 +206,17 @@ fn do_fragment_shade(
     let kd = vec3<f32>(1.0) - ks;
 
     // https://learnopengl.com/Lighting/Light-casters
-    let light_attenuation_factor = 1.0 / (1.0 + 0.22 * distance_from_light + 0.20 * distance_from_light * distance_from_light);
+    let light_attenuation_factor_d20 = 1.0 / (1.0 + 0.22 * distance_from_light + 0.20 * distance_from_light * distance_from_light);
+    let light_attenuation_factor_d100 = 1.0 / (1.0 + 0.045 * distance_from_light + 0.0075 * distance_from_light * distance_from_light);
+    let light_attenuation_factor_d600 = 1.0 / (1.0 + 0.007 * distance_from_light + 0.0002 * distance_from_light * distance_from_light);
+    let light_attenuation_factor_d3250 = 1.0 / (1.0 + 0.0014 * distance_from_light + 0.000007 * distance_from_light * distance_from_light);
+    let light_attenuation_factor = light_attenuation_factor_d3250;
     let incident_angle_factor = max(dot(n, wi), 0.0);      
     //                                  ks was already multiplied by fresnel so it's omitted here       
     let bdrf = kd * diffuse_component + specular_component;
     let light_irradiance = bdrf * incident_angle_factor * light_attenuation_factor * light.color.xyz;
 
-    let ambient_light_intensity = 0.00;
+    let ambient_light_intensity = 0.02;
     let ambient_light_color = vec3<f32>(1.0, 1.0, 1.0);
     let ambient_irradiance = ambient_light_intensity * ambient_light_color * albedo;
 

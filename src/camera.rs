@@ -8,7 +8,7 @@ use winit::{
     window::Window,
 };
 
-pub const Z_NEAR: f32 = 0.01;
+pub const Z_NEAR: f32 = 0.001;
 pub const Z_FAR: f32 = 100000.0;
 pub const FOV_Y: Deg<f32> = Deg(45.0);
 
@@ -78,6 +78,48 @@ impl Camera {
             (self.pose.horizontal_rotation.0 + std::f32::consts::PI).cos() * horizontal_scale,
         )
         .normalize()
+    }
+
+    pub fn build_cubemap_view_projection_matrices() -> Vec<CameraViewProjMatrices> {
+        #[rustfmt::skip]
+        return vec![
+            (Deg(90.0),  Deg(0.0)),   // right
+            (Deg(-90.0), Deg(0.0)),   // left
+            (Deg(0.0),   Deg(90.0)),  // top
+            (Deg(0.0),   Deg(-90.0)), // bottom
+            (Deg(0.0),   Deg(0.0)),   // front
+            (Deg(180.0), Deg(0.0)),   // back
+        ]
+        .iter()
+        .map(|(horizontal_rotation, vertical_rotation)| Camera {
+            pose: CameraPose {
+                horizontal_rotation: (*horizontal_rotation).into(),
+                vertical_rotation: (*vertical_rotation).into(),
+                position: Vector3::new(0.0, 0.0, 0.0),
+            },
+        })
+        .map(|camera| {
+            // TODO: dedupe from build_view_projection_matrices
+            let proj = make_perspective_matrix(Z_NEAR, Z_FAR, Deg(90.0).into(), 1.0);
+            let rotation_only_view = make_rotation_matrix(Quaternion::from(Euler::new(
+                -camera.pose.vertical_rotation,
+                Rad(0.0),
+                Rad(0.0),
+            ))) * make_rotation_matrix(Quaternion::from(Euler::new(
+                Rad(0.0),
+                -camera.pose.horizontal_rotation,
+                Rad(0.0),
+            )));
+            let view = rotation_only_view * make_translation_matrix(-camera.pose.position);
+            let position = camera.pose.position;
+            CameraViewProjMatrices {
+                proj,
+                view,
+                rotation_only_view,
+                position,
+            }
+        })
+        .collect();
     }
 }
 

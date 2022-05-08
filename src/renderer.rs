@@ -351,146 +351,6 @@ impl RendererState {
                 label: Some("two_uniform_bind_group_layout"),
             });
 
-        let initial_render_scale = 2.0;
-
-        let render_texture = Texture::create_render_texture(
-            &device,
-            &config,
-            initial_render_scale,
-            "render_texture",
-        );
-        let render_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &single_texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&render_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&render_texture.sampler),
-                },
-            ],
-            label: Some("render_texture_bind_group"),
-        });
-
-        let depth_texture =
-            Texture::create_depth_texture(&device, &config, initial_render_scale, "depth_texture");
-
-        // source: https://www.solarsystemscope.com/textures/
-        // let mars_texture_path = "./src/textures/8k_mars.png";
-        // let mars_texture_bytes = std::fs::read(mars_texture_path)?;
-        // let mars_texture = Texture::from_bytes(
-        //     &device,
-        //     &queue,
-        //     &mars_texture_bytes,
-        //     mars_texture_path,
-        //     None,
-        //     true,
-        //     &Default::default(),
-        // )?;
-
-        // let earth_texture_path = "./src/textures/8k_earth.png";
-        // let earth_texture_bytes = std::fs::read(earth_texture_path)?;
-        // let earth_texture = Texture::from_bytes(
-        //     &device,
-        //     &queue,
-        //     &earth_texture_bytes,
-        //     earth_texture_path,
-        //     None,
-        //     true,
-        //     &Default::default(),
-        // )?;
-
-        // let earth_normal_map_path = "./src/textures/8k_earth_normal_map.png";
-        // let earth_normal_map_bytes = std::fs::read(earth_normal_map_path)?;
-        // let earth_normal_map = Texture::from_bytes(
-        //     &device,
-        //     &queue,
-        //     &earth_normal_map_bytes,
-        //     earth_normal_map_path,
-        //     wgpu::TextureFormat::Rgba8Unorm.into(),
-        //     false,
-        //     &Default::default(),
-        // )?;
-
-        // let simple_normal_map_path = "./src/textures/simple_normal_map.png";
-        // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
-        // let simple_normal_map = Texture::from_bytes(
-        //     &device,
-        //     &queue,
-        //     &simple_normal_map_bytes,
-        //     simple_normal_map_path,
-        //     wgpu::TextureFormat::Rgba8Unorm.into(),
-        //     false,
-        //     &Default::default(),
-        // )?;
-
-        let (skybox_texture, skybox_texture_bind_group_layout) = if USE_PHOTOSPHERE_SKYBOX {
-            let photosphere_skybox_texture_path = "./src/textures/photosphere_skybox.png";
-            let photosphere_skybox_texture_bytes = std::fs::read(photosphere_skybox_texture_path)?;
-            let photosphere_skybox_texture = Texture::from_bytes(
-                &device,
-                &queue,
-                &photosphere_skybox_texture_bytes,
-                photosphere_skybox_texture_path,
-                None,
-                false, // an artifact occurs between the edges of the texture with mipmaps enabled
-                &Default::default(),
-            )?;
-
-            (
-                photosphere_skybox_texture,
-                &single_texture_bind_group_layout,
-            )
-        } else {
-            let cubemap_skybox_images = vec![
-                "./src/textures/skybox/right.png",
-                "./src/textures/skybox/left.png",
-                "./src/textures/skybox/top.png",
-                "./src/textures/skybox/bottom.png",
-                "./src/textures/skybox/front.png",
-                "./src/textures/skybox/back.png",
-            ]
-            .iter()
-            .map(|path| image::load_from_memory(&std::fs::read(path)?))
-            .collect::<Result<Vec<_>, _>>()?;
-            let cubemap_skybox_texture = Texture::create_cubemap_texture(
-                &device,
-                &queue,
-                CreateCubeMapImagesParam {
-                    pos_x: &cubemap_skybox_images[0],
-                    neg_x: &cubemap_skybox_images[1],
-                    pos_y: &cubemap_skybox_images[2],
-                    neg_y: &cubemap_skybox_images[3],
-                    pos_z: &cubemap_skybox_images[4],
-                    neg_z: &cubemap_skybox_images[5],
-                },
-                Some("cubemap_skybox_texture"),
-                // TODO: set to true!
-                false,
-            )?;
-
-            (
-                cubemap_skybox_texture,
-                &single_cube_texture_bind_group_layout,
-            )
-        };
-        let skybox_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: skybox_texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&skybox_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&skybox_texture.sampler),
-                },
-            ],
-            label: Some("skybox_texture_bind_group"),
-        });
-
         let fragment_shader_color_targets = &[wgpu::ColorTargetState {
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
             blend: Some(wgpu::BlendState::REPLACE),
@@ -617,67 +477,208 @@ impl RendererState {
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         });
-        let skybox_pipeline = if USE_PHOTOSPHERE_SKYBOX {
-            let photosphere_skybox_render_pipeline_layout =
-                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Photosphere Skybox Render Pipeline Layout"),
-                    bind_group_layouts: &[
-                        &single_texture_bind_group_layout,
-                        &two_uniform_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
-                });
+        let skybox_render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Skybox Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &single_cube_texture_bind_group_layout,
+                    &two_uniform_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
 
-            let photosphere_skybox_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-                label: Some("Photosphere Skybox Render Pipeline"),
-                layout: Some(&photosphere_skybox_render_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &skybox_shader,
-                    entry_point: "vs_main",
-                    buffers: &[TexturedVertex::desc()],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &skybox_shader,
-                    entry_point: "photosphere_fs_main",
-                    targets: fragment_shader_color_targets,
-                }),
-                primitive: skybox_pipeline_primitive_state,
-                depth_stencil: skybox_depth_stencil_state,
-                multisample: wgpu::MultisampleState::default(),
-                multiview: None,
-            };
-            device.create_render_pipeline(&photosphere_skybox_pipeline_descriptor)
-        } else {
-            let skybox_render_pipeline_layout =
-                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Skybox Render Pipeline Layout"),
-                    bind_group_layouts: &[
-                        &single_cube_texture_bind_group_layout,
-                        &two_uniform_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
-                });
-
-            let skybox_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-                label: Some("Skybox Render Pipeline"),
-                layout: Some(&skybox_render_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &skybox_shader,
-                    entry_point: "vs_main",
-                    buffers: &[TexturedVertex::desc()],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &skybox_shader,
-                    entry_point: "cubemap_fs_main",
-                    targets: fragment_shader_color_targets,
-                }),
-                primitive: skybox_pipeline_primitive_state,
-                depth_stencil: skybox_depth_stencil_state,
-                multisample: wgpu::MultisampleState::default(),
-                multiview: None,
-            };
-            device.create_render_pipeline(&skybox_pipeline_descriptor)
+        let skybox_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("Skybox Render Pipeline"),
+            layout: Some(&skybox_render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &skybox_shader,
+                entry_point: "vs_main",
+                buffers: &[TexturedVertex::desc()],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &skybox_shader,
+                entry_point: "cubemap_fs_main",
+                targets: fragment_shader_color_targets,
+            }),
+            primitive: skybox_pipeline_primitive_state,
+            depth_stencil: skybox_depth_stencil_state.clone(),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
         };
+        let skybox_pipeline = device.create_render_pipeline(&skybox_pipeline_descriptor);
+        let equirectangular_to_cubemap_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Equirectangular To Cubemap Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &single_texture_bind_group_layout,
+                    &two_uniform_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
+        let equirectangular_to_cubemap_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("Equirectangular To Cubemap Render Pipeline"),
+            layout: Some(&equirectangular_to_cubemap_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &skybox_shader,
+                entry_point: "vs_main",
+                buffers: &[TexturedVertex::desc()],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &skybox_shader,
+                entry_point: "equirectangular_to_cubemap_fs_main",
+                targets: fragment_shader_color_targets,
+            }),
+            primitive: skybox_pipeline_primitive_state,
+            depth_stencil: skybox_depth_stencil_state,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        };
+        let equirectangular_to_cubemap_pipeline =
+            device.create_render_pipeline(&equirectangular_to_cubemap_pipeline_descriptor);
+
+        let initial_render_scale = 2.0;
+
+        let render_texture = Texture::create_render_texture(
+            &device,
+            &config,
+            initial_render_scale,
+            "render_texture",
+        );
+        let render_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &single_texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&render_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&render_texture.sampler),
+                },
+            ],
+            label: Some("render_texture_bind_group"),
+        });
+
+        let depth_texture =
+            Texture::create_depth_texture(&device, &config, initial_render_scale, "depth_texture");
+
+        // source: https://www.solarsystemscope.com/textures/
+        let mars_texture_path = "./src/textures/8k_mars.png";
+        let mars_texture_bytes = std::fs::read(mars_texture_path)?;
+        let mars_texture = Texture::from_bytes(
+            &device,
+            &queue,
+            &mars_texture_bytes,
+            mars_texture_path,
+            None,
+            true,
+            &Default::default(),
+        )?;
+
+        // let earth_texture_path = "./src/textures/8k_earth.png";
+        // let earth_texture_bytes = std::fs::read(earth_texture_path)?;
+        // let earth_texture = Texture::from_bytes(
+        //     &device,
+        //     &queue,
+        //     &earth_texture_bytes,
+        //     earth_texture_path,
+        //     None,
+        //     true,
+        //     &Default::default(),
+        // )?;
+
+        // let earth_normal_map_path = "./src/textures/8k_earth_normal_map.png";
+        // let earth_normal_map_bytes = std::fs::read(earth_normal_map_path)?;
+        // let earth_normal_map = Texture::from_bytes(
+        //     &device,
+        //     &queue,
+        //     &earth_normal_map_bytes,
+        //     earth_normal_map_path,
+        //     wgpu::TextureFormat::Rgba8Unorm.into(),
+        //     false,
+        //     &Default::default(),
+        // )?;
+
+        // let simple_normal_map_path = "./src/textures/simple_normal_map.png";
+        // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
+        // let simple_normal_map = Texture::from_bytes(
+        //     &device,
+        //     &queue,
+        //     &simple_normal_map_bytes,
+        //     simple_normal_map_path,
+        //     wgpu::TextureFormat::Rgba8Unorm.into(),
+        //     false,
+        //     &Default::default(),
+        // )?;
+        let skybox_texture = if USE_PHOTOSPHERE_SKYBOX {
+            // TODO: use render_equirectangular_to_cubemap func
+            let photosphere_skybox_texture_path = "./src/textures/photosphere_skybox.png";
+            let photosphere_skybox_texture_bytes = std::fs::read(photosphere_skybox_texture_path)?;
+            let photosphere_skybox_texture = Texture::from_bytes(
+                &device,
+                &queue,
+                &photosphere_skybox_texture_bytes,
+                photosphere_skybox_texture_path,
+                None,
+                false, // an artifact occurs between the edges of the texture with mipmaps enabled
+                &Default::default(),
+            )?;
+            let skybox_texture = Texture::create_cubemap_texture_from_equirectangular(
+                &device,
+                &queue,
+                Some(photosphere_skybox_texture_path),
+                &equirectangular_to_cubemap_pipeline,
+                &photosphere_skybox_texture,
+                // TODO: set to true!
+                false,
+            )?;
+
+            photosphere_skybox_texture
+        } else {
+            let cubemap_skybox_images = vec![
+                "./src/textures/skybox/right.png",
+                "./src/textures/skybox/left.png",
+                "./src/textures/skybox/top.png",
+                "./src/textures/skybox/bottom.png",
+                "./src/textures/skybox/front.png",
+                "./src/textures/skybox/back.png",
+            ]
+            .iter()
+            .map(|path| image::load_from_memory(&std::fs::read(path)?))
+            .collect::<Result<Vec<_>, _>>()?;
+            let cubemap_skybox_texture = Texture::create_cubemap_texture(
+                &device,
+                &queue,
+                CreateCubeMapImagesParam {
+                    pos_x: &cubemap_skybox_images[0],
+                    neg_x: &cubemap_skybox_images[1],
+                    pos_y: &cubemap_skybox_images[2],
+                    neg_y: &cubemap_skybox_images[3],
+                    pos_z: &cubemap_skybox_images[4],
+                    neg_z: &cubemap_skybox_images[5],
+                },
+                Some("cubemap_skybox_texture"),
+                // TODO: set to true!
+                false,
+            )?;
+
+            cubemap_skybox_texture
+        };
+        let skybox_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: skybox_texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&skybox_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&skybox_texture.sampler),
+                },
+            ],
+            label: Some("skybox_texture_bind_group"),
+        });
 
         let checkerboard_texture_img = {
             let mut img = image::RgbaImage::new(4096, 4096);
@@ -725,6 +726,10 @@ impl RendererState {
             &single_uniform_bind_group_layout,
             &device,
         )?;
+        // light.transform.set_scale(Vector3::new(0.5, 0.5, 0.5));
+        // light
+        //     .transform
+        //     .set_position(Vector3::new(0.0, 200.0, 200.0));
         light.transform.set_scale(Vector3::new(0.05, 0.05, 0.05));
         light.transform.set_position(Vector3::new(0.0, 3.0, 3.0));
         let light_color = LIGHT_COLOR_A;
@@ -738,13 +743,13 @@ impl RendererState {
             .map(|transform| GpuMeshInstance::new(transform.matrix.get()))
             .collect();
 
+        let test_object_diffuse_texture = Texture::from_color(&device, &queue, [255, 0, 0, 255])?;
         let test_object_mesh = InstancedMeshComponent::new(
             &device,
             &queue,
             &sphere_mesh,
-            // Some(&earth_texture),
             // Some(&earth_normal_map),
-            None,
+            Some(&test_object_diffuse_texture),
             None,
             &two_texture_bind_group_layout,
             &test_object_transforms_gpu,
@@ -847,8 +852,8 @@ impl RendererState {
             &device,
             &queue,
             &sphere_mesh,
-            // Some(&mars_texture),
-            None,
+            Some(&mars_texture),
+            // None,
             None,
             &two_texture_bind_group_layout,
             &balls_transforms,
@@ -1060,17 +1065,17 @@ impl RendererState {
             .map(|(prev_ball, next_ball)| prev_ball.lerp(next_ball, alpha))
             .collect();
 
-        self.light.transform.set_position(Vector3::new(
-            3.0 * (time_seconds * 0.5).cos(),
-            self.light.transform.position.get().y,
-            3.0 * (time_seconds * 0.5).sin(),
-        ));
+        // self.light.transform.set_position(Vector3::new(
+        //     3.0 * (time_seconds * 0.5).cos(),
+        //     self.light.transform.position.get().y,
+        //     3.0 * (time_seconds * 0.5).sin(),
+        // ));
         // let rotational_displacement =
         //     make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(frame_time_seconds / 5.0));
         // self.test_object_transforms[0]
         //     .set_rotation(rotational_displacement * self.test_object_transforms[0].rotation.get());
 
-        self.light_color = lerp_vec(LIGHT_COLOR_A, LIGHT_COLOR_B, (time_seconds * 2.0).sin());
+        // self.light_color = lerp_vec(LIGHT_COLOR_A, LIGHT_COLOR_B, (time_seconds * 2.0).sin());
 
         // self.logger
         //     .log(&format!("Frame time: {:?}", frame_time_seconds));
@@ -1172,7 +1177,6 @@ impl RendererState {
             scene_render_pass.set_pipeline(&self.mesh_pipeline);
             scene_render_pass.set_bind_group(0, &self.test_object_mesh.textures_bind_group, &[]);
             scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
-            // TODO: this will fail for photosphere skybox!
             scene_render_pass.set_bind_group(2, &self.skybox_texture_bind_group, &[]);
             scene_render_pass.set_vertex_buffer(0, self.test_object_mesh.vertex_buffer.slice(..));
             scene_render_pass.set_vertex_buffer(1, self.test_object_mesh.instance_buffer.slice(..));
@@ -1212,11 +1216,11 @@ impl RendererState {
                 self.sphere_mesh.index_buffer.slice(..),
                 wgpu::IndexFormat::Uint16,
             );
-            // scene_render_pass.draw_indexed(
-            //     0..self.sphere_mesh.num_indices,
-            //     0,
-            //     0..self.actual_balls.len() as u32,
-            // );
+            scene_render_pass.draw_indexed(
+                0..self.sphere_mesh.num_indices,
+                0,
+                0..self.actual_balls.len() as u32,
+            );
 
             // render light
             scene_render_pass.set_pipeline(&self.flat_color_mesh_pipeline);
