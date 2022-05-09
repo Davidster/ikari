@@ -23,6 +23,7 @@ pub struct Camera {
     pose: CameraPose,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct CameraViewProjMatrices {
     pub proj: Matrix4<f32>,
     pub view: Matrix4<f32>,
@@ -80,11 +81,12 @@ impl Camera {
         .normalize()
     }
 
+    // TODO: should this function really be in the camera module?
     pub fn build_cubemap_view_projection_matrices() -> Vec<CameraViewProjMatrices> {
         #[rustfmt::skip]
         return vec![
-            (Deg(90.0),  Deg(0.0)),   // right
-            (Deg(-90.0), Deg(0.0)),   // left
+            (Deg(-90.0),  Deg(0.0)),   // right
+            (Deg(90.0), Deg(0.0)),   // left
             (Deg(0.0),   Deg(90.0)),  // top
             (Deg(0.0),   Deg(-90.0)), // bottom
             (Deg(0.0),   Deg(0.0)),   // front

@@ -1,3 +1,4 @@
+use super::*;
 use std::{num::NonZeroU32, ops::Deref};
 
 use anyhow::*;
@@ -276,14 +277,15 @@ impl Texture {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         label: Option<&str>,
-        equirectangular_to_cubemap_pipeline: &wgpu::RenderPipeline,
-        texture: &Texture, // should be equirectangular
+        skybox_mesh: &MeshComponent,
+        er_to_cubemap_pipeline: &wgpu::RenderPipeline,
+        er_texture: &Texture,
         generate_mipmaps: bool,
     ) -> Result<Self> {
         // let texture_size = texture.texture.
         let size = wgpu::Extent3d {
-            width: texture.size.width / 3,
-            height: texture.size.width / 3,
+            width: er_texture.size.width / 2,
+            height: er_texture.size.width / 2,
             depth_or_array_layers: 6,
         };
 
@@ -298,7 +300,49 @@ impl Texture {
             1
         };
 
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
+        // TODO: dry
+        let single_uniform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("single_uniform_bind_group_layout"),
+            });
+
+        // TODO: dry
+        let single_texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("single_texture_bind_group_layout"),
+            });
+
+        let sampler = device.create_sampler(&SamplerDescriptor::default().0);
+
+        let cubemap_texture = device.create_texture(&wgpu::TextureDescriptor {
             label,
             size,
             mip_level_count,
@@ -308,16 +352,93 @@ impl Texture {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
         });
 
-        let projection_matrix = 
-        let faces =  vec![
-           
-        ];
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Cubemap Generation Camera Buffer"),
+            contents: bytemuck::cast_slice(&[CameraUniform::new()]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &single_uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
+            label: Some("cubemap_gen_camera_bind_group"),
+        });
+
+        let faces: Vec<_> = Camera::build_cubemap_view_projection_matrices()
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(i, view_proj_matrices)| {
+                (
+                    view_proj_matrices,
+                    cubemap_texture.create_view(&wgpu::TextureViewDescriptor {
+                        dimension: Some(wgpu::TextureViewDimension::D2),
+                        base_array_layer: i as u32,
+                        array_layer_count: NonZeroU32::new(1),
+                        ..Default::default()
+                    }),
+                )
+            })
+            .collect();
+
+        for (face_view_proj_matrices, face_texture_view) in faces {
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("create_cubemap_texture_from_equirectangular encoder"),
+            });
+            let er_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &single_texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&er_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+                label: None,
+            });
+            queue.write_buffer(
+                &camera_buffer,
+                0,
+                bytemuck::cast_slice(&[CameraUniform::from_view_proj_matrices(
+                    &face_view_proj_matrices,
+                )]),
+            );
+            {
+                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: None,
+                    color_attachments: &[wgpu::RenderPassColorAttachment {
+                        view: &face_texture_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                            store: true,
+                        },
+                    }],
+                    depth_stencil_attachment: None,
+                });
+                rpass.set_pipeline(er_to_cubemap_pipeline);
+                rpass.set_bind_group(0, &er_texture_bind_group, &[]);
+                rpass.set_bind_group(1, &camera_bind_group, &[]);
+                rpass.set_vertex_buffer(0, skybox_mesh.vertex_buffer.slice(..));
+                rpass.set_index_buffer(
+                    skybox_mesh.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint16,
+                );
+                rpass.draw_indexed(0..skybox_mesh.num_indices, 0, 0..1);
+            }
+            queue.submit(Some(encoder.finish()));
+        }
 
         if generate_mipmaps {
             todo!("Call generate_mipmaps_for_texture for each side of the cubemap");
         }
 
-        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+        let view = cubemap_texture.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::Cube),
             ..Default::default()
         });
@@ -333,7 +454,7 @@ impl Texture {
         });
 
         Ok(Self {
-            texture,
+            texture: cubemap_texture,
             view,
             sampler,
             size,
@@ -475,27 +596,29 @@ fn generate_mipmaps_for_texture(
         mipmap_filter: wgpu::FilterMode::Nearest,
         ..Default::default()
     });
-    let mip_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    multisampled: false,
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+    // TODO: dry
+    let single_texture_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
                 },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                count: None,
-            },
-        ],
-        label: Some("single_texture_bind_group_layout"),
-    });
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+            label: Some("single_texture_bind_group_layout"),
+        });
     let mip_texure_views = (0..mip_level_count)
         .map(|mip| {
             texture.create_view(&wgpu::TextureViewDescriptor {
@@ -513,7 +636,7 @@ fn generate_mipmaps_for_texture(
 
     for target_mip in 1..mip_level_count as usize {
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &mip_bind_group_layout,
+            layout: &single_texture_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,

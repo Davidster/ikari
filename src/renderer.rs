@@ -54,7 +54,7 @@ impl From<Vector3<f32>> for FlatColorUniform {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct CameraUniform {
+pub struct CameraUniform {
     proj: [[f32; 4]; 4],
     view: [[f32; 4]; 4],
     rotation_only_view: [[f32; 4]; 4],
@@ -65,7 +65,7 @@ struct CameraUniform {
 }
 
 impl CameraUniform {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             proj: Matrix4::one().into(),
             view: Matrix4::one().into(),
@@ -89,10 +89,29 @@ impl CameraUniform {
         self.rotation_only_view = rotation_only_view.into();
         self.position = [position.x, position.y, position.z, 1.0];
     }
+
+    pub fn from_view_proj_matrices(
+        CameraViewProjMatrices {
+            proj,
+            view,
+            rotation_only_view,
+            position,
+        }: &CameraViewProjMatrices,
+    ) -> Self {
+        Self {
+            proj: (*proj).into(),
+            view: (*view).into(),
+            rotation_only_view: (*rotation_only_view).into(),
+            position: [position.x, position.y, position.z, 1.0],
+            near_plane_distance: 0.0, // TODO: ewwwww
+            far_plane_distance: 0.0,  // TODO: ewwwww
+            padding: [0.0; 2],
+        }
+    }
 }
 
 pub const ARENA_SIDE_LENGTH: f32 = 1000.0;
-pub const USE_PHOTOSPHERE_SKYBOX: bool = false;
+pub const USE_PHOTOSPHERE_SKYBOX: bool = true;
 pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
 pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 
@@ -511,7 +530,7 @@ impl RendererState {
                 label: Some("Equirectangular To Cubemap Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &single_texture_bind_group_layout,
-                    &two_uniform_bind_group_layout,
+                    &single_uniform_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -530,7 +549,7 @@ impl RendererState {
                 targets: fragment_shader_color_targets,
             }),
             primitive: skybox_pipeline_primitive_state,
-            depth_stencil: skybox_depth_stencil_state,
+            depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
         };
@@ -538,6 +557,13 @@ impl RendererState {
             device.create_render_pipeline(&equirectangular_to_cubemap_pipeline_descriptor);
 
         let initial_render_scale = 2.0;
+
+        let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
+        let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
+        let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
+
+        let skybox_mesh =
+            MeshComponent::new(&cube_mesh, None, &single_uniform_bind_group_layout, &device)?;
 
         let render_texture = Texture::create_render_texture(
             &device,
@@ -624,17 +650,17 @@ impl RendererState {
                 false, // an artifact occurs between the edges of the texture with mipmaps enabled
                 &Default::default(),
             )?;
-            let skybox_texture = Texture::create_cubemap_texture_from_equirectangular(
+
+            Texture::create_cubemap_texture_from_equirectangular(
                 &device,
                 &queue,
                 Some(photosphere_skybox_texture_path),
+                &skybox_mesh,
                 &equirectangular_to_cubemap_pipeline,
                 &photosphere_skybox_texture,
                 // TODO: set to true!
                 false,
-            )?;
-
-            photosphere_skybox_texture
+            )?
         } else {
             let cubemap_skybox_images = vec![
                 "./src/textures/skybox/right.png",
@@ -647,7 +673,8 @@ impl RendererState {
             .iter()
             .map(|path| image::load_from_memory(&std::fs::read(path)?))
             .collect::<Result<Vec<_>, _>>()?;
-            let cubemap_skybox_texture = Texture::create_cubemap_texture(
+
+            Texture::create_cubemap_texture(
                 &device,
                 &queue,
                 CreateCubeMapImagesParam {
@@ -661,12 +688,10 @@ impl RendererState {
                 Some("cubemap_skybox_texture"),
                 // TODO: set to true!
                 false,
-            )?;
-
-            cubemap_skybox_texture
+            )?
         };
         let skybox_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: skybox_texture_bind_group_layout,
+            layout: &single_cube_texture_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -712,13 +737,6 @@ impl RendererState {
                 ..texture::SamplerDescriptor::default().0
             }),
         )?;
-
-        let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
-        let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
-        let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
-
-        let skybox_mesh =
-            MeshComponent::new(&cube_mesh, None, &single_uniform_bind_group_layout, &device)?;
 
         let light = MeshComponent::new(
             &sphere_mesh,
@@ -1200,11 +1218,11 @@ impl RendererState {
                 self.plane_mesh.index_buffer.slice(..),
                 wgpu::IndexFormat::Uint16,
             );
-            scene_render_pass.draw_indexed(
-                0..self.plane_mesh.num_indices,
-                0,
-                0..self.plane_transforms.len() as u32,
-            );
+            // scene_render_pass.draw_indexed(
+            //     0..self.plane_mesh.num_indices,
+            //     0,
+            //     0..self.plane_transforms.len() as u32,
+            // );
 
             // render balls
             scene_render_pass.set_pipeline(&self.mesh_pipeline);
