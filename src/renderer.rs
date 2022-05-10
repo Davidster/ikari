@@ -23,6 +23,13 @@ unsafe impl bytemuck::Pod for GpuMatrix3 {}
 unsafe impl bytemuck::Zeroable for GpuMatrix3 {}
 
 #[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct Float16(half::f16);
+
+unsafe impl bytemuck::Pod for Float16 {}
+unsafe impl bytemuck::Zeroable for Float16 {}
+
+#[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct LightUniform {
     position: [f32; 4],
@@ -163,7 +170,7 @@ pub struct RendererState {
     sphere_mesh: InstancedMeshComponent,
     test_object_mesh: InstancedMeshComponent,
     plane_mesh: InstancedMeshComponent,
-    skybox_mesh: MeshComponent,
+    skybox_mesh: MeshComponent, // TODO: always use InstancedMeshComponent
 }
 
 impl RendererState {
@@ -520,7 +527,7 @@ impl RendererState {
                 targets: fragment_shader_color_targets,
             }),
             primitive: skybox_pipeline_primitive_state,
-            depth_stencil: skybox_depth_stencil_state.clone(),
+            depth_stencil: skybox_depth_stencil_state,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
         };
@@ -592,7 +599,7 @@ impl RendererState {
         // source: https://www.solarsystemscope.com/textures/
         let mars_texture_path = "./src/textures/8k_mars.png";
         let mars_texture_bytes = std::fs::read(mars_texture_path)?;
-        let mars_texture = Texture::from_bytes(
+        let mars_texture = Texture::from_encoded_image(
             &device,
             &queue,
             &mars_texture_bytes,
@@ -638,10 +645,9 @@ impl RendererState {
         //     &Default::default(),
         // )?;
         let skybox_texture = if USE_PHOTOSPHERE_SKYBOX {
-            // TODO: use render_equirectangular_to_cubemap func
-            let photosphere_skybox_texture_path = "./src/textures/photosphere_skybox.png";
+            let photosphere_skybox_texture_path = "./src/textures/newport_loft/background.jpg";
             let photosphere_skybox_texture_bytes = std::fs::read(photosphere_skybox_texture_path)?;
-            let photosphere_skybox_texture = Texture::from_bytes(
+            let photosphere_skybox_texture = Texture::from_encoded_image(
                 &device,
                 &queue,
                 &photosphere_skybox_texture_bytes,
@@ -651,13 +657,56 @@ impl RendererState {
                 &Default::default(),
             )?;
 
-            Texture::create_cubemap_texture_from_equirectangular(
+            let newport_loft_skybox_texture_path = "./src/textures/newport_loft/radiance.hdr";
+            let newport_loft_skybox_texture_bytes =
+                std::fs::read(newport_loft_skybox_texture_path)?;
+            let newport_loft_skybox_texture_decoded = stb::image::stbi_loadf_from_memory(
+                &newport_loft_skybox_texture_bytes,
+                stb::image::Channels::RgbAlpha,
+            )
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Failed to decode image: {}",
+                    newport_loft_skybox_texture_path
+                )
+            })?;
+            let newport_loft_skybox_texture_decoded_vec: Vec<_> =
+                newport_loft_skybox_texture_decoded
+                    .1
+                    .into_vec()
+                    .iter()
+                    .copied()
+                    .map(|v| Float16(half::f16::from_f32(v)))
+                    .collect();
+            println!(
+                "newport_loft_skybox_texture_decoded_vec length, {:?}",
+                newport_loft_skybox_texture_decoded_vec.len()
+            );
+            println!(
+                "newport_loft_skybox_texture_decoded_vec dims, {:?}",
+                newport_loft_skybox_texture_decoded.0
+            );
+            let newport_loft_skybox_texture = Texture::from_decoded_image(
+                &device,
+                &queue,
+                bytemuck::cast_slice(&newport_loft_skybox_texture_decoded_vec),
+                (
+                    newport_loft_skybox_texture_decoded.0.width as u32,
+                    newport_loft_skybox_texture_decoded.0.height as u32,
+                ),
+                newport_loft_skybox_texture_path.into(),
+                wgpu::TextureFormat::Rgba16Float.into(),
+                false,
+                &Default::default(),
+            )?;
+
+            Texture::create_cubemap_from_equirectangular(
                 &device,
                 &queue,
                 Some(photosphere_skybox_texture_path),
                 &skybox_mesh,
                 &equirectangular_to_cubemap_pipeline,
-                &photosphere_skybox_texture,
+                &newport_loft_skybox_texture,
                 // TODO: set to true!
                 false,
             )?
@@ -674,7 +723,7 @@ impl RendererState {
             .map(|path| image::load_from_memory(&std::fs::read(path)?))
             .collect::<Result<Vec<_>, _>>()?;
 
-            Texture::create_cubemap_texture(
+            Texture::create_cubemap(
                 &device,
                 &queue,
                 CreateCubeMapImagesParam {
@@ -723,12 +772,13 @@ impl RendererState {
                     );
                 }
             }
-            image::DynamicImage::ImageRgba8(img)
+            img
         };
-        let checkerboard_texture = Texture::from_image(
+        let checkerboard_texture = Texture::from_decoded_image(
             &device,
             &queue,
             &checkerboard_texture_img,
+            checkerboard_texture_img.dimensions(),
             Some("checkerboard_texture"),
             None,
             true,
@@ -1042,7 +1092,7 @@ impl RendererState {
 
     pub fn update(&mut self, window: &winit::window::Window) {
         let first_frame_instant = self.first_frame_instant.unwrap_or_else(Instant::now);
-        let time_seconds = first_frame_instant.elapsed().as_secs_f32();
+        let _time_seconds = first_frame_instant.elapsed().as_secs_f32();
         self.first_frame_instant = Some(first_frame_instant);
 
         // results in ~60 state changes per second

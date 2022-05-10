@@ -48,20 +48,23 @@ impl Default for SamplerDescriptor<'_> {
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
-    pub fn from_bytes(
+    // supports jpg and png
+    pub fn from_encoded_image(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        bytes: &[u8],
+        img_bytes: &[u8],
         label: &str,
         format: Option<wgpu::TextureFormat>,
         generate_mipmaps: bool,
         sampler_descriptor: &SamplerDescriptor,
     ) -> Result<Self> {
-        let img = image::load_from_memory(bytes)?;
-        Self::from_image(
+        let img = image::load_from_memory(img_bytes)?;
+        let img_as_rgba = img.to_rgba8();
+        Self::from_decoded_image(
             device,
             queue,
-            &img,
+            &img_as_rgba,
+            img_as_rgba.dimensions(),
             Some(label),
             format,
             generate_mipmaps,
@@ -69,24 +72,19 @@ impl Texture {
         )
     }
 
-    pub fn from_image(
+    pub fn from_decoded_image(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        img: &image::DynamicImage,
+        img_bytes: &[u8],
+        dimensions: (u32, u32),
         label: Option<&str>,
         format: Option<wgpu::TextureFormat>,
         generate_mipmaps: bool,
         sampler_descriptor: &SamplerDescriptor,
     ) -> Result<Self> {
-        let img_as_rgba = img.as_rgba8().ok_or_else(|| {
-            anyhow!("Failed to convert image into rgba8. Is the image missing the alpha channel?")
-        })?;
-
-        let dimensions = img.dimensions();
-
         let size = wgpu::Extent3d {
-            width: dimensions.0,
-            height: dimensions.1,
+            width: dimensions.0 as u32,
+            height: dimensions.1 as u32,
             depth_or_array_layers: 1,
         };
         let mip_level_count = if generate_mipmaps { size.max_mips() } else { 1 };
@@ -110,10 +108,15 @@ impl Texture {
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
             },
-            img_as_rgba,
+            img_bytes,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: NonZeroU32::new(4 * dimensions.0),
+                // TODO: fix this horrible hack
+                bytes_per_row: if format == wgpu::TextureFormat::Rgba16Float {
+                    NonZeroU32::new(8 * dimensions.0)
+                } else {
+                    NonZeroU32::new(4 * dimensions.0)
+                },
                 rows_per_image: NonZeroU32::new(dimensions.1),
             },
             size,
@@ -149,12 +152,13 @@ impl Texture {
         let one_pixel_image = {
             let mut img = image::RgbaImage::new(1, 1);
             img.put_pixel(0, 0, image::Rgba(color));
-            image::DynamicImage::ImageRgba8(img)
+            img
         };
-        Texture::from_image(
+        Texture::from_decoded_image(
             device,
             queue,
             &one_pixel_image,
+            one_pixel_image.dimensions(),
             Some("from_color texture"),
             None,
             false,
@@ -170,12 +174,13 @@ impl Texture {
         let one_pixel_up_image = {
             let mut img = image::RgbaImage::new(1, 1);
             img.put_pixel(0, 0, image::Rgba([127, 127, 255, 255]));
-            image::DynamicImage::ImageRgba8(img)
+            img
         };
-        Texture::from_image(
+        Texture::from_decoded_image(
             device,
             queue,
             &one_pixel_up_image,
+            one_pixel_up_image.dimensions(),
             Some("flat_normal_map texture"),
             wgpu::TextureFormat::Rgba8Unorm.into(),
             false,
@@ -273,7 +278,7 @@ impl Texture {
     }
 
     // TODO: remove repeated code from create_cubemap_texture
-    pub fn create_cubemap_texture_from_equirectangular(
+    pub fn create_cubemap_from_equirectangular(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         label: Option<&str>,
@@ -326,6 +331,8 @@ impl Texture {
                         ty: wgpu::BindingType::Texture {
                             multisampled: false,
                             view_dimension: wgpu::TextureViewDimension::D2,
+                            // TODO: this should be filterable: true for u8 textures and false for f32 textures
+                            // handle this!
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         },
                         count: None,
@@ -333,6 +340,8 @@ impl Texture {
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: wgpu::ShaderStages::FRAGMENT,
+                        // TODO: this should be Filtering for u8 textures and NonFiltering for f32 textures
+                        // handle this!
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
@@ -462,7 +471,7 @@ impl Texture {
     }
 
     // each image should have the same dimensions!
-    pub fn create_cubemap_texture(
+    pub fn create_cubemap(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         images: CreateCubeMapImagesParam,
