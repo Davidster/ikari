@@ -39,7 +39,7 @@ var cubemap_sampler: sampler;
 
 [[stage(fragment)]]
 fn cubemap_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-    return textureSample(cubemap_texture, cubemap_sampler, in.world_position);
+    return textureSample(cubemap_texture, cubemap_sampler, vec3<f32>(-in.world_position.x, in.world_position.y, in.world_position.z));
 }
 
 // for mapping equirectangular to cubemap
@@ -73,5 +73,13 @@ fn equirectangular_to_cubemap_fs_main(in: VertexOutput) -> [[location(0)]] vec4<
     );
     let longitude = atan2(in.world_position.z, in.world_position.x);
     
-    return textureSample(equirectangular_texture, equirectangular_sampler, latlng_to_uv(latitude, longitude));
+    let col = textureSample(equirectangular_texture, equirectangular_sampler, latlng_to_uv(latitude, longitude));
+    let col_gamma_corrected = vec4<f32>(pow(col.xyz, vec3<f32>(1.0 / 2.2)), 1.0);
+    return col;
+    // return vec4<f32>(col.x % 1.01, col.y % 1.01, col.z % 1.01, 1.0);
+}
+
+[[stage(fragment)]]
+fn env_map_gen_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+    return textureSample(cubemap_texture, cubemap_sampler, in.world_position);
 }
