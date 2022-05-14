@@ -371,7 +371,7 @@ impl Texture {
             label: Some("cubemap_gen_camera_bind_group"),
         });
 
-        let faces: Vec<_> = Camera::build_cubemap_view_projection_matrices()
+        let faces: Vec<_> = Camera::build_cubemap_view_projection_matrices_1()
             .iter()
             .copied()
             .enumerate()
@@ -477,8 +477,8 @@ impl Texture {
     ) -> Result<Self> {
         // let texture_size = texture.texture.
         let size = wgpu::Extent3d {
-            width: skybox_ir_texture.size.width,
-            height: skybox_ir_texture.size.width,
+            width: 128,
+            height: 128,
             depth_or_array_layers: 6,
         };
 
@@ -557,7 +557,7 @@ impl Texture {
             label: Some("env_map_gen_camera_bind_group"),
         });
 
-        let faces: Vec<_> = Camera::build_cubemap_view_projection_matrices()
+        let faces: Vec<_> = Camera::build_cubemap_view_projection_matrices_2()
             .iter()
             .copied()
             .enumerate()

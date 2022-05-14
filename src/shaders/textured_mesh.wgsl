@@ -94,6 +94,10 @@ var normal_map_sampler: sampler;
 var skybox_texture: texture_cube<f32>;
 [[group(2), binding(1)]]
 var skybox_sampler: sampler;
+[[group(2), binding(2)]]
+var env_map_texture: texture_cube<f32>;
+[[group(2), binding(3)]]
+var env_map_sampler: sampler;
 
 let pi: f32 = 3.141592653589793;
 let two_pi: f32 = 6.283185307179586;
@@ -149,7 +153,15 @@ fn fresnel_func_schlick(
     h_dot_v: f32,
     f0: vec3<f32>,
 ) -> vec3<f32> {
-    return f0 + (1.0 - f0) * pow(1.0 - h_dot_v, 5.0);
+    return f0 + (1.0 - f0) * pow(clamp(1.0 - h_dot_v, 0.0, 1.0), 5.0);
+}
+
+fn fresnel_func_schlick_with_roughness(
+    h_dot_v: f32,
+    f0: vec3<f32>,
+    a: f32,
+) -> vec3<f32> {
+    return f0 + (max(vec3<f32>(1.0 - a), f0) - f0) * pow(clamp(1.0 - h_dot_v, 0.0, 1.0), 5.0);
 }
 
 fn do_fragment_shade(
@@ -216,9 +228,10 @@ fn do_fragment_shade(
     let bdrf = kd * diffuse_component + specular_component;
     let light_irradiance = bdrf * incident_angle_factor * light_attenuation_factor * light.color.xyz;
 
-    let ambient_light_intensity = 0.02;
-    let ambient_light_color = vec3<f32>(1.0, 1.0, 1.0);
-    let ambient_irradiance = ambient_light_intensity * ambient_light_color * albedo;
+    let fresnel_ambient = fresnel_func_schlick_with_roughness(h_dot_v, f0, a);
+    let kd_ambient = vec3<f32>(1.0) - ks;
+    let ambient_diffuse_irradiance = textureSample(env_map_texture, env_map_sampler, world_normal).xyz * albedo;
+    let ambient_irradiance = kd_ambient * ambient_diffuse_irradiance;
 
     let combined_irradiance_hdr = ambient_irradiance + light_irradiance;
     let combined_irradiance_ldr = combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0));

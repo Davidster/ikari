@@ -31,6 +31,10 @@ fn vs_main(
 
 // cubemap version
 
+fn world_pos_to_cubemap_vec(world_pos: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(-world_pos.x, world_pos.y, world_pos.z);
+}
+
 [[group(0), binding(0)]]
 var cubemap_texture: texture_cube<f32>;
 
@@ -39,13 +43,15 @@ var cubemap_sampler: sampler;
 
 [[stage(fragment)]]
 fn cubemap_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-    return textureSample(cubemap_texture, cubemap_sampler, vec3<f32>(-in.world_position.x, in.world_position.y, in.world_position.z));
+    let col = textureSample(cubemap_texture, cubemap_sampler, world_pos_to_cubemap_vec(in.world_position));
+    return vec4<f32>(col.x % 1.01, col.y % 1.01, col.z % 1.01, 1.0);
 }
 
 // for mapping equirectangular to cubemap
 
 let pi: f32 = 3.141592653589793;
 let two_pi: f32 = 6.283185307179586;
+let half_pi: f32 = 1.570796326794897;
 
 // in radians
 fn angle_modulo(angle: f32) -> f32 {
@@ -81,5 +87,37 @@ fn equirectangular_to_cubemap_fs_main(in: VertexOutput) -> [[location(0)]] vec4<
 
 [[stage(fragment)]]
 fn env_map_gen_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-    return textureSample(cubemap_texture, cubemap_sampler, in.world_position);
+    let normal = normalize(in.world_position);
+    var irradiance: vec3<f32> = vec3<f32>(0.0, 0.0, 0.0);
+
+    let right = normalize(cross(vec3<f32>(0.0, 1.0, 0.0), normal));
+    let up = normalize(cross(normal, right));
+
+    let phi_sample_count = 256.0;
+    let theta_sample_count = 72.0;
+    let phi_sample_delta = two_pi / phi_sample_count;
+    let theta_sample_delta = half_pi / theta_sample_count;
+    for (var phi = 0.0; phi < two_pi; phi = phi + phi_sample_delta) {
+        for (var theta = 0.0; theta < half_pi; theta = theta + theta_sample_delta) {
+            let sample_dir = normalize(
+                right * sin(theta) * cos(phi) +
+                up * sin(theta) * sin(phi) +
+                normal * cos(theta)
+            );
+            irradiance = irradiance +
+                textureSample(
+                    cubemap_texture, cubemap_sampler, 
+                    world_pos_to_cubemap_vec(sample_dir)
+                    // vec3<f32>(-sample_dir.x, sample_dir.y, sample_dir.z)
+                ).xyz * 
+                cos(theta) * 
+                // cos(theta);
+                sin(theta);
+        }
+    }
+
+    let total_samples = phi_sample_count * theta_sample_count;
+    irradiance = pi * irradiance * (1.0 / total_samples);
+
+    return vec4<f32>(irradiance, 1.0);
 }
