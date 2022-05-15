@@ -119,7 +119,7 @@ impl CameraUniform {
 
 const INITIAL_RENDER_SCALE: f32 = 2.0;
 pub const ARENA_SIDE_LENGTH: f32 = 1000.0;
-pub const USE_ER_SKYBOX: bool = false;
+pub const USE_ER_SKYBOX: bool = true;
 pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
 pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 
@@ -603,9 +603,9 @@ impl RendererState {
         let equirectangular_to_cubemap_pipeline =
             device.create_render_pipeline(&equirectangular_to_cubemap_pipeline_descriptor);
 
-        let env_map_gen_pipeline_layout =
+        let diffuse_env_map_gen_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Env Map Gen Pipeline Layout"),
+                label: Some("diffuse env map Gen Pipeline Layout"),
                 bind_group_layouts: &[
                     &single_cube_texture_bind_group_layout,
                     &single_uniform_bind_group_layout,
@@ -613,9 +613,9 @@ impl RendererState {
                 push_constant_ranges: &[],
             });
 
-        let env_map_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("Env Map Gen Pipeline"),
-            layout: Some(&env_map_gen_pipeline_layout),
+        let diffuse_env_map_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("diffuse env map Gen Pipeline"),
+            layout: Some(&diffuse_env_map_gen_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
@@ -623,7 +623,7 @@ impl RendererState {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
-                entry_point: "env_map_gen_fs_main",
+                entry_point: "diffuse_env_map_gen_fs_main",
                 targets: fragment_shader_color_targets,
             }),
             primitive: skybox_pipeline_primitive_state,
@@ -631,7 +631,39 @@ impl RendererState {
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
         };
-        let env_map_gen_pipeline = device.create_render_pipeline(&env_map_gen_pipeline_descriptor);
+        let diffuse_env_map_gen_pipeline =
+            device.create_render_pipeline(&diffuse_env_map_gen_pipeline_descriptor);
+
+        let specular_env_map_gen_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("specular env map Gen Pipeline Layout"),
+                bind_group_layouts: &[
+                    &single_cube_texture_bind_group_layout,
+                    &single_uniform_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
+        let specular_env_map_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("specular env map Gen Pipeline"),
+            layout: Some(&specular_env_map_gen_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &skybox_shader,
+                entry_point: "vs_main",
+                buffers: &[TexturedVertex::desc()],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &skybox_shader,
+                entry_point: "specular_env_map_gen_fs_main",
+                targets: fragment_shader_color_targets,
+            }),
+            primitive: skybox_pipeline_primitive_state,
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        };
+        let specular_env_map_gen_pipeline =
+            device.create_render_pipeline(&specular_env_map_gen_pipeline_descriptor);
 
         let initial_render_scale = INITIAL_RENDER_SCALE;
 
@@ -815,16 +847,34 @@ impl RendererState {
             &skybox_texture
         };
 
-        let env_map = Texture::create_env_map(
+        let diffuse_env_map = Texture::create_diffuse_env_map(
             &device,
             &queue,
-            Some("env map"),
+            Some("diffuse env map"),
             &skybox_mesh,
-            &env_map_gen_pipeline,
+            &diffuse_env_map_gen_pipeline,
             skybox_rad_texture,
             // TODO: set to true!
             false,
         )?;
+
+        //  TODO: use mips to get different roughness amounts
+        let specular_env_map = Texture::create_specular_env_map(
+            &device,
+            &queue,
+            Some("specular env map"),
+            &skybox_mesh,
+            &specular_env_map_gen_pipeline,
+            skybox_rad_texture,
+            // TODO: set to true!
+            false,
+        )?;
+
+        // let brdf_lut = Texture::create_brdf_lut(
+        //     &device,
+        //     &queue,
+        //     Some("brdf lut"),
+        // );
 
         let skybox_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &two_cube_texture_bind_group_layout,
@@ -839,11 +889,11 @@ impl RendererState {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&env_map.view),
+                    resource: wgpu::BindingResource::TextureView(&diffuse_env_map.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&env_map.sampler),
+                    resource: wgpu::BindingResource::Sampler(&diffuse_env_map.sampler),
                 },
             ],
             label: Some("skybox_texture_bind_group"),
@@ -988,7 +1038,7 @@ impl RendererState {
             label: Some("flat_color_bind_group"),
         });
 
-        let balls: Vec<_> = (0..10000)
+        let balls: Vec<_> = (0..100)
             .into_iter()
             .map(|_| {
                 BallComponent::new(
@@ -1363,11 +1413,11 @@ impl RendererState {
                 self.plane_mesh.index_buffer.slice(..),
                 wgpu::IndexFormat::Uint16,
             );
-            scene_render_pass.draw_indexed(
-                0..self.plane_mesh.num_indices,
-                0,
-                0..self.plane_transforms.len() as u32,
-            );
+            // scene_render_pass.draw_indexed(
+            //     0..self.plane_mesh.num_indices,
+            //     0,
+            //     0..self.plane_transforms.len() as u32,
+            // );
 
             // render balls
             scene_render_pass.set_pipeline(&self.mesh_pipeline);
