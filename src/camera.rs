@@ -83,14 +83,6 @@ impl Camera {
 
     // TODO: should this function really be in the camera module?
     pub fn build_cubemap_view_projection_matrices_1() -> Vec<CameraViewProjMatrices> {
-        // return vec![
-        //     (Deg(90.0), Deg(0.0)),  // right
-        //     (Deg(-90.0), Deg(0.0)), // left
-        //     (Deg(0.0), Deg(90.0)),  // top
-        //     (Deg(0.0), Deg(-90.0)), // bottom
-        //     (Deg(180.0), Deg(0.0)), // front
-        //     (Deg(0.0), Deg(0.0)),   // back
-        // ]
         return vec![
             (Deg(90.0), Deg(0.0)),    // right
             (Deg(-90.0), Deg(0.0)),   // left
