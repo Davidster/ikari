@@ -956,13 +956,14 @@ impl RendererState {
             .map(|transform| GpuMeshInstance::new(transform.matrix.get()))
             .collect();
 
-        let test_object_diffuse_texture = Texture::from_color(&device, &queue, [255, 0, 0, 255])?;
+        let test_object_diffuse_texture =
+            Texture::from_color(&device, &queue, [255, 255, 255, 255])?;
         let test_object_mesh = InstancedMeshComponent::new(
             &device,
             &queue,
             &sphere_mesh,
-            // Some(&test_object_diffuse_texture),
-            Some(&earth_texture),
+            Some(&test_object_diffuse_texture),
+            // Some(&earth_texture),
             Some(&earth_normal_map),
             &two_texture_bind_group_layout,
             &test_object_transforms_gpu,

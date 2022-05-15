@@ -250,12 +250,14 @@ fn do_fragment_shade(
     let bdrf = kd * diffuse_component + specular_component;
     let light_irradiance = bdrf * incident_angle_factor * light_attenuation_factor * light.color.rgb;
 
-    let fresnel_ambient = fresnel_func_schlick_with_roughness(h_dot_v, f0, a);
-    let kd_ambient = vec3<f32>(1.0) - ks;
+    let n_dot_v = max(dot(n, v), 0.0);
+    let fresnel_ambient = fresnel_func_schlick_with_roughness(n_dot_v, f0, a);
+    let kd_ambient = vec3<f32>(1.0) - fresnel_ambient;
     let ambient_diffuse_irradiance = textureSample(env_map_texture, env_map_sampler, world_normal).rgb * albedo;
     let ambient_irradiance = kd_ambient * ambient_diffuse_irradiance;
 
     let combined_irradiance_hdr = ambient_irradiance + light_irradiance;
+    // let combined_irradiance_hdr = ambient_irradiance;
     let combined_irradiance_ldr = combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0));
 
     let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
