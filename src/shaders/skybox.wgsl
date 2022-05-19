@@ -9,6 +9,12 @@ struct CameraUniform {
 [[group(1), binding(0)]]
 var<uniform> camera: CameraUniform;
 
+struct RougnessInput {
+    value: f32;
+};
+[[group(1), binding(1)]]
+var<uniform> roughness_input: RougnessInput;
+
 struct VertexInput {
     [[location(0)]] object_position: vec3<f32>;
 };
@@ -233,7 +239,7 @@ fn specular_env_map_gen_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     let reflect_dir = normal;
     let view_dir = reflect_dir;
 
-    let roughness = 0.001;
+    let roughness = roughness_input.value;
 
     var total_pre_filtered_color = vec3<f32>(0.0, 0.0, 0.0);
     var total_weight = 0.0;

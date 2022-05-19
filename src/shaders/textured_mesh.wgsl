@@ -95,9 +95,13 @@ var skybox_texture: texture_cube<f32>;
 [[group(2), binding(1)]]
 var skybox_sampler: sampler;
 [[group(2), binding(2)]]
-var env_map_texture: texture_cube<f32>;
+var diffuse_env_map_texture: texture_cube<f32>;
 [[group(2), binding(3)]]
-var env_map_sampler: sampler;
+var diffuse_env_map_sampler: sampler;
+[[group(2), binding(4)]]
+var specular_env_map_texture: texture_cube<f32>;
+[[group(2), binding(5)]]
+var specular_env_map_sampler: sampler;
 
 let pi: f32 = 3.141592653589793;
 let two_pi: f32 = 6.283185307179586;
@@ -193,12 +197,6 @@ fn do_fragment_shade(
     camera_position: vec3<f32>,
 ) -> FragmentOutput {
 
-    // let surface_reflection = textureSample(
-    //     skybox_texture,
-    //     skybox_sampler,
-    //     reflect(-to_viewer_vec, normalize(world_normal))
-    // );
-
     let roughness = 0.1;
     let metallicness = 0.2;
     let albedo = textureSample(diffuse_texture, diffuse_sampler, tex_coords).rgb;
@@ -253,13 +251,19 @@ fn do_fragment_shade(
     let n_dot_v = max(dot(n, v), 0.0);
     let fresnel_ambient = fresnel_func_schlick_with_roughness(n_dot_v, f0, a);
     let kd_ambient = vec3<f32>(1.0) - fresnel_ambient;
-    let ambient_diffuse_irradiance = textureSample(env_map_texture, env_map_sampler, world_normal).rgb * albedo;
+    let ambient_diffuse_irradiance = textureSample(diffuse_env_map_texture, diffuse_env_map_sampler, world_normal).rgb * albedo;
     let ambient_irradiance = kd_ambient * ambient_diffuse_irradiance;
 
     let combined_irradiance_hdr = ambient_irradiance + light_irradiance;
     // let combined_irradiance_hdr = ambient_irradiance;
     let combined_irradiance_ldr = combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0));
 
+    // let surface_reflection = textureSample(
+    //     specular_env_map_texture,
+    //     specular_env_map_sampler,
+    //     reflect(-to_viewer_vec, normalize(world_normal))
+    // );
+    // let final_color = surface_reflection;
     let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
 
     var out: FragmentOutput;

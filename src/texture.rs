@@ -660,7 +660,6 @@ impl Texture {
         skybox_mesh: &MeshComponent,
         env_map_gen_pipeline: &wgpu::RenderPipeline,
         skybox_rad_texture: &Texture,
-        generate_mipmaps: bool,
     ) -> Result<Self> {
         // let texture_size = texture.texture.
         let size = wgpu::Extent3d {
@@ -669,30 +668,31 @@ impl Texture {
             depth_or_array_layers: 6,
         };
 
-        let layer_size = wgpu::Extent3d {
-            depth_or_array_layers: 1,
-            ..size
-        };
-
-        let mip_level_count = if generate_mipmaps {
-            layer_size.max_mips()
-        } else {
-            1
-        };
-
         // TODO: dry
-        let single_uniform_bind_group_layout =
+        let two_uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
                     },
-                    count: None,
-                }],
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
                 label: Some("single_uniform_bind_group_layout"),
             });
 
@@ -720,6 +720,8 @@ impl Texture {
                 label: Some("single_cube_texture_bind_group_layout"),
             });
 
+        let mip_level_count = 5;
+
         let env_map = device.create_texture(&wgpu::TextureDescriptor {
             label,
             size,
@@ -735,87 +737,113 @@ impl Texture {
             contents: bytemuck::cast_slice(&[CameraUniform::new()]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &single_uniform_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
+        let roughness_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Env map Generation Roughness Buffer"),
+            contents: bytemuck::cast_slice(&[0.0f32]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let camera_roughness_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &two_uniform_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: roughness_buffer.as_entire_binding(),
+                },
+            ],
             label: Some("env_map_gen_camera_bind_group"),
         });
 
-        let faces: Vec<_> = Camera::build_cubemap_view_projection_matrices_2()
-            .iter()
-            .copied()
-            .enumerate()
-            .map(|(i, view_proj_matrices)| {
-                (
-                    view_proj_matrices,
-                    env_map.create_view(&wgpu::TextureViewDescriptor {
-                        dimension: Some(wgpu::TextureViewDimension::D2),
-                        base_array_layer: i as u32,
-                        array_layer_count: NonZeroU32::new(1),
-                        ..Default::default()
-                    }),
-                )
-            })
-            .collect();
+        let camera_projection_matrices = Camera::build_cubemap_view_projection_matrices_2();
 
-        for (face_view_proj_matrices, face_texture_view) in faces {
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("create_env_map encoder"),
+        // TODO: level 0 doesn't really need to be done since roughness = 0 basically copies the skybox plainly
+        //       but we'll need to write the contents of skybox_rad_texture to the first mip level of the cubemap above
+        (0..mip_level_count)
+            .map(|i| (i, i as f32 * (1.0 / (mip_level_count - 1) as f32)))
+            .for_each(|(mip_level, roughness_level)| {
+                camera_projection_matrices
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .map(|(i, view_proj_matrices)| {
+                        (
+                            view_proj_matrices,
+                            env_map.create_view(&wgpu::TextureViewDescriptor {
+                                dimension: Some(wgpu::TextureViewDimension::D2),
+                                base_array_layer: i as u32,
+                                array_layer_count: NonZeroU32::new(1),
+                                base_mip_level: mip_level as u32,
+                                mip_level_count: NonZeroU32::new(1),
+                                ..Default::default()
+                            }),
+                        )
+                    })
+                    .for_each(|(face_view_proj_matrices, face_texture_view)| {
+                        let mut encoder =
+                            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                                label: Some("create_env_map encoder"),
+                            });
+                        let skybox_ir_texture_bind_group =
+                            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                layout: &single_cube_texture_bind_group_layout,
+                                entries: &[
+                                    wgpu::BindGroupEntry {
+                                        binding: 0,
+                                        resource: wgpu::BindingResource::TextureView(
+                                            &skybox_rad_texture.view,
+                                        ),
+                                    },
+                                    wgpu::BindGroupEntry {
+                                        binding: 1,
+                                        resource: wgpu::BindingResource::Sampler(
+                                            &skybox_rad_texture.sampler,
+                                        ),
+                                    },
+                                ],
+                                label: None,
+                            });
+                        queue.write_buffer(
+                            &camera_buffer,
+                            0,
+                            bytemuck::cast_slice(&[CameraUniform::from_view_proj_matrices(
+                                &face_view_proj_matrices,
+                            )]),
+                        );
+                        queue.write_buffer(
+                            &roughness_buffer,
+                            0,
+                            bytemuck::cast_slice(&[roughness_level]),
+                        );
+                        {
+                            let mut rpass =
+                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                    label: None,
+                                    color_attachments: &[wgpu::RenderPassColorAttachment {
+                                        view: &face_texture_view,
+                                        resolve_target: None,
+                                        ops: wgpu::Operations {
+                                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                                            store: true,
+                                        },
+                                    }],
+                                    depth_stencil_attachment: None,
+                                });
+                            rpass.set_pipeline(env_map_gen_pipeline);
+                            rpass.set_bind_group(0, &skybox_ir_texture_bind_group, &[]);
+                            rpass.set_bind_group(1, &camera_roughness_bind_group, &[]);
+                            rpass.set_vertex_buffer(0, skybox_mesh.vertex_buffer.slice(..));
+                            rpass.set_index_buffer(
+                                skybox_mesh.index_buffer.slice(..),
+                                wgpu::IndexFormat::Uint16,
+                            );
+                            rpass.draw_indexed(0..skybox_mesh.num_indices, 0, 0..1);
+                        }
+                        queue.submit(Some(encoder.finish()));
+                    });
             });
-            let skybox_ir_texture_bind_group =
-                device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &single_cube_texture_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(&skybox_rad_texture.view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(&skybox_rad_texture.sampler),
-                        },
-                    ],
-                    label: None,
-                });
-            queue.write_buffer(
-                &camera_buffer,
-                0,
-                bytemuck::cast_slice(&[CameraUniform::from_view_proj_matrices(
-                    &face_view_proj_matrices,
-                )]),
-            );
-            {
-                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[wgpu::RenderPassColorAttachment {
-                        view: &face_texture_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                            store: true,
-                        },
-                    }],
-                    depth_stencil_attachment: None,
-                });
-                rpass.set_pipeline(env_map_gen_pipeline);
-                rpass.set_bind_group(0, &skybox_ir_texture_bind_group, &[]);
-                rpass.set_bind_group(1, &camera_bind_group, &[]);
-                rpass.set_vertex_buffer(0, skybox_mesh.vertex_buffer.slice(..));
-                rpass.set_index_buffer(
-                    skybox_mesh.index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint16,
-                );
-                rpass.draw_indexed(0..skybox_mesh.num_indices, 0, 0..1);
-            }
-            queue.submit(Some(encoder.finish()));
-        }
-
-        if generate_mipmaps {
-            todo!("Call generate_mipmaps_for_texture for each side of the cubemap");
-        }
 
         let view = env_map.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::Cube),

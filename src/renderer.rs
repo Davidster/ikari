@@ -375,6 +375,61 @@ impl RendererState {
                 label: Some("two_cube_texture_bind_group_layout"),
             });
 
+        let three_cube_texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::Cube,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::Cube,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::Cube,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("three_cube_texture_bind_group_layout"),
+            });
+
         let single_uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
@@ -428,7 +483,7 @@ impl RendererState {
             bind_group_layouts: &[
                 &two_texture_bind_group_layout,
                 &two_uniform_bind_group_layout,
-                &two_cube_texture_bind_group_layout,
+                &three_cube_texture_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -547,7 +602,7 @@ impl RendererState {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Skybox Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &two_cube_texture_bind_group_layout,
+                    &three_cube_texture_bind_group_layout,
                     &two_uniform_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
@@ -639,7 +694,7 @@ impl RendererState {
                 label: Some("specular env map Gen Pipeline Layout"),
                 bind_group_layouts: &[
                     &single_cube_texture_bind_group_layout,
-                    &single_uniform_bind_group_layout,
+                    &two_uniform_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -746,6 +801,19 @@ impl RendererState {
         //     false,
         //     &Default::default(),
         // )?;
+
+        let brick_normal_map_path = "./src/textures/brick_normal_map.jpg";
+        let brick_normal_map_bytes = std::fs::read(brick_normal_map_path)?;
+        let brick_normal_map = Texture::from_encoded_image(
+            &device,
+            &queue,
+            &brick_normal_map_bytes,
+            brick_normal_map_path,
+            wgpu::TextureFormat::Rgba8Unorm.into(),
+            false,
+            &Default::default(),
+        )?;
+
         let skybox_texture = if USE_ER_SKYBOX {
             let er_skybox_texture_path = "./src/textures/newport_loft/background.jpg";
             let er_skybox_texture_bytes = std::fs::read(er_skybox_texture_path)?;
@@ -766,7 +834,7 @@ impl RendererState {
                 &skybox_mesh,
                 &equirectangular_to_cubemap_pipeline,
                 &er_skybox_texture,
-                // TODO: set to true!
+                // TODO: set to true?
                 false,
             )?
         } else {
@@ -794,7 +862,7 @@ impl RendererState {
                     neg_z: &cubemap_skybox_images[5],
                 },
                 Some("cubemap_skybox_texture"),
-                // TODO: set to true!
+                // TODO: set to true?
                 false,
             )?
         };
@@ -838,7 +906,7 @@ impl RendererState {
                 &skybox_mesh,
                 &equirectangular_to_cubemap_pipeline,
                 &skybox_rad_texture_er,
-                // TODO: set to true!
+                // TODO: set to true?
                 false,
             )?;
 
@@ -854,11 +922,10 @@ impl RendererState {
             &skybox_mesh,
             &diffuse_env_map_gen_pipeline,
             skybox_rad_texture,
-            // TODO: set to true!
+            // TODO: set to true?
             false,
         )?;
 
-        //  TODO: use mips to get different roughness amounts
         let specular_env_map = Texture::create_specular_env_map(
             &device,
             &queue,
@@ -866,8 +933,6 @@ impl RendererState {
             &skybox_mesh,
             &specular_env_map_gen_pipeline,
             skybox_rad_texture,
-            // TODO: set to true!
-            false,
         )?;
 
         // let brdf_lut = Texture::create_brdf_lut(
@@ -877,7 +942,7 @@ impl RendererState {
         // );
 
         let skybox_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &two_cube_texture_bind_group_layout,
+            layout: &three_cube_texture_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -894,6 +959,14 @@ impl RendererState {
                 wgpu::BindGroupEntry {
                     binding: 3,
                     resource: wgpu::BindingResource::Sampler(&diffuse_env_map.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&specular_env_map.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&specular_env_map.sampler),
                 },
             ],
             label: Some("skybox_texture_bind_group"),
@@ -964,7 +1037,8 @@ impl RendererState {
             &sphere_mesh,
             Some(&test_object_diffuse_texture),
             // Some(&earth_texture),
-            Some(&earth_normal_map),
+            // Some(&brick_normal_map),
+            None,
             &two_texture_bind_group_layout,
             &test_object_transforms_gpu,
         )?;
@@ -1451,7 +1525,6 @@ impl RendererState {
             // doing it in the surface blit pass is faster and might not change the quality when using SSAA
             scene_render_pass.set_pipeline(&self.skybox_pipeline);
             scene_render_pass.set_bind_group(0, &self.skybox_texture_bind_group, &[]);
-            // scene_render_pass.set_bind_group(0, &sky_box_texture_bind_group, &[]);
             scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
             scene_render_pass.set_vertex_buffer(0, self.skybox_mesh.vertex_buffer.slice(..));
             scene_render_pass.set_index_buffer(
