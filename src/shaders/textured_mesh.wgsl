@@ -197,7 +197,7 @@ fn do_fragment_shade(
     camera_position: vec3<f32>,
 ) -> FragmentOutput {
 
-    let roughness = 0.1;
+    let roughness = 0.5;
     let metallicness = 0.2;
     let albedo = textureSample(diffuse_texture, diffuse_sampler, tex_coords).rgb;
 
@@ -258,13 +258,16 @@ fn do_fragment_shade(
     // let combined_irradiance_hdr = ambient_irradiance;
     let combined_irradiance_ldr = combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0));
 
-    // let surface_reflection = textureSample(
-    //     specular_env_map_texture,
-    //     specular_env_map_sampler,
-    //     reflect(-to_viewer_vec, normalize(world_normal))
-    // );
-    // let final_color = surface_reflection;
-    let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
+    // mip level count - 1
+    let MAX_REFLECTION_LOD = 4.0;
+    let surface_reflection = textureSampleLevel(
+        specular_env_map_texture,
+        specular_env_map_sampler,
+        reflect(-to_viewer_vec, normalize(world_normal)),
+        roughness * MAX_REFLECTION_LOD
+    );
+    let final_color = surface_reflection;
+    // let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
 
     var out: FragmentOutput;
     out.color = final_color;

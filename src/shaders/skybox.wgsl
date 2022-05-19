@@ -49,6 +49,7 @@ var cubemap_sampler: sampler;
 
 [[stage(fragment)]]
 fn cubemap_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+    // let col = textureSampleLevel(cubemap_texture, cubemap_sampler, world_pos_to_cubemap_vec(in.world_position), 0.0);
     let col = textureSample(cubemap_texture, cubemap_sampler, world_pos_to_cubemap_vec(in.world_position));
     return vec4<f32>(col.x % 1.01, col.y % 1.01, col.z % 1.01, 1.0);
 }
@@ -110,7 +111,7 @@ fn geometry_func_smith_ggx(
 fn importance_sampled_ggx(x_i: vec2<f32>, n: vec3<f32>, a: f32) -> vec3<f32> {
     let a2 = a * a;
     let phi = two_pi * x_i.x;
-    let cos_theta = sqrt((1.0 - x_i.y) / (1.0 + (a * a - 1.0) * x_i.y));
+    let cos_theta = sqrt((1.0 - x_i.y) / (1.0 + (a2 * a2 - 1.0) * x_i.y));
     let sin_theta = sqrt(1.0 - cos_theta * cos_theta);
 
     let h = vec3<f32>(
@@ -125,8 +126,8 @@ fn importance_sampled_ggx(x_i: vec2<f32>, n: vec3<f32>, a: f32) -> vec3<f32> {
     } else {
         up = vec3<f32>(1.0, 0.0, 0.0);
     };
-    let tangent = normalize(cross(up, h));
-    let bitangent = normalize(cross(h, tangent));
+    let tangent = normalize(cross(up, n));
+    let bitangent = normalize(cross(n, tangent));
 
     let sample_vec = tangent * h.x + bitangent * h.y + n * h.z;
     return normalize(sample_vec);
@@ -250,7 +251,6 @@ fn specular_env_map_gen_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
         let h = importance_sampled_ggx(x_i, normal, roughness);
         let l = normalize(2.0 * dot(view_dir, h) * h - view_dir);
 
-        let res = textureDimensions(cubemap_texture);
         let n_dot_l = max(dot(normal, l), 0.0);
         total_pre_filtered_color = total_pre_filtered_color + textureSample(
             cubemap_texture,

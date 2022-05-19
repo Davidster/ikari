@@ -762,7 +762,7 @@ impl Texture {
         // TODO: level 0 doesn't really need to be done since roughness = 0 basically copies the skybox plainly
         //       but we'll need to write the contents of skybox_rad_texture to the first mip level of the cubemap above
         (0..mip_level_count)
-            .map(|i| (i, i as f32 * (1.0 / (mip_level_count - 1) as f32)))
+            .map(|i| (i, (i + 0) as f32 * (1.0 / (mip_level_count - 1) as f32)))
             .for_each(|(mip_level, roughness_level)| {
                 camera_projection_matrices
                     .iter()

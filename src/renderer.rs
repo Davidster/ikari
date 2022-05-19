@@ -1037,8 +1037,8 @@ impl RendererState {
             &sphere_mesh,
             Some(&test_object_diffuse_texture),
             // Some(&earth_texture),
-            // Some(&brick_normal_map),
-            None,
+            Some(&brick_normal_map),
+            // None,
             &two_texture_bind_group_layout,
             &test_object_transforms_gpu,
         )?;
