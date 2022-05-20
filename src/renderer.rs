@@ -218,8 +218,8 @@ impl RendererState {
             format: swapchain_format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
-            // present_mode: wgpu::PresentMode::Immediate,
+            // present_mode: wgpu::PresentMode::Fifo,
+            present_mode: wgpu::PresentMode::Immediate,
         };
 
         surface.configure(&device, &config);
@@ -375,7 +375,7 @@ impl RendererState {
                 label: Some("two_cube_texture_bind_group_layout"),
             });
 
-        let three_cube_texture_bind_group_layout =
+        let pbr_env_map_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -426,8 +426,24 @@ impl RendererState {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 7,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
                 ],
-                label: Some("three_cube_texture_bind_group_layout"),
+                label: Some("pbr_env_map_bind_group_layout"),
             });
 
         let single_uniform_bind_group_layout =
@@ -483,7 +499,7 @@ impl RendererState {
             bind_group_layouts: &[
                 &two_texture_bind_group_layout,
                 &two_uniform_bind_group_layout,
-                &three_cube_texture_bind_group_layout,
+                &pbr_env_map_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -602,7 +618,7 @@ impl RendererState {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Skybox Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &three_cube_texture_bind_group_layout,
+                    &pbr_env_map_bind_group_layout,
                     &two_uniform_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
@@ -719,6 +735,42 @@ impl RendererState {
         };
         let specular_env_map_gen_pipeline =
             device.create_render_pipeline(&specular_env_map_gen_pipeline_descriptor);
+
+        let brdf_lut_gen_color_targets = &[wgpu::ColorTargetState {
+            format: wgpu::TextureFormat::Rg16Float,
+            blend: Some(wgpu::BlendState::REPLACE),
+            write_mask: wgpu::ColorWrites::ALL,
+        }];
+        let brdf_lut_gen_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Brdf Lut Gen Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+
+        let brdf_lut_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("Brdf Lut Gen Pipeline"),
+            layout: Some(&brdf_lut_gen_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &blit_shader,
+                entry_point: "vs_main",
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &blit_shader,
+                entry_point: "brdf_lut_gen_fs_main",
+                targets: brdf_lut_gen_color_targets,
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        };
+        let brdf_lut_gen_pipeline =
+            device.create_render_pipeline(&brdf_lut_gen_pipeline_descriptor);
 
         let initial_render_scale = INITIAL_RENDER_SCALE;
 
@@ -935,14 +987,10 @@ impl RendererState {
             skybox_rad_texture,
         )?;
 
-        // let brdf_lut = Texture::create_brdf_lut(
-        //     &device,
-        //     &queue,
-        //     Some("brdf lut"),
-        // );
+        let brdf_lut = Texture::create_brdf_lut(&device, &queue, &brdf_lut_gen_pipeline)?;
 
         let skybox_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &three_cube_texture_bind_group_layout,
+            layout: &pbr_env_map_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -967,6 +1015,14 @@ impl RendererState {
                 wgpu::BindGroupEntry {
                     binding: 5,
                     resource: wgpu::BindingResource::Sampler(&specular_env_map.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&brdf_lut.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::Sampler(&brdf_lut.sampler),
                 },
             ],
             label: Some("skybox_texture_bind_group"),
@@ -1037,8 +1093,8 @@ impl RendererState {
             &sphere_mesh,
             Some(&test_object_diffuse_texture),
             // Some(&earth_texture),
-            Some(&brick_normal_map),
-            // None,
+            // Some(&brick_normal_map),
+            None,
             &two_texture_bind_group_layout,
             &test_object_transforms_gpu,
         )?;

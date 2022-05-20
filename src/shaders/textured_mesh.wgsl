@@ -102,6 +102,10 @@ var diffuse_env_map_sampler: sampler;
 var specular_env_map_texture: texture_cube<f32>;
 [[group(2), binding(5)]]
 var specular_env_map_sampler: sampler;
+[[group(2), binding(6)]]
+var brdf_lut_texture: texture_2d<f32>;
+[[group(2), binding(7)]]
+var brdf_lut_sampler: sampler;
 
 let pi: f32 = 3.141592653589793;
 let two_pi: f32 = 6.283185307179586;
@@ -167,6 +171,7 @@ fn fresnel_func_schlick_with_roughness(
     a: f32,
 ) -> vec3<f32> {
     return f0 + (max(vec3<f32>(1.0 - a), f0) - f0) * pow(clamp(1.0 - h_dot_v, 0.0, 1.0), 5.0);
+    // return f0 + (max(vec3<f32>(1.0 - a), f0) - f0) * pow(1.0 - h_dot_v, 5.0);
 }
 
 fn radical_inverse_vdc(
@@ -197,21 +202,24 @@ fn do_fragment_shade(
     camera_position: vec3<f32>,
 ) -> FragmentOutput {
 
-    let roughness = 0.5;
-    let metallicness = 0.2;
+    let roughness = 0.3;
+    let metallicness = 0.0;
     let albedo = textureSample(diffuse_texture, diffuse_sampler, tex_coords).rgb;
+    // let albedo = vec3<f32>(textureSample(brdf_lut_texture, brdf_lut_sampler, tex_coords).rg, 0.0);
 
     let to_viewer_vec = normalize(camera_position - world_position);
     let to_light_vec = light.position.xyz - world_position;
     let to_light_vec_norm = normalize(to_light_vec);
     let distance_from_light = length(to_light_vec);
     let halfway_vec = normalize(to_viewer_vec + to_light_vec_norm);
+    let reflection_vec = reflect(-to_viewer_vec, normalize(world_normal));
     let surface_reflection_at_zero_incidence_dialectric = vec3<f32>(0.04);
     let surface_reflection_at_zero_incidence = mix(
         surface_reflection_at_zero_incidence_dialectric,
         albedo,
         metallicness
     );
+    // let surface_reflection_at_zero_incidence = vec3<f32>(0.95, 0.93, 0.88);
 
     // copy variable names from the math formulas
     let n = world_normal;
@@ -259,15 +267,17 @@ fn do_fragment_shade(
     let combined_irradiance_ldr = combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0));
 
     // mip level count - 1
-    let MAX_REFLECTION_LOD = 4.0;
-    let surface_reflection = textureSampleLevel(
-        specular_env_map_texture,
-        specular_env_map_sampler,
-        reflect(-to_viewer_vec, normalize(world_normal)),
-        roughness * MAX_REFLECTION_LOD
-    );
-    let final_color = surface_reflection;
-    // let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
+    // let MAX_REFLECTION_LOD = 4.0;
+    // let surface_reflection = textureSampleLevel(
+    //     specular_env_map_texture,
+    //     specular_env_map_sampler,
+    //     reflection_vec,
+    //     roughness * MAX_REFLECTION_LOD
+    // );
+    // let final_color = surface_reflection;
+
+    // let final_color = vec4<f32>(fresnel * incident_angle_factor, 1.0);
+    let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
 
     var out: FragmentOutput;
     out.color = final_color;

@@ -45,6 +45,7 @@ impl Default for SamplerDescriptor<'_> {
     }
 }
 
+// TODO: a lot of these functions don't need to return a result?
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
@@ -950,6 +951,70 @@ impl Texture {
             mipmap_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+
+        Ok(Self {
+            texture,
+            view,
+            sampler,
+            size,
+        })
+    }
+
+    pub fn create_brdf_lut(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        brdf_lut_gen_pipeline: &wgpu::RenderPipeline,
+    ) -> Result<Self> {
+        let size = wgpu::Extent3d {
+            width: 512,
+            height: 512,
+            depth_or_array_layers: 1,
+        };
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Brdf Lut"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rg16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        });
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            ..Default::default()
+        });
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("create_brdf_lut encoder"),
+        });
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::RED),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
+            rpass.set_pipeline(brdf_lut_gen_pipeline);
+            rpass.draw(0..3, 0..1);
+        }
+        queue.submit(Some(encoder.finish()));
 
         Ok(Self {
             texture,
