@@ -121,7 +121,7 @@ fn importance_sampled_ggx(x_i: vec2<f32>, n: vec3<f32>, a: f32) -> vec3<f32> {
     );
 
     var up: vec3<f32>;
-    if (abs(h.z) < 0.999) {
+    if (abs(n.z) < 0.999) {
         up = vec3<f32>(0.0, 0.0, 1.0);
     } else {
         up = vec3<f32>(1.0, 0.0, 0.0);

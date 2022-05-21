@@ -203,7 +203,7 @@ fn do_fragment_shade(
 ) -> FragmentOutput {
 
     let roughness = 0.3;
-    let metallicness = 0.0;
+    let metallicness = 0.1;
     let albedo = textureSample(diffuse_texture, diffuse_sampler, tex_coords).rgb;
     // let albedo = vec3<f32>(textureSample(brdf_lut_texture, brdf_lut_sampler, tex_coords).rg, 0.0);
 
@@ -243,7 +243,7 @@ fn do_fragment_shade(
 
     // diffuse
     let diffuse_component = albedo / pi; // lambertian
-    let kd = vec3<f32>(1.0) - ks;
+    let kd = (vec3<f32>(1.0) - ks) * (1.0 - metallicness);
 
     // https://learnopengl.com/Lighting/Light-casters
     let light_attenuation_factor_d20 = 1.0 / (1.0 + 0.22 * distance_from_light + 0.20 * distance_from_light * distance_from_light);
@@ -257,25 +257,31 @@ fn do_fragment_shade(
     let light_irradiance = bdrf * incident_angle_factor * light_attenuation_factor * light.color.rgb;
 
     let n_dot_v = max(dot(n, v), 0.0);
+
     let fresnel_ambient = fresnel_func_schlick_with_roughness(n_dot_v, f0, a);
-    let kd_ambient = vec3<f32>(1.0) - fresnel_ambient;
-    let ambient_diffuse_irradiance = textureSample(diffuse_env_map_texture, diffuse_env_map_sampler, world_normal).rgb * albedo;
-    let ambient_irradiance = kd_ambient * ambient_diffuse_irradiance;
+    // mip level count - 1
+    let MAX_REFLECTION_LOD = 4.0;
+    let pre_filtered_color = textureSampleLevel(
+        specular_env_map_texture,
+        specular_env_map_sampler,
+        reflection_vec,
+        roughness * MAX_REFLECTION_LOD
+    ).rgb;
+    let brdf_lut_res = textureSample(brdf_lut_texture, brdf_lut_sampler, vec2<f32>(n_dot_v, roughness));
+    let ambient_specular_irradiance = pre_filtered_color * (fresnel_ambient * brdf_lut_res.r + brdf_lut_res.g);
+
+    let kd_ambient = (vec3<f32>(1.0) - fresnel_ambient) * (1.0 - metallicness);
+    let env_map_diffuse_irradiance = textureSample(diffuse_env_map_texture, diffuse_env_map_sampler, world_normal).rgb;
+    let ambient_diffuse_irradiance = env_map_diffuse_irradiance * albedo;
+
+    // TODO: multiply by ao
+    let ambient_irradiance = kd_ambient * ambient_diffuse_irradiance + ambient_specular_irradiance;
 
     let combined_irradiance_hdr = ambient_irradiance + light_irradiance;
     // let combined_irradiance_hdr = ambient_irradiance;
     let combined_irradiance_ldr = combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0));
 
-    // mip level count - 1
-    // let MAX_REFLECTION_LOD = 4.0;
-    // let surface_reflection = textureSampleLevel(
-    //     specular_env_map_texture,
-    //     specular_env_map_sampler,
-    //     reflection_vec,
-    //     roughness * MAX_REFLECTION_LOD
-    // );
-    // let final_color = surface_reflection;
-
+    
     // let final_color = vec4<f32>(fresnel * incident_angle_factor, 1.0);
     let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
 

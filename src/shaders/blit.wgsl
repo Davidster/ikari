@@ -105,7 +105,7 @@ fn importance_sampled_ggx(x_i: vec2<f32>, n: vec3<f32>, a: f32) -> vec3<f32> {
     );
 
     var up: vec3<f32>;
-    if (abs(h.z) < 0.999) {
+    if (abs(n.z) < 0.999) {
         up = vec3<f32>(0.0, 0.0, 1.0);
     } else {
         up = vec3<f32>(1.0, 0.0, 0.0);
@@ -130,6 +130,24 @@ fn radical_inverse_vdc(
     return f32(out) * 2.3283064365386963e-10; // / 0x100000000
 }
 
+// fn van_der_corput(n_in: u32, base: u32) -> f32 {
+//     var n = n_in;
+//     var inv_base = 1.0 / f32(base);
+//     var denom = 1.0;
+//     var result = 0.0;
+
+//     for (var i = 0u; i < 32u; i = i + 1u) {
+//         if (n > 0u) {
+//             denom = f32(n) % 2.0;
+//             result = result + denom * inv_base;
+//             inv_base = inv_base / 2.0;
+//             n = u32(f32(n) / 2.0);
+//         }
+//     }
+
+//     return result;
+// }
+
 fn hammersley(
     i_u: u32,
     num_samples_u: u32,
@@ -137,9 +155,10 @@ fn hammersley(
     let i = f32(i_u);
     let num_samples = f32(num_samples_u);
     return vec2<f32>(i / num_samples, radical_inverse_vdc(i_u));
+    // return vec2<f32>(i / num_samples, van_der_corput(i_u, 2u));
 }
 
-
+                //0.9487        0.9162
 fn integrate_brdf(n_dot_v: f32, roughness: f32) -> vec2<f32> {
     let v = vec3<f32>(sqrt(1.0 - n_dot_v * n_dot_v), 0.0, n_dot_v);
     let n = vec3<f32>(0.0, 0.0, 1.0);
@@ -157,10 +176,10 @@ fn integrate_brdf(n_dot_v: f32, roughness: f32) -> vec2<f32> {
         let v_dot_h = max(dot(v, h), 0.0);
 
         if (n_dot_l > 0.0) {
-            let k = geometry_func_schlick_ggx_k_ibl(roughness);
-            let g = geometry_func_smith_ggx(k, n, v, l);
-            let g_vis = (g * v_dot_h) / (n_dot_h * n_dot_v);
-            let f_c = pow(1.0 - v_dot_h, 5.0);
+            let k = geometry_func_schlick_ggx_k_ibl(roughness); // 0.41
+            let g = geometry_func_smith_ggx(k, n, v, l); // 0.95
+            let g_vis = (g * v_dot_h) / (n_dot_h * n_dot_v); // 0.956
+            let f_c = pow(1.0 - v_dot_h, 5.0); // 3.5e-7
 
             a = a + (1.0 - f_c) * g_vis;
             b = b + f_c * g_vis;
@@ -173,6 +192,6 @@ fn integrate_brdf(n_dot_v: f32, roughness: f32) -> vec2<f32> {
 }
 
 [[stage(fragment)]]
-fn brdf_lut_gen_fs_main(in: VertexOutput) -> [[location(0)]] vec2<f32> {
-    return integrate_brdf(in.tex_coords.x, in.tex_coords.y);
+fn brdf_lut_gen_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+    return vec4<f32>(integrate_brdf(in.tex_coords.x, in.tex_coords.y), 0.0, 1.0);
 }

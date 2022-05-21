@@ -1032,10 +1032,12 @@ fn generate_mipmaps_for_texture(
     texture: &wgpu::Texture,
     mip_level_count: u32,
     format: wgpu::TextureFormat,
-) {
+) -> Result<()> {
     let blit_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
         label: None,
-        source: wgpu::ShaderSource::Wgsl(include_str!("./shaders/blit.wgsl").into()),
+        source: wgpu::ShaderSource::Wgsl(
+            std::fs::read_to_string("./src/shaders/blit.wgsl")?.into(),
+        ),
     });
     let mip_render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("mip_render_pipeline"),
@@ -1139,4 +1141,5 @@ fn generate_mipmaps_for_texture(
         rpass.draw(0..3, 0..1);
     }
     queue.submit(Some(mip_encoder.finish()));
+    Ok(())
 }
