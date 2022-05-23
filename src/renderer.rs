@@ -119,7 +119,7 @@ impl CameraUniform {
 
 const INITIAL_RENDER_SCALE: f32 = 2.0;
 pub const ARENA_SIDE_LENGTH: f32 = 50.0;
-pub const USE_ER_SKYBOX: bool = true;
+pub const USE_ER_SKYBOX: bool = false;
 pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
 pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 
@@ -140,7 +140,6 @@ pub struct RendererState {
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
 
-    light: MeshComponent,
     light_buffer: wgpu::Buffer,
     light_color: Vector3<f32>,
 
@@ -165,9 +164,11 @@ pub struct RendererState {
     prev_balls: Vec<BallComponent>,
     actual_balls: Vec<BallComponent>,
 
+    light_transforms: Vec<super::transform::Transform>,
     test_object_transforms: Vec<super::transform::Transform>,
     plane_transforms: Vec<super::transform::Transform>,
 
+    light_mesh: InstancedMeshComponent,
     sphere_mesh: InstancedMeshComponent,
     test_object_mesh: InstancedMeshComponent,
     plane_mesh: InstancedMeshComponent,
@@ -1128,20 +1129,43 @@ impl RendererState {
             }),
         )?;
 
-        let light = MeshComponent::new(
-            &sphere_mesh,
-            None,
-            &single_uniform_bind_group_layout,
-            &device,
-        )?;
-        // light.transform.set_scale(Vector3::new(0.5, 0.5, 0.5));
-        // light
-        //     .transform
-        //     .set_position(Vector3::new(0.0, 200.0, 200.0));
-        light.transform.set_scale(Vector3::new(0.05, 0.05, 0.05));
-        light.transform.set_position(Vector3::new(0.0, 3.0, 3.0));
+        let light_transforms = vec![super::transform::Transform::new()];
+        light_transforms[0].set_scale(Vector3::new(0.05, 0.05, 0.05));
+        light_transforms[0].set_position(Vector3::new(0.0, 3.0, 3.0));
+
+        let light_transforms_gpu: Vec<_> = light_transforms
+            .iter()
+            .map(|transform| GpuMeshInstance::new(transform.matrix.get()))
+            .collect();
+
         let light_color = LIGHT_COLOR_A;
-        // let light_color = Vector3::new(0.396, 0.973, 0.663);
+        let light_emissive_map = Texture::from_color_gamma_corrected(
+            &device,
+            &queue,
+            [
+                (light_color.x * 255.0).round() as u8,
+                (light_color.y * 255.0).round() as u8,
+                (light_color.z * 255.0).round() as u8,
+                255,
+            ],
+            // [255, 0, 0, 255],
+        )?;
+        let light_roughness_map =
+            Texture::from_gray(&device, &queue, (0.1 * 255.0f32).round() as u8)?;
+        let light_ambient_occlusion_map = Texture::from_gray(&device, &queue, 0)?;
+        let light_mesh = InstancedMeshComponent::new(
+            &device,
+            &queue,
+            &sphere_mesh,
+            &InstancedMeshMaterialParams {
+                emissive: Some(&light_emissive_map),
+                roughness: Some(&light_roughness_map),
+                ambient_occlusion: Some(&light_ambient_occlusion_map),
+                ..Default::default()
+            },
+            &six_texture_bind_group_layout,
+            &light_transforms_gpu,
+        )?;
 
         let test_object_transforms = vec![super::transform::Transform::new()];
         test_object_transforms[0].set_position(Vector3::new(0.0, 1.0, 1.0));
@@ -1208,7 +1232,7 @@ impl RendererState {
         let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Light Buffer"),
             contents: bytemuck::cast_slice(&[LightUniform::from((
-                light.transform.position.get(),
+                light_transforms[0].position.get(),
                 light_color,
             ))]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
@@ -1297,7 +1321,6 @@ impl RendererState {
             camera_buffer,
             camera_light_bind_group,
 
-            light,
             light_buffer,
             light_color,
 
@@ -1319,9 +1342,11 @@ impl RendererState {
             prev_balls: balls.clone(),
             actual_balls: balls,
 
+            light_transforms,
             test_object_transforms,
             plane_transforms,
 
+            light_mesh,
             sphere_mesh,
             test_object_mesh,
             plane_mesh,
@@ -1533,16 +1558,21 @@ impl RendererState {
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
+        let light_transforms: Vec<_> = self
+            .light_transforms
+            .iter()
+            .map(|light_transform| GpuMeshInstance::new(light_transform.matrix.get()))
+            .collect();
         self.queue.write_buffer(
-            &self.light.transform_buffer,
+            &self.light_mesh.instance_buffer,
             0,
-            bytemuck::cast_slice(&[GpuMatrix4(self.light.transform.matrix.get())]),
+            bytemuck::cast_slice(&light_transforms),
         );
         self.queue.write_buffer(
             &self.light_buffer,
             0,
             bytemuck::cast_slice(&[LightUniform::from((
-                self.light.transform.position.get(),
+                self.light_transforms[0].position.get(),
                 self.light_color,
             ))]),
         );
@@ -1643,14 +1673,20 @@ impl RendererState {
             );
 
             // render light
-            scene_render_pass.set_pipeline(&self.flat_color_mesh_pipeline);
-            scene_render_pass.set_bind_group(0, &self.camera_light_bind_group, &[]);
-            scene_render_pass.set_bind_group(1, &self.light.transform_bind_group, &[]);
-            scene_render_pass.set_bind_group(2, &self.flat_color_bind_group, &[]);
-            scene_render_pass.set_vertex_buffer(0, self.light.vertex_buffer.slice(..));
-            scene_render_pass
-                .set_index_buffer(self.light.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            scene_render_pass.draw_indexed(0..self.light.num_indices, 0, 0..1);
+            scene_render_pass.set_pipeline(&self.mesh_pipeline);
+            scene_render_pass.set_bind_group(0, &self.light_mesh.textures_bind_group, &[]);
+            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            scene_render_pass.set_vertex_buffer(0, self.light_mesh.vertex_buffer.slice(..));
+            scene_render_pass.set_vertex_buffer(1, self.light_mesh.instance_buffer.slice(..));
+            scene_render_pass.set_index_buffer(
+                self.light_mesh.index_buffer.slice(..),
+                wgpu::IndexFormat::Uint16,
+            );
+            scene_render_pass.draw_indexed(
+                0..self.light_mesh.num_indices,
+                0,
+                0..self.light_transforms.len() as u32,
+            );
 
             // render skybox
             // TODO: does it make sense to render the skybox here?

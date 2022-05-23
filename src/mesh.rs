@@ -273,7 +273,7 @@ impl InstancedMeshComponent {
         let roughness_map = match material.roughness {
             Some(roughness_map) => roughness_map,
             None => {
-                auto_generated_roughness_map = Texture::from_gray(device, queue, 255)?;
+                auto_generated_roughness_map = Texture::from_gray(device, queue, 127)?;
                 &auto_generated_roughness_map
             }
         };

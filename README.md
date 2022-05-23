@@ -35,5 +35,6 @@
   - [ ] [Texture Linear Interpolation Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TextureLinearInterpolationTest)
   - [ ] [Vertex Color Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/VertexColorTest)
   - [ ] [Environment Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/EnvironmentTest)
-- [ ] remove duped shader functions?
 - [ ] add adaptive exposure based on histogram
+- [ ] add bloom effect for emissive materials
+- [ ] remove duped shader functions?

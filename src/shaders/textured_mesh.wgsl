@@ -244,6 +244,11 @@ fn do_fragment_shade(
         ambient_occlusion_map_sampler,
         tex_coords
     ).r;
+    let emissive = textureSample(
+        emissive_map_texture,
+        emissive_map_sampler,
+        tex_coords
+    ).rgb;
 
     let to_viewer_vec = normalize(camera_position - world_position);
     let to_light_vec = light.position.xyz - world_position;
@@ -315,7 +320,7 @@ fn do_fragment_shade(
     let ambient_irradiance = (kd_ambient * ambient_diffuse_irradiance + ambient_specular_irradiance) * ambient_occlusion;
 
     let combined_irradiance_hdr = ambient_irradiance + light_irradiance;
-    let combined_irradiance_ldr = combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0));
+    let combined_irradiance_ldr = (combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0))) + emissive;
 
     let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
 

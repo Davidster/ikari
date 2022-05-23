@@ -171,6 +171,32 @@ impl Texture {
         )
     }
 
+    pub fn from_color_gamma_corrected(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        color: [u8; 4],
+    ) -> Result<Self> {
+        let one_pixel_image = {
+            let mut img = image::RgbaImage::new(1, 1);
+            img.put_pixel(0, 0, image::Rgba(color));
+            img
+        };
+        Texture::from_decoded_image(
+            device,
+            queue,
+            &one_pixel_image,
+            one_pixel_image.dimensions(),
+            Some("from_color texture"),
+            wgpu::TextureFormat::Rgba8Unorm.into(),
+            false,
+            &SamplerDescriptor(wgpu::SamplerDescriptor {
+                mag_filter: wgpu::FilterMode::Nearest,
+                min_filter: wgpu::FilterMode::Nearest,
+                ..SamplerDescriptor::default().0
+            }),
+        )
+    }
+
     pub fn from_gray(device: &wgpu::Device, queue: &wgpu::Queue, gray_value: u8) -> Result<Self> {
         let one_pixel_gray_image = {
             let mut img = image::GrayImage::new(1, 1);
