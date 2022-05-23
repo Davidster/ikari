@@ -8,7 +8,7 @@ use winit::{
     window::Window,
 };
 
-pub const Z_NEAR: f32 = 0.01;
+pub const Z_NEAR: f32 = 0.001;
 pub const Z_FAR: f32 = 100000.0;
 pub const FOV_Y: Deg<f32> = Deg(45.0);
 
@@ -23,10 +23,12 @@ pub struct Camera {
     pose: CameraPose,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct CameraViewProjMatrices {
     pub proj: Matrix4<f32>,
     pub view: Matrix4<f32>,
     pub rotation_only_view: Matrix4<f32>,
+    pub position: Vector3<f32>,
 }
 
 impl Camera {
@@ -60,10 +62,12 @@ impl Camera {
             Rad(0.0),
         )));
         let view = rotation_only_view * make_translation_matrix(-self.pose.position);
+        let position = self.pose.position;
         CameraViewProjMatrices {
             proj,
             view,
             rotation_only_view,
+            position,
         }
     }
 
@@ -75,6 +79,40 @@ impl Camera {
             (self.pose.horizontal_rotation.0 + std::f32::consts::PI).cos() * horizontal_scale,
         )
         .normalize()
+    }
+
+    // TODO: should this function really be in the camera module?
+    pub fn build_cubemap_view_projection_matrices() -> Vec<CameraViewProjMatrices> {
+        return vec![
+            (Deg(90.0), Deg(0.0)),    // right
+            (Deg(-90.0), Deg(0.0)),   // left
+            (Deg(180.0), Deg(90.0)),  // top
+            (Deg(180.0), Deg(-90.0)), // bottom
+            (Deg(180.0), Deg(0.0)),   // front
+            (Deg(0.0), Deg(0.0)),     // back
+        ]
+        .iter()
+        .map(|(horizontal_rotation, vertical_rotation)| {
+            let proj = make_perspective_matrix(Z_NEAR, Z_FAR, Deg(90.0).into(), 1.0);
+            let rotation_only_view = make_rotation_matrix(Quaternion::from(Euler::new(
+                -Rad::from(*vertical_rotation),
+                Rad(0.0),
+                Rad(0.0),
+            ))) * make_rotation_matrix(Quaternion::from(Euler::new(
+                Rad(0.0),
+                -Rad::from(*horizontal_rotation),
+                Rad(0.0),
+            )));
+            let position = Vector3::new(0.0, 0.0, 0.0);
+            let view = rotation_only_view * make_translation_matrix(-position);
+            CameraViewProjMatrices {
+                proj,
+                view,
+                rotation_only_view,
+                position,
+            }
+        })
+        .collect();
     }
 }
 
@@ -132,7 +170,7 @@ impl CameraController {
                     MouseScrollDelta::LineDelta(_, y) => *y,
                     MouseScrollDelta::PixelDelta(PhysicalPosition { y, .. }) => *y as f32,
                 };
-                self.speed = (self.speed - (scroll_amount * 0.01)).max(0.5).min(300.0);
+                self.speed = (self.speed - (scroll_amount * 0.1)).max(0.5).min(300.0);
                 logger.log(&format!("Speed: {:?}", self.speed));
             }
             _ => {}

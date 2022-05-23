@@ -232,46 +232,24 @@ impl InstancedMeshComponent {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
-        let one_pixel_white_image = {
-            let mut img = image::RgbaImage::new(1, 1);
-            img.put_pixel(0, 0, image::Rgba([255, 255, 255, 255]));
-            image::DynamicImage::ImageRgba8(img)
+        let auto_generated_diffuse_texture;
+        let diffuse_texture = match diffuse_texture {
+            Some(diffuse_texture) => diffuse_texture,
+            None => {
+                auto_generated_diffuse_texture =
+                    Texture::from_color(device, queue, [255, 255, 255, 255])?;
+                &auto_generated_diffuse_texture
+            }
         };
-        let one_pixel_white_texture = Texture::from_image(
-            device,
-            queue,
-            &one_pixel_white_image,
-            Some("one_pixel_white_texture"),
-            None,
-            false,
-            &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
-                mag_filter: wgpu::FilterMode::Nearest,
-                min_filter: wgpu::FilterMode::Nearest,
-                ..texture::SamplerDescriptor::default().0
-            }),
-        )?;
 
-        let one_pixel_up_image = {
-            let mut img = image::RgbaImage::new(1, 1);
-            img.put_pixel(0, 0, image::Rgba([127, 127, 255, 255]));
-            image::DynamicImage::ImageRgba8(img)
+        let auto_generated_normal_map;
+        let normal_map = match normal_map {
+            Some(normal_map) => normal_map,
+            None => {
+                auto_generated_normal_map = Texture::flat_normal_map(device, queue)?;
+                &auto_generated_normal_map
+            }
         };
-        let one_pixel_up_texture = Texture::from_image(
-            device,
-            queue,
-            &one_pixel_up_image,
-            Some("one_pixel_up_image"),
-            wgpu::TextureFormat::Rgba8Unorm.into(),
-            false,
-            &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
-                mag_filter: wgpu::FilterMode::Nearest,
-                min_filter: wgpu::FilterMode::Nearest,
-                ..texture::SamplerDescriptor::default().0
-            }),
-        )?;
-
-        let diffuse_texture = diffuse_texture.unwrap_or(&one_pixel_white_texture);
-        let normal_map = normal_map.unwrap_or(&one_pixel_up_texture);
 
         let textures_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: textures_bind_group_layout,

@@ -33,7 +33,8 @@ fn vs_main([[builtin(vertex_index)]] vertex_index: u32) -> VertexOutput {
     out.position = vec4<f32>(
         tc.x * 2.0 - 1.0,
         1.0 - tc.y * 2.0,
-        0.0, 1.0
+        0.0,
+        1.0
     );
     out.tex_coords = tc;
     return out;
@@ -50,3 +51,147 @@ fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     return textureSample(r_color, r_sampler, in.tex_coords);
 }
 
+// BRDF LUT:
+
+let pi: f32 = 3.141592653589793;
+let two_pi: f32 = 6.283185307179586;
+let half_pi: f32 = 1.570796326794897;
+let epsilon: f32 = 0.00001;
+
+fn geometry_func_schlick_ggx_k_direct(
+    a: f32,
+) -> f32 {
+    let a_plus_1 = a + 1.0;
+    return (a_plus_1 * a_plus_1) / 8.0;
+}
+
+fn geometry_func_schlick_ggx_k_ibl(
+    a: f32,
+) -> f32 {
+    return (a * a) / 2.0;
+}
+
+fn geometry_func_schlick_ggx(
+    n_dot_v: f32,
+    k: f32,
+) -> f32 {
+    return n_dot_v / (n_dot_v * (1.0 - k) + k + epsilon);
+}
+
+fn geometry_func_smith_ggx(
+    k: f32,
+    n: vec3<f32>,
+    v: vec3<f32>,
+    l: vec3<f32>,
+) -> f32 {
+    let n_dot_v = max(dot(n, v), 0.0);
+    let n_dot_l = max(dot(n, l), 0.0);
+    let ggx_1 = geometry_func_schlick_ggx(n_dot_v, k);
+    let ggx_2 = geometry_func_schlick_ggx(n_dot_l, k);
+    return ggx_1 * ggx_2;
+}
+
+// https://learnopengl.com/PBR/IBL/Specular-IBL
+fn importance_sampled_ggx(x_i: vec2<f32>, n: vec3<f32>, a: f32) -> vec3<f32> {
+    let a2 = a * a;
+    let phi = two_pi * x_i.x;
+    let cos_theta = sqrt((1.0 - x_i.y) / (1.0 + (a2 * a2 - 1.0) * x_i.y));
+    let sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+
+    let h = vec3<f32>(
+        sin_theta * cos(phi),
+        sin_theta * sin(phi),
+        cos_theta,
+    );
+
+    var up: vec3<f32>;
+    if (abs(n.z) < 0.999) {
+        up = vec3<f32>(0.0, 0.0, 1.0);
+    } else {
+        up = vec3<f32>(1.0, 0.0, 0.0);
+    };
+    let tangent = normalize(cross(up, n));
+    let bitangent = normalize(cross(n, tangent));
+
+    let sample_vec = tangent * h.x + bitangent * h.y + n * h.z;
+    return normalize(sample_vec);
+}
+
+
+fn radical_inverse_vdc(
+    bits: u32,
+) -> f32 {
+    var out = bits;
+    out = (out << 16u) | (out >> 16u);
+    out = ((out & 0x55555555u) << 1u) | ((out & 0xAAAAAAAAu) >> 1u);
+    out = ((out & 0x33333333u) << 2u) | ((out & 0xCCCCCCCCu) >> 2u);
+    out = ((out & 0x0F0F0F0Fu) << 4u) | ((out & 0xF0F0F0F0u) >> 4u);
+    out = ((out & 0x00FF00FFu) << 8u) | ((out & 0xFF00FF00u) >> 8u);
+    return f32(out) * 2.3283064365386963e-10; // / 0x100000000
+}
+
+// fn van_der_corput(n_in: u32, base: u32) -> f32 {
+//     var n = n_in;
+//     var inv_base = 1.0 / f32(base);
+//     var denom = 1.0;
+//     var result = 0.0;
+
+//     for (var i = 0u; i < 32u; i = i + 1u) {
+//         if (n > 0u) {
+//             denom = f32(n) % 2.0;
+//             result = result + denom * inv_base;
+//             inv_base = inv_base / 2.0;
+//             n = u32(f32(n) / 2.0);
+//         }
+//     }
+
+//     return result;
+// }
+
+fn hammersley(
+    i_u: u32,
+    num_samples_u: u32,
+) -> vec2<f32> {
+    let i = f32(i_u);
+    let num_samples = f32(num_samples_u);
+    return vec2<f32>(i / num_samples, radical_inverse_vdc(i_u));
+    // return vec2<f32>(i / num_samples, van_der_corput(i_u, 2u));
+}
+
+                //0.9487        0.9162
+fn integrate_brdf(n_dot_v: f32, roughness: f32) -> vec2<f32> {
+    let v = vec3<f32>(sqrt(1.0 - n_dot_v * n_dot_v), 0.0, n_dot_v);
+    let n = vec3<f32>(0.0, 0.0, 1.0);
+
+    var a = 0.0;
+    var b = 0.0;
+    let sample_count = 1024u;
+    for (var i = 0u; i < sample_count; i = i + 1u) {
+        let x_i = hammersley(i, sample_count);
+        let h = importance_sampled_ggx(x_i, n, roughness);
+        let l = normalize(2.0 * dot(v, h) * h - v);
+
+        let n_dot_l = max(l.z, 0.0);
+        let n_dot_h = max(h.z, 0.0);
+        let v_dot_h = max(dot(v, h), 0.0);
+
+        if (n_dot_l > 0.0) {
+            let k = geometry_func_schlick_ggx_k_ibl(roughness); // 0.41
+            let g = geometry_func_smith_ggx(k, n, v, l); // 0.95
+            let g_vis = (g * v_dot_h) / (n_dot_h * n_dot_v); // 0.956
+            let f_c = pow(1.0 - v_dot_h, 5.0); // 3.5e-7
+
+            a = a + (1.0 - f_c) * g_vis;
+            b = b + f_c * g_vis;
+        }
+    }
+
+    a = a / f32(sample_count);
+    b = b / f32(sample_count);
+    return vec2<f32>(a, b);
+}
+
+[[stage(fragment)]]
+fn brdf_lut_gen_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+    return vec4<f32>(integrate_brdf(in.tex_coords.x, in.tex_coords.y), 0.0, 1.0);
+}

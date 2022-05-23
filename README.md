@@ -1,6 +1,6 @@
 ## Latest screenshot:
 
-![image](https://user-images.githubusercontent.com/2389735/162113906-6e92e045-5057-41d0-9fec-258a742522fd.png)
+![screenshot](https://user-images.githubusercontent.com/2389735/169865297-34800766-ea06-4f17-b3fe-0f81943a39ef.jpg)
 
 ## TODO List
 - [x] basic phong shading 
@@ -22,8 +22,13 @@
 - [x] refactor the proj!
 - [x] pass color to flat color shader with uniform
 - [x] merge photosphere and cubemap skybox shaders into one?
+- [ ] remove duped shader functions?
+- [ ] pass roughness, metallicness and ao via textures
+- [ ] support multiple lights
+- [ ] make everything be instanced
+- [ ] try to implement PBR shaders based on [article](https://learnopengl.com/PBR/Theory)
 - [ ] support gltf format
-- [ ] try to implement PBR shaders based on [article](https://learnopengl.com/PBR/Theory), implement some [sample models](https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0):
+- [ ] load in some [sample models](https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0):
   - [ ] [Triangle Without Indices](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TriangleWithoutIndices)
   - [ ] [Triangle](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/Triangle)
   - [ ] [Simple Meshes](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/SimpleMeshes)
@@ -31,3 +36,4 @@
   - [ ] [Texture Linear Interpolation Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TextureLinearInterpolationTest)
   - [ ] [Vertex Color Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/VertexColorTest)
   - [ ] [Environment Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/EnvironmentTest)
+- [ ] add adaptive exposure based on histogram

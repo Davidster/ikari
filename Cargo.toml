@@ -4,8 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.52"
+anyhow = { version = "1.0.52", features = ["backtrace"] }
 image = "0.23.14"
+# stb = { version = "0.3.2", default-features = false, features = ["stbi_no_linear","stbi_no_jpeg","stbi_no_png","stbi_no_bmp","stbi_no_psd","stbi_no_gif","stbi_no_pic","stbi_no_pnm"] }
+stb = { version = "0.3.2" }
+half = "1.8.2"
 obj-rs = "0.7.0"
 wavefront_obj = "10.0.0"
 wgpu = "0.12.0"
