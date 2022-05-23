@@ -178,8 +178,8 @@ impl RendererState {
     pub async fn new(window: &winit::window::Window) -> Result<Self> {
         let mut logger = Logger::new();
         // force it to vulkan to get renderdoc to work:
-        let backends = wgpu::Backends::from(wgpu::Backend::Vulkan);
-        // let backends = wgpu::Backends::all();
+        // let backends = wgpu::Backends::from(wgpu::Backend::Vulkan);
+        let backends = wgpu::Backends::all();
         let instance = wgpu::Instance::new(backends);
         let size = window.inner_size();
         let surface = unsafe { instance.create_surface(&window) };
