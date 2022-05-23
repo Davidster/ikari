@@ -118,8 +118,8 @@ impl CameraUniform {
 }
 
 const INITIAL_RENDER_SCALE: f32 = 2.0;
-pub const ARENA_SIDE_LENGTH: f32 = 20.0;
-pub const USE_ER_SKYBOX: bool = false;
+pub const ARENA_SIDE_LENGTH: f32 = 50.0;
+pub const USE_ER_SKYBOX: bool = true;
 pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
 pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 
@@ -1091,10 +1091,10 @@ impl RendererState {
             &device,
             &queue,
             &sphere_mesh,
-            // Some(&test_object_diffuse_texture),
-            Some(&mars_texture),
-            // Some(&brick_normal_map),
-            None,
+            Some(&earth_texture),
+            // Some(&mars_texture),
+            Some(&earth_normal_map),
+            // None,
             &two_texture_bind_group_layout,
             &test_object_transforms_gpu,
         )?;

@@ -218,7 +218,7 @@ impl CameraController {
                     MouseScrollDelta::LineDelta(_, y) => *y,
                     MouseScrollDelta::PixelDelta(PhysicalPosition { y, .. }) => *y as f32,
                 };
-                self.speed = (self.speed - (scroll_amount * 0.01)).max(0.5).min(300.0);
+                self.speed = (self.speed - (scroll_amount * 0.1)).max(0.5).min(300.0);
                 logger.log(&format!("Speed: {:?}", self.speed));
             }
             _ => {}

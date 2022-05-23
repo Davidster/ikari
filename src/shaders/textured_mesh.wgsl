@@ -206,7 +206,7 @@ fn do_fragment_shade(
     camera_position: vec3<f32>,
 ) -> FragmentOutput {
 
-    let roughness = 0.05;
+    let roughness = 0.12;
     let metallicness = 0.8;
     let albedo = textureSample(diffuse_texture, diffuse_sampler, tex_coords).rgb;
     // let albedo = vec3<f32>(textureSample(brdf_lut_texture, brdf_lut_sampler, tex_coords).rg, 0.0);
