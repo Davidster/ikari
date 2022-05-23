@@ -1634,6 +1634,7 @@ impl RendererState {
             );
 
             // render light
+            // TODO: clear light array uniform here? so lights dont cast onto eachother
             scene_render_pass.set_pipeline(&self.mesh_pipeline);
             scene_render_pass.set_bind_group(0, &self.light_mesh.textures_bind_group, &[]);
             scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
