@@ -201,13 +201,22 @@ pub struct InstancedMeshComponent {
     pub textures_bind_group: wgpu::BindGroup,
 }
 
+#[derive(Default)]
+pub struct InstancedMeshMaterialParams<'a> {
+    pub diffuse: Option<&'a Texture>,
+    pub normal: Option<&'a Texture>,
+    pub metallic: Option<&'a Texture>,
+    pub roughness: Option<&'a Texture>,
+    pub emissive: Option<&'a Texture>,
+    pub ambient_occlusion: Option<&'a Texture>,
+}
+
 impl InstancedMeshComponent {
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         mesh: &BasicMesh,
-        diffuse_texture: Option<&Texture>,
-        normal_map: Option<&Texture>,
+        material: &InstancedMeshMaterialParams,
         textures_bind_group_layout: &wgpu::BindGroupLayout,
         instances: &[GpuMeshInstance],
     ) -> Result<InstancedMeshComponent> {
@@ -233,7 +242,7 @@ impl InstancedMeshComponent {
         });
 
         let auto_generated_diffuse_texture;
-        let diffuse_texture = match diffuse_texture {
+        let diffuse_texture = match material.diffuse {
             Some(diffuse_texture) => diffuse_texture,
             None => {
                 auto_generated_diffuse_texture =
@@ -243,11 +252,47 @@ impl InstancedMeshComponent {
         };
 
         let auto_generated_normal_map;
-        let normal_map = match normal_map {
+        let normal_map = match material.normal {
             Some(normal_map) => normal_map,
             None => {
                 auto_generated_normal_map = Texture::flat_normal_map(device, queue)?;
                 &auto_generated_normal_map
+            }
+        };
+
+        let auto_generated_metallic_map;
+        let metallic_map = match material.metallic {
+            Some(metallic_map) => metallic_map,
+            None => {
+                auto_generated_metallic_map = Texture::from_gray(device, queue, 0)?;
+                &auto_generated_metallic_map
+            }
+        };
+
+        let auto_generated_roughness_map;
+        let roughness_map = match material.roughness {
+            Some(roughness_map) => roughness_map,
+            None => {
+                auto_generated_roughness_map = Texture::from_gray(device, queue, 255)?;
+                &auto_generated_roughness_map
+            }
+        };
+
+        let auto_generated_emissive_map;
+        let emissive_map = match material.emissive {
+            Some(emissive_map) => emissive_map,
+            None => {
+                auto_generated_emissive_map = Texture::from_color(device, queue, [0, 0, 0, 255])?;
+                &auto_generated_emissive_map
+            }
+        };
+
+        let auto_generated_ambient_occlusion_map;
+        let ambient_occlusion_map = match material.ambient_occlusion {
+            Some(ambient_occlusion_map) => ambient_occlusion_map,
+            None => {
+                auto_generated_ambient_occlusion_map = Texture::from_gray(device, queue, 255)?;
+                &auto_generated_ambient_occlusion_map
             }
         };
 
@@ -269,6 +314,38 @@ impl InstancedMeshComponent {
                 wgpu::BindGroupEntry {
                     binding: 3,
                     resource: wgpu::BindingResource::Sampler(&normal_map.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&metallic_map.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&metallic_map.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&roughness_map.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::Sampler(&roughness_map.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: wgpu::BindingResource::TextureView(&emissive_map.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 9,
+                    resource: wgpu::BindingResource::Sampler(&emissive_map.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 10,
+                    resource: wgpu::BindingResource::TextureView(&ambient_occlusion_map.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 11,
+                    resource: wgpu::BindingResource::Sampler(&ambient_occlusion_map.sampler),
                 },
             ],
             label: Some("InstancedMeshComponent textures_bind_group"),

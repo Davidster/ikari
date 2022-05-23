@@ -89,6 +89,22 @@ var diffuse_sampler: sampler;
 var normal_map_texture: texture_2d<f32>;
 [[group(0), binding(3)]]
 var normal_map_sampler: sampler;
+[[group(0), binding(4)]]
+var metallic_map_texture: texture_2d<f32>;
+[[group(0), binding(5)]]
+var metallic_map_sampler: sampler;
+[[group(0), binding(6)]]
+var roughness_map_texture: texture_2d<f32>;
+[[group(0), binding(7)]]
+var roughness_map_sampler: sampler;
+[[group(0), binding(8)]]
+var emissive_map_texture: texture_2d<f32>;
+[[group(0), binding(9)]]
+var emissive_map_sampler: sampler;
+[[group(0), binding(10)]]
+var ambient_occlusion_map_texture: texture_2d<f32>;
+[[group(0), binding(11)]]
+var ambient_occlusion_map_sampler: sampler;
 
 [[group(2), binding(0)]]
 var skybox_texture: texture_cube<f32>;
@@ -206,9 +222,28 @@ fn do_fragment_shade(
     camera_position: vec3<f32>,
 ) -> FragmentOutput {
 
-    let roughness = 0.12;
-    let metallicness = 0.8;
-    let albedo = textureSample(diffuse_texture, diffuse_sampler, tex_coords).rgb;
+    // let roughness = 0.12;
+    // let metallicness = 0.8;
+    let albedo = textureSample(
+        diffuse_texture,
+        diffuse_sampler,
+        tex_coords
+    ).rgb;
+    let roughness = textureSample(
+        roughness_map_texture,
+        roughness_map_sampler,
+        tex_coords
+    ).r;
+    let metallicness = textureSample(
+        metallic_map_texture,
+        metallic_map_sampler,
+        tex_coords
+    ).r;
+    let ambient_occlusion = textureSample(
+        ambient_occlusion_map_texture,
+        ambient_occlusion_map_sampler,
+        tex_coords
+    ).r;
 
     let to_viewer_vec = normalize(camera_position - world_position);
     let to_light_vec = light.position.xyz - world_position;
@@ -277,8 +312,7 @@ fn do_fragment_shade(
     let env_map_diffuse_irradiance = textureSample(diffuse_env_map_texture, diffuse_env_map_sampler, world_normal_to_cubemap_vec(world_normal)).rgb;
     let ambient_diffuse_irradiance = env_map_diffuse_irradiance * albedo;
 
-    // TODO: multiply by ao
-    let ambient_irradiance = kd_ambient * ambient_diffuse_irradiance + ambient_specular_irradiance;
+    let ambient_irradiance = (kd_ambient * ambient_diffuse_irradiance + ambient_specular_irradiance) * ambient_occlusion;
 
     let combined_irradiance_hdr = ambient_irradiance + light_irradiance;
     let combined_irradiance_ldr = combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0));

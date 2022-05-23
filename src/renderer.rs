@@ -274,7 +274,7 @@ impl RendererState {
                 ],
                 label: Some("single_texture_bind_group_layout"),
             });
-        let two_texture_bind_group_layout =
+        let six_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -309,8 +309,72 @@ impl RendererState {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 7,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 8,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 9,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 10,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 11,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
                 ],
-                label: Some("two_texture_bind_group_layout"),
+                label: Some("four_texture_bind_group_layout"),
             });
 
         let single_cube_texture_bind_group_layout =
@@ -497,7 +561,7 @@ impl RendererState {
         let mesh_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Mesh Pipeline Layout"),
             bind_group_layouts: &[
-                &two_texture_bind_group_layout,
+                &six_texture_bind_group_layout,
                 &two_uniform_bind_group_layout,
                 &pbr_env_map_bind_group_layout,
             ],
@@ -1089,15 +1153,22 @@ impl RendererState {
 
         let test_object_diffuse_texture =
             Texture::from_color(&device, &queue, [255, 255, 255, 255])?;
+        let test_object_metallic_map =
+            Texture::from_gray(&device, &queue, (0.8 * 255.0f32).round() as u8)?;
+        let test_object_roughness_map =
+            Texture::from_gray(&device, &queue, (0.12 * 255.0f32).round() as u8)?;
         let test_object_mesh = InstancedMeshComponent::new(
             &device,
             &queue,
             &sphere_mesh,
-            Some(&earth_texture),
-            // Some(&mars_texture),
-            Some(&earth_normal_map),
-            // None,
-            &two_texture_bind_group_layout,
+            &InstancedMeshMaterialParams {
+                diffuse: Some(&earth_texture),
+                normal: Some(&earth_normal_map),
+                metallic: Some(&test_object_metallic_map),
+                roughness: Some(&test_object_roughness_map),
+                ..Default::default()
+            },
+            &six_texture_bind_group_layout,
             &test_object_transforms_gpu,
         )?;
 
@@ -1113,9 +1184,11 @@ impl RendererState {
             &device,
             &queue,
             &plane_mesh,
-            Some(&checkerboard_texture),
-            None,
-            &two_texture_bind_group_layout,
+            &InstancedMeshMaterialParams {
+                diffuse: Some(&checkerboard_texture),
+                ..Default::default()
+            },
+            &six_texture_bind_group_layout,
             &plane_transforms_gpu,
         )?;
 
@@ -1198,10 +1271,11 @@ impl RendererState {
             &device,
             &queue,
             &sphere_mesh,
-            Some(&mars_texture),
-            None,
-            // None,
-            &two_texture_bind_group_layout,
+            &InstancedMeshMaterialParams {
+                diffuse: Some(&mars_texture),
+                ..Default::default()
+            },
+            &six_texture_bind_group_layout,
             &balls_transforms,
         )?;
 

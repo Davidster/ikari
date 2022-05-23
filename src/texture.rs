@@ -171,6 +171,28 @@ impl Texture {
         )
     }
 
+    pub fn from_gray(device: &wgpu::Device, queue: &wgpu::Queue, gray_value: u8) -> Result<Self> {
+        let one_pixel_gray_image = {
+            let mut img = image::GrayImage::new(1, 1);
+            img.put_pixel(0, 0, image::Luma([gray_value]));
+            img
+        };
+        Texture::from_decoded_image(
+            device,
+            queue,
+            &one_pixel_gray_image,
+            one_pixel_gray_image.dimensions(),
+            Some("from_gray texture"),
+            wgpu::TextureFormat::R8Unorm.into(),
+            false,
+            &SamplerDescriptor(wgpu::SamplerDescriptor {
+                mag_filter: wgpu::FilterMode::Nearest,
+                min_filter: wgpu::FilterMode::Nearest,
+                ..SamplerDescriptor::default().0
+            }),
+        )
+    }
+
     pub fn flat_normal_map(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self> {
         let one_pixel_up_image = {
             let mut img = image::RgbaImage::new(1, 1);

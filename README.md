@@ -23,8 +23,7 @@
 - [x] pass color to flat color shader with uniform
 - [x] merge photosphere and cubemap skybox shaders into one?
 - [x] try to implement PBR shaders based on [article](https://learnopengl.com/PBR/Theory)
-- [ ] remove duped shader functions?
-- [ ] pass roughness, metallicness and ao via textures
+- [x] pass roughness, metallicness and ao via textures
 - [ ] support multiple lights
 - [ ] make everything be instanced
 - [ ] support gltf format
@@ -36,4 +35,5 @@
   - [ ] [Texture Linear Interpolation Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TextureLinearInterpolationTest)
   - [ ] [Vertex Color Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/VertexColorTest)
   - [ ] [Environment Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/EnvironmentTest)
+- [ ] remove duped shader functions?
 - [ ] add adaptive exposure based on histogram
