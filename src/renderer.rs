@@ -119,7 +119,7 @@ impl CameraUniform {
 
 const INITIAL_RENDER_SCALE: f32 = 2.0;
 pub const ARENA_SIDE_LENGTH: f32 = 20.0;
-pub const USE_ER_SKYBOX: bool = true;
+pub const USE_ER_SKYBOX: bool = false;
 pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
 pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 
@@ -1091,8 +1091,8 @@ impl RendererState {
             &device,
             &queue,
             &sphere_mesh,
-            Some(&test_object_diffuse_texture),
-            // Some(&earth_texture),
+            // Some(&test_object_diffuse_texture),
+            Some(&mars_texture),
             // Some(&brick_normal_map),
             None,
             &two_texture_bind_group_layout,
@@ -1544,11 +1544,11 @@ impl RendererState {
                 self.plane_mesh.index_buffer.slice(..),
                 wgpu::IndexFormat::Uint16,
             );
-            scene_render_pass.draw_indexed(
-                0..self.plane_mesh.num_indices,
-                0,
-                0..self.plane_transforms.len() as u32,
-            );
+            // scene_render_pass.draw_indexed(
+            //     0..self.plane_mesh.num_indices,
+            //     0,
+            //     0..self.plane_transforms.len() as u32,
+            // );
 
             // render balls
             scene_render_pass.set_pipeline(&self.mesh_pipeline);

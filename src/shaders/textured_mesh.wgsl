@@ -159,18 +159,18 @@ fn geometry_func_smith_ggx(
 }
 
 fn fresnel_func_schlick(
-    h_dot_v: f32,
+    cos_theta: f32,
     f0: vec3<f32>,
 ) -> vec3<f32> {
-    return f0 + (1.0 - f0) * pow(clamp(1.0 - h_dot_v, 0.0, 1.0), 5.0);
+    return f0 + (1.0 - f0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
 }
 
 fn fresnel_func_schlick_with_roughness(
-    h_dot_v: f32,
+    cos_theta: f32,
     f0: vec3<f32>,
     a: f32,
 ) -> vec3<f32> {
-    return f0 + (max(vec3<f32>(1.0 - a), f0) - f0) * pow(clamp(1.0 - h_dot_v, 0.0, 1.0), 5.0);
+    return f0 + (max(vec3<f32>(1.0 - a), f0) - f0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
     // return f0 + (max(vec3<f32>(1.0 - a), f0) - f0) * pow(1.0 - h_dot_v, 5.0);
 }
 
@@ -195,6 +195,10 @@ fn hammersley(
     return vec2<f32>(i / num_samples, radical_inverse_vdc(i_u));
 }
 
+fn world_normal_to_cubemap_vec(world_pos: vec3<f32>) -> vec3<f32> {
+    return vec3<f32>(-world_pos.x, world_pos.y, world_pos.z);
+}
+
 fn do_fragment_shade(
     world_position: vec3<f32>,
     world_normal: vec3<f32>,
@@ -202,8 +206,8 @@ fn do_fragment_shade(
     camera_position: vec3<f32>,
 ) -> FragmentOutput {
 
-    let roughness = 0.3;
-    let metallicness = 0.1;
+    let roughness = 0.05;
+    let metallicness = 0.8;
     let albedo = textureSample(diffuse_texture, diffuse_sampler, tex_coords).rgb;
     // let albedo = vec3<f32>(textureSample(brdf_lut_texture, brdf_lut_sampler, tex_coords).rg, 0.0);
 
@@ -250,7 +254,7 @@ fn do_fragment_shade(
     let light_attenuation_factor_d100 = 1.0 / (1.0 + 0.045 * distance_from_light + 0.0075 * distance_from_light * distance_from_light);
     let light_attenuation_factor_d600 = 1.0 / (1.0 + 0.007 * distance_from_light + 0.0002 * distance_from_light * distance_from_light);
     let light_attenuation_factor_d3250 = 1.0 / (1.0 + 0.0014 * distance_from_light + 0.000007 * distance_from_light * distance_from_light);
-    let light_attenuation_factor = light_attenuation_factor_d3250;
+    let light_attenuation_factor = light_attenuation_factor_d20;
     let incident_angle_factor = max(dot(n, wi), 0.0);      
     //                                  ks was already multiplied by fresnel so it's omitted here       
     let bdrf = kd * diffuse_component + specular_component;
@@ -264,20 +268,21 @@ fn do_fragment_shade(
     let pre_filtered_color = textureSampleLevel(
         specular_env_map_texture,
         specular_env_map_sampler,
-        reflection_vec,
+        world_normal_to_cubemap_vec(reflection_vec),
         roughness * MAX_REFLECTION_LOD
     ).rgb;
     let brdf_lut_res = textureSample(brdf_lut_texture, brdf_lut_sampler, vec2<f32>(n_dot_v, roughness));
     let ambient_specular_irradiance = pre_filtered_color * (fresnel_ambient * brdf_lut_res.r + brdf_lut_res.g);
 
     let kd_ambient = (vec3<f32>(1.0) - fresnel_ambient) * (1.0 - metallicness);
-    let env_map_diffuse_irradiance = textureSample(diffuse_env_map_texture, diffuse_env_map_sampler, world_normal).rgb;
+    let env_map_diffuse_irradiance = textureSample(diffuse_env_map_texture, diffuse_env_map_sampler, world_normal_to_cubemap_vec(world_normal)).rgb;
     let ambient_diffuse_irradiance = env_map_diffuse_irradiance * albedo;
 
     // TODO: multiply by ao
     let ambient_irradiance = kd_ambient * ambient_diffuse_irradiance + ambient_specular_irradiance;
 
     let combined_irradiance_hdr = ambient_irradiance + light_irradiance;
+    // let combined_irradiance_hdr = ambient_irradiance;
     // let combined_irradiance_hdr = ambient_irradiance;
     let combined_irradiance_ldr = combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0));
 

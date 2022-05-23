@@ -37,7 +37,7 @@ fn vs_main(
 
 // cubemap version
 
-fn world_pos_to_cubemap_vec(world_pos: vec3<f32>) -> vec3<f32> {
+fn world_normal_to_cubemap_vec(world_pos: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(-world_pos.x, world_pos.y, world_pos.z);
 }
 
@@ -49,8 +49,8 @@ var cubemap_sampler: sampler;
 
 [[stage(fragment)]]
 fn cubemap_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-    // let col = textureSampleLevel(cubemap_texture, cubemap_sampler, world_pos_to_cubemap_vec(in.world_position), 0.0);
-    let col = textureSample(cubemap_texture, cubemap_sampler, world_pos_to_cubemap_vec(in.world_position));
+    // let col = textureSampleLevel(cubemap_texture, cubemap_sampler, world_normal_to_cubemap_vec(in.world_position), 0.0);
+    let col = textureSample(cubemap_texture, cubemap_sampler, world_normal_to_cubemap_vec(in.world_position));
     return vec4<f32>(col.x % 1.01, col.y % 1.01, col.z % 1.01, 1.0);
 }
 
@@ -221,7 +221,7 @@ fn diffuse_env_map_gen_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
             irradiance = irradiance + textureSample(
                 cubemap_texture,
                 cubemap_sampler,
-                world_pos_to_cubemap_vec(sample_dir)
+                world_normal_to_cubemap_vec(sample_dir)
                     // vec3<f32>(-sample_dir.x, sample_dir.y, sample_dir.z)
             ).rgb * cos(theta) * // cos(theta);
                 sin(theta);
@@ -255,7 +255,7 @@ fn specular_env_map_gen_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
         total_pre_filtered_color = total_pre_filtered_color + textureSample(
             cubemap_texture,
             cubemap_sampler,
-            world_pos_to_cubemap_vec(l)
+            world_normal_to_cubemap_vec(l)
         ).rgb * n_dot_l;
         total_weight = total_weight + n_dot_l;
     }
