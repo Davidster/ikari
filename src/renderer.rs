@@ -4,7 +4,7 @@ use super::*;
 
 use anyhow::Result;
 
-use cgmath::{Matrix4, One, Rad, Vector2, Vector3};
+use cgmath::{Matrix4, One, Vector2, Vector3};
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -121,7 +121,7 @@ const INITIAL_RENDER_SCALE: f32 = 2.0;
 pub const ARENA_SIDE_LENGTH: f32 = 50.0;
 pub const USE_ER_SKYBOX: bool = false;
 pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
-pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
+pub const _LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 
 pub struct RendererState {
     surface: wgpu::Surface,
@@ -146,7 +146,7 @@ pub struct RendererState {
     camera_light_bind_group: wgpu::BindGroup,
 
     mesh_pipeline: wgpu::RenderPipeline,
-    flat_color_mesh_pipeline: wgpu::RenderPipeline,
+    _flat_color_mesh_pipeline: wgpu::RenderPipeline,
     skybox_pipeline: wgpu::RenderPipeline,
     surface_blit_pipeline: wgpu::RenderPipeline,
 
@@ -157,7 +157,7 @@ pub struct RendererState {
     render_texture_bind_group: wgpu::BindGroup,
 
     flat_color_buffer: wgpu::Buffer,
-    flat_color_bind_group: wgpu::BindGroup,
+    _flat_color_bind_group: wgpu::BindGroup,
 
     // store the previous state and next state and interpolate between them
     next_balls: Vec<BallComponent>,
@@ -166,7 +166,7 @@ pub struct RendererState {
 
     light_transforms: Vec<super::transform::Transform>,
     test_object_transforms: Vec<super::transform::Transform>,
-    plane_transforms: Vec<super::transform::Transform>,
+    _plane_transforms: Vec<super::transform::Transform>,
 
     light_mesh: InstancedMeshComponent,
     sphere_mesh: InstancedMeshComponent,
@@ -399,45 +399,6 @@ impl RendererState {
                     },
                 ],
                 label: Some("single_cube_texture_bind_group_layout"),
-            });
-
-        let two_cube_texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::Cube,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::Cube,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-                label: Some("two_cube_texture_bind_group_layout"),
             });
 
         let pbr_env_map_bind_group_layout =
@@ -1175,8 +1136,8 @@ impl RendererState {
             .map(|transform| GpuMeshInstance::new(transform.matrix.get()))
             .collect();
 
-        let test_object_diffuse_texture =
-            Texture::from_color(&device, &queue, [255, 255, 255, 255])?;
+        // let test_object_diffuse_texture =
+        //     Texture::from_color(&device, &queue, [255, 255, 255, 255])?;
         let test_object_metallic_map =
             Texture::from_gray(&device, &queue, (0.8 * 255.0f32).round() as u8)?;
         let test_object_roughness_map =
@@ -1325,7 +1286,7 @@ impl RendererState {
             light_color,
 
             mesh_pipeline,
-            flat_color_mesh_pipeline,
+            _flat_color_mesh_pipeline: flat_color_mesh_pipeline,
             surface_blit_pipeline,
             skybox_pipeline,
 
@@ -1336,7 +1297,7 @@ impl RendererState {
             render_texture_bind_group,
 
             flat_color_buffer,
-            flat_color_bind_group,
+            _flat_color_bind_group: flat_color_bind_group,
 
             next_balls: balls.clone(),
             prev_balls: balls.clone(),
@@ -1344,7 +1305,7 @@ impl RendererState {
 
             light_transforms,
             test_object_transforms,
-            plane_transforms,
+            _plane_transforms: plane_transforms,
 
             light_mesh,
             sphere_mesh,
