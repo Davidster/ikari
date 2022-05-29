@@ -24,8 +24,7 @@
 - [x] merge photosphere and cubemap skybox shaders into one?
 - [x] try to implement PBR shaders based on [article](https://learnopengl.com/PBR/Theory)
 - [x] pass roughness, metallicness and ao via textures
-- [ ] support multiple lights
-- [ ] make everything be instanced
+- [x] support multiple lights
 - [ ] support gltf format
 - [ ] load in some [sample models](https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0):
   - [ ] [Triangle Without Indices](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TriangleWithoutIndices)
