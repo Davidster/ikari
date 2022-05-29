@@ -65,6 +65,36 @@ impl GpuMeshInstance {
     }
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GpuFlatColorMeshInstance {
+    model_transform: GpuMatrix4,
+    color: [f32; 4],
+}
+
+impl GpuFlatColorMeshInstance {
+    const ATTRIBS: [wgpu::VertexAttribute; 9] = wgpu::vertex_attr_array![
+        5 => Float32x4,  6 => Float32x4,  7 => Float32x4,  8 => Float32x4,
+        9 => Float32x4, 10 => Float32x4, 11 => Float32x4, 12 => Float32x4,
+        13 => Float32x4
+    ];
+
+    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<GpuFlatColorMeshInstance>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &Self::ATTRIBS,
+        }
+    }
+
+    pub fn new(model_transform: Matrix4<f32>, color: Vector3<f32>) -> GpuFlatColorMeshInstance {
+        GpuFlatColorMeshInstance {
+            model_transform: GpuMatrix4(model_transform),
+            color: [color.x, color.y, color.z, 1.0],
+        }
+    }
+}
+
 pub struct MeshComponent {
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
@@ -218,7 +248,7 @@ impl InstancedMeshComponent {
         mesh: &BasicMesh,
         material: &InstancedMeshMaterialParams,
         textures_bind_group_layout: &wgpu::BindGroupLayout,
-        instances: &[GpuMeshInstance],
+        initial_buffer_contents: &[u8],
     ) -> Result<InstancedMeshComponent> {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("InstancedMeshComponent Vertex Buffer"),
@@ -237,7 +267,7 @@ impl InstancedMeshComponent {
 
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("InstancedMeshComponent instance_buffer"),
-            contents: bytemuck::cast_slice(instances),
+            contents: initial_buffer_contents,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 

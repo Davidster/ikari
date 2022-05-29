@@ -4,7 +4,7 @@ use super::*;
 
 use anyhow::Result;
 
-use cgmath::{Matrix4, One, Vector2, Vector3};
+use cgmath::{Matrix4, One, Rad, Vector2, Vector3};
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -31,18 +31,46 @@ unsafe impl bytemuck::Zeroable for Float16 {}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct LightUniform {
+struct PointLightUniform {
     position: [f32; 4],
     color: [f32; 4],
 }
 
-impl From<(Vector3<f32>, Vector3<f32>)> for LightUniform {
-    fn from((pos, color): (Vector3<f32>, Vector3<f32>)) -> Self {
+impl From<&PointLightComponent> for PointLightUniform {
+    fn from(light: &PointLightComponent) -> Self {
+        let position = light.transform.position.get();
+        let color = light.color;
         Self {
-            position: [pos.x, pos.y, pos.z, 1.0],
+            position: [position.x, position.y, position.z, 1.0],
             color: [color.x, color.y, color.z, 1.0],
         }
     }
+}
+
+impl Default for PointLightUniform {
+    fn default() -> Self {
+        Self {
+            position: [0.0, 0.0, 0.0, 1.0],
+            color: [0.0, 0.0, 0.0, 1.0],
+        }
+    }
+}
+
+fn make_point_light_uniform_buffer(lights: &[PointLightComponent]) -> Vec<PointLightUniform> {
+    let mut light_uniforms = Vec::new();
+
+    let mut active_lights = lights
+        .iter()
+        .map(PointLightUniform::from)
+        .collect::<Vec<_>>();
+    light_uniforms.append(&mut active_lights);
+
+    let mut inactive_lights = (0..(MAX_LIGHT_COUNT as usize - active_lights.len()))
+        .map(|_| PointLightUniform::default())
+        .collect::<Vec<_>>();
+    light_uniforms.append(&mut inactive_lights);
+
+    light_uniforms
 }
 
 #[repr(C)]
@@ -119,9 +147,10 @@ impl CameraUniform {
 
 const INITIAL_RENDER_SCALE: f32 = 2.0;
 pub const ARENA_SIDE_LENGTH: f32 = 50.0;
+pub const MAX_LIGHT_COUNT: u8 = 32;
 pub const USE_ER_SKYBOX: bool = false;
 pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
-pub const _LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
+pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 
 pub struct RendererState {
     surface: wgpu::Surface,
@@ -140,13 +169,12 @@ pub struct RendererState {
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
 
-    light_buffer: wgpu::Buffer,
-    light_color: Vector3<f32>,
+    lights_buffer: wgpu::Buffer,
 
     camera_light_bind_group: wgpu::BindGroup,
 
     mesh_pipeline: wgpu::RenderPipeline,
-    _flat_color_mesh_pipeline: wgpu::RenderPipeline,
+    flat_color_mesh_pipeline: wgpu::RenderPipeline,
     skybox_pipeline: wgpu::RenderPipeline,
     surface_blit_pipeline: wgpu::RenderPipeline,
 
@@ -156,15 +184,12 @@ pub struct RendererState {
     skybox_texture_bind_group: wgpu::BindGroup,
     render_texture_bind_group: wgpu::BindGroup,
 
-    flat_color_buffer: wgpu::Buffer,
-    _flat_color_bind_group: wgpu::BindGroup,
-
     // store the previous state and next state and interpolate between them
     next_balls: Vec<BallComponent>,
     prev_balls: Vec<BallComponent>,
     actual_balls: Vec<BallComponent>,
 
-    light_transforms: Vec<super::transform::Transform>,
+    lights: Vec<PointLightComponent>,
     test_object_transforms: Vec<super::transform::Transform>,
     _plane_transforms: Vec<super::transform::Transform>,
 
@@ -570,17 +595,14 @@ impl RendererState {
         let flat_color_mesh_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Flat Color Mesh Pipeline Layout"),
-                bind_group_layouts: &[
-                    &two_uniform_bind_group_layout,
-                    &single_uniform_bind_group_layout,
-                    &single_uniform_bind_group_layout,
-                ],
+                bind_group_layouts: &[&two_uniform_bind_group_layout],
                 push_constant_ranges: &[],
             });
         let mut flat_color_mesh_pipeline_descriptor = mesh_pipeline_descriptor.clone();
         flat_color_mesh_pipeline_descriptor.label = Some("Flat Color Mesh Render Pipeline");
         flat_color_mesh_pipeline_descriptor.layout = Some(&flat_color_mesh_pipeline_layout);
-        let flat_color_mesh_pipeline_v_buffers = &[TexturedVertex::desc()];
+        let flat_color_mesh_pipeline_v_buffers =
+            &[TexturedVertex::desc(), GpuFlatColorMeshInstance::desc()];
         flat_color_mesh_pipeline_descriptor.vertex = wgpu::VertexState {
             module: &flat_color_mesh_shader,
             entry_point: "vs_main",
@@ -1090,23 +1112,39 @@ impl RendererState {
             }),
         )?;
 
-        let light_transforms = vec![super::transform::Transform::new()];
-        light_transforms[0].set_scale(Vector3::new(0.05, 0.05, 0.05));
-        light_transforms[0].set_position(Vector3::new(0.0, 3.0, 3.0));
+        let lights = vec![
+            PointLightComponent {
+                transform: super::transform::Transform::new(),
+                color: LIGHT_COLOR_A,
+            },
+            PointLightComponent {
+                transform: super::transform::Transform::new(),
+                color: LIGHT_COLOR_B,
+            },
+        ];
+        lights[0]
+            .transform
+            .set_scale(Vector3::new(0.05, 0.05, 0.05));
+        lights[0]
+            .transform
+            .set_position(Vector3::new(0.0, 2.0, 3.0));
+        lights[1].transform.set_scale(Vector3::new(0.1, 0.1, 0.1));
+        lights[1]
+            .transform
+            .set_position(Vector3::new(0.0, 2.0, -3.0));
 
-        let light_transforms_gpu: Vec<_> = light_transforms
+        let light_flat_color_instances: Vec<_> = lights
             .iter()
-            .map(|transform| GpuMeshInstance::new(transform.matrix.get()))
+            .map(|light| GpuFlatColorMeshInstance::new(light.transform.matrix.get(), light.color))
             .collect();
 
-        let light_color = LIGHT_COLOR_A;
         let light_emissive_map = Texture::from_color_gamma_corrected(
             &device,
             &queue,
             [
-                (light_color.x * 255.0).round() as u8,
-                (light_color.y * 255.0).round() as u8,
-                (light_color.z * 255.0).round() as u8,
+                (lights[0].color.x * 255.0).round() as u8,
+                (lights[0].color.y * 255.0).round() as u8,
+                (lights[0].color.z * 255.0).round() as u8,
                 255,
             ],
             // [255, 0, 0, 255],
@@ -1125,11 +1163,11 @@ impl RendererState {
                 ..Default::default()
             },
             &six_texture_bind_group_layout,
-            &light_transforms_gpu,
+            bytemuck::cast_slice(&light_flat_color_instances),
         )?;
 
         let test_object_transforms = vec![super::transform::Transform::new()];
-        test_object_transforms[0].set_position(Vector3::new(0.0, 1.0, 1.0));
+        test_object_transforms[0].set_position(Vector3::new(0.0, 1.0, 0.0));
 
         let test_object_transforms_gpu: Vec<_> = test_object_transforms
             .iter()
@@ -1154,7 +1192,7 @@ impl RendererState {
                 ..Default::default()
             },
             &six_texture_bind_group_layout,
-            &test_object_transforms_gpu,
+            bytemuck::cast_slice(&test_object_transforms_gpu),
         )?;
 
         let plane_transforms = vec![super::transform::Transform::new()];
@@ -1174,7 +1212,7 @@ impl RendererState {
                 ..Default::default()
             },
             &six_texture_bind_group_layout,
-            &plane_transforms_gpu,
+            bytemuck::cast_slice(&plane_transforms_gpu),
         )?;
 
         let camera = Camera::new((0.0, 3.0, 4.0).into());
@@ -1190,18 +1228,9 @@ impl RendererState {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let lights_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Light Buffer"),
-            contents: bytemuck::cast_slice(&[LightUniform::from((
-                light_transforms[0].position.get(),
-                light_color,
-            ))]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let flat_color_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Flat Color Buffer"),
-            contents: bytemuck::cast_slice(&[FlatColorUniform::from(light_color)]),
+            contents: bytemuck::cast_slice(&make_point_light_uniform_buffer(&lights)),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -1214,19 +1243,10 @@ impl RendererState {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: light_buffer.as_entire_binding(),
+                    resource: lights_buffer.as_entire_binding(),
                 },
             ],
             label: Some("camera_light_bind_group"),
-        });
-
-        let flat_color_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &single_uniform_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: flat_color_buffer.as_entire_binding(),
-            }],
-            label: Some("flat_color_bind_group"),
         });
 
         let balls: Vec<_> = (0..100)
@@ -1261,7 +1281,7 @@ impl RendererState {
                 ..Default::default()
             },
             &six_texture_bind_group_layout,
-            &balls_transforms,
+            bytemuck::cast_slice(&balls_transforms),
         )?;
 
         Ok(Self {
@@ -1282,11 +1302,10 @@ impl RendererState {
             camera_buffer,
             camera_light_bind_group,
 
-            light_buffer,
-            light_color,
+            lights_buffer,
 
             mesh_pipeline,
-            _flat_color_mesh_pipeline: flat_color_mesh_pipeline,
+            flat_color_mesh_pipeline,
             surface_blit_pipeline,
             skybox_pipeline,
 
@@ -1296,14 +1315,11 @@ impl RendererState {
             skybox_texture_bind_group,
             render_texture_bind_group,
 
-            flat_color_buffer,
-            _flat_color_bind_group: flat_color_bind_group,
-
             next_balls: balls.clone(),
             prev_balls: balls.clone(),
             actual_balls: balls,
 
-            light_transforms,
+            lights,
             test_object_transforms,
             _plane_transforms: plane_transforms,
 
@@ -1430,7 +1446,7 @@ impl RendererState {
 
     pub fn update(&mut self, window: &winit::window::Window) {
         let first_frame_instant = self.first_frame_instant.unwrap_or_else(Instant::now);
-        let _time_seconds = first_frame_instant.elapsed().as_secs_f32();
+        let time_seconds = first_frame_instant.elapsed().as_secs_f32();
         self.first_frame_instant = Some(first_frame_instant);
 
         // results in ~60 state changes per second
@@ -1471,17 +1487,27 @@ impl RendererState {
             .map(|(prev_ball, next_ball)| prev_ball.lerp(next_ball, alpha))
             .collect();
 
-        // self.light.transform.set_position(Vector3::new(
-        //     3.0 * (time_seconds * 0.5).cos(),
-        //     self.light.transform.position.get().y,
-        //     3.0 * (time_seconds * 0.5).sin(),
-        // ));
+        let light_1 = &mut self.lights[0];
+        light_1.transform.set_position(Vector3::new(
+            1.1 * (time_seconds * 0.5).cos(),
+            light_1.transform.position.get().y,
+            1.1 * (time_seconds * 0.5).sin(),
+        ));
+        light_1.color = lerp_vec(LIGHT_COLOR_A, LIGHT_COLOR_B, (time_seconds * 2.0).sin());
+
+        let light_2 = &mut self.lights[1];
+        light_2.transform.set_position(Vector3::new(
+            1.1 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
+            light_2.transform.position.get().y,
+            1.1 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
+        ));
+
+        light_2.color = lerp_vec(LIGHT_COLOR_B, LIGHT_COLOR_A, (time_seconds * 2.0).sin());
+
         // let rotational_displacement =
         //     make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(frame_time_seconds / 5.0));
         // self.test_object_transforms[0]
         //     .set_rotation(rotational_displacement * self.test_object_transforms[0].rotation.get());
-
-        // self.light_color = lerp_vec(LIGHT_COLOR_A, LIGHT_COLOR_B, (time_seconds * 2.0).sin());
 
         // self.logger
         //     .log(&format!("Frame time: {:?}", frame_time_seconds));
@@ -1519,28 +1545,22 @@ impl RendererState {
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
-        let light_transforms: Vec<_> = self
-            .light_transforms
+        let light_flat_color_instances: Vec<_> = self
+            .lights
             .iter()
-            .map(|light_transform| GpuMeshInstance::new(light_transform.matrix.get()))
+            .map(|light| GpuFlatColorMeshInstance::new(light.transform.matrix.get(), light.color))
             .collect();
         self.queue.write_buffer(
             &self.light_mesh.instance_buffer,
             0,
-            bytemuck::cast_slice(&light_transforms),
+            bytemuck::cast_slice(&light_flat_color_instances),
         );
+
+        let light_uniforms = make_point_light_uniform_buffer(&self.lights);
         self.queue.write_buffer(
-            &self.light_buffer,
+            &self.lights_buffer,
             0,
-            bytemuck::cast_slice(&[LightUniform::from((
-                self.light_transforms[0].position.get(),
-                self.light_color,
-            ))]),
-        );
-        self.queue.write_buffer(
-            &self.flat_color_buffer,
-            0,
-            bytemuck::cast_slice(&[FlatColorUniform::from(self.light_color)]),
+            bytemuck::cast_slice(&light_uniforms),
         );
     }
 
@@ -1634,10 +1654,8 @@ impl RendererState {
             );
 
             // render light
-            // TODO: clear light array uniform here? so lights dont cast onto eachother
-            scene_render_pass.set_pipeline(&self.mesh_pipeline);
-            scene_render_pass.set_bind_group(0, &self.light_mesh.textures_bind_group, &[]);
-            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            scene_render_pass.set_pipeline(&self.flat_color_mesh_pipeline);
+            scene_render_pass.set_bind_group(0, &self.camera_light_bind_group, &[]);
             scene_render_pass.set_vertex_buffer(0, self.light_mesh.vertex_buffer.slice(..));
             scene_render_pass.set_vertex_buffer(1, self.light_mesh.instance_buffer.slice(..));
             scene_render_pass.set_index_buffer(
@@ -1647,7 +1665,7 @@ impl RendererState {
             scene_render_pass.draw_indexed(
                 0..self.light_mesh.num_indices,
                 0,
-                0..self.light_transforms.len() as u32,
+                0..self.lights.len() as u32,
             );
 
             // render skybox

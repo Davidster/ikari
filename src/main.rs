@@ -2,6 +2,7 @@ mod ball;
 mod camera;
 mod gameloop;
 mod helpers;
+mod light;
 mod logger;
 mod mesh;
 mod renderer;
@@ -10,8 +11,8 @@ mod transform;
 
 use ball::*;
 use camera::*;
-
 use helpers::*;
+use light::*;
 use logger::*;
 use mesh::*;
 use renderer::*;

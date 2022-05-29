@@ -9,12 +9,18 @@ struct CameraUniform {
 [[group(1), binding(0)]]
 var<uniform> camera: CameraUniform;
 
-struct LightUniform {
+let MAX_LIGHTS = 32u;
+
+struct Light {
     position: vec4<f32>;
     color: vec4<f32>;
 };
+
+struct LightsUniform {
+    values: array<Light, MAX_LIGHTS>;
+};
 [[group(1), binding(1)]]
-var<uniform> light: LightUniform;
+var<uniform> lights: LightsUniform;
 
 struct VertexInput {
     [[location(0)]] object_position: vec3<f32>;
@@ -251,10 +257,6 @@ fn do_fragment_shade(
     ).rgb;
 
     let to_viewer_vec = normalize(camera_position - world_position);
-    let to_light_vec = light.position.xyz - world_position;
-    let to_light_vec_norm = normalize(to_light_vec);
-    let distance_from_light = length(to_light_vec);
-    let halfway_vec = normalize(to_viewer_vec + to_light_vec_norm);
     let reflection_vec = reflect(-to_viewer_vec, normalize(world_normal));
     let surface_reflection_at_zero_incidence_dialectric = vec3<f32>(0.04);
     let surface_reflection_at_zero_incidence = mix(
@@ -262,42 +264,63 @@ fn do_fragment_shade(
         albedo,
         metallicness
     );
-    // let surface_reflection_at_zero_incidence = vec3<f32>(0.95, 0.93, 0.88);
 
     // copy variable names from the math formulas
     let n = world_normal;
     let w0 = to_viewer_vec;
     let v = w0;
-    let wi = to_light_vec_norm;
-    let l = wi;
-    let h = halfway_vec;
     let a = roughness;
     let f0 = surface_reflection_at_zero_incidence;
-    let k = geometry_func_schlick_ggx_k_direct(a); // use geometry_func_schlick_ggx_k_ibl for IBL
+    let k = geometry_func_schlick_ggx_k_direct(a);
 
-    // specular
-    let h_dot_v = max(dot(h, v), 0.0);
-    let normal_distribution = normal_distribution_func_tr_ggx(a, n, h);
-    let geometry = geometry_func_smith_ggx(k, n, v, l);
-    let fresnel = fresnel_func_schlick(h_dot_v, f0);
-    let cook_torrance_denominator = 4.0 * max(dot(n, w0), 0.0) * max(dot(n, wi), 0.0) + epsilon;
-    let specular_component = normal_distribution * geometry * fresnel / cook_torrance_denominator;
-    let ks = fresnel;
+    var total_light_irradiance = vec3<f32>(0.0);
 
-    // diffuse
-    let diffuse_component = albedo / pi; // lambertian
-    let kd = (vec3<f32>(1.0) - ks) * (1.0 - metallicness);
+    for (var light_index = 0u; light_index < MAX_LIGHTS; light_index = light_index + 1u) {
+        let light = lights.values[light_index];
 
-    // https://learnopengl.com/Lighting/Light-casters
-    let light_attenuation_factor_d20 = 1.0 / (1.0 + 0.22 * distance_from_light + 0.20 * distance_from_light * distance_from_light);
-    let light_attenuation_factor_d100 = 1.0 / (1.0 + 0.045 * distance_from_light + 0.0075 * distance_from_light * distance_from_light);
-    let light_attenuation_factor_d600 = 1.0 / (1.0 + 0.007 * distance_from_light + 0.0002 * distance_from_light * distance_from_light);
-    let light_attenuation_factor_d3250 = 1.0 / (1.0 + 0.0014 * distance_from_light + 0.000007 * distance_from_light * distance_from_light);
-    let light_attenuation_factor = light_attenuation_factor_d3250;
-    let incident_angle_factor = max(dot(n, wi), 0.0);      
-    //                                  ks was already multiplied by fresnel so it's omitted here       
-    let bdrf = kd * diffuse_component + specular_component;
-    let light_irradiance = bdrf * incident_angle_factor * light_attenuation_factor * light.color.rgb;
+        if (light.color.x < epsilon && light.color.y < epsilon && light.color.z < epsilon) {
+            continue;
+        }
+
+        let to_light_vec = light.position.xyz - world_position;
+        let to_light_vec_norm = normalize(to_light_vec);
+        let distance_from_light = length(to_light_vec);
+        let halfway_vec = normalize(to_viewer_vec + to_light_vec_norm);
+        
+        // let surface_reflection_at_zero_incidence = vec3<f32>(0.95, 0.93, 0.88);
+
+        // copy variable names from the math formulas
+        let wi = to_light_vec_norm;
+        let l = wi;
+        let h = halfway_vec;
+
+        // specular
+        let h_dot_v = max(dot(h, v), 0.0);
+        let normal_distribution = normal_distribution_func_tr_ggx(a, n, h);
+        let geometry = geometry_func_smith_ggx(k, n, v, l);
+        let fresnel = fresnel_func_schlick(h_dot_v, f0);
+        let cook_torrance_denominator = 4.0 * max(dot(n, w0), 0.0) * max(dot(n, wi), 0.0) + epsilon;
+        let specular_component = normal_distribution * geometry * fresnel / cook_torrance_denominator;
+        let ks = fresnel;
+
+        // diffuse
+        let diffuse_component = albedo / pi; // lambertian
+        let kd = (vec3<f32>(1.0) - ks) * (1.0 - metallicness);
+
+        // https://learnopengl.com/Lighting/Light-casters
+        // let light_attenuation_factor_d20 = 1.0 / (1.0 + 0.22 * distance_from_light + 0.20 * distance_from_light * distance_from_light);
+        let light_attenuation_factor_d100 = 1.0 / (1.0 + 0.045 * distance_from_light + 0.0075 * distance_from_light * distance_from_light);
+        // let light_attenuation_factor_d600 = 1.0 / (1.0 + 0.007 * distance_from_light + 0.0002 * distance_from_light * distance_from_light);
+        // let light_attenuation_factor_d3250 = 1.0 / (1.0 + 0.0014 * distance_from_light + 0.000007 * distance_from_light * distance_from_light);
+        let light_attenuation_factor = light_attenuation_factor_d100;
+        let incident_angle_factor = max(dot(n, wi), 0.0);      
+        //                                  ks was already multiplied by fresnel so it's omitted here       
+        let bdrf = kd * diffuse_component + specular_component;
+        let light_irradiance = bdrf * incident_angle_factor * light_attenuation_factor * light.color.rgb;
+        total_light_irradiance = total_light_irradiance + light_irradiance;
+    }
+
+
 
     let n_dot_v = max(dot(n, v), 0.0);
 
@@ -319,7 +342,7 @@ fn do_fragment_shade(
 
     let ambient_irradiance = (kd_ambient * ambient_diffuse_irradiance + ambient_specular_irradiance) * ambient_occlusion;
 
-    let combined_irradiance_hdr = ambient_irradiance + light_irradiance;
+    let combined_irradiance_hdr = ambient_irradiance + total_light_irradiance;
     let combined_irradiance_ldr = (combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0))) + emissive;
 
     let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);

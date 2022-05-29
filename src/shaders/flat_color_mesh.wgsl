@@ -9,25 +9,6 @@ struct CameraUniform {
 [[group(0), binding(0)]]
 var<uniform> camera: CameraUniform;
 
-struct LightUniform {
-    position: vec4<f32>;
-    color: vec4<f32>;
-};
-[[group(0), binding(1)]]
-var<uniform> light: LightUniform;
-
-struct ModelTransformUniform {
-    value: mat4x4<f32>;
-};
-[[group(1), binding(0)]]
-var<uniform> model_transform: ModelTransformUniform;
-
-struct ColorUniform {
-    value: vec4<f32>;
-};
-[[group(2), binding(0)]]
-var<uniform> color: ColorUniform;
-
 struct VertexInput {
     [[location(0)]] object_position: vec3<f32>;
     [[location(1)]] object_normal: vec3<f32>;
@@ -36,8 +17,17 @@ struct VertexInput {
     [[location(4)]] object_bitangent: vec3<f32>;
 };
 
+struct ModelTransformInstance {
+    [[location(5)]]  model_transform_0: vec4<f32>;
+    [[location(6)]]  model_transform_1: vec4<f32>;
+    [[location(7)]]  model_transform_2: vec4<f32>;
+    [[location(8)]]  model_transform_3: vec4<f32>;
+    [[location(9)]]  color: vec4<f32>;
+};
+
 struct VertexOutput {
     [[builtin(position)]] clip_position: vec4<f32>;
+    [[location(0)]] color: vec4<f32>;
 };
 
 struct FragmentOutput {
@@ -47,15 +37,24 @@ struct FragmentOutput {
 [[stage(vertex)]]
 fn vs_main(
     vshader_input: VertexInput,
+    instance: ModelTransformInstance,
 ) -> VertexOutput {
+    let model_transform = mat4x4<f32>(
+        instance.model_transform_0,
+        instance.model_transform_1,
+        instance.model_transform_2,
+        instance.model_transform_3,
+    );
+
     var out: VertexOutput;
-    
-    let object_position   = vec4<f32>(vshader_input.object_position, 1.0);
-    let camera_view_proj  = camera.proj * camera.view;
-    let model_view_matrix = camera_view_proj * model_transform.value;
-    let clip_position     = model_view_matrix * object_position;
+
+    let object_position = vec4<f32>(vshader_input.object_position, 1.0);
+    let camera_view_proj = camera.proj * camera.view;
+    let model_view_matrix = camera_view_proj * model_transform;
+    let clip_position = model_view_matrix * object_position;
 
     out.clip_position = clip_position;
+    out.color = instance.color;
     return out;
 }
 
@@ -63,6 +62,6 @@ fn vs_main(
 fn fs_main(in: VertexOutput) -> FragmentOutput {
     var out: FragmentOutput;
     // out.color = vec4<f32>(0.996078431372549, 0.9725490196078431, 0.6627450980392157, 1.0);
-    out.color = color.value;
+    out.color = in.color;
     return out;
 }
