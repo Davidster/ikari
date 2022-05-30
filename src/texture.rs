@@ -44,7 +44,6 @@ impl Default for SamplerDescriptor<'_> {
     }
 }
 
-// TODO: a lot of these functions don't need to return a result?
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
@@ -333,7 +332,7 @@ impl Texture {
         er_to_cubemap_pipeline: &wgpu::RenderPipeline,
         er_texture: &Texture,
         generate_mipmaps: bool,
-    ) -> Result<Self> {
+    ) -> Self {
         // let texture_size = texture.texture.
         let size = wgpu::Extent3d {
             // TODO: is divide by 3 the right move?
@@ -401,7 +400,7 @@ impl Texture {
             mip_level_count,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba16Float,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
         });
 
@@ -506,12 +505,12 @@ impl Texture {
             ..Default::default()
         });
 
-        Ok(Self {
+        Self {
             texture: cubemap_texture,
             view,
             sampler,
             size,
-        })
+        }
     }
 
     pub fn create_diffuse_env_map(
@@ -522,7 +521,7 @@ impl Texture {
         env_map_gen_pipeline: &wgpu::RenderPipeline,
         skybox_rad_texture: &Texture,
         generate_mipmaps: bool,
-    ) -> Result<Self> {
+    ) -> Self {
         // let texture_size = texture.texture.
         let size = wgpu::Extent3d {
             width: 128,
@@ -587,7 +586,7 @@ impl Texture {
             mip_level_count,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba16Float,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
         });
 
@@ -693,12 +692,12 @@ impl Texture {
             ..Default::default()
         });
 
-        Ok(Self {
+        Self {
             texture: env_map,
             view,
             sampler,
             size,
-        })
+        }
     }
 
     pub fn create_specular_env_map(
@@ -708,7 +707,7 @@ impl Texture {
         skybox_mesh: &MeshComponent,
         env_map_gen_pipeline: &wgpu::RenderPipeline,
         skybox_rad_texture: &Texture,
-    ) -> Result<Self> {
+    ) -> Self {
         // let texture_size = texture.texture.
         let size = wgpu::Extent3d {
             width: skybox_rad_texture.size.width,
@@ -776,7 +775,7 @@ impl Texture {
             mip_level_count,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba16Float,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
         });
 
@@ -908,12 +907,12 @@ impl Texture {
             ..Default::default()
         });
 
-        Ok(Self {
+        Self {
             texture: env_map,
             view,
             sampler,
             size,
-        })
+        }
     }
 
     // each image should have the same dimensions!
@@ -923,7 +922,7 @@ impl Texture {
         images: CreateCubeMapImagesParam,
         label: Option<&str>,
         generate_mipmaps: bool,
-    ) -> Result<Self> {
+    ) -> Self {
         // order of the images for a cubemap is documented here:
         // https://www.khronos.org/opengl/wiki/Cubemap_Texture
         let images_as_rgba = vec![
@@ -993,19 +992,19 @@ impl Texture {
             ..Default::default()
         });
 
-        Ok(Self {
+        Self {
             texture,
             view,
             sampler,
             size,
-        })
+        }
     }
 
     pub fn create_brdf_lut(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         brdf_lut_gen_pipeline: &wgpu::RenderPipeline,
-    ) -> Result<Self> {
+    ) -> Self {
         let size = wgpu::Extent3d {
             width: 512,
             height: 512,
@@ -1057,12 +1056,12 @@ impl Texture {
         }
         queue.submit(Some(encoder.finish()));
 
-        Ok(Self {
+        Self {
             texture,
             view,
             sampler,
             size,
-        })
+        }
     }
 }
 
