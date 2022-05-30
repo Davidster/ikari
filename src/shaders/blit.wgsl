@@ -195,3 +195,14 @@ fn integrate_brdf(n_dot_v: f32, roughness: f32) -> vec2<f32> {
 fn brdf_lut_gen_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     return vec4<f32>(integrate_brdf(in.tex_coords.x, in.tex_coords.y), 0.0, 1.0);
 }
+
+[[stage(fragment)]]
+fn ldr_to_hdr_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+    let ldr = textureSample(r_color, r_sampler, in.tex_coords).rgb;
+    let f16_max_v = vec3<f32>(65504.0, 65504.0, 65504.0);
+    let epsilon_v = vec3<f32>(epsilon, epsilon, epsilon);
+    let one_v = vec3<f32>(1.0, 1.0, 1.0);
+    let scale = vec3<f32>(1.0 / 1.0, 1.0 / 1.0, 1.0 / 1.0);
+    let hdr = (scale * one_v) / ((one_v / (ldr + epsilon_v)) - one_v + epsilon_v);
+    return vec4<f32>(hdr, 1.0);
+}

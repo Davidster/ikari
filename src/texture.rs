@@ -44,7 +44,6 @@ impl Default for SamplerDescriptor<'_> {
     }
 }
 
-// TODO: a lot of these functions don't need to return a result?
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
@@ -325,6 +324,133 @@ impl Texture {
         }
     }
 
+    pub fn cubemap_ldr_to_hdr(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        label: Option<&str>,
+        ldr_to_hdr_pipeline: &wgpu::RenderPipeline,
+        ldr_cubemap_texture: &Texture,
+    ) -> Self {
+        let size = ldr_cubemap_texture.size;
+
+        // TODO: dry
+        let single_texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("single_texture_bind_group_layout"),
+            });
+
+        let sampler = device.create_sampler(&SamplerDescriptor::default().0);
+
+        let hdr_cubemap_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label,
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        });
+
+        let faces: Vec<_> = (0..6)
+            .map(|i| {
+                (
+                    hdr_cubemap_texture.create_view(&wgpu::TextureViewDescriptor {
+                        dimension: Some(wgpu::TextureViewDimension::D2),
+                        base_array_layer: i as u32,
+                        array_layer_count: NonZeroU32::new(1),
+                        ..Default::default()
+                    }),
+                    ldr_cubemap_texture
+                        .texture
+                        .create_view(&wgpu::TextureViewDescriptor {
+                            dimension: Some(wgpu::TextureViewDimension::D2),
+                            base_array_layer: i as u32,
+                            array_layer_count: NonZeroU32::new(1),
+                            ..Default::default()
+                        }),
+                )
+            })
+            .collect();
+
+        for (hdr_face_texture_view, ldr_face_texture_view) in faces {
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("cubemap_ldr_to_hdr encoder"),
+            });
+            let ldr_face_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &single_texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&ldr_face_texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+                label: None,
+            });
+            {
+                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: None,
+                    color_attachments: &[wgpu::RenderPassColorAttachment {
+                        view: &hdr_face_texture_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                            store: true,
+                        },
+                    }],
+                    depth_stencil_attachment: None,
+                });
+                rpass.set_pipeline(ldr_to_hdr_pipeline);
+                rpass.set_bind_group(0, &ldr_face_bind_group, &[]);
+                rpass.draw(0..3, 0..1);
+            }
+            queue.submit(Some(encoder.finish()));
+        }
+
+        let view = hdr_cubemap_texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::Cube),
+            ..Default::default()
+        });
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        Self {
+            texture: hdr_cubemap_texture,
+            view,
+            sampler,
+            size,
+        }
+    }
+
     pub fn create_cubemap_from_equirectangular(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -333,7 +459,7 @@ impl Texture {
         er_to_cubemap_pipeline: &wgpu::RenderPipeline,
         er_texture: &Texture,
         generate_mipmaps: bool,
-    ) -> Result<Self> {
+    ) -> Self {
         // let texture_size = texture.texture.
         let size = wgpu::Extent3d {
             // TODO: is divide by 3 the right move?
@@ -401,7 +527,7 @@ impl Texture {
             mip_level_count,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba16Float,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
         });
 
@@ -506,12 +632,12 @@ impl Texture {
             ..Default::default()
         });
 
-        Ok(Self {
+        Self {
             texture: cubemap_texture,
             view,
             sampler,
             size,
-        })
+        }
     }
 
     pub fn create_diffuse_env_map(
@@ -522,7 +648,7 @@ impl Texture {
         env_map_gen_pipeline: &wgpu::RenderPipeline,
         skybox_rad_texture: &Texture,
         generate_mipmaps: bool,
-    ) -> Result<Self> {
+    ) -> Self {
         // let texture_size = texture.texture.
         let size = wgpu::Extent3d {
             width: 128,
@@ -693,12 +819,12 @@ impl Texture {
             ..Default::default()
         });
 
-        Ok(Self {
+        Self {
             texture: env_map,
             view,
             sampler,
             size,
-        })
+        }
     }
 
     pub fn create_specular_env_map(
@@ -708,7 +834,7 @@ impl Texture {
         skybox_mesh: &MeshComponent,
         env_map_gen_pipeline: &wgpu::RenderPipeline,
         skybox_rad_texture: &Texture,
-    ) -> Result<Self> {
+    ) -> Self {
         // let texture_size = texture.texture.
         let size = wgpu::Extent3d {
             width: skybox_rad_texture.size.width,
@@ -908,12 +1034,12 @@ impl Texture {
             ..Default::default()
         });
 
-        Ok(Self {
+        Self {
             texture: env_map,
             view,
             sampler,
             size,
-        })
+        }
     }
 
     // each image should have the same dimensions!
@@ -923,7 +1049,7 @@ impl Texture {
         images: CreateCubeMapImagesParam,
         label: Option<&str>,
         generate_mipmaps: bool,
-    ) -> Result<Self> {
+    ) -> Self {
         // order of the images for a cubemap is documented here:
         // https://www.khronos.org/opengl/wiki/Cubemap_Texture
         let images_as_rgba = vec![
@@ -993,19 +1119,19 @@ impl Texture {
             ..Default::default()
         });
 
-        Ok(Self {
+        Self {
             texture,
             view,
             sampler,
             size,
-        })
+        }
     }
 
     pub fn create_brdf_lut(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         brdf_lut_gen_pipeline: &wgpu::RenderPipeline,
-    ) -> Result<Self> {
+    ) -> Self {
         let size = wgpu::Extent3d {
             width: 512,
             height: 512,
@@ -1057,12 +1183,12 @@ impl Texture {
         }
         queue.submit(Some(encoder.finish()));
 
-        Ok(Self {
+        Self {
             texture,
             view,
             sampler,
             size,
-        })
+        }
     }
 }
 

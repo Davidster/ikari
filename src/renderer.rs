@@ -148,9 +148,17 @@ impl CameraUniform {
 const INITIAL_RENDER_SCALE: f32 = 2.0;
 pub const ARENA_SIDE_LENGTH: f32 = 50.0;
 pub const MAX_LIGHT_COUNT: u8 = 32;
-pub const USE_ER_SKYBOX: bool = false;
 pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
 pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
+
+enum SkyboxBackground<'a> {
+    Cube { face_image_paths: [&'a str; 6] },
+    Equirectangular { image_path: &'a str },
+}
+
+enum SkyboxHDREnvironment<'a> {
+    Equirectangular { image_path: &'a str },
+}
 
 pub struct RendererState {
     surface: wgpu::Surface,
@@ -204,8 +212,8 @@ impl RendererState {
     pub async fn new(window: &winit::window::Window) -> Result<Self> {
         let mut logger = Logger::new();
         // force it to vulkan to get renderdoc to work:
-        // let backends = wgpu::Backends::from(wgpu::Backend::Vulkan);
-        let backends = wgpu::Backends::all();
+        let backends = wgpu::Backends::from(wgpu::Backend::Vulkan);
+        // let backends = wgpu::Backends::all();
         let instance = wgpu::Instance::new(backends);
         let size = window.inner_size();
         let surface = unsafe { instance.create_surface(&window) };
@@ -691,6 +699,12 @@ impl RendererState {
             multiview: None,
         };
         let skybox_pipeline = device.create_render_pipeline(&skybox_pipeline_descriptor);
+
+        let equirectangular_to_cubemap_color_targets = &[wgpu::ColorTargetState {
+            format: wgpu::TextureFormat::Rgba16Float,
+            blend: Some(wgpu::BlendState::REPLACE),
+            write_mask: wgpu::ColorWrites::ALL,
+        }];
         let equirectangular_to_cubemap_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Equirectangular To Cubemap Render Pipeline Layout"),
@@ -712,7 +726,7 @@ impl RendererState {
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
                 entry_point: "equirectangular_to_cubemap_fs_main",
-                targets: fragment_shader_color_targets,
+                targets: equirectangular_to_cubemap_color_targets,
             }),
             primitive: skybox_pipeline_primitive_state,
             depth_stencil: None,
@@ -820,6 +834,40 @@ impl RendererState {
         let brdf_lut_gen_pipeline =
             device.create_render_pipeline(&brdf_lut_gen_pipeline_descriptor);
 
+        let ldr_to_hdr_color_targets = &[wgpu::ColorTargetState {
+            format: wgpu::TextureFormat::Rgba16Float,
+            blend: Some(wgpu::BlendState::REPLACE),
+            write_mask: wgpu::ColorWrites::ALL,
+        }];
+        let ldr_to_hdr_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("LDR to HDR Pipeline Layout"),
+                bind_group_layouts: &[&single_texture_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+        let ldr_to_hdr_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("LDR to HDR Pipeline"),
+            layout: Some(&ldr_to_hdr_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &blit_shader,
+                entry_point: "vs_main",
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &blit_shader,
+                entry_point: "ldr_to_hdr_fs_main",
+                targets: ldr_to_hdr_color_targets,
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        };
+        let ldr_to_hdr_pipeline = device.create_render_pipeline(&ldr_to_hdr_pipeline_descriptor);
+
         let initial_render_scale = INITIAL_RENDER_SCALE;
 
         let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
@@ -914,107 +962,148 @@ impl RendererState {
         //     &Default::default(),
         // )?;
 
-        let skybox_texture = if USE_ER_SKYBOX {
-            let er_skybox_texture_path = "./src/textures/newport_loft/background.jpg";
-            // let er_skybox_texture_path = "./src/textures/photosphere_skybox.jpg";
-            let er_skybox_texture_bytes = std::fs::read(er_skybox_texture_path)?;
-            let er_skybox_texture = Texture::from_encoded_image(
-                &device,
-                &queue,
-                &er_skybox_texture_bytes,
-                er_skybox_texture_path,
-                None,
-                false, // an artifact occurs between the edges of the texture with mipmaps enabled
-                &Default::default(),
-            )?;
+        // Mountains
+        // let skybox_background = SkyboxBackground::Cube {
+        //     face_image_paths: [
+        //         "./src/textures/skybox/right.jpg",
+        //         "./src/textures/skybox/left.jpg",
+        //         "./src/textures/skybox/top.jpg",
+        //         "./src/textures/skybox/bottom.jpg",
+        //         "./src/textures/skybox/front.jpg",
+        //         "./src/textures/skybox/back.jpg",
+        //     ],
+        // };
+        // let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
 
-            Texture::create_cubemap_from_equirectangular(
-                &device,
-                &queue,
-                Some(er_skybox_texture_path),
-                &skybox_mesh,
-                &equirectangular_to_cubemap_pipeline,
-                &er_skybox_texture,
-                // TODO: set to true?
-                false,
-            )?
-        } else {
-            let cubemap_skybox_images = vec![
-                "./src/textures/skybox/right.jpg",
-                "./src/textures/skybox/left.jpg",
-                "./src/textures/skybox/top.jpg",
-                "./src/textures/skybox/bottom.jpg",
-                "./src/textures/skybox/front.jpg",
-                "./src/textures/skybox/back.jpg",
-            ]
-            .iter()
-            .map(|path| image::load_from_memory(&std::fs::read(path)?))
-            .collect::<Result<Vec<_>, _>>()?;
+        // Newport Loft
+        // let skybox_background = SkyboxBackground::Equirectangular {
+        //     image_path: "./src/textures/newport_loft/background.jpg",
+        // };
+        // let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+        //     Some(SkyboxHDREnvironment::Equirectangular {
+        //         image_path: "./src/textures/newport_loft/radiance.hdr",
+        //     });
 
-            Texture::create_cubemap(
-                &device,
-                &queue,
-                CreateCubeMapImagesParam {
-                    pos_x: &cubemap_skybox_images[0],
-                    neg_x: &cubemap_skybox_images[1],
-                    pos_y: &cubemap_skybox_images[2],
-                    neg_y: &cubemap_skybox_images[3],
-                    pos_z: &cubemap_skybox_images[4],
-                    neg_z: &cubemap_skybox_images[5],
-                },
-                Some("cubemap_skybox_texture"),
-                // TODO: set to true?
-                false,
-            )?
+        // My photosphere pic
+        let skybox_background = SkyboxBackground::Equirectangular {
+            image_path: "./src/textures/photosphere_skybox.jpg",
+        };
+        let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
+
+        let skybox_texture = match skybox_background {
+            SkyboxBackground::Equirectangular { image_path } => {
+                let er_skybox_texture_bytes = std::fs::read(image_path)?;
+                let er_skybox_texture = Texture::from_encoded_image(
+                    &device,
+                    &queue,
+                    &er_skybox_texture_bytes,
+                    image_path,
+                    None,
+                    false, // an artifact occurs between the edges of the texture with mipmaps enabled
+                    &Default::default(),
+                )?;
+
+                Texture::create_cubemap_from_equirectangular(
+                    &device,
+                    &queue,
+                    Some(image_path),
+                    &skybox_mesh,
+                    &equirectangular_to_cubemap_pipeline,
+                    &er_skybox_texture,
+                    // TODO: set to true?
+                    false,
+                )
+            }
+            SkyboxBackground::Cube { face_image_paths } => {
+                let cubemap_skybox_images = face_image_paths
+                    .iter()
+                    .map(|path| image::load_from_memory(&std::fs::read(path)?))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Texture::create_cubemap(
+                    &device,
+                    &queue,
+                    CreateCubeMapImagesParam {
+                        pos_x: &cubemap_skybox_images[0],
+                        neg_x: &cubemap_skybox_images[1],
+                        pos_y: &cubemap_skybox_images[2],
+                        neg_y: &cubemap_skybox_images[3],
+                        pos_z: &cubemap_skybox_images[4],
+                        neg_z: &cubemap_skybox_images[5],
+                    },
+                    Some("cubemap_skybox_texture"),
+                    // TODO: set to true?
+                    false,
+                )
+            }
         };
 
         let er_to_cube_texture;
-        let skybox_rad_texture = if USE_ER_SKYBOX {
-            let skybox_rad_texture_path = "./src/textures/newport_loft/radiance.hdr";
-            // let skybox_rad_texture_path = "./src/textures/photosphere_skybox.jpg";
-            let skybox_rad_texture_bytes = std::fs::read(skybox_rad_texture_path)?;
-            let skybox_rad_texture_decoded = stb::image::stbi_loadf_from_memory(
-                &skybox_rad_texture_bytes,
-                stb::image::Channels::RgbAlpha,
-            )
-            .ok_or_else(|| {
-                anyhow::anyhow!("Failed to decode image: {}", skybox_rad_texture_path)
-            })?;
-            let skybox_rad_texture_decoded_vec: Vec<_> = skybox_rad_texture_decoded
-                .1
-                .into_vec()
-                .iter()
-                .copied()
-                .map(|v| Float16(half::f16::from_f32(v)))
-                .collect();
-            let skybox_rad_texture_er = Texture::from_decoded_image(
-                &device,
-                &queue,
-                bytemuck::cast_slice(&skybox_rad_texture_decoded_vec),
-                (
-                    skybox_rad_texture_decoded.0.width as u32,
-                    skybox_rad_texture_decoded.0.height as u32,
-                ),
-                skybox_rad_texture_path.into(),
-                wgpu::TextureFormat::Rgba16Float.into(),
-                false,
-                &Default::default(),
-            )?;
+        let ldr_to_hdr_texture;
+        let skybox_rad_texture = match skybox_hdr_environment {
+            Some(SkyboxHDREnvironment::Equirectangular { image_path }) => {
+                let skybox_rad_texture_bytes = std::fs::read(image_path)?;
+                let skybox_rad_texture_decoded = stb::image::stbi_loadf_from_memory(
+                    &skybox_rad_texture_bytes,
+                    stb::image::Channels::RgbAlpha,
+                )
+                .ok_or_else(|| anyhow::anyhow!("Failed to decode image: {}", image_path))?;
+                let skybox_rad_texture_decoded_vec = skybox_rad_texture_decoded.1.into_vec();
+                let max = skybox_rad_texture_decoded_vec
+                    .iter()
+                    .cloned()
+                    .reduce(f32::max)
+                    .unwrap();
+                let min = skybox_rad_texture_decoded_vec
+                    .iter()
+                    .cloned()
+                    .reduce(f32::min)
+                    .unwrap();
+                println!("max: {:?}, min: {:?}", max, min); // max: 15.25, min: 0.0
+                let skybox_rad_texture_decoded_vec: Vec<_> = skybox_rad_texture_decoded_vec
+                    .iter()
+                    .copied()
+                    .map(|v| Float16(half::f16::from_f32(v)))
+                    .collect();
 
-            er_to_cube_texture = Texture::create_cubemap_from_equirectangular(
-                &device,
-                &queue,
-                Some(skybox_rad_texture_path),
-                &skybox_mesh,
-                &equirectangular_to_cubemap_pipeline,
-                &skybox_rad_texture_er,
-                // TODO: set to true?
-                false,
-            )?;
+                let skybox_rad_texture_er = Texture::from_decoded_image(
+                    &device,
+                    &queue,
+                    bytemuck::cast_slice(&skybox_rad_texture_decoded_vec),
+                    (
+                        skybox_rad_texture_decoded.0.width as u32,
+                        skybox_rad_texture_decoded.0.height as u32,
+                    ),
+                    image_path.into(),
+                    wgpu::TextureFormat::Rgba16Float.into(),
+                    false,
+                    &Default::default(),
+                )?;
 
-            &er_to_cube_texture
-        } else {
-            &skybox_texture
+                er_to_cube_texture = Texture::create_cubemap_from_equirectangular(
+                    &device,
+                    &queue,
+                    Some(image_path),
+                    &skybox_mesh,
+                    &equirectangular_to_cubemap_pipeline,
+                    &skybox_rad_texture_er,
+                    // TODO: set to true?
+                    false,
+                );
+
+                &er_to_cube_texture
+            }
+            None => {
+                ldr_to_hdr_texture = Texture::cubemap_ldr_to_hdr(
+                    &device,
+                    &queue,
+                    Some("cubemap_ldr_to_hdr"),
+                    &ldr_to_hdr_pipeline,
+                    &skybox_texture,
+                );
+
+                &ldr_to_hdr_texture
+            }
         };
 
         let diffuse_env_map = Texture::create_diffuse_env_map(
@@ -1026,7 +1115,7 @@ impl RendererState {
             skybox_rad_texture,
             // TODO: set to true?
             false,
-        )?;
+        );
 
         let specular_env_map = Texture::create_specular_env_map(
             &device,
@@ -1035,20 +1124,20 @@ impl RendererState {
             &skybox_mesh,
             &specular_env_map_gen_pipeline,
             skybox_rad_texture,
-        )?;
+        );
 
-        let brdf_lut = Texture::create_brdf_lut(&device, &queue, &brdf_lut_gen_pipeline)?;
+        let brdf_lut = Texture::create_brdf_lut(&device, &queue, &brdf_lut_gen_pipeline);
 
         let skybox_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &pbr_env_map_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&skybox_texture.view),
+                    resource: wgpu::BindingResource::TextureView(&skybox_rad_texture.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&skybox_texture.sampler),
+                    resource: wgpu::BindingResource::Sampler(&skybox_rad_texture.sampler),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
@@ -1152,10 +1241,12 @@ impl RendererState {
         let light_roughness_map =
             Texture::from_gray(&device, &queue, (0.1 * 255.0f32).round() as u8)?;
         let light_ambient_occlusion_map = Texture::from_gray(&device, &queue, 0)?;
+
         let light_mesh = InstancedMeshComponent::new(
             &device,
             &queue,
             &sphere_mesh,
+            // TODO: InstancedMeshMaterialParams is tied to the mesh pipeline, not the flat color pipeline...
             &InstancedMeshMaterialParams {
                 emissive: Some(&light_emissive_map),
                 roughness: Some(&light_roughness_map),
