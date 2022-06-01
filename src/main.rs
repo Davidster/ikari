@@ -1,6 +1,7 @@
 mod ball;
 mod camera;
 mod gameloop;
+mod gltf_loader;
 mod helpers;
 mod light;
 mod logger;
@@ -11,6 +12,7 @@ mod transform;
 
 use ball::*;
 use camera::*;
+use gltf_loader::*;
 use helpers::*;
 use light::*;
 use logger::*;

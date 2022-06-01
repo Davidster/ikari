@@ -258,6 +258,9 @@ impl RendererState {
 
         surface.configure(&device, &config);
 
+        load_gltf("./src/models/gltf/TriangleWithoutIndices.gltf")?;
+        panic!();
+
         let textured_mesh_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
             label: Some("Textured Mesh Shader"),
             source: wgpu::ShaderSource::Wgsl(
