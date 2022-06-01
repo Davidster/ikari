@@ -61,6 +61,7 @@ fn make_point_light_uniform_buffer(lights: &[PointLightComponent]) -> Vec<PointL
 
     let mut active_lights = lights
         .iter()
+        .take(MAX_LIGHT_COUNT as usize)
         .map(PointLightUniform::from)
         .collect::<Vec<_>>();
     light_uniforms.append(&mut active_lights);
@@ -145,9 +146,9 @@ impl CameraUniform {
     }
 }
 
-const INITIAL_RENDER_SCALE: f32 = 2.0;
+const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const ARENA_SIDE_LENGTH: f32 = 50.0;
-pub const MAX_LIGHT_COUNT: u8 = 32;
+pub const MAX_LIGHT_COUNT: u8 = 128;
 pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
 pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 
@@ -938,26 +939,26 @@ impl RendererState {
         // )?;
 
         // Mountains
-        // let skybox_background = SkyboxBackground::Cube {
-        //     face_image_paths: [
-        //         "./src/textures/skybox/right.jpg",
-        //         "./src/textures/skybox/left.jpg",
-        //         "./src/textures/skybox/top.jpg",
-        //         "./src/textures/skybox/bottom.jpg",
-        //         "./src/textures/skybox/front.jpg",
-        //         "./src/textures/skybox/back.jpg",
-        //     ],
-        // };
-        // let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
+        let skybox_background = SkyboxBackground::Cube {
+            face_image_paths: [
+                "./src/textures/skybox/right.jpg",
+                "./src/textures/skybox/left.jpg",
+                "./src/textures/skybox/top.jpg",
+                "./src/textures/skybox/bottom.jpg",
+                "./src/textures/skybox/front.jpg",
+                "./src/textures/skybox/back.jpg",
+            ],
+        };
+        let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
 
         // Newport Loft
-        let skybox_background = SkyboxBackground::Equirectangular {
-            image_path: "./src/textures/newport_loft/background.jpg",
-        };
-        let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-            Some(SkyboxHDREnvironment::Equirectangular {
-                image_path: "./src/textures/newport_loft/radiance.hdr",
-            });
+        // let skybox_background = SkyboxBackground::Equirectangular {
+        //     image_path: "./src/textures/newport_loft/background.jpg",
+        // };
+        // let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+        //     Some(SkyboxHDREnvironment::Equirectangular {
+        //         image_path: "./src/textures/newport_loft/radiance.hdr",
+        //     });
 
         // My photosphere pic
         // let skybox_background = SkyboxBackground::Equirectangular {
@@ -1154,7 +1155,7 @@ impl RendererState {
             }),
         )?;
 
-        let lights = vec![
+        let lights: Vec<_> = vec![
             PointLightComponent {
                 transform: super::transform::Transform::new(),
                 color: LIGHT_COLOR_A,
@@ -1163,7 +1164,25 @@ impl RendererState {
                 transform: super::transform::Transform::new(),
                 color: LIGHT_COLOR_B,
             },
-        ];
+        ]
+        .iter()
+        .cloned()
+        .chain((0..(MAX_LIGHT_COUNT - 2)).map(|i| {
+            let transform = super::transform::Transform::new();
+            transform.set_scale(Vector3::new(0.1, 0.1, 0.1));
+            let r = 50.0 * i as f32 / MAX_LIGHT_COUNT as f32;
+            transform.set_position(Vector3::new(
+                r * (std::f32::consts::PI * 0.1 * i as f32).sin(),
+                3.0,
+                r * (std::f32::consts::PI * 0.1 * i as f32).cos(),
+            ));
+            PointLightComponent {
+                transform,
+                color: Vector3::new(0.98, 0.6, 0.07),
+            }
+        }))
+        // .take(2)
+        .collect();
         lights[0]
             .transform
             .set_scale(Vector3::new(0.05, 0.05, 0.05));

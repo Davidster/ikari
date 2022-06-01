@@ -9,7 +9,7 @@ struct CameraUniform {
 [[group(1), binding(0)]]
 var<uniform> camera: CameraUniform;
 
-let MAX_LIGHTS = 32u;
+let MAX_LIGHT_COUNT = 128u;
 
 struct Light {
     position: vec4<f32>;
@@ -17,7 +17,7 @@ struct Light {
 };
 
 struct LightsUniform {
-    values: array<Light, MAX_LIGHTS>;
+    values: array<Light, MAX_LIGHT_COUNT>;
 };
 [[group(1), binding(1)]]
 var<uniform> lights: LightsUniform;
@@ -275,7 +275,7 @@ fn do_fragment_shade(
 
     var total_light_irradiance = vec3<f32>(0.0);
 
-    for (var light_index = 0u; light_index < MAX_LIGHTS; light_index = light_index + 1u) {
+    for (var light_index = 0u; light_index < MAX_LIGHT_COUNT; light_index = light_index + 1u) {
         let light = lights.values[light_index];
 
         if (light.color.x < epsilon && light.color.y < epsilon && light.color.z < epsilon) {
