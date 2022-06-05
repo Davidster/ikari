@@ -18,6 +18,7 @@ pub struct GltfAsset {
 pub struct Scene {
     pub source_asset: GltfAsset,
     pub buffers: SceneBuffers,
+    // TODO: add bind groups
 }
 
 pub struct SceneBuffers {
@@ -32,7 +33,6 @@ pub struct GeometryBuffer {
     pub index_buffer: Option<wgpu::Buffer>,
 }
 
-// TODO: return result instead of panic
 pub fn build_scene(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
