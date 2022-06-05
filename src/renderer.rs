@@ -322,7 +322,7 @@ impl RendererState {
                 ],
                 label: Some("single_texture_bind_group_layout"),
             });
-        let six_texture_bind_group_layout =
+        let five_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -401,22 +401,6 @@ impl RendererState {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 9,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 10,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 11,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
@@ -570,7 +554,7 @@ impl RendererState {
         let mesh_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Mesh Pipeline Layout"),
             bind_group_layouts: &[
-                &six_texture_bind_group_layout,
+                &five_texture_bind_group_layout,
                 &two_uniform_bind_group_layout,
                 &pbr_env_map_bind_group_layout,
             ],
@@ -1194,7 +1178,7 @@ impl RendererState {
             .map(|light| GpuFlatColorMeshInstance::new(light.transform.matrix.get(), light.color))
             .collect();
 
-        let light_emissive_map = Texture::from_color_gamma_corrected(
+        let light_emissive_map = Texture::from_color(
             &device,
             &queue,
             [
@@ -1205,8 +1189,11 @@ impl RendererState {
             ],
             // [255, 0, 0, 255],
         )?;
-        let light_roughness_map =
-            Texture::from_gray(&device, &queue, (0.1 * 255.0f32).round() as u8)?;
+        let light_metallic_roughness_map = Texture::from_color(
+            &device,
+            &queue,
+            [255, (0.1 * 255.0f32).round() as u8, 0, 255],
+        )?;
         let light_ambient_occlusion_map = Texture::from_gray(&device, &queue, 0)?;
 
         let light_mesh = InstancedMeshComponent::new(
@@ -1216,11 +1203,11 @@ impl RendererState {
             // TODO: InstancedMeshMaterialParams is tied to the mesh pipeline, not the flat color pipeline...
             &InstancedMeshMaterialParams {
                 emissive: Some(&light_emissive_map),
-                roughness: Some(&light_roughness_map),
+                metallic_roughness: Some(&light_metallic_roughness_map),
                 ambient_occlusion: Some(&light_ambient_occlusion_map),
                 ..Default::default()
             },
-            &six_texture_bind_group_layout,
+            &five_texture_bind_group_layout,
             bytemuck::cast_slice(&light_flat_color_instances),
         )?;
 
@@ -1234,10 +1221,16 @@ impl RendererState {
 
         // let test_object_diffuse_texture =
         //     Texture::from_color(&device, &queue, [255, 255, 255, 255])?;
-        let test_object_metallic_map =
-            Texture::from_gray(&device, &queue, (0.8 * 255.0f32).round() as u8)?;
-        let test_object_roughness_map =
-            Texture::from_gray(&device, &queue, (0.12 * 255.0f32).round() as u8)?;
+        let test_object_metallic_roughness_map = Texture::from_color(
+            &device,
+            &queue,
+            [
+                255,
+                (0.12 * 255.0f32).round() as u8,
+                (0.8 * 255.0f32).round() as u8,
+                255,
+            ],
+        )?;
         let test_object_mesh = InstancedMeshComponent::new(
             &device,
             &queue,
@@ -1245,11 +1238,10 @@ impl RendererState {
             &InstancedMeshMaterialParams {
                 diffuse: Some(&earth_texture),
                 normal: Some(&earth_normal_map),
-                metallic: Some(&test_object_metallic_map),
-                roughness: Some(&test_object_roughness_map),
+                metallic_roughness: Some(&test_object_metallic_roughness_map),
                 ..Default::default()
             },
-            &six_texture_bind_group_layout,
+            &five_texture_bind_group_layout,
             bytemuck::cast_slice(&test_object_transforms_gpu),
         )?;
 
@@ -1269,7 +1261,7 @@ impl RendererState {
                 diffuse: Some(&checkerboard_texture),
                 ..Default::default()
             },
-            &six_texture_bind_group_layout,
+            &five_texture_bind_group_layout,
             bytemuck::cast_slice(&plane_transforms_gpu),
         )?;
 
@@ -1338,7 +1330,7 @@ impl RendererState {
                 diffuse: Some(&mars_texture),
                 ..Default::default()
             },
-            &six_texture_bind_group_layout,
+            &five_texture_bind_group_layout,
             bytemuck::cast_slice(&balls_transforms),
         )?;
 

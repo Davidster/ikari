@@ -235,8 +235,7 @@ pub struct InstancedMeshComponent {
 pub struct InstancedMeshMaterialParams<'a> {
     pub diffuse: Option<&'a Texture>,
     pub normal: Option<&'a Texture>,
-    pub metallic: Option<&'a Texture>,
-    pub roughness: Option<&'a Texture>,
+    pub metallic_roughness: Option<&'a Texture>,
     pub emissive: Option<&'a Texture>,
     pub ambient_occlusion: Option<&'a Texture>,
 }
@@ -290,21 +289,15 @@ impl InstancedMeshComponent {
             }
         };
 
-        let auto_generated_metallic_map;
-        let metallic_map = match material.metallic {
-            Some(metallic_map) => metallic_map,
-            None => {
-                auto_generated_metallic_map = Texture::from_gray(device, queue, 0)?;
-                &auto_generated_metallic_map
-            }
-        };
+        // TODO: merge metallic and roughness into one texture, B channel is metallic, G channel is roughness
 
-        let auto_generated_roughness_map;
-        let roughness_map = match material.roughness {
-            Some(roughness_map) => roughness_map,
+        let auto_generated_metallic_roughness_map;
+        let metallic_roughness_map = match material.metallic_roughness {
+            Some(metallic_roughness_map) => metallic_roughness_map,
             None => {
-                auto_generated_roughness_map = Texture::from_gray(device, queue, 127)?;
-                &auto_generated_roughness_map
+                auto_generated_metallic_roughness_map =
+                    Texture::from_color(device, queue, [255, 127, 0, 255])?;
+                &auto_generated_metallic_roughness_map
             }
         };
 
@@ -347,34 +340,26 @@ impl InstancedMeshComponent {
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&metallic_map.view),
+                    resource: wgpu::BindingResource::TextureView(&metallic_roughness_map.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
-                    resource: wgpu::BindingResource::Sampler(&metallic_map.sampler),
+                    resource: wgpu::BindingResource::Sampler(&metallic_roughness_map.sampler),
                 },
                 wgpu::BindGroupEntry {
                     binding: 6,
-                    resource: wgpu::BindingResource::TextureView(&roughness_map.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: wgpu::BindingResource::Sampler(&roughness_map.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 8,
                     resource: wgpu::BindingResource::TextureView(&emissive_map.view),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 9,
+                    binding: 7,
                     resource: wgpu::BindingResource::Sampler(&emissive_map.sampler),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 10,
+                    binding: 8,
                     resource: wgpu::BindingResource::TextureView(&ambient_occlusion_map.view),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 11,
+                    binding: 9,
                     resource: wgpu::BindingResource::Sampler(&ambient_occlusion_map.sampler),
                 },
             ],
