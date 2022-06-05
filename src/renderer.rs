@@ -206,6 +206,8 @@ pub struct RendererState {
     test_object_mesh: InstancedMeshComponent,
     plane_mesh: InstancedMeshComponent,
     skybox_mesh: MeshComponent, // TODO: always use InstancedMeshComponent
+
+    scene: Scene,
 }
 
 impl RendererState {
@@ -268,8 +270,7 @@ impl RendererState {
                 buffers,
                 images,
             },
-        );
-        panic!("no way");
+        )?;
 
         let textured_mesh_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
             label: Some("Textured Mesh Shader"),
@@ -1385,6 +1386,8 @@ impl RendererState {
             test_object_mesh,
             plane_mesh,
             skybox_mesh,
+
+            scene,
         })
     }
 
