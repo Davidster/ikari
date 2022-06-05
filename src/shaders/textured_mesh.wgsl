@@ -96,20 +96,16 @@ var normal_map_texture: texture_2d<f32>;
 [[group(0), binding(3)]]
 var normal_map_sampler: sampler;
 [[group(0), binding(4)]]
-var metallic_map_texture: texture_2d<f32>;
+var metallic_roughness_map_texture: texture_2d<f32>;
 [[group(0), binding(5)]]
-var metallic_map_sampler: sampler;
+var metallic_roughness_map_sampler: sampler;
 [[group(0), binding(6)]]
-var roughness_map_texture: texture_2d<f32>;
-[[group(0), binding(7)]]
-var roughness_map_sampler: sampler;
-[[group(0), binding(8)]]
 var emissive_map_texture: texture_2d<f32>;
-[[group(0), binding(9)]]
+[[group(0), binding(7)]]
 var emissive_map_sampler: sampler;
-[[group(0), binding(10)]]
+[[group(0), binding(8)]]
 var ambient_occlusion_map_texture: texture_2d<f32>;
-[[group(0), binding(11)]]
+[[group(0), binding(9)]]
 var ambient_occlusion_map_sampler: sampler;
 
 [[group(2), binding(0)]]
@@ -235,16 +231,13 @@ fn do_fragment_shade(
         diffuse_sampler,
         tex_coords
     ).rgb;
-    let roughness = textureSample(
-        roughness_map_texture,
-        roughness_map_sampler,
+    let metallic_roughness = textureSample(
+        metallic_roughness_map_texture,
+        metallic_roughness_map_sampler,
         tex_coords
-    ).r;
-    let metallicness = textureSample(
-        metallic_map_texture,
-        metallic_map_sampler,
-        tex_coords
-    ).r;
+    ).rgb;
+    let metallicness = metallic_roughness.z;
+    let roughness = metallic_roughness.y;
     let ambient_occlusion = textureSample(
         ambient_occlusion_map_texture,
         ambient_occlusion_map_sampler,

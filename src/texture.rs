@@ -147,7 +147,11 @@ impl Texture {
         })
     }
 
-    pub fn from_color(device: &wgpu::Device, queue: &wgpu::Queue, color: [u8; 4]) -> Result<Self> {
+    pub fn from_color_srgb(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        color: [u8; 4],
+    ) -> Result<Self> {
         let one_pixel_image = {
             let mut img = image::RgbaImage::new(1, 1);
             img.put_pixel(0, 0, image::Rgba(color));
@@ -159,7 +163,7 @@ impl Texture {
             &one_pixel_image,
             one_pixel_image.dimensions(),
             Some("from_color texture"),
-            None,
+            wgpu::TextureFormat::Rgba8UnormSrgb.into(),
             false,
             &SamplerDescriptor(wgpu::SamplerDescriptor {
                 mag_filter: wgpu::FilterMode::Nearest,
@@ -169,11 +173,7 @@ impl Texture {
         )
     }
 
-    pub fn from_color_gamma_corrected(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        color: [u8; 4],
-    ) -> Result<Self> {
+    pub fn from_color(device: &wgpu::Device, queue: &wgpu::Queue, color: [u8; 4]) -> Result<Self> {
         let one_pixel_image = {
             let mut img = image::RgbaImage::new(1, 1);
             img.put_pixel(0, 0, image::Rgba(color));
