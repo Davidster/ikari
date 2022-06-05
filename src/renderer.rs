@@ -207,7 +207,7 @@ pub struct RendererState {
     plane_mesh: InstancedMeshComponent,
     skybox_mesh: MeshComponent, // TODO: always use InstancedMeshComponent
 
-    scene: Scene,
+                                // scene: Scene,
 }
 
 impl RendererState {
@@ -260,17 +260,17 @@ impl RendererState {
 
         surface.configure(&device, &config);
 
-        let (document, buffers, images) =
-            gltf::import("./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf")?;
-        let scene = build_scene(
-            &device,
-            &queue,
-            GltfAsset {
-                document,
-                buffers,
-                images,
-            },
-        )?;
+        // let (document, buffers, images) =
+        //     gltf::import("./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf")?;
+        // let scene = build_scene(
+        //     &device,
+        //     &queue,
+        //     GltfAsset {
+        //         document,
+        //         buffers,
+        //         images,
+        //     },
+        // )?;
 
         let textured_mesh_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
             label: Some("Textured Mesh Shader"),
@@ -1386,8 +1386,7 @@ impl RendererState {
             test_object_mesh,
             plane_mesh,
             skybox_mesh,
-
-            scene,
+            // scene,
         })
     }
 
