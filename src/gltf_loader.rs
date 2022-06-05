@@ -271,27 +271,27 @@ mod tests {
                 name: Some(String::from("TopRightMesh")),
                 vertices: vec![
                     GltfVertex {
-                        position: [1.2, 0.2000002, -5.2054858e-8,],
-                        normal: Some([-2.1316282e-14, 1.07284414e-7, 1.0,],),
-                        tex_coord: Some([1.0, 0.39999998,],),
+                        position: [1.2, 0.2000002, -5.2054858e-8],
+                        normal: Some([-2.1316282e-14, 1.07284414e-7, 1.0]),
+                        tex_coord: Some([1.0, 0.39999998]),
                     },
                     GltfVertex {
-                        position: [0.19999981, 1.1999999, -1.5933927e-7,],
-                        normal: Some([-2.1316282e-14, 1.07284414e-7, 1.0,],),
-                        tex_coord: Some([0.6, 0.0,],),
+                        position: [0.19999981, 1.1999999, -1.5933927e-7],
+                        normal: Some([-2.1316282e-14, 1.07284414e-7, 1.0]),
+                        tex_coord: Some([0.6, 0.0]),
                     },
                     GltfVertex {
-                        position: [0.19999996, 0.20000005, -5.2054858e-8,],
-                        normal: Some([-2.1316282e-14, 1.07284414e-7, 1.0,],),
-                        tex_coord: Some([0.6, 0.39999998,],),
+                        position: [0.19999996, 0.20000005, -5.2054858e-8],
+                        normal: Some([-2.1316282e-14, 1.07284414e-7, 1.0]),
+                        tex_coord: Some([0.6, 0.39999998]),
                     },
                     GltfVertex {
-                        position: [1.1999998, 1.2000002, -1.5933927e-7,],
-                        normal: Some([-2.1316282e-14, 1.07284414e-7, 1.0,],),
-                        tex_coord: Some([1.0, 0.0,],),
+                        position: [1.1999998, 1.2000002, -1.5933927e-7],
+                        normal: Some([-2.1316282e-14, 1.07284414e-7, 1.0]),
+                        tex_coord: Some([1.0, 0.0]),
                     },
                 ],
-                indices: Some(vec![0, 1, 2, 3, 1, 0,],),
+                indices: Some(vec![0, 1, 2, 3, 1, 0]),
                 instance_transforms: vec![Matrix4::identity()],
             }
         );

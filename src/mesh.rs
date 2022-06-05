@@ -12,15 +12,15 @@ type VertexTextureCoords = [f32; 2];
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct TexturedVertex {
-    position: VertexPosition,
-    normal: VertexNormal,
-    tex_coords: VertexTextureCoords,
-    tangent: VertexNormal,
-    bitangent: VertexNormal,
+pub struct Vertex {
+    pub position: VertexPosition,
+    pub normal: VertexNormal,
+    pub tex_coords: VertexTextureCoords,
+    pub tangent: VertexNormal,
+    pub bitangent: VertexNormal,
 }
 
-impl TexturedVertex {
+impl Vertex {
     const ATTRIBS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
         0 => Float32x3,
         1 => Float32x3,
@@ -31,7 +31,7 @@ impl TexturedVertex {
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<TexturedVertex>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &Self::ATTRIBS,
         }
@@ -393,7 +393,7 @@ impl InstancedMeshComponent {
 }
 
 pub struct BasicMesh {
-    vertices: Vec<TexturedVertex>,
+    vertices: Vec<Vertex>,
     indices: Vec<u16>,
 }
 
@@ -434,8 +434,7 @@ impl BasicMesh {
                 },
             )
             .collect();
-        let mut composite_index_map: HashMap<(usize, usize, usize), TexturedVertex> =
-            HashMap::new();
+        let mut composite_index_map: HashMap<(usize, usize, usize), Vertex> = HashMap::new();
         triangles.iter().for_each(|(vti1, vti2, vti3)| {
             let points = vec![vti1, vti2, vti3];
             let points_with_attribs: Vec<_> = points
@@ -489,7 +488,7 @@ impl BasicMesh {
                 .for_each(|(key, position, normal, tex_coords)| {
                     if let hash_map::Entry::Vacant(vacant_entry) = composite_index_map.entry(*key) {
                         let to_arr = |vec: &Vector3<f32>| [vec.x, vec.y, vec.z];
-                        vacant_entry.insert(TexturedVertex {
+                        vacant_entry.insert(Vertex {
                             position: to_arr(position),
                             normal: to_arr(normal),
                             tex_coords: [tex_coords.x, tex_coords.y],
@@ -500,7 +499,7 @@ impl BasicMesh {
                 });
         });
         let mut index_map: HashMap<(usize, usize, usize), usize> = HashMap::new();
-        let mut vertices: Vec<TexturedVertex> = Vec::new();
+        let mut vertices: Vec<Vertex> = Vec::new();
         composite_index_map
             .iter()
             .enumerate()

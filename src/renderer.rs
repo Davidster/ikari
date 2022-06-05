@@ -258,8 +258,18 @@ impl RendererState {
 
         surface.configure(&device, &config);
 
-        load_gltf("./src/models/gltf/TriangleWithoutIndices.gltf")?;
-        panic!();
+        let (document, buffers, images) =
+            gltf::import("./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf")?;
+        let scene = build_scene(
+            &device,
+            &queue,
+            GltfAsset {
+                document,
+                buffers,
+                images,
+            },
+        );
+        panic!("no way");
 
         let textured_mesh_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
             label: Some("Textured Mesh Shader"),
@@ -571,7 +581,7 @@ impl RendererState {
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
                 entry_point: "vs_main",
-                buffers: &[TexturedVertex::desc(), GpuMeshInstance::desc()],
+                buffers: &[Vertex::desc(), GpuMeshInstance::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &textured_mesh_shader,
@@ -613,7 +623,7 @@ impl RendererState {
         flat_color_mesh_pipeline_descriptor.label = Some("Flat Color Mesh Render Pipeline");
         flat_color_mesh_pipeline_descriptor.layout = Some(&flat_color_mesh_pipeline_layout);
         let flat_color_mesh_pipeline_v_buffers =
-            &[TexturedVertex::desc(), GpuFlatColorMeshInstance::desc()];
+            &[Vertex::desc(), GpuFlatColorMeshInstance::desc()];
         flat_color_mesh_pipeline_descriptor.vertex = wgpu::VertexState {
             module: &flat_color_mesh_shader,
             entry_point: "vs_main",
@@ -689,7 +699,7 @@ impl RendererState {
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
-                buffers: &[TexturedVertex::desc()],
+                buffers: &[Vertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
@@ -724,7 +734,7 @@ impl RendererState {
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
-                buffers: &[TexturedVertex::desc()],
+                buffers: &[Vertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
@@ -759,7 +769,7 @@ impl RendererState {
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
-                buffers: &[TexturedVertex::desc()],
+                buffers: &[Vertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
@@ -795,7 +805,7 @@ impl RendererState {
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
-                buffers: &[TexturedVertex::desc()],
+                buffers: &[Vertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
