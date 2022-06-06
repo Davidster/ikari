@@ -100,6 +100,8 @@ impl Texture {
                 | wgpu::TextureUsages::RENDER_ATTACHMENT,
         });
 
+        let format_info = format.describe();
+
         queue.write_texture(
             wgpu::ImageCopyTexture {
                 aspect: wgpu::TextureAspect::All,
@@ -110,12 +112,14 @@ impl Texture {
             img_bytes,
             wgpu::ImageDataLayout {
                 offset: 0,
+                bytes_per_row: NonZeroU32::new(format_info.block_size as u32 * dimensions.0),
                 // TODO: fix this horrible hack
-                bytes_per_row: if format == wgpu::TextureFormat::Rgba16Float {
-                    NonZeroU32::new(8 * dimensions.0)
-                } else {
-                    NonZeroU32::new(4 * dimensions.0)
-                },
+                // TODO: is it fixed?
+                // bytes_per_row: if format == wgpu::TextureFormat::Rgba16Float {
+                //     NonZeroU32::new(8 * dimensions.0)
+                // } else {
+                //     NonZeroU32::new(4 * dimensions.0)
+                // },
                 rows_per_image: NonZeroU32::new(dimensions.1),
             },
             size,

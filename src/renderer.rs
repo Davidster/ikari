@@ -207,7 +207,7 @@ pub struct RendererState {
     plane_mesh: InstancedMeshComponent,
     skybox_mesh: MeshComponent, // TODO: always use InstancedMeshComponent
 
-                                // scene: Scene,
+    scene: Scene,
 }
 
 impl RendererState {
@@ -259,18 +259,6 @@ impl RendererState {
         };
 
         surface.configure(&device, &config);
-
-        // let (document, buffers, images) =
-        //     gltf::import("./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf")?;
-        // let scene = build_scene(
-        //     &device,
-        //     &queue,
-        //     GltfAsset {
-        //         document,
-        //         buffers,
-        //         images,
-        //     },
-        // )?;
 
         let textured_mesh_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
             label: Some("Textured Mesh Shader"),
@@ -841,6 +829,32 @@ impl RendererState {
         let brdf_lut_gen_pipeline =
             device.create_render_pipeline(&brdf_lut_gen_pipeline_descriptor);
 
+        // let gltf_import_result =
+        //     gltf::import("./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf")?;
+        // let gltf_import_result = gltf::import("./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf")?;
+        // let gltf_import_result = gltf::import("./src/models/gltf/Triangle/Triangle.gltf")?;
+        // let gltf_import_result =
+        //     gltf::import("./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf")?;
+        // let gltf_import_result = gltf::import(
+        //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb",
+        // )?;
+        // let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
+        // TODO: why doesn't this one show up?
+        let gltf_import_result =
+            gltf::import("./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf")?;
+        let (document, buffers, images) = gltf_import_result;
+        let scene = build_scene(
+            &device,
+            &queue,
+            &five_texture_bind_group_layout,
+            GltfAsset {
+                document,
+                buffers,
+                images,
+            },
+        )?;
+        // panic!("heyyyyyyy");
+
         let initial_render_scale = INITIAL_RENDER_SCALE;
 
         let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
@@ -1378,7 +1392,8 @@ impl RendererState {
             test_object_mesh,
             plane_mesh,
             skybox_mesh,
-            // scene,
+
+            scene,
         })
     }
 
@@ -1655,38 +1670,78 @@ impl RendererState {
                 }),
             });
 
-            // render test object
+            // render gltf scene
             scene_render_pass.set_pipeline(&self.mesh_pipeline);
-            scene_render_pass.set_bind_group(0, &self.test_object_mesh.textures_bind_group, &[]);
             scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
             scene_render_pass.set_bind_group(2, &self.skybox_texture_bind_group, &[]);
-            scene_render_pass.set_vertex_buffer(0, self.test_object_mesh.vertex_buffer.slice(..));
-            scene_render_pass.set_vertex_buffer(1, self.test_object_mesh.instance_buffer.slice(..));
-            scene_render_pass.set_index_buffer(
-                self.test_object_mesh.index_buffer.slice(..),
-                wgpu::IndexFormat::Uint16,
-            );
-            scene_render_pass.draw_indexed(
-                0..self.test_object_mesh.num_indices,
-                0,
-                0..self.test_object_transforms.len() as u32,
-            );
+            self.scene
+                .source_asset
+                .document
+                .meshes()
+                .enumerate()
+                .for_each(|(mesh_index, mesh)| {
+                    let BindableMeshData {
+                        vertex_buffer,
+                        index_buffer,
+                        instance_buffer,
+                        textures_bind_group,
+                    } = &self.scene.buffers.bindable_mesh_data[mesh_index];
+                    scene_render_pass.set_bind_group(0, textures_bind_group, &[]);
+                    scene_render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
+                    scene_render_pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
+                    match index_buffer {
+                        Some(index_buffer) => {
+                            scene_render_pass.set_index_buffer(
+                                index_buffer.buffer.slice(..),
+                                wgpu::IndexFormat::Uint16,
+                            );
+                            scene_render_pass.draw_indexed(
+                                0..index_buffer.length as u32,
+                                0,
+                                0..instance_buffer.length as u32,
+                            );
+                        }
+                        None => {
+                            scene_render_pass.draw(
+                                0..vertex_buffer.length as u32,
+                                0..instance_buffer.length as u32,
+                            );
+                        }
+                    }
+                });
 
-            // render floor
-            scene_render_pass.set_pipeline(&self.mesh_pipeline);
-            scene_render_pass.set_bind_group(0, &self.plane_mesh.textures_bind_group, &[]);
-            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
-            scene_render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
-            scene_render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
-            scene_render_pass.set_index_buffer(
-                self.plane_mesh.index_buffer.slice(..),
-                wgpu::IndexFormat::Uint16,
-            );
-            scene_render_pass.draw_indexed(
-                0..self.plane_mesh.num_indices,
-                0,
-                0..self.plane_transforms.len() as u32,
-            );
+            // render test object
+            // scene_render_pass.set_pipeline(&self.mesh_pipeline);
+            // scene_render_pass.set_bind_group(0, &self.test_object_mesh.textures_bind_group, &[]);
+            // scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            // scene_render_pass.set_bind_group(2, &self.skybox_texture_bind_group, &[]);
+            // scene_render_pass.set_vertex_buffer(0, self.test_object_mesh.vertex_buffer.slice(..));
+            // scene_render_pass.set_vertex_buffer(1, self.test_object_mesh.instance_buffer.slice(..));
+            // scene_render_pass.set_index_buffer(
+            //     self.test_object_mesh.index_buffer.slice(..),
+            //     wgpu::IndexFormat::Uint16,
+            // );
+            // scene_render_pass.draw_indexed(
+            //     0..self.test_object_mesh.num_indices,
+            //     0,
+            //     0..self.test_object_transforms.len() as u32,
+            // );
+
+            // // render floor
+            // scene_render_pass.set_pipeline(&self.mesh_pipeline);
+            // scene_render_pass.set_bind_group(0, &self.plane_mesh.textures_bind_group, &[]);
+            // scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            // scene_render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
+            // scene_render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
+            // scene_render_pass.set_index_buffer(
+            //     self.plane_mesh.index_buffer.slice(..),
+            //     wgpu::IndexFormat::Uint16,
+            // );
+            // scene_render_pass.draw_indexed(
+            //     0..self.plane_mesh.num_indices,
+            //     0,
+            //     0..self.plane_transforms.len() as u32,
+            // );
 
             // render balls
             scene_render_pass.set_pipeline(&self.mesh_pipeline);
