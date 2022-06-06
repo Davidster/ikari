@@ -314,7 +314,8 @@ impl InstancedMeshComponent {
         let ambient_occlusion_map = match material.ambient_occlusion {
             Some(ambient_occlusion_map) => ambient_occlusion_map,
             None => {
-                auto_generated_ambient_occlusion_map = Texture::from_gray(device, queue, 255)?;
+                auto_generated_ambient_occlusion_map =
+                    Texture::from_color(device, queue, [255, 255, 255, 255])?;
                 &auto_generated_ambient_occlusion_map
             }
         };
