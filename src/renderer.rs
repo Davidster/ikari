@@ -839,7 +839,6 @@ impl RendererState {
         //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb",
         // )?;
         // let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
-        // TODO: why doesn't this one show up?
         let gltf_import_result =
             gltf::import("./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf")?;
         let (document, buffers, images) = gltf_import_result;
@@ -853,6 +852,7 @@ impl RendererState {
                 images,
             },
         )?;
+        // dbg!(&scene);
         // panic!("heyyyyyyy");
 
         let initial_render_scale = INITIAL_RENDER_SCALE;
@@ -1674,23 +1674,37 @@ impl RendererState {
             scene_render_pass.set_pipeline(&self.mesh_pipeline);
             scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
             scene_render_pass.set_bind_group(2, &self.skybox_texture_bind_group, &[]);
-            self.scene
-                .source_asset
-                .document
-                .meshes()
+
+            let meshes: Vec<_> = self.scene.source_asset.document.meshes().collect();
+            let drawable_primitive_groups: Vec<_> = meshes
+                .iter()
+                .flat_map(|mesh| mesh.primitives().map(|prim| (&meshes[mesh.index()], prim)))
+                .filter(|(_, prim)| prim.mode() == gltf::mesh::Mode::Triangles)
+                .collect();
+
+            // println!(
+            //     "meshes: {:?}",
+            //     meshes.iter().map(|mesh| mesh.name()).collect::<Vec<_>>()
+            // );
+            drawable_primitive_groups
+                .iter()
+                .filter(|(_, prim)| {
+                    prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
+                })
                 .enumerate()
-                .for_each(|(mesh_index, mesh)| {
+                .for_each(|(drawable_prim_index, _)| {
                     let BindableMeshData {
                         vertex_buffer,
                         index_buffer,
                         instance_buffer,
                         textures_bind_group,
-                    } = &self.scene.buffers.bindable_mesh_data[mesh_index];
+                    } = &self.scene.buffers.bindable_mesh_data[drawable_prim_index];
                     scene_render_pass.set_bind_group(0, textures_bind_group, &[]);
                     scene_render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
                     scene_render_pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
                     match index_buffer {
                         Some(index_buffer) => {
+                            // println!("Calling draw draw_indexed for mesh: {:?}", mesh.name());
                             scene_render_pass.set_index_buffer(
                                 index_buffer.buffer.slice(..),
                                 wgpu::IndexFormat::Uint16,
