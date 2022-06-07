@@ -10,6 +10,7 @@ use cgmath::ulps_eq;
 use cgmath::Matrix4;
 use cgmath::Vector2;
 use cgmath::Vector3;
+use image::imageops::FilterType::Nearest;
 use wgpu::util::DeviceExt;
 
 use super::*;
@@ -70,6 +71,8 @@ pub fn build_scene(
         .map(|scene| scene.index())
         .unwrap_or(0);
 
+    let materials: Vec<_> = document.materials().collect();
+
     let textures = document
         .textures()
         .map(|texture| {
@@ -77,7 +80,52 @@ pub fn build_scene(
             let image_data = &images[source_image_index];
             // dbg!("Creating texture: {:?}", texture.name());
 
-            let (image_pixels, texture_format) = get_image_pixels(image_data)?;
+            let srgb = materials.iter().any(|material| {
+                vec![
+                    material.emissive_texture(),
+                    material.pbr_metallic_roughness().base_color_texture(),
+                ]
+                .iter()
+                .flatten()
+                .any(|texture_info| texture_info.texture().index() == texture.index())
+            });
+
+            let (image_pixels, texture_format) = get_image_pixels(image_data, srgb)?;
+
+            let gltf_sampler = texture.sampler();
+            let default_sampler = SamplerDescriptor::default();
+            let address_mode_u = sampler_wrapping_mode_to_wgpu(gltf_sampler.wrap_s());
+            let address_mode_v = sampler_wrapping_mode_to_wgpu(gltf_sampler.wrap_t());
+            let mag_filter = gltf_sampler
+                .mag_filter()
+                .map(|gltf_mag_filter| match gltf_mag_filter {
+                    gltf::texture::MagFilter::Nearest => wgpu::FilterMode::Nearest,
+                    gltf::texture::MagFilter::Linear => wgpu::FilterMode::Linear,
+                })
+                .unwrap_or(default_sampler.mag_filter);
+            let (min_filter, mipmap_filter) = gltf_sampler
+                .min_filter()
+                .map(|gltf_min_filter| match gltf_min_filter {
+                    gltf::texture::MinFilter::Nearest => {
+                        (wgpu::FilterMode::Nearest, default_sampler.mipmap_filter)
+                    }
+                    gltf::texture::MinFilter::Linear => {
+                        (wgpu::FilterMode::Linear, default_sampler.mipmap_filter)
+                    }
+                    gltf::texture::MinFilter::NearestMipmapNearest => {
+                        (wgpu::FilterMode::Nearest, wgpu::FilterMode::Nearest)
+                    }
+                    gltf::texture::MinFilter::LinearMipmapNearest => {
+                        (wgpu::FilterMode::Linear, wgpu::FilterMode::Nearest)
+                    }
+                    gltf::texture::MinFilter::NearestMipmapLinear => {
+                        (wgpu::FilterMode::Nearest, wgpu::FilterMode::Linear)
+                    }
+                    gltf::texture::MinFilter::LinearMipmapLinear => {
+                        (wgpu::FilterMode::Linear, wgpu::FilterMode::Linear)
+                    }
+                })
+                .unwrap_or((default_sampler.min_filter, default_sampler.mipmap_filter));
 
             Texture::from_decoded_image(
                 device,
@@ -86,8 +134,15 @@ pub fn build_scene(
                 (image_data.width, image_data.height),
                 texture.name(),
                 texture_format.into(),
-                false,
-                &Default::default(),
+                true,
+                &SamplerDescriptor(wgpu::SamplerDescriptor {
+                    address_mode_u,
+                    address_mode_v,
+                    mag_filter,
+                    min_filter,
+                    mipmap_filter,
+                    ..Default::default()
+                }),
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -204,29 +259,52 @@ pub fn build_scene(
     })
 }
 
-fn get_image_pixels(image_data: &gltf::image::Data) -> Result<(Vec<u8>, wgpu::TextureFormat)> {
+fn get_image_pixels(
+    image_data: &gltf::image::Data,
+    srgb: bool,
+) -> Result<(Vec<u8>, wgpu::TextureFormat)> {
     let image_pixels = &image_data.pixels;
     if image_data.format == gltf::image::Format::R8G8B8 {
         let image =
             image::RgbImage::from_raw(image_data.width, image_data.height, image_pixels.to_vec())
                 .ok_or_else(|| anyhow::anyhow!("Failed to decode R8G8B8 image"))?;
         let image_pixels_conv = image::DynamicImage::ImageRgb8(image).to_rgba8().to_vec();
-        Ok((image_pixels_conv, wgpu::TextureFormat::Rgba8Unorm))
+        Ok((
+            image_pixels_conv,
+            if srgb {
+                wgpu::TextureFormat::Rgba8UnormSrgb
+            } else {
+                wgpu::TextureFormat::Rgba8Unorm
+            },
+        ))
     } else {
-        let texture_format = texture_format_to_wgpu(image_data.format)?;
+        let texture_format = texture_format_to_wgpu(image_data.format, srgb)?;
         Ok((image_pixels.to_vec(), texture_format))
     }
 }
 
-fn texture_format_to_wgpu(format: gltf::image::Format) -> Result<wgpu::TextureFormat> {
-    match format {
-        gltf::image::Format::R8 => Ok(wgpu::TextureFormat::R8Unorm),
-        gltf::image::Format::R8G8 => Ok(wgpu::TextureFormat::Rg8Unorm),
-        gltf::image::Format::R8G8B8A8 => Ok(wgpu::TextureFormat::Rgba8Unorm),
-        gltf::image::Format::R16 => Ok(wgpu::TextureFormat::R16Unorm),
-        gltf::image::Format::R16G16 => Ok(wgpu::TextureFormat::Rg16Unorm),
-        gltf::image::Format::R16G16B16A16 => Ok(wgpu::TextureFormat::Rgba16Unorm),
-        _ => bail!("Unsupported texture format: {:?}", format),
+fn texture_format_to_wgpu(format: gltf::image::Format, srgb: bool) -> Result<wgpu::TextureFormat> {
+    match (format, srgb) {
+        (gltf::image::Format::R8, false) => Ok(wgpu::TextureFormat::R8Unorm),
+        (gltf::image::Format::R8G8, false) => Ok(wgpu::TextureFormat::Rg8Unorm),
+        (gltf::image::Format::R8G8B8A8, false) => Ok(wgpu::TextureFormat::Rgba8Unorm),
+        (gltf::image::Format::R8G8B8A8, true) => Ok(wgpu::TextureFormat::Rgba8UnormSrgb),
+        (gltf::image::Format::R16, false) => Ok(wgpu::TextureFormat::R16Unorm),
+        (gltf::image::Format::R16G16, false) => Ok(wgpu::TextureFormat::Rg16Unorm),
+        (gltf::image::Format::R16G16B16A16, false) => Ok(wgpu::TextureFormat::Rgba16Unorm),
+        _ => bail!(
+            "Unsupported texture format combo: {:?}, srgb={:?}",
+            format,
+            srgb
+        ),
+    }
+}
+
+fn sampler_wrapping_mode_to_wgpu(wrapping_mode: gltf::texture::WrappingMode) -> wgpu::AddressMode {
+    match wrapping_mode {
+        gltf::texture::WrappingMode::ClampToEdge => wgpu::AddressMode::ClampToEdge,
+        gltf::texture::WrappingMode::MirroredRepeat => wgpu::AddressMode::MirrorRepeat,
+        gltf::texture::WrappingMode::Repeat => wgpu::AddressMode::Repeat,
     }
 }
 
@@ -310,12 +388,14 @@ fn build_textures_bind_group(
     five_texture_bind_group_layout: &wgpu::BindGroupLayout,
 ) -> Result<wgpu::BindGroup> {
     let material = triangles_prim.material();
-    // TODO: support alpha modes
+
     println!("alpha mode: {:?}", material.alpha_mode());
     // let alpha_mode = material.alpha_mode();
     // if alpha_mode != gltf::material::AlphaMode::Opaque {
     //     bail!("Only opaque alpha mode is supported");
     // }
+
+    // TODO: support more alpha modes
     // TODO: support double-sided
     // TODO: support base values, like base color, metallic, roughness, etc.
 
@@ -428,11 +508,14 @@ fn build_textures_bind_group(
 
 pub fn build_geometry_buffers(
     device: &wgpu::Device,
-    triangles_prim: &gltf::mesh::Primitive,
+    primitive_group: &gltf::mesh::Primitive,
     buffers: &[gltf::buffer::Data],
 ) -> Result<(BufferAndLength, Option<BufferAndLength>)> {
     let get_buffer_slice_from_accessor = |accessor: gltf::Accessor| {
         let buffer_view = accessor.view().unwrap();
+        if buffer_view.stride().is_some() && buffer_view.stride().unwrap() != accessor.size() {
+            panic!("wtf m8");
+        }
         let buffer = &buffers[buffer_view.buffer().index()];
         let byte_range_start = buffer_view.offset() + accessor.offset();
         let byte_range_end = byte_range_start + (accessor.size() * accessor.count());
@@ -443,7 +526,7 @@ pub fn build_geometry_buffers(
     let slice_3_to_vec_3 = |slice: &[f32; 3]| Vector3::new(slice[0], slice[1], slice[2]);
 
     let vertex_positions: Vec<Vector3<f32>> = {
-        let (_, accessor) = triangles_prim
+        let (_, accessor) = primitive_group
             .attributes()
             .find(|(semantic, _)| *semantic == gltf::Semantic::Positions)
             .ok_or_else(|| anyhow::anyhow!("No positions found"))?;
@@ -460,7 +543,7 @@ pub fn build_geometry_buffers(
     }?;
     let vertex_position_count = vertex_positions.len();
 
-    let indices: Option<Vec<u16>> = triangles_prim
+    let indices: Option<Vec<u16>> = primitive_group
         .indices()
         .map(|accessor| {
             let data_type = accessor.data_type();
@@ -507,7 +590,7 @@ pub fn build_geometry_buffers(
         })
         .collect();
 
-    let vertex_tex_coords: Vec<[f32; 2]> = triangles_prim
+    let vertex_tex_coords: Vec<[f32; 2]> = primitive_group
         .attributes()
         .find(|(semantic, _)| *semantic == gltf::Semantic::TexCoords(0))
         .map(|(_, accessor)| {
@@ -525,7 +608,7 @@ pub fn build_geometry_buffers(
         .unwrap_or_else(|| (0..vertex_position_count).map(|_| [0.5, 0.5]).collect());
     let vertex_tex_coord_count = vertex_tex_coords.len();
 
-    let vertex_normals: Vec<Vector3<f32>> = triangles_prim
+    let vertex_normals: Vec<Vector3<f32>> = primitive_group
         .attributes()
         .find(|(semantic, _)| *semantic == gltf::Semantic::Normals)
         .map(|(_, accessor)| {
@@ -592,69 +675,108 @@ pub fn build_geometry_buffers(
         );
     }
 
-    // TODO: use this as fallback for missing tangents
-    let triangles_with_tangents_and_bitangents: Vec<_> = triangles_as_index_tuples
-        .iter()
-        .copied()
-        .map(|(index_a, index_b, index_c)| {
-            let points_with_attribs: Vec<_> = vec![index_a, index_b, index_c]
+    let vertex_tangents_and_bitangents: Vec<_> = primitive_group
+        .attributes()
+        .find(|(semantic, _)| *semantic == gltf::Semantic::Tangents)
+        .map(|(_, accessor)| {
+            let data_type = accessor.data_type();
+            let dimensions = accessor.dimensions();
+            if dimensions != gltf::accessor::Dimensions::Vec4 {
+                bail!("Expected vec3 data but found: {:?}", dimensions);
+            }
+            if data_type != gltf::accessor::DataType::F32 {
+                bail!("Expected f32 data but found: {:?}", data_type);
+            }
+            let tangents: &[[f32; 4]] =
+                bytemuck::cast_slice(get_buffer_slice_from_accessor(accessor));
+
+            Ok(tangents
+                .to_vec()
+                .iter()
+                .enumerate()
+                .map(|(vertex_index, tangent_slice)| {
+                    let normal = vertex_normals[vertex_index];
+                    let tangent =
+                        Vector3::new(tangent_slice[0], tangent_slice[1], tangent_slice[2]);
+                    // handedness is stored in w component: http://foundationsofgameenginedev.com/FGED2-sample.pdf
+                    let coordinate_system_handedness =
+                        if tangent_slice[3] > 0.0 { 1.0 } else { -1.0 };
+                    let bitangent = coordinate_system_handedness * normal.cross(tangent);
+                    (tangent, bitangent)
+                })
+                .collect())
+        })
+        .map_or(Ok(None), |v| v.map(Some))?
+        .unwrap_or_else(|| {
+            triangles_as_index_tuples
                 .iter()
                 .copied()
-                .map(|index| {
-                    let pos = vertex_positions[index];
-                    let norm = vertex_normals[index];
-                    let tc = vertex_tex_coords[index];
-                    (
-                        Vector3::new(pos[0], pos[1], pos[2]),
-                        Vector3::new(norm[0], norm[1], norm[2]),
-                        Vector2::new(tc[0], tc[1]),
-                    )
+                .flat_map(|(index_a, index_b, index_c)| {
+                    let points_with_attribs: Vec<_> = vec![index_a, index_b, index_c]
+                        .iter()
+                        .copied()
+                        .map(|index| {
+                            let pos = vertex_positions[index];
+                            let norm = vertex_normals[index];
+                            let tc = vertex_tex_coords[index];
+                            (
+                                Vector3::new(pos[0], pos[1], pos[2]),
+                                Vector3::new(norm[0], norm[1], norm[2]),
+                                Vector2::new(tc[0], tc[1]),
+                            )
+                        })
+                        .collect();
+
+                    let edge_1 = points_with_attribs[1].0 - points_with_attribs[0].0;
+                    let edge_2 = points_with_attribs[2].0 - points_with_attribs[0].0;
+
+                    let delta_uv_1 = points_with_attribs[1].2 - points_with_attribs[0].2;
+                    let delta_uv_2 = points_with_attribs[2].2 - points_with_attribs[0].2;
+
+                    let (tangent, bitangent) = {
+                        if abs_diff_eq!(delta_uv_1.x, 0.0, epsilon = 0.00001)
+                            && abs_diff_eq!(delta_uv_2.x, 0.0, epsilon = 0.00001)
+                            && abs_diff_eq!(delta_uv_1.y, 0.0, epsilon = 0.00001)
+                            && abs_diff_eq!(delta_uv_2.y, 0.0, epsilon = 0.00001)
+                        {
+                            (Vector3::new(1.0, 0.0, 0.0), Vector3::new(0.0, 1.0, 0.0))
+                        } else {
+                            let f =
+                                1.0 / (delta_uv_1.x * delta_uv_2.y - delta_uv_2.x * delta_uv_1.y);
+
+                            let tangent = Vector3::new(
+                                f * (delta_uv_2.y * edge_1.x - delta_uv_1.y * edge_2.x),
+                                f * (delta_uv_2.y * edge_1.y - delta_uv_1.y * edge_2.y),
+                                f * (delta_uv_2.y * edge_1.z - delta_uv_1.y * edge_2.z),
+                            );
+
+                            let bitangent = Vector3::new(
+                                f * (-delta_uv_2.x * edge_1.x + delta_uv_1.x * edge_2.x),
+                                f * (-delta_uv_2.x * edge_1.y + delta_uv_1.x * edge_2.y),
+                                f * (-delta_uv_2.x * edge_1.z + delta_uv_1.x * edge_2.z),
+                            );
+
+                            (tangent, bitangent)
+                        }
+                    };
+
+                    (0..3).map(|_| (tangent, bitangent)).collect::<Vec<_>>()
                 })
-                .collect();
-
-            let edge_1 = points_with_attribs[1].0 - points_with_attribs[0].0;
-            let edge_2 = points_with_attribs[2].0 - points_with_attribs[0].0;
-
-            let delta_uv_1 = points_with_attribs[1].2 - points_with_attribs[0].2;
-            let delta_uv_2 = points_with_attribs[2].2 - points_with_attribs[0].2;
-
-            if abs_diff_eq!(delta_uv_1.x, 0.0, epsilon = 0.00001)
-                && abs_diff_eq!(delta_uv_2.x, 0.0, epsilon = 0.00001)
-                && abs_diff_eq!(delta_uv_1.y, 0.0, epsilon = 0.00001)
-                && abs_diff_eq!(delta_uv_2.y, 0.0, epsilon = 0.00001)
-            {
-                return (Vector3::new(1.0, 0.0, 0.0), Vector3::new(0.0, 1.0, 0.0));
-            }
-
-            let f = 1.0 / (delta_uv_1.x * delta_uv_2.y - delta_uv_2.x * delta_uv_1.y);
-
-            let tangent = Vector3::new(
-                f * (delta_uv_2.y * edge_1.x - delta_uv_1.y * edge_2.x),
-                f * (delta_uv_2.y * edge_1.y - delta_uv_1.y * edge_2.y),
-                f * (delta_uv_2.y * edge_1.z - delta_uv_1.y * edge_2.z),
-            );
-
-            let bitangent = Vector3::new(
-                f * (-delta_uv_2.x * edge_1.x + delta_uv_1.x * edge_2.x),
-                f * (-delta_uv_2.x * edge_1.y + delta_uv_1.x * edge_2.y),
-                f * (-delta_uv_2.x * edge_1.z + delta_uv_1.x * edge_2.z),
-            );
-
-            (tangent, bitangent)
-        })
-        .collect();
+                .collect()
+        });
 
     let triangles_with_all_data: Vec<_> = triangles_as_index_tuples
         .iter()
         .copied()
         .enumerate()
         .map(|(triangle_index, (index_a, index_b, index_c))| {
-            let (tangent, bitangent) = triangles_with_tangents_and_bitangents[triangle_index];
+            // let (tangent, bitangent) = triangles_with_tangents_and_bitangents[triangle_index];
             vec![index_a, index_b, index_c]
                 .iter()
                 .map(|index| {
                     // let vertex_index = triangle_index * 3 + index;
                     let to_arr = |vec: &Vector3<f32>| [vec.x, vec.y, vec.z];
+                    let (tangent, bitangent) = vertex_tangents_and_bitangents[*index];
                     Vertex {
                         position: vertex_positions[*index].into(),
                         normal: vertex_normals[*index].into(),
