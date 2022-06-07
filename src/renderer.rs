@@ -214,8 +214,8 @@ impl RendererState {
     pub async fn new(window: &winit::window::Window) -> Result<Self> {
         let mut logger = Logger::new();
         // force it to vulkan to get renderdoc to work:
-        let backends = wgpu::Backends::from(wgpu::Backend::Vulkan);
-        // let backends = wgpu::Backends::all();
+        // let backends = wgpu::Backends::from(wgpu::Backend::Vulkan);
+        let backends = wgpu::Backends::all();
         let instance = wgpu::Instance::new(backends);
         let size = window.inner_size();
         let surface = unsafe { instance.create_surface(&window) };
@@ -254,8 +254,8 @@ impl RendererState {
             format: swapchain_format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
-            // present_mode: wgpu::PresentMode::Immediate,
+            // present_mode: wgpu::PresentMode::Fifo,
+            present_mode: wgpu::PresentMode::Immediate,
         };
 
         surface.configure(&device, &config);
@@ -838,9 +838,9 @@ impl RendererState {
         // let gltf_import_result = gltf::import(
         //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb",
         // )?;
-        // let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
-        let gltf_import_result =
-            gltf::import("./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf")?;
+        let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
+        // let gltf_import_result =
+        //     gltf::import("./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf")?;
         let (document, buffers, images) = gltf_import_result;
         let scene = build_scene(
             &device,
