@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::iter::Map;
@@ -13,25 +14,29 @@ use wgpu::util::DeviceExt;
 
 use super::*;
 
+#[derive(Debug)]
 pub struct GltfAsset {
     pub document: gltf::Document,
     pub buffers: Vec<gltf::buffer::Data>,
     pub images: Vec<gltf::image::Data>,
 }
 
+#[derive(Debug)]
 pub struct Scene {
     pub source_asset: GltfAsset,
     pub buffers: SceneBuffers,
     // TODO: add bind groups
 }
 
+#[derive(Debug)]
 pub struct SceneBuffers {
-    // same order as the meshes in src
+    // same order as the drawable_primitive_groups vec
     pub bindable_mesh_data: Vec<BindableMeshData>,
     // same order as the textures in src
     pub textures: Vec<Texture>,
 }
 
+#[derive(Debug)]
 pub struct BindableMeshData {
     pub vertex_buffer: BufferAndLength,
 
@@ -42,6 +47,7 @@ pub struct BindableMeshData {
     pub textures_bind_group: wgpu::BindGroup,
 }
 
+#[derive(Debug)]
 pub struct BufferAndLength {
     pub buffer: wgpu::Buffer,
     pub length: usize,
@@ -69,7 +75,7 @@ pub fn build_scene(
         .map(|texture| {
             let source_image_index = texture.source().index();
             let image_data = &images[source_image_index];
-            dbg!("Creating texture: {:?}", texture.name());
+            // dbg!("Creating texture: {:?}", texture.name());
 
             let (image_pixels, texture_format) = get_image_pixels(image_data)?;
 
@@ -113,36 +119,55 @@ pub fn build_scene(
             .collect()
     };
 
-    let scene_nodes: Vec<_> = document
-        .scenes()
-        .find(|scene| scene.index() == scene_index)
-        .ok_or_else(|| anyhow::anyhow!("Expected scene with index: {:?}", scene_index))?
-        .nodes()
+    let scene_nodes: Vec<_> = get_full_node_list(
+        document
+            .scenes()
+            .find(|scene| scene.index() == scene_index)
+            .ok_or_else(|| anyhow::anyhow!("Expected scene with index: {:?}", scene_index))?,
+    );
+
+    println!("scene_nodes len: {:?}", scene_nodes.len());
+    println!(
+        "scene_nodes info: {:?}",
+        scene_nodes
+            .iter()
+            .map(|node| (
+                node.name(),
+                node.children()
+                    .map(|child| child.index())
+                    .collect::<Vec<_>>(),
+                node.transform(),
+                node.mesh().map(|mesh| mesh.index())
+            ))
+            .collect::<Vec<_>>(),
+    );
+
+    let meshes: Vec<_> = document.meshes().collect();
+
+    let drawable_primitive_groups: Vec<_> = meshes
+        .iter()
+        .flat_map(|mesh| mesh.primitives().map(|prim| (&meshes[mesh.index()], prim)))
+        .filter(|(_, prim)| prim.mode() == gltf::mesh::Mode::Triangles)
         .collect();
 
-    let bindable_mesh_data = document
-        .meshes()
-        .map(|mesh| {
-            dbg!(mesh.name());
-            if mesh
-                .primitives()
-                .any(|prim| prim.mode() != gltf::mesh::Mode::Triangles)
-            {
-                bail!("Only triangle primitives are supported");
-            }
-            let first_triangles_prim = mesh
-                .primitives()
-                .find(|prim| prim.mode() == gltf::mesh::Mode::Triangles)
-                .ok_or_else(|| anyhow::anyhow!("No triangle primitives found"))?;
+    let bindable_mesh_data = drawable_primitive_groups.iter()
+        .map(|(mesh, primitive_group)| {
             let (vertex_buffer, index_buffer) =
-                build_geometry_buffers(device, &first_triangles_prim, buffers)?;
+                build_geometry_buffers(device, primitive_group, buffers)?;
             let mesh_transforms: Vec<_> = scene_nodes
                 .iter()
                 .filter(|node| {
+                    println!("in filter: node.mesh().is_some(): {:?}, node.mesh().unwrap().index() == mesh.index(): {:?}", node.mesh().is_some(), node.mesh().is_some() && node.mesh().unwrap().index() == primitive_group.index());
                     node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index()
                 })
                 .map(|node| GpuMeshInstance::new(node_transforms[node.index()]))
                 .collect();
+
+            println!(
+                "{:?}: mesh_transforms len: {:?}",
+                mesh.name(),
+                mesh_transforms.len()
+            );
 
             // TODO: create instance buffer from mesh_transforms
             let instance_buffer = BufferAndLength {
@@ -157,7 +182,7 @@ pub fn build_scene(
             let textures_bind_group = build_textures_bind_group(
                 device,
                 queue,
-                &first_triangles_prim,
+                primitive_group,
                 &textures,
                 five_texture_bind_group_layout,
             )?;
@@ -212,18 +237,51 @@ fn get_ancestry_list(node_index: usize, parent_index_map: &HashMap<usize, usize>
 fn get_ancestry_list_impl(
     node_index: usize,
     parent_index_map: &HashMap<usize, usize>,
-    _acc: Vec<usize>,
+    acc: Vec<usize>,
 ) -> Vec<usize> {
-    let with_self: Vec<_> = _acc
-        .iter()
-        .chain(vec![node_index].iter())
-        .copied()
-        .collect();
+    let with_self: Vec<_> = acc.iter().chain(vec![node_index].iter()).copied().collect();
     match parent_index_map.get(&node_index) {
         Some(parent_index) => {
             get_ancestry_list_impl(*parent_index, parent_index_map, with_self).to_vec()
         }
         None => with_self,
+    }
+}
+
+fn get_full_node_list(scene: gltf::scene::Scene) -> Vec<gltf::scene::Node> {
+    // println!("node count: {:?}", scene.nodes().count());
+    scene
+        .nodes()
+        .flat_map(|node| {
+            let res = get_full_node_list_impl(node, Vec::new());
+            // println!("res len: {:?}", res.len());
+            res
+        })
+        .collect()
+}
+
+fn get_full_node_list_impl<'a>(
+    node: gltf::scene::Node<'a>,
+    acc: Vec<gltf::scene::Node<'a>>,
+) -> Vec<gltf::scene::Node<'a>> {
+    // println!("child count: {:?}", node.children().count());
+    if node.children().count() == 0 {
+        acc.iter()
+            .chain(vec![node.clone()].iter())
+            .cloned()
+            .collect()
+    } else {
+        node.children()
+            .flat_map(|child| {
+                get_full_node_list_impl(
+                    child,
+                    acc.iter()
+                        .chain(vec![node.clone()].iter())
+                        .cloned()
+                        .collect(),
+                )
+            })
+            .collect()
     }
 }
 
@@ -253,6 +311,7 @@ fn build_textures_bind_group(
 ) -> Result<wgpu::BindGroup> {
     let material = triangles_prim.material();
     // TODO: support alpha modes
+    println!("alpha mode: {:?}", material.alpha_mode());
     // let alpha_mode = material.alpha_mode();
     // if alpha_mode != gltf::material::AlphaMode::Opaque {
     //     bail!("Only opaque alpha mode is supported");
@@ -414,12 +473,13 @@ pub fn build_geometry_buffers(
                 gltf::accessor::DataType::U8 => {
                     anyhow::Ok(buffer_slice.iter().map(|&x| x as u16).collect::<Vec<u16>>())
                 }
-                gltf::accessor::DataType::U32 => anyhow::Ok(
-                    bytemuck::cast_slice::<_, u32>(buffer_slice)
-                        .iter()
-                        .map(|&x| x as u16)
-                        .collect(),
-                ),
+                gltf::accessor::DataType::U32 => {
+                    let as_u32 = bytemuck::cast_slice::<_, u32>(buffer_slice);
+                    let as_u16: Vec<_> = as_u32.iter().map(|&x| x as u16).collect();
+                    let as_u16_u32: Vec<_> = as_u16.iter().map(|&x| x as u32).collect();
+                    println!("as_u32 == as_u16: {}", as_u32.to_vec() == as_u16_u32);
+                    anyhow::Ok(as_u16)
+                }
                 data_type => {
                     bail!("Expected u16 or u8 indices but found: {:?}", data_type)
                 }
@@ -532,6 +592,7 @@ pub fn build_geometry_buffers(
         );
     }
 
+    // TODO: use this as fallback for missing tangents
     let triangles_with_tangents_and_bitangents: Vec<_> = triangles_as_index_tuples
         .iter()
         .copied()
@@ -611,9 +672,15 @@ pub fn build_geometry_buffers(
     let vertices_with_all_data: Vec<_> =
         triangles_with_all_data.iter().flatten().cloned().collect();
 
-    // dbg!(&vertex_positions);
-    // dbg!(&vertices_with_all_data);
-    // dbg!(&indices);
+    // println!("triangle count: {:?}", triangle_count);
+    // println!(
+    //     "vertices_with_all_data len: {:?}",
+    //     vertices_with_all_data.len()
+    // );
+
+    // println!("{:?}", vertex_positions);
+    // println!("{:?}", vertices_with_all_data);
+    // println!("{:?}", indices);
     // panic!();
 
     let vertex_buffer = BufferAndLength {
