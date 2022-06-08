@@ -829,6 +829,9 @@ impl RendererState {
         let brdf_lut_gen_pipeline =
             device.create_render_pipeline(&brdf_lut_gen_pipeline_descriptor);
 
+        let gltf_import_result = gltf::import(
+            "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf",
+        )?;
         // let gltf_import_result =
         //     gltf::import("./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf")?;
         // let gltf_import_result = gltf::import("./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf")?;
@@ -841,8 +844,8 @@ impl RendererState {
         // let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
         // let gltf_import_result =
         //     gltf::import("./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf")?;
-        let gltf_import_result =
-            gltf::import("./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf")?;
+        // let gltf_import_result =
+        //     gltf::import("./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf")?;
         let (document, buffers, images) = gltf_import_result;
         let scene = build_scene(
             &device,

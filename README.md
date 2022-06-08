@@ -29,6 +29,7 @@
   - [x] support tangent vector map
   - [x] support srgb
   - [x] support non-texture material params (pass through instance buffer?)
+  - [ ] why is the lantern mis-aligned?
   - [ ] support vertex colors
   - [ ] support ambient occlusion strength
   - [ ] load in some [sample models](https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0):
