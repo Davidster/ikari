@@ -214,8 +214,8 @@ impl RendererState {
     pub async fn new(window: &winit::window::Window) -> Result<Self> {
         let mut logger = Logger::new();
         // force it to vulkan to get renderdoc to work:
-        let backends = wgpu::Backends::from(wgpu::Backend::Dx12);
-        // let backends = wgpu::Backends::all();
+        // let backends = wgpu::Backends::from(wgpu::Backend::Dx12);
+        let backends = wgpu::Backends::all();
         let instance = wgpu::Instance::new(backends);
         let size = window.inner_size();
         let surface = unsafe { instance.create_surface(&window) };
@@ -1688,10 +1688,10 @@ impl RendererState {
             // );
             drawable_primitive_groups
                 .iter()
-                .filter(|(_, prim)| {
+                .enumerate()
+                .filter(|(_, (_, prim))| {
                     prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
                 })
-                .enumerate()
                 .for_each(|(drawable_prim_index, _)| {
                     let BindableMeshData {
                         vertex_buffer,

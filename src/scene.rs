@@ -78,7 +78,6 @@ pub fn build_scene(
         .map(|texture| {
             let source_image_index = texture.source().index();
             let image_data = &images[source_image_index];
-            // dbg!("Creating texture: {:?}", texture.name());
 
             let srgb = materials.iter().any(|material| {
                 vec![
@@ -205,14 +204,15 @@ pub fn build_scene(
         .filter(|(_, prim)| prim.mode() == gltf::mesh::Mode::Triangles)
         .collect();
 
-    let bindable_mesh_data = drawable_primitive_groups.iter()
-        .map(|(mesh, primitive_group)| {
-            let (vertex_buffer, index_buffer) =
+    let bindable_mesh_data = drawable_primitive_groups
+        .iter()
+        .enumerate()
+        .map(|(prim_index, (mesh, primitive_group))| {
+            let (vertex_buffer, index_buffer, vertices, indices) =
                 build_geometry_buffers(device, primitive_group, buffers)?;
             let mesh_transforms: Vec<_> = scene_nodes
                 .iter()
                 .filter(|node| {
-                    println!("in filter: node.mesh().is_some(): {:?}, node.mesh().unwrap().index() == mesh.index(): {:?}", node.mesh().is_some(), node.mesh().is_some() && node.mesh().unwrap().index() == primitive_group.index());
                     node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index()
                 })
                 .map(|node| GpuMeshInstance::new(node_transforms[node.index()]))
@@ -224,7 +224,6 @@ pub fn build_scene(
                 mesh_transforms.len()
             );
 
-            // TODO: create instance buffer from mesh_transforms
             let instance_buffer = BufferAndLength {
                 buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("InstancedMeshComponent instance_buffer"),
@@ -241,6 +240,7 @@ pub fn build_scene(
                 &textures,
                 five_texture_bind_group_layout,
             )?;
+
             anyhow::Ok(BindableMeshData {
                 vertex_buffer,
                 index_buffer,
@@ -510,7 +510,12 @@ pub fn build_geometry_buffers(
     device: &wgpu::Device,
     primitive_group: &gltf::mesh::Primitive,
     buffers: &[gltf::buffer::Data],
-) -> Result<(BufferAndLength, Option<BufferAndLength>)> {
+) -> Result<(
+    BufferAndLength,
+    Option<BufferAndLength>,
+    Vec<Vertex>,
+    Option<Vec<u16>>,
+)> {
     let get_buffer_slice_from_accessor = |accessor: gltf::Accessor| {
         let buffer_view = accessor.view().unwrap();
         if buffer_view.stride().is_some() && buffer_view.stride().unwrap() != accessor.size() {
@@ -814,7 +819,7 @@ pub fn build_geometry_buffers(
         length: vertices_with_all_data.len(),
     };
 
-    let index_buffer = indices.map(|indices| BufferAndLength {
+    let index_buffer = indices.clone().map(|indices| BufferAndLength {
         buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Scene Index Buffer"),
             contents: bytemuck::cast_slice(&indices),
@@ -823,5 +828,5 @@ pub fn build_geometry_buffers(
         length: indices.len(),
     });
 
-    Ok((vertex_buffer, index_buffer))
+    Ok((vertex_buffer, index_buffer, vertices_with_all_data, indices))
 }
