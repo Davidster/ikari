@@ -30,11 +30,14 @@ struct VertexInput {
     [[location(4)]] object_bitangent: vec3<f32>;
 };
 
-struct ModelTransformInstance {
-    [[location(5)]]  model_transform_0: vec4<f32>;
-    [[location(6)]]  model_transform_1: vec4<f32>;
-    [[location(7)]]  model_transform_2: vec4<f32>;
-    [[location(8)]]  model_transform_3: vec4<f32>;
+struct Instance {
+    [[location(5)]]   model_transform_0: vec4<f32>;
+    [[location(6)]]   model_transform_1: vec4<f32>;
+    [[location(7)]]   model_transform_2: vec4<f32>;
+    [[location(8)]]   model_transform_3: vec4<f32>;
+    [[location(9)]]   base_color_factor: vec4<f32>;
+    [[location(10)]]  emissive_factor: vec4<f32>;
+    [[location(11)]]  metallic_roughness_factor: vec4<f32>;
 };
 
 struct VertexOutput {
@@ -44,13 +47,24 @@ struct VertexOutput {
     [[location(2)]] world_tangent: vec3<f32>;
     [[location(3)]] world_bitangent: vec3<f32>;
     [[location(4)]] tex_coords: vec2<f32>;
+    [[location(5)]] base_color_factor: vec4<f32>;
+    [[location(6)]] emissive_factor: vec4<f32>;
+    [[location(7)]] metallic_factor: f32;
+    [[location(8)]] roughness_factor: f32;
 };
 
 struct FragmentOutput {
     [[location(0)]] color: vec4<f32>;
 };
 
-fn do_vertex_shade(vshader_input: VertexInput, model_transform: mat4x4<f32>) -> VertexOutput {
+fn do_vertex_shade(
+    vshader_input: VertexInput,
+    model_transform: mat4x4<f32>,
+    base_color_factor: vec4<f32>,
+    emissive_factor: vec4<f32>,
+    metallic_factor: f32,
+    roughness_factor: f32
+) -> VertexOutput {
     var out: VertexOutput;
     out.world_normal = vshader_input.object_normal;
 
@@ -69,6 +83,10 @@ fn do_vertex_shade(vshader_input: VertexInput, model_transform: mat4x4<f32>) -> 
     out.world_tangent = world_tangent;
     out.world_bitangent = world_bitangent;
     out.tex_coords = vshader_input.object_tex_coords;
+    out.base_color_factor = base_color_factor;
+    out.emissive_factor = emissive_factor;
+    out.metallic_factor = metallic_factor;
+    out.roughness_factor = roughness_factor;
 
     return out;
 }
@@ -76,7 +94,7 @@ fn do_vertex_shade(vshader_input: VertexInput, model_transform: mat4x4<f32>) -> 
 [[stage(vertex)]]
 fn vs_main(
     vshader_input: VertexInput,
-    instance: ModelTransformInstance,
+    instance: Instance,
 ) -> VertexOutput {
     let model_transform = mat4x4<f32>(
         instance.model_transform_0,
@@ -84,7 +102,18 @@ fn vs_main(
         instance.model_transform_2,
         instance.model_transform_3,
     );
-    return do_vertex_shade(vshader_input, model_transform);
+    let base_color_factor = instance.base_color_factor;
+    let emissive_factor = instance.emissive_factor;
+    let metallic_factor = instance.metallic_roughness_factor[0];
+    let roughness_factor = instance.metallic_roughness_factor[1];
+    return do_vertex_shade(
+        vshader_input,
+        model_transform,
+        base_color_factor,
+        emissive_factor,
+        metallic_factor,
+        roughness_factor
+    );
 }
 
 [[group(0), binding(0)]]
@@ -222,6 +251,10 @@ fn do_fragment_shade(
     world_normal: vec3<f32>,
     tex_coords: vec2<f32>,
     camera_position: vec3<f32>,
+    base_color_factor: vec4<f32>,
+    emissive_factor: vec4<f32>,
+    metallic_factor: f32,
+    roughness_factor: f32
 ) -> FragmentOutput {
 
     // let roughness = 0.12;
@@ -230,24 +263,24 @@ fn do_fragment_shade(
         diffuse_texture,
         diffuse_sampler,
         tex_coords
-    ).rgb;
+    ).rgb * base_color_factor.rgb;
     let metallic_roughness = textureSample(
         metallic_roughness_map_texture,
         metallic_roughness_map_sampler,
         tex_coords
     ).rgb;
-    let metallicness = metallic_roughness.z;
+    let metallicness = metallic_roughness.z * metallic_factor;
     let roughness = metallic_roughness.y;
     let ambient_occlusion = textureSample(
         ambient_occlusion_map_texture,
         ambient_occlusion_map_sampler,
         tex_coords
-    ).r;
+    ).r * roughness_factor;
     let emissive = textureSample(
         emissive_map_texture,
         emissive_map_sampler,
         tex_coords
-    ).rgb;
+    ).rgb * emissive_factor.rgb;
 
     let to_viewer_vec = normalize(camera_position - world_position);
     let reflection_vec = reflect(-to_viewer_vec, normalize(world_normal));
@@ -368,6 +401,10 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
         in.world_position,
         transformed_normal,
         in.tex_coords,
-        camera.position.xyz
+        camera.position.xyz,
+        in.base_color_factor,
+        in.emissive_factor,
+        in.metallic_factor,
+        in.roughness_factor
     );
 }

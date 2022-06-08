@@ -28,7 +28,9 @@
   - [x] support multiple lights
   - [x] support tangent vector map
   - [x] support srgb
-  - [ ] support non-texture material params (pass through instance buffer?)
+  - [x] support non-texture material params (pass through instance buffer?)
+  - [ ] support vertex colors
+  - [ ] support ambient occlusion strength
   - [ ] load in some [sample models](https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0):
     - [x] [Triangle Without Indices](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TriangleWithoutIndices)
     - [x] [Triangle](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/Triangle)

@@ -31,7 +31,7 @@ fn gltf_transform_to_mat4(gltf_transform: gltf::scene::Transform) -> Matrix4<f32
             transform.set_position(translation.into());
             transform.set_rotation(rotation.into());
             transform.set_scale(scale.into());
-            transform.matrix.get()
+            transform.matrix()
         }
         gltf::scene::Transform::Matrix { matrix } => Matrix4::from(matrix),
     }

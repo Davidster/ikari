@@ -3,7 +3,7 @@ use std::collections::{hash_map, HashMap};
 use super::*;
 
 use anyhow::Result;
-use cgmath::{Matrix4, Vector2, Vector3};
+use cgmath::{Matrix4, Vector2, Vector3, Vector4};
 use wgpu::util::DeviceExt;
 
 type VertexPosition = [f32; 3];
@@ -42,12 +42,17 @@ impl Vertex {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuMeshInstance {
     model_transform: GpuMatrix4,
+    base_color_factor: [f32; 4],
+    emissive_factor: [f32; 4],
+    metallic_roughness_factor: [f32; 4],
 }
 
 impl GpuMeshInstance {
-    const ATTRIBS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
-        5 => Float32x4,  6 => Float32x4,  7 => Float32x4,  8 => Float32x4,
-        9 => Float32x4, 10 => Float32x4, 11 => Float32x4, 12 => Float32x4
+    const ATTRIBS: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
+        5 => Float32x4,  6 => Float32x4,  7 => Float32x4,  8 => Float32x4, // transform
+        9 => Float32x4,
+        10 => Float32x4,
+        11 => Float32x4
     ];
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
@@ -58,9 +63,27 @@ impl GpuMeshInstance {
         }
     }
 
-    pub fn new(model_transform: Matrix4<f32>) -> GpuMeshInstance {
+    pub fn new(instance: &MeshInstance) -> GpuMeshInstance {
+        let MeshInstance {
+            transform,
+            base_material,
+        } = instance;
+        let BaseMaterial {
+            base_color_factor,
+            emissive_factor,
+            metallic_factor,
+            roughness_factor,
+        } = base_material;
         GpuMeshInstance {
-            model_transform: GpuMatrix4(model_transform),
+            model_transform: GpuMatrix4(transform.matrix()),
+            base_color_factor: (*base_color_factor).into(),
+            emissive_factor: [
+                emissive_factor[0],
+                emissive_factor[1],
+                emissive_factor[2],
+                1.0,
+            ],
+            metallic_roughness_factor: [*metallic_factor, *roughness_factor, 1.0, 1.0],
         }
     }
 }
@@ -91,6 +114,40 @@ impl GpuFlatColorMeshInstance {
         GpuFlatColorMeshInstance {
             model_transform: GpuMatrix4(model_transform),
             color: [color.x, color.y, color.z, 1.0],
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct MeshInstance {
+    pub transform: transform::Transform,
+    pub base_material: BaseMaterial,
+}
+
+impl MeshInstance {
+    pub fn new() -> MeshInstance {
+        MeshInstance {
+            transform: transform::Transform::new(),
+            base_material: Default::default(),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct BaseMaterial {
+    pub base_color_factor: Vector4<f32>,
+    pub emissive_factor: Vector3<f32>,
+    pub metallic_factor: f32,
+    pub roughness_factor: f32,
+}
+
+impl Default for BaseMaterial {
+    fn default() -> Self {
+        BaseMaterial {
+            base_color_factor: Vector4::new(1.0, 1.0, 1.0, 1.0),
+            emissive_factor: Vector3::new(0.0, 0.0, 0.0),
+            metallic_factor: 1.0,
+            roughness_factor: 1.0,
         }
     }
 }
@@ -179,7 +236,7 @@ impl MeshComponent {
 
         let transform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("MeshComponent Transform Buffer"),
-            contents: bytemuck::cast_slice(&[GpuMatrix4(transform.matrix.get())]),
+            contents: bytemuck::cast_slice(&[GpuMatrix4(transform.matrix())]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 

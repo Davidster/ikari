@@ -4,7 +4,7 @@ use super::*;
 
 use anyhow::Result;
 
-use cgmath::{Matrix4, One, Rad, Vector2, Vector3};
+use cgmath::{Matrix4, One, Rad, Vector2, Vector3, Vector4};
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -198,8 +198,8 @@ pub struct RendererState {
     actual_balls: Vec<BallComponent>,
 
     lights: Vec<PointLightComponent>,
-    test_object_transforms: Vec<super::transform::Transform>,
-    plane_transforms: Vec<super::transform::Transform>,
+    test_object_instances: Vec<MeshInstance>,
+    plane_instances: Vec<MeshInstance>,
 
     light_mesh: InstancedMeshComponent,
     sphere_mesh: InstancedMeshComponent,
@@ -963,19 +963,19 @@ impl RendererState {
         // let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
 
         // Newport Loft
-        let skybox_background = SkyboxBackground::Equirectangular {
-            image_path: "./src/textures/newport_loft/background.jpg",
-        };
-        let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-            Some(SkyboxHDREnvironment::Equirectangular {
-                image_path: "./src/textures/newport_loft/radiance.hdr",
-            });
+        // let skybox_background = SkyboxBackground::Equirectangular {
+        //     image_path: "./src/textures/newport_loft/background.jpg",
+        // };
+        // let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+        //     Some(SkyboxHDREnvironment::Equirectangular {
+        //         image_path: "./src/textures/newport_loft/radiance.hdr",
+        //     });
 
         // My photosphere pic
-        // let skybox_background = SkyboxBackground::Equirectangular {
-        //     image_path: "./src/textures/photosphere_skybox.jpg",
-        // };
-        // let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
+        let skybox_background = SkyboxBackground::Equirectangular {
+            image_path: "./src/textures/photosphere_skybox.jpg",
+        };
+        let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
 
         let skybox_texture = match skybox_background {
             SkyboxBackground::Equirectangular { image_path } => {
@@ -1189,7 +1189,7 @@ impl RendererState {
 
         let light_flat_color_instances: Vec<_> = lights
             .iter()
-            .map(|light| GpuFlatColorMeshInstance::new(light.transform.matrix.get(), light.color))
+            .map(|light| GpuFlatColorMeshInstance::new(light.transform.matrix(), light.color))
             .collect();
 
         let light_emissive_map = Texture::from_color(
@@ -1225,12 +1225,14 @@ impl RendererState {
             bytemuck::cast_slice(&light_flat_color_instances),
         )?;
 
-        let test_object_transforms = vec![super::transform::Transform::new()];
-        test_object_transforms[0].set_position(Vector3::new(0.0, 1.0, 0.0));
+        let test_object_instances = vec![MeshInstance::new()];
+        test_object_instances[0]
+            .transform
+            .set_position(Vector3::new(0.0, 1.0, 0.0));
 
-        let test_object_transforms_gpu: Vec<_> = test_object_transforms
+        let test_object_transforms_gpu: Vec<_> = test_object_instances
             .iter()
-            .map(|transform| GpuMeshInstance::new(transform.matrix.get()))
+            .map(|instance| GpuMeshInstance::new(instance))
             .collect();
 
         // let test_object_diffuse_texture =
@@ -1259,12 +1261,16 @@ impl RendererState {
             bytemuck::cast_slice(&test_object_transforms_gpu),
         )?;
 
-        let plane_transforms = vec![super::transform::Transform::new()];
-        plane_transforms[0].set_scale(Vector3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH));
+        let plane_instances = vec![MeshInstance::new()];
+        plane_instances[0].transform.set_scale(Vector3::new(
+            ARENA_SIDE_LENGTH,
+            1.0,
+            ARENA_SIDE_LENGTH,
+        ));
 
-        let plane_transforms_gpu: Vec<_> = plane_transforms
+        let plane_transforms_gpu: Vec<_> = plane_instances
             .iter()
-            .map(|transform| GpuMeshInstance::new(transform.matrix.get()))
+            .map(|instance| GpuMeshInstance::new(instance))
             .collect();
 
         let plane_mesh = InstancedMeshComponent::new(
@@ -1333,7 +1339,7 @@ impl RendererState {
 
         let balls_transforms: Vec<_> = balls
             .iter()
-            .map(|ball| GpuMeshInstance::new(ball.transform.matrix.get()))
+            .map(|ball| GpuMeshInstance::new(&ball.instance))
             .collect();
 
         let sphere_mesh = InstancedMeshComponent::new(
@@ -1384,8 +1390,8 @@ impl RendererState {
             actual_balls: balls,
 
             lights,
-            test_object_transforms,
-            plane_transforms,
+            test_object_instances,
+            plane_instances,
 
             light_mesh,
             sphere_mesh,
@@ -1586,7 +1592,7 @@ impl RendererState {
         let balls_transforms: Vec<_> = self
             .actual_balls
             .iter()
-            .map(|ball| GpuMeshInstance::new(ball.transform.matrix.get()))
+            .map(|ball| GpuMeshInstance::new(&ball.instance))
             .collect();
         self.queue.write_buffer(
             &self.sphere_mesh.instance_buffer,
@@ -1594,9 +1600,9 @@ impl RendererState {
             bytemuck::cast_slice(&balls_transforms),
         );
         let test_object_transforms_gpu: Vec<_> = self
-            .test_object_transforms
+            .test_object_instances
             .iter()
-            .map(|transform| GpuMeshInstance::new(transform.matrix.get()))
+            .map(|instance| GpuMeshInstance::new(instance))
             .collect();
         self.queue.write_buffer(
             &self.test_object_mesh.instance_buffer,
@@ -1614,7 +1620,7 @@ impl RendererState {
         let light_flat_color_instances: Vec<_> = self
             .lights
             .iter()
-            .map(|light| GpuFlatColorMeshInstance::new(light.transform.matrix.get(), light.color))
+            .map(|light| GpuFlatColorMeshInstance::new(light.transform.matrix(), light.color))
             .collect();
         self.queue.write_buffer(
             &self.light_mesh.instance_buffer,
@@ -1725,21 +1731,21 @@ impl RendererState {
                 });
 
             // render test object
-            // scene_render_pass.set_pipeline(&self.mesh_pipeline);
-            // scene_render_pass.set_bind_group(0, &self.test_object_mesh.textures_bind_group, &[]);
-            // scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
-            // scene_render_pass.set_bind_group(2, &self.skybox_texture_bind_group, &[]);
-            // scene_render_pass.set_vertex_buffer(0, self.test_object_mesh.vertex_buffer.slice(..));
-            // scene_render_pass.set_vertex_buffer(1, self.test_object_mesh.instance_buffer.slice(..));
-            // scene_render_pass.set_index_buffer(
-            //     self.test_object_mesh.index_buffer.slice(..),
-            //     wgpu::IndexFormat::Uint16,
-            // );
-            // scene_render_pass.draw_indexed(
-            //     0..self.test_object_mesh.num_indices,
-            //     0,
-            //     0..self.test_object_transforms.len() as u32,
-            // );
+            scene_render_pass.set_pipeline(&self.mesh_pipeline);
+            scene_render_pass.set_bind_group(0, &self.test_object_mesh.textures_bind_group, &[]);
+            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            scene_render_pass.set_bind_group(2, &self.skybox_texture_bind_group, &[]);
+            scene_render_pass.set_vertex_buffer(0, self.test_object_mesh.vertex_buffer.slice(..));
+            scene_render_pass.set_vertex_buffer(1, self.test_object_mesh.instance_buffer.slice(..));
+            scene_render_pass.set_index_buffer(
+                self.test_object_mesh.index_buffer.slice(..),
+                wgpu::IndexFormat::Uint16,
+            );
+            scene_render_pass.draw_indexed(
+                0..self.test_object_mesh.num_indices,
+                0,
+                0..self.test_object_instances.len() as u32,
+            );
 
             // // render floor
             // scene_render_pass.set_pipeline(&self.mesh_pipeline);

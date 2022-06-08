@@ -10,6 +10,7 @@ use cgmath::ulps_eq;
 use cgmath::Matrix4;
 use cgmath::Vector2;
 use cgmath::Vector3;
+use cgmath::Vector4;
 use image::imageops::FilterType::Nearest;
 use wgpu::util::DeviceExt;
 
@@ -208,6 +209,14 @@ pub fn build_scene(
         .iter()
         .enumerate()
         .map(|(prim_index, (mesh, primitive_group))| {
+            let (textures_bind_group, base_material) = build_textures_bind_group(
+                device,
+                queue,
+                primitive_group,
+                &textures,
+                five_texture_bind_group_layout,
+            )?;
+
             let (vertex_buffer, index_buffer, vertices, indices) =
                 build_geometry_buffers(device, primitive_group, buffers)?;
             let mesh_transforms: Vec<_> = scene_nodes
@@ -215,7 +224,12 @@ pub fn build_scene(
                 .filter(|node| {
                     node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index()
                 })
-                .map(|node| GpuMeshInstance::new(node_transforms[node.index()]))
+                .map(|node| {
+                    GpuMeshInstance::new(&MeshInstance {
+                        transform: node_transforms[node.index()].into(),
+                        base_material,
+                    })
+                })
                 .collect();
 
             println!(
@@ -232,14 +246,6 @@ pub fn build_scene(
                 }),
                 length: mesh_transforms.len(),
             };
-
-            let textures_bind_group = build_textures_bind_group(
-                device,
-                queue,
-                primitive_group,
-                &textures,
-                five_texture_bind_group_layout,
-            )?;
 
             anyhow::Ok(BindableMeshData {
                 vertex_buffer,
@@ -374,7 +380,7 @@ fn gltf_transform_to_mat4(gltf_transform: gltf::scene::Transform) -> Matrix4<f32
             transform.set_position(translation.into());
             transform.set_rotation(rotation.into());
             transform.set_scale(scale.into());
-            transform.matrix.get()
+            transform.matrix()
         }
         gltf::scene::Transform::Matrix { matrix } => Matrix4::from(matrix),
     }
@@ -386,7 +392,7 @@ fn build_textures_bind_group(
     triangles_prim: &gltf::mesh::Primitive,
     textures: &[Texture],
     five_texture_bind_group_layout: &wgpu::BindGroupLayout,
-) -> Result<wgpu::BindGroup> {
+) -> Result<(wgpu::BindGroup, BaseMaterial)> {
     let material = triangles_prim.material();
 
     println!("alpha mode: {:?}", material.alpha_mode());
@@ -420,7 +426,7 @@ fn build_textures_bind_group(
         Some(metallic_roughness_map) => &textures[metallic_roughness_map.index()],
         None => {
             auto_generated_metallic_roughness_map =
-                Texture::from_color(device, queue, [255, 127, 0, 255])?;
+                Texture::from_color(device, queue, [255, 255, 255, 255])?;
             &auto_generated_metallic_roughness_map
         }
     };
@@ -503,7 +509,16 @@ fn build_textures_bind_group(
         label: Some("InstancedMeshComponent textures_bind_group"),
     });
 
-    Ok(textures_bind_group)
+    let yo = Vector4::from(pbr_info.base_color_factor());
+
+    let base_material = BaseMaterial {
+        base_color_factor: Vector4::from(pbr_info.base_color_factor()),
+        emissive_factor: Vector3::from(material.emissive_factor()),
+        metallic_factor: pbr_info.metallic_factor(),
+        roughness_factor: pbr_info.roughness_factor(),
+    };
+
+    Ok((textures_bind_group, base_material))
 }
 
 pub fn build_geometry_buffers(
