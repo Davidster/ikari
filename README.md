@@ -30,6 +30,7 @@
   - [x] support srgb
   - [x] support non-texture material params (pass through instance buffer?)
   - [x] why is the lantern mis-aligned?
+  - [ ] why doesn't the photosphere skybox work on mac?
   - [ ] support vertex colors
   - [ ] support ambient occlusion strength
   - [ ] support Texture Linear Interpolation Test
