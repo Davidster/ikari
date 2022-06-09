@@ -353,11 +353,16 @@ fn do_fragment_shade(
     let fresnel_ambient = fresnel_func_schlick_with_roughness(n_dot_v, f0, a);
     // mip level count - 1
     let MAX_REFLECTION_LOD = 4.0;
-    let pre_filtered_color = textureSampleLevel(
+    // let pre_filtered_color = textureSampleLevel(
+    //     specular_env_map_texture,
+    //     specular_env_map_sampler,
+    //     world_normal_to_cubemap_vec(reflection_vec),
+    //     roughness * MAX_REFLECTION_LOD
+    // ).rgb;
+    let pre_filtered_color = textureSample(
         specular_env_map_texture,
         specular_env_map_sampler,
-        world_normal_to_cubemap_vec(reflection_vec),
-        roughness * MAX_REFLECTION_LOD
+        world_normal_to_cubemap_vec(reflection_vec)
     ).rgb;
     let brdf_lut_res = textureSample(brdf_lut_texture, brdf_lut_sampler, vec2<f32>(n_dot_v, roughness));
     let ambient_specular_irradiance = pre_filtered_color * (fresnel_ambient * brdf_lut_res.r + brdf_lut_res.g);
@@ -369,6 +374,7 @@ fn do_fragment_shade(
     let ambient_irradiance = (kd_ambient * ambient_diffuse_irradiance + ambient_specular_irradiance) * ambient_occlusion;
 
     let combined_irradiance_hdr = ambient_irradiance + total_light_irradiance;
+    // let combined_irradiance_hdr = total_light_irradiance;
     let combined_irradiance_ldr = (combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0))) + emissive;
 
     let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);

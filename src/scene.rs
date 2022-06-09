@@ -135,6 +135,15 @@ pub fn build_scene(
                 texture.name(),
                 texture_format.into(),
                 true,
+                // &SamplerDescriptor(wgpu::SamplerDescriptor {
+                //     address_mode_u: wgpu::AddressMode::ClampToEdge,
+                //     address_mode_v: wgpu::AddressMode::ClampToEdge,
+                //     address_mode_w: wgpu::AddressMode::ClampToEdge,
+                //     mag_filter: wgpu::FilterMode::Nearest,
+                //     min_filter: wgpu::FilterMode::Nearest,
+                //     mipmap_filter: wgpu::FilterMode::Nearest,
+                //     ..Default::default()
+                // }),
                 &SamplerDescriptor(wgpu::SamplerDescriptor {
                     address_mode_u,
                     address_mode_v,
@@ -165,7 +174,9 @@ pub fn build_scene(
                 let node_ancestry_list = get_ancestry_list(node.index(), &parent_index_map);
                 node_ancestry_list
                     .iter()
+                    .rev()
                     .fold(Matrix4::identity(), |acc, node_index| {
+                        dbg!(node.transform());
                         let node = &nodes[*node_index];
                         let node_transform = gltf_transform_to_mat4(node.transform());
                         acc * node_transform
@@ -407,7 +418,8 @@ fn build_textures_bind_group(
 
     let pbr_info = material.pbr_metallic_roughness();
 
-    let material_diffuse_texture = pbr_info.base_color_texture().map(|info| info.texture());
+    let mut material_diffuse_texture = pbr_info.base_color_texture().map(|info| info.texture());
+    material_diffuse_texture = None;
     let auto_generated_diffuse_texture;
     let diffuse_texture = match material_diffuse_texture {
         Some(diffuse_texture) => &textures[diffuse_texture.index()],
@@ -418,9 +430,10 @@ fn build_textures_bind_group(
         }
     };
 
-    let material_metallic_roughness_map = pbr_info
+    let mut material_metallic_roughness_map = pbr_info
         .metallic_roughness_texture()
         .map(|info| info.texture());
+    // material_metallic_roughness_map = None;
     let auto_generated_metallic_roughness_map;
     let metallic_roughness_map = match material_metallic_roughness_map {
         Some(metallic_roughness_map) => &textures[metallic_roughness_map.index()],
@@ -431,7 +444,8 @@ fn build_textures_bind_group(
         }
     };
 
-    let material_normal_map = material.normal_texture().map(|info| info.texture());
+    let mut material_normal_map = material.normal_texture().map(|info| info.texture());
+    // material_normal_map = None;
     let auto_generated_normal_map;
     let normal_map = match material_normal_map {
         Some(normal_map) => &textures[normal_map.index()],
@@ -441,7 +455,8 @@ fn build_textures_bind_group(
         }
     };
 
-    let material_emissive_map = material.emissive_texture().map(|info| info.texture());
+    let mut material_emissive_map = material.emissive_texture().map(|info| info.texture());
+    material_emissive_map = None;
     let auto_generated_emissive_map;
     let emissive_map = match material_emissive_map {
         Some(emissive_map) => &textures[emissive_map.index()],
@@ -451,7 +466,9 @@ fn build_textures_bind_group(
         }
     };
 
-    let material_ambient_occlusion_map = material.occlusion_texture().map(|info| info.texture());
+    let mut material_ambient_occlusion_map =
+        material.occlusion_texture().map(|info| info.texture());
+    material_ambient_occlusion_map = None;
     let auto_generated_ambient_occlusion_map;
     let ambient_occlusion_map = match material_ambient_occlusion_map {
         Some(ambient_occlusion_map) => &textures[ambient_occlusion_map.index()],

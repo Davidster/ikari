@@ -829,9 +829,12 @@ impl RendererState {
         let brdf_lut_gen_pipeline =
             device.create_render_pipeline(&brdf_lut_gen_pipeline_descriptor);
 
-        let gltf_import_result = gltf::import(
-            "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf",
-        )?;
+        // let gltf_import_result = gltf::import(
+        //     "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf",
+        // )?;
+        // let gltf_import_result = gltf::import(
+        //     "/home/david/Programming/glTF-Sample-Models/2.0/Lantern/glTF/Lantern.gltf",
+        // )?;
         // let gltf_import_result =
         //     gltf::import("./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf")?;
         // let gltf_import_result = gltf::import("./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf")?;
@@ -841,7 +844,7 @@ impl RendererState {
         // let gltf_import_result = gltf::import(
         //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb",
         // )?;
-        // let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
+        let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
         // let gltf_import_result =
         //     gltf::import("./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf")?;
         // let gltf_import_result =
@@ -1713,24 +1716,26 @@ impl RendererState {
                     scene_render_pass.set_bind_group(0, textures_bind_group, &[]);
                     scene_render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
                     scene_render_pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
-                    match index_buffer {
-                        Some(index_buffer) => {
-                            // println!("Calling draw draw_indexed for mesh: {:?}", mesh.name());
-                            scene_render_pass.set_index_buffer(
-                                index_buffer.buffer.slice(..),
-                                wgpu::IndexFormat::Uint16,
-                            );
-                            scene_render_pass.draw_indexed(
-                                0..index_buffer.length as u32,
-                                0,
-                                0..instance_buffer.length as u32,
-                            );
-                        }
-                        None => {
-                            scene_render_pass.draw(
-                                0..vertex_buffer.length as u32,
-                                0..instance_buffer.length as u32,
-                            );
+                    if drawable_prim_index == 101 {
+                        match index_buffer {
+                            Some(index_buffer) => {
+                                // println!("Calling draw draw_indexed for mesh: {:?}", mesh.name());
+                                scene_render_pass.set_index_buffer(
+                                    index_buffer.buffer.slice(..),
+                                    wgpu::IndexFormat::Uint16,
+                                );
+                                scene_render_pass.draw_indexed(
+                                    0..index_buffer.length as u32,
+                                    0,
+                                    0..instance_buffer.length as u32,
+                                );
+                            }
+                            None => {
+                                scene_render_pass.draw(
+                                    0..vertex_buffer.length as u32,
+                                    0..instance_buffer.length as u32,
+                                );
+                            }
                         }
                     }
                 });
