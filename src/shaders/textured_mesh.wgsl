@@ -353,17 +353,17 @@ fn do_fragment_shade(
     let fresnel_ambient = fresnel_func_schlick_with_roughness(n_dot_v, f0, a);
     // mip level count - 1
     let MAX_REFLECTION_LOD = 4.0;
-    // let pre_filtered_color = textureSampleLevel(
-    //     specular_env_map_texture,
-    //     specular_env_map_sampler,
-    //     world_normal_to_cubemap_vec(reflection_vec),
-    //     roughness * MAX_REFLECTION_LOD
-    // ).rgb;
-    let pre_filtered_color = textureSample(
+    let pre_filtered_color = textureSampleLevel(
         specular_env_map_texture,
         specular_env_map_sampler,
-        world_normal_to_cubemap_vec(reflection_vec)
+        world_normal_to_cubemap_vec(reflection_vec),
+        roughness * MAX_REFLECTION_LOD
     ).rgb;
+    // let pre_filtered_color = textureSample(
+    //     specular_env_map_texture,
+    //     specular_env_map_sampler,
+    //     world_normal_to_cubemap_vec(reflection_vec)
+    // ).rgb;
     let brdf_lut_res = textureSample(brdf_lut_texture, brdf_lut_sampler, vec2<f32>(n_dot_v, roughness));
     let ambient_specular_irradiance = pre_filtered_color * (fresnel_ambient * brdf_lut_res.r + brdf_lut_res.g);
 

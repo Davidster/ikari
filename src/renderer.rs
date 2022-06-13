@@ -844,9 +844,9 @@ impl RendererState {
         // let gltf_import_result = gltf::import(
         //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb",
         // )?;
-        let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
-        // let gltf_import_result =
-        //     gltf::import("./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf")?;
+        // let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
+        let gltf_import_result =
+            gltf::import("./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf")?;
         // let gltf_import_result =
         //     gltf::import("./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf")?;
         let (document, buffers, images) = gltf_import_result;
@@ -983,7 +983,10 @@ impl RendererState {
         let skybox_background = SkyboxBackground::Equirectangular {
             image_path: "./src/textures/photosphere_skybox.jpg",
         };
-        let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
+        let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+            Some(SkyboxHDREnvironment::Equirectangular {
+                image_path: "./src/textures/photosphere_skybox_small.jpg",
+            });
 
         let skybox_texture = match skybox_background {
             SkyboxBackground::Equirectangular { image_path } => {
@@ -1240,7 +1243,7 @@ impl RendererState {
 
         let test_object_transforms_gpu: Vec<_> = test_object_instances
             .iter()
-            .map(|instance| GpuMeshInstance::new(instance))
+            .map(GpuMeshInstance::new)
             .collect();
 
         // let test_object_diffuse_texture =
@@ -1610,7 +1613,7 @@ impl RendererState {
         let test_object_transforms_gpu: Vec<_> = self
             .test_object_instances
             .iter()
-            .map(|instance| GpuMeshInstance::new(instance))
+            .map(GpuMeshInstance::new)
             .collect();
         self.queue.write_buffer(
             &self.test_object_mesh.instance_buffer,
@@ -1716,62 +1719,60 @@ impl RendererState {
                     scene_render_pass.set_bind_group(0, textures_bind_group, &[]);
                     scene_render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
                     scene_render_pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
-                    if drawable_prim_index == 101 {
-                        match index_buffer {
-                            Some(index_buffer) => {
-                                // println!("Calling draw draw_indexed for mesh: {:?}", mesh.name());
-                                scene_render_pass.set_index_buffer(
-                                    index_buffer.buffer.slice(..),
-                                    wgpu::IndexFormat::Uint16,
-                                );
-                                scene_render_pass.draw_indexed(
-                                    0..index_buffer.length as u32,
-                                    0,
-                                    0..instance_buffer.length as u32,
-                                );
-                            }
-                            None => {
-                                scene_render_pass.draw(
-                                    0..vertex_buffer.length as u32,
-                                    0..instance_buffer.length as u32,
-                                );
-                            }
+                    match index_buffer {
+                        Some(index_buffer) => {
+                            // println!("Calling draw draw_indexed for mesh: {:?}", mesh.name());
+                            scene_render_pass.set_index_buffer(
+                                index_buffer.buffer.slice(..),
+                                wgpu::IndexFormat::Uint16,
+                            );
+                            scene_render_pass.draw_indexed(
+                                0..index_buffer.length as u32,
+                                0,
+                                0..instance_buffer.length as u32,
+                            );
+                        }
+                        None => {
+                            scene_render_pass.draw(
+                                0..vertex_buffer.length as u32,
+                                0..instance_buffer.length as u32,
+                            );
                         }
                     }
                 });
 
             // render test object
-            // scene_render_pass.set_pipeline(&self.mesh_pipeline);
-            // scene_render_pass.set_bind_group(0, &self.test_object_mesh.textures_bind_group, &[]);
-            // scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
-            // scene_render_pass.set_bind_group(2, &self.skybox_texture_bind_group, &[]);
-            // scene_render_pass.set_vertex_buffer(0, self.test_object_mesh.vertex_buffer.slice(..));
-            // scene_render_pass.set_vertex_buffer(1, self.test_object_mesh.instance_buffer.slice(..));
-            // scene_render_pass.set_index_buffer(
-            //     self.test_object_mesh.index_buffer.slice(..),
-            //     wgpu::IndexFormat::Uint16,
-            // );
-            // scene_render_pass.draw_indexed(
-            //     0..self.test_object_mesh.num_indices,
-            //     0,
-            //     0..self.test_object_instances.len() as u32,
-            // );
+            scene_render_pass.set_pipeline(&self.mesh_pipeline);
+            scene_render_pass.set_bind_group(0, &self.test_object_mesh.textures_bind_group, &[]);
+            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            scene_render_pass.set_bind_group(2, &self.skybox_texture_bind_group, &[]);
+            scene_render_pass.set_vertex_buffer(0, self.test_object_mesh.vertex_buffer.slice(..));
+            scene_render_pass.set_vertex_buffer(1, self.test_object_mesh.instance_buffer.slice(..));
+            scene_render_pass.set_index_buffer(
+                self.test_object_mesh.index_buffer.slice(..),
+                wgpu::IndexFormat::Uint16,
+            );
+            scene_render_pass.draw_indexed(
+                0..self.test_object_mesh.num_indices,
+                0,
+                0..self.test_object_instances.len() as u32,
+            );
 
             // // render floor
-            // scene_render_pass.set_pipeline(&self.mesh_pipeline);
-            // scene_render_pass.set_bind_group(0, &self.plane_mesh.textures_bind_group, &[]);
-            // scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
-            // scene_render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
-            // scene_render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
-            // scene_render_pass.set_index_buffer(
-            //     self.plane_mesh.index_buffer.slice(..),
-            //     wgpu::IndexFormat::Uint16,
-            // );
-            // scene_render_pass.draw_indexed(
-            //     0..self.plane_mesh.num_indices,
-            //     0,
-            //     0..self.plane_transforms.len() as u32,
-            // );
+            scene_render_pass.set_pipeline(&self.mesh_pipeline);
+            scene_render_pass.set_bind_group(0, &self.plane_mesh.textures_bind_group, &[]);
+            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            scene_render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
+            scene_render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
+            scene_render_pass.set_index_buffer(
+                self.plane_mesh.index_buffer.slice(..),
+                wgpu::IndexFormat::Uint16,
+            );
+            scene_render_pass.draw_indexed(
+                0..self.plane_mesh.num_indices,
+                0,
+                0..self.plane_instances.len() as u32,
+            );
 
             // render balls
             scene_render_pass.set_pipeline(&self.mesh_pipeline);

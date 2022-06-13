@@ -176,7 +176,6 @@ pub fn build_scene(
                     .iter()
                     .rev()
                     .fold(Matrix4::identity(), |acc, node_index| {
-                        dbg!(node.transform());
                         let node = &nodes[*node_index];
                         let node_transform = gltf_transform_to_mat4(node.transform());
                         acc * node_transform
@@ -419,7 +418,7 @@ fn build_textures_bind_group(
     let pbr_info = material.pbr_metallic_roughness();
 
     let mut material_diffuse_texture = pbr_info.base_color_texture().map(|info| info.texture());
-    material_diffuse_texture = None;
+    // material_diffuse_texture = None;
     let auto_generated_diffuse_texture;
     let diffuse_texture = match material_diffuse_texture {
         Some(diffuse_texture) => &textures[diffuse_texture.index()],
@@ -456,7 +455,7 @@ fn build_textures_bind_group(
     };
 
     let mut material_emissive_map = material.emissive_texture().map(|info| info.texture());
-    material_emissive_map = None;
+    // material_emissive_map = None;
     let auto_generated_emissive_map;
     let emissive_map = match material_emissive_map {
         Some(emissive_map) => &textures[emissive_map.index()],
@@ -468,7 +467,7 @@ fn build_textures_bind_group(
 
     let mut material_ambient_occlusion_map =
         material.occlusion_texture().map(|info| info.texture());
-    material_ambient_occlusion_map = None;
+    // material_ambient_occlusion_map = None;
     let auto_generated_ambient_occlusion_map;
     let ambient_occlusion_map = match material_ambient_occlusion_map {
         Some(ambient_occlusion_map) => &textures[ambient_occlusion_map.index()],
