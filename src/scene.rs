@@ -525,8 +525,6 @@ fn build_textures_bind_group(
         label: Some("InstancedMeshComponent textures_bind_group"),
     });
 
-    let yo = Vector4::from(pbr_info.base_color_factor());
-
     let base_material = BaseMaterial {
         base_color_factor: Vector4::from(pbr_info.base_color_factor()),
         emissive_factor: Vector3::from(material.emissive_factor()),

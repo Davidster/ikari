@@ -31,8 +31,8 @@
   - [x] support non-texture material params (pass through instance buffer?)
   - [x] why is the lantern mis-aligned?
   - [x] why doesn't the photosphere skybox work on mac?
-  - [ ] support vertex colors
-  - [ ] support ambient occlusion strength
+  - [x] support vertex colors
+  - [ ] support ambient occlusion strength and normal map strength
   - [ ] support Texture Linear Interpolation Test
   - [ ] load in some [sample models](https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0):
     - [x] [Triangle Without Indices](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TriangleWithoutIndices)
@@ -40,7 +40,7 @@
     - [x] [Simple Meshes](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/SimpleMeshes)
     - [x] [Texture Coordinate Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TextureCoordinateTest)
     - [ ] [Texture Linear Interpolation Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TextureLinearInterpolationTest)
-    - [ ] [Vertex Color Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/VertexColorTest)
+    - [x] [Vertex Color Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/VertexColorTest)
     - [x] [Environment Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/EnvironmentTest)
 - [ ] improve macos support: 
   - [ ] make sure the skybox rad texture resolution is capped at a sane level; it causes the renderer to break on my m1.
