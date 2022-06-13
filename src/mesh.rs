@@ -8,6 +8,7 @@ use wgpu::util::DeviceExt;
 
 type VertexPosition = [f32; 3];
 type VertexNormal = [f32; 3];
+type VertexColor = [f32; 4];
 type VertexTextureCoords = [f32; 2];
 
 #[repr(C)]
@@ -18,15 +19,17 @@ pub struct Vertex {
     pub tex_coords: VertexTextureCoords,
     pub tangent: VertexNormal,
     pub bitangent: VertexNormal,
+    pub color: VertexColor,
 }
 
 impl Vertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+    const ATTRIBS: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
         0 => Float32x3,
         1 => Float32x3,
         2 => Float32x2,
         3 => Float32x3,
-        4 => Float32x3
+        4 => Float32x3,
+        5 => Float32x4,
     ];
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
@@ -49,10 +52,10 @@ pub struct GpuMeshInstance {
 
 impl GpuMeshInstance {
     const ATTRIBS: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
-        5 => Float32x4,  6 => Float32x4,  7 => Float32x4,  8 => Float32x4, // transform
-        9 => Float32x4,
+        6 => Float32x4,  7 => Float32x4,  8 => Float32x4,  9 => Float32x4, // transform
         10 => Float32x4,
-        11 => Float32x4
+        11 => Float32x4,
+        12 => Float32x4
     ];
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
@@ -97,9 +100,9 @@ pub struct GpuFlatColorMeshInstance {
 
 impl GpuFlatColorMeshInstance {
     const ATTRIBS: [wgpu::VertexAttribute; 9] = wgpu::vertex_attr_array![
-        5 => Float32x4,  6 => Float32x4,  7 => Float32x4,  8 => Float32x4,
-        9 => Float32x4, 10 => Float32x4, 11 => Float32x4, 12 => Float32x4,
-        13 => Float32x4
+        6 => Float32x4,  7 => Float32x4,  8 => Float32x4,  9 => Float32x4,
+        10 => Float32x4, 11 => Float32x4, 12 => Float32x4, 13 => Float32x4,
+        14 => Float32x4
     ];
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
@@ -537,6 +540,7 @@ impl BasicMesh {
                             tex_coords: [tex_coords.x, tex_coords.y],
                             tangent: to_arr(&tangent),
                             bitangent: to_arr(&bitangent),
+                            color: [1.0, 1.0, 1.0, 1.0],
                         });
                     }
                 });

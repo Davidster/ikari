@@ -15,19 +15,21 @@ struct VertexInput {
     [[location(2)]] object_tex_coords: vec2<f32>;
     [[location(3)]] object_tangent: vec3<f32>;
     [[location(4)]] object_bitangent: vec3<f32>;
+    [[location(5)]] object_color: vec4<f32>;
 };
 
-struct ModelTransformInstance {
-    [[location(5)]]  model_transform_0: vec4<f32>;
-    [[location(6)]]  model_transform_1: vec4<f32>;
-    [[location(7)]]  model_transform_2: vec4<f32>;
-    [[location(8)]]  model_transform_3: vec4<f32>;
-    [[location(9)]]  color: vec4<f32>;
+struct Instance {
+    [[location(6)]]  model_transform_0: vec4<f32>;
+    [[location(7)]]  model_transform_1: vec4<f32>;
+    [[location(8)]]  model_transform_2: vec4<f32>;
+    [[location(9)]]  model_transform_3: vec4<f32>;
+    [[location(10)]]  color: vec4<f32>;
 };
 
 struct VertexOutput {
     [[builtin(position)]] clip_position: vec4<f32>;
     [[location(0)]] color: vec4<f32>;
+    [[location(1)]] vertex_color: vec4<f32>;
 };
 
 struct FragmentOutput {
@@ -37,7 +39,7 @@ struct FragmentOutput {
 [[stage(vertex)]]
 fn vs_main(
     vshader_input: VertexInput,
-    instance: ModelTransformInstance,
+    instance: Instance,
 ) -> VertexOutput {
     let model_transform = mat4x4<f32>(
         instance.model_transform_0,
@@ -55,6 +57,7 @@ fn vs_main(
 
     out.clip_position = clip_position;
     out.color = instance.color;
+    out.vertex_color = vshader_input.object_color;
     return out;
 }
 
@@ -62,6 +65,6 @@ fn vs_main(
 fn fs_main(in: VertexOutput) -> FragmentOutput {
     var out: FragmentOutput;
     // out.color = vec4<f32>(0.996078431372549, 0.9725490196078431, 0.6627450980392157, 1.0);
-    out.color = in.color;
+    out.color = in.color * in.vertex_color;
     return out;
 }

@@ -845,10 +845,12 @@ impl RendererState {
         //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb",
         // )?;
         // let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
-        let gltf_import_result =
-            gltf::import("./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf")?;
+        // let gltf_import_result =
+        //     gltf::import("./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf")?;
         // let gltf_import_result =
         //     gltf::import("./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf")?;
+        let gltf_import_result =
+            gltf::import("./src/models/gltf/VertexColorTest/VertexColorTest.gltf")?;
         let (document, buffers, images) = gltf_import_result;
         let scene = build_scene(
             &device,
@@ -1742,21 +1744,21 @@ impl RendererState {
                 });
 
             // render test object
-            scene_render_pass.set_pipeline(&self.mesh_pipeline);
-            scene_render_pass.set_bind_group(0, &self.test_object_mesh.textures_bind_group, &[]);
-            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
-            scene_render_pass.set_bind_group(2, &self.skybox_texture_bind_group, &[]);
-            scene_render_pass.set_vertex_buffer(0, self.test_object_mesh.vertex_buffer.slice(..));
-            scene_render_pass.set_vertex_buffer(1, self.test_object_mesh.instance_buffer.slice(..));
-            scene_render_pass.set_index_buffer(
-                self.test_object_mesh.index_buffer.slice(..),
-                wgpu::IndexFormat::Uint16,
-            );
-            scene_render_pass.draw_indexed(
-                0..self.test_object_mesh.num_indices,
-                0,
-                0..self.test_object_instances.len() as u32,
-            );
+            // scene_render_pass.set_pipeline(&self.mesh_pipeline);
+            // scene_render_pass.set_bind_group(0, &self.test_object_mesh.textures_bind_group, &[]);
+            // scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            // scene_render_pass.set_bind_group(2, &self.skybox_texture_bind_group, &[]);
+            // scene_render_pass.set_vertex_buffer(0, self.test_object_mesh.vertex_buffer.slice(..));
+            // scene_render_pass.set_vertex_buffer(1, self.test_object_mesh.instance_buffer.slice(..));
+            // scene_render_pass.set_index_buffer(
+            //     self.test_object_mesh.index_buffer.slice(..),
+            //     wgpu::IndexFormat::Uint16,
+            // );
+            // scene_render_pass.draw_indexed(
+            //     0..self.test_object_mesh.num_indices,
+            //     0,
+            //     0..self.test_object_instances.len() as u32,
+            // );
 
             // // render floor
             scene_render_pass.set_pipeline(&self.mesh_pipeline);

@@ -644,6 +644,28 @@ pub fn build_geometry_buffers(
         .unwrap_or_else(|| (0..vertex_position_count).map(|_| [0.5, 0.5]).collect());
     let vertex_tex_coord_count = vertex_tex_coords.len();
 
+    let vertex_colors: Vec<[f32; 4]> = primitive_group
+        .attributes()
+        .find(|(semantic, _)| *semantic == gltf::Semantic::Colors(0))
+        .map(|(_, accessor)| {
+            let data_type = accessor.data_type();
+            let dimensions = accessor.dimensions();
+            if dimensions != gltf::accessor::Dimensions::Vec4 {
+                bail!("Expected vec4 data but found: {:?}", dimensions);
+            }
+            if data_type != gltf::accessor::DataType::F32 {
+                bail!("Expected f32 data but found: {:?}", data_type);
+            }
+            Ok(bytemuck::cast_slice(get_buffer_slice_from_accessor(accessor)).to_vec())
+        })
+        .map_or(Ok(None), |v| v.map(Some))?
+        .unwrap_or_else(|| {
+            (0..vertex_position_count)
+                .map(|_| [1.0, 1.0, 1.0, 1.0])
+                .collect()
+        });
+    let vertex_color_count = vertex_colors.len();
+
     let vertex_normals: Vec<Vector3<f32>> = primitive_group
         .attributes()
         .find(|(semantic, _)| *semantic == gltf::Semantic::Normals)
@@ -708,6 +730,13 @@ pub fn build_geometry_buffers(
             "Expected vertex normals for every vertex but found: vertex_position_count({:?}) != vertex_tex_coord_count({:?})",
             vertex_position_count,
             vertex_tex_coord_count
+        );
+    }
+    if vertex_color_count != vertex_position_count {
+        bail!(
+            "Expected vertex colors for every vertex but found: vertex_position_count({:?}) != vertex_tex_coord_count({:?})",
+            vertex_position_count,
+            vertex_color_count
         );
     }
 
@@ -819,6 +848,7 @@ pub fn build_geometry_buffers(
                         tex_coords: vertex_tex_coords[*index],
                         tangent: to_arr(&tangent),
                         bitangent: to_arr(&bitangent),
+                        color: vertex_colors[*index],
                     }
                 })
                 .collect::<Vec<_>>()
