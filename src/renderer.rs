@@ -254,8 +254,8 @@ impl RendererState {
             format: swapchain_format,
             width: size.width,
             height: size.height,
-            // present_mode: wgpu::PresentMode::Fifo,
-            present_mode: wgpu::PresentMode::Immediate,
+            present_mode: wgpu::PresentMode::Fifo,
+            // present_mode: wgpu::PresentMode::Immediate,
         };
 
         surface.configure(&device, &config);
@@ -841,16 +841,16 @@ impl RendererState {
         // let gltf_import_result = gltf::import("./src/models/gltf/Triangle/Triangle.gltf")?;
         // let gltf_import_result =
         //     gltf::import("./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf")?;
-        // let gltf_import_result = gltf::import(
-        //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb",
-        // )?;
+        let gltf_import_result = gltf::import(
+            "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb",
+        )?;
         // let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
         // let gltf_import_result =
         //     gltf::import("./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf")?;
         // let gltf_import_result =
         //     gltf::import("./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf")?;
-        let gltf_import_result =
-            gltf::import("./src/models/gltf/VertexColorTest/VertexColorTest.gltf")?;
+        // let gltf_import_result =
+        //     gltf::import("./src/models/gltf/VertexColorTest/VertexColorTest.gltf")?;
         let (document, buffers, images) = gltf_import_result;
         let scene = build_scene(
             &device,
@@ -973,22 +973,22 @@ impl RendererState {
         // let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
 
         // Newport Loft
-        // let skybox_background = SkyboxBackground::Equirectangular {
-        //     image_path: "./src/textures/newport_loft/background.jpg",
-        // };
-        // let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-        //     Some(SkyboxHDREnvironment::Equirectangular {
-        //         image_path: "./src/textures/newport_loft/radiance.hdr",
-        //     });
-
-        // My photosphere pic
         let skybox_background = SkyboxBackground::Equirectangular {
-            image_path: "./src/textures/photosphere_skybox.jpg",
+            image_path: "./src/textures/newport_loft/background.jpg",
         };
         let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
             Some(SkyboxHDREnvironment::Equirectangular {
-                image_path: "./src/textures/photosphere_skybox_small.jpg",
+                image_path: "./src/textures/newport_loft/radiance.hdr",
             });
+
+        // My photosphere pic
+        // let skybox_background = SkyboxBackground::Equirectangular {
+        //     image_path: "./src/textures/photosphere_skybox.jpg",
+        // };
+        // let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+        //     Some(SkyboxHDREnvironment::Equirectangular {
+        //         image_path: "./src/textures/photosphere_skybox_small.jpg",
+        //     });
 
         let skybox_texture = match skybox_background {
             SkyboxBackground::Equirectangular { image_path } => {
@@ -1241,7 +1241,7 @@ impl RendererState {
         let test_object_instances = vec![MeshInstance::new()];
         test_object_instances[0]
             .transform
-            .set_position(Vector3::new(0.0, 1.0, 0.0));
+            .set_position(Vector3::new(4.0, 1.0, 4.0));
 
         let test_object_transforms_gpu: Vec<_> = test_object_instances
             .iter()
@@ -1710,6 +1710,7 @@ impl RendererState {
                 .enumerate()
                 .filter(|(_, (_, prim))| {
                     prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
+                        || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask
                 })
                 .for_each(|(drawable_prim_index, _)| {
                     let BindableMeshData {
@@ -1744,37 +1745,37 @@ impl RendererState {
                 });
 
             // render test object
-            // scene_render_pass.set_pipeline(&self.mesh_pipeline);
-            // scene_render_pass.set_bind_group(0, &self.test_object_mesh.textures_bind_group, &[]);
-            // scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
-            // scene_render_pass.set_bind_group(2, &self.skybox_texture_bind_group, &[]);
-            // scene_render_pass.set_vertex_buffer(0, self.test_object_mesh.vertex_buffer.slice(..));
-            // scene_render_pass.set_vertex_buffer(1, self.test_object_mesh.instance_buffer.slice(..));
-            // scene_render_pass.set_index_buffer(
-            //     self.test_object_mesh.index_buffer.slice(..),
-            //     wgpu::IndexFormat::Uint16,
-            // );
-            // scene_render_pass.draw_indexed(
-            //     0..self.test_object_mesh.num_indices,
-            //     0,
-            //     0..self.test_object_instances.len() as u32,
-            // );
-
-            // // render floor
             scene_render_pass.set_pipeline(&self.mesh_pipeline);
-            scene_render_pass.set_bind_group(0, &self.plane_mesh.textures_bind_group, &[]);
+            scene_render_pass.set_bind_group(0, &self.test_object_mesh.textures_bind_group, &[]);
             scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
-            scene_render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
-            scene_render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
+            scene_render_pass.set_bind_group(2, &self.skybox_texture_bind_group, &[]);
+            scene_render_pass.set_vertex_buffer(0, self.test_object_mesh.vertex_buffer.slice(..));
+            scene_render_pass.set_vertex_buffer(1, self.test_object_mesh.instance_buffer.slice(..));
             scene_render_pass.set_index_buffer(
-                self.plane_mesh.index_buffer.slice(..),
+                self.test_object_mesh.index_buffer.slice(..),
                 wgpu::IndexFormat::Uint16,
             );
             scene_render_pass.draw_indexed(
-                0..self.plane_mesh.num_indices,
+                0..self.test_object_mesh.num_indices,
                 0,
-                0..self.plane_instances.len() as u32,
+                0..self.test_object_instances.len() as u32,
             );
+
+            // // render floor
+            // scene_render_pass.set_pipeline(&self.mesh_pipeline);
+            // scene_render_pass.set_bind_group(0, &self.plane_mesh.textures_bind_group, &[]);
+            // scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            // scene_render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
+            // scene_render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
+            // scene_render_pass.set_index_buffer(
+            //     self.plane_mesh.index_buffer.slice(..),
+            //     wgpu::IndexFormat::Uint16,
+            // );
+            // scene_render_pass.draw_indexed(
+            //     0..self.plane_mesh.num_indices,
+            //     0,
+            //     0..self.plane_instances.len() as u32,
+            // );
 
             // render balls
             scene_render_pass.set_pipeline(&self.mesh_pipeline);

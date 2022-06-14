@@ -32,7 +32,7 @@
   - [x] why is the lantern mis-aligned?
   - [x] why doesn't the photosphere skybox work on mac?
   - [x] support vertex colors
-  - [ ] support ambient occlusion strength and normal map strength
+  - [x] support ambient occlusion strength and normal map strength
   - [ ] support Texture Linear Interpolation Test
   - [ ] load in some [sample models](https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0):
     - [x] [Triangle Without Indices](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TriangleWithoutIndices)
@@ -44,6 +44,7 @@
     - [x] [Environment Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/EnvironmentTest)
 - [ ] improve macos support: 
   - [ ] make sure the skybox rad texture resolution is capped at a sane level; it causes the renderer to break on my m1.
+- [ ] support srgb conversions for all unsupported texture types
 - [ ] add adaptive exposure based on histogram
 - [ ] add bloom effect for emissive materials
 - [ ] remove duped shader functions?

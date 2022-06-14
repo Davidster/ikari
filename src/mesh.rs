@@ -47,15 +47,18 @@ pub struct GpuMeshInstance {
     model_transform: GpuMatrix4,
     base_color_factor: [f32; 4],
     emissive_factor: [f32; 4],
-    metallic_roughness_factor: [f32; 4],
+    mrno: [f32; 4], // metallic_factor, roughness_factor, normal scale, occlusion strength
+    alpha_cutoff: f32,
+    padding: [f32; 3], // TODO: is this needed?
 }
 
 impl GpuMeshInstance {
-    const ATTRIBS: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
+    const ATTRIBS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
         6 => Float32x4,  7 => Float32x4,  8 => Float32x4,  9 => Float32x4, // transform
         10 => Float32x4,
         11 => Float32x4,
-        12 => Float32x4
+        12 => Float32x4,
+        13 => Float32,
     ];
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
@@ -76,6 +79,9 @@ impl GpuMeshInstance {
             emissive_factor,
             metallic_factor,
             roughness_factor,
+            normal_scale,
+            occlusion_strength,
+            alpha_cutoff,
         } = base_material;
         GpuMeshInstance {
             model_transform: GpuMatrix4(transform.matrix()),
@@ -86,7 +92,14 @@ impl GpuMeshInstance {
                 emissive_factor[2],
                 1.0,
             ],
-            metallic_roughness_factor: [*metallic_factor, *roughness_factor, 1.0, 1.0],
+            mrno: [
+                *metallic_factor,
+                *roughness_factor,
+                *normal_scale,
+                *occlusion_strength,
+            ],
+            alpha_cutoff: *alpha_cutoff,
+            padding: [0.0, 0.0, 0.0],
         }
     }
 }
@@ -142,6 +155,9 @@ pub struct BaseMaterial {
     pub emissive_factor: Vector3<f32>,
     pub metallic_factor: f32,
     pub roughness_factor: f32,
+    pub normal_scale: f32,
+    pub occlusion_strength: f32,
+    pub alpha_cutoff: f32,
 }
 
 impl Default for BaseMaterial {
@@ -151,6 +167,9 @@ impl Default for BaseMaterial {
             emissive_factor: Vector3::new(0.0, 0.0, 0.0),
             metallic_factor: 1.0,
             roughness_factor: 1.0,
+            normal_scale: 1.0,
+            occlusion_strength: 1.0,
+            alpha_cutoff: -1.0,
         }
     }
 }

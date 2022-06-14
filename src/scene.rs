@@ -280,22 +280,37 @@ fn get_image_pixels(
     srgb: bool,
 ) -> Result<(Vec<u8>, wgpu::TextureFormat)> {
     let image_pixels = &image_data.pixels;
-    if image_data.format == gltf::image::Format::R8G8B8 {
-        let image =
-            image::RgbImage::from_raw(image_data.width, image_data.height, image_pixels.to_vec())
-                .ok_or_else(|| anyhow::anyhow!("Failed to decode R8G8B8 image"))?;
-        let image_pixels_conv = image::DynamicImage::ImageRgb8(image).to_rgba8().to_vec();
-        Ok((
-            image_pixels_conv,
-            if srgb {
-                wgpu::TextureFormat::Rgba8UnormSrgb
-            } else {
-                wgpu::TextureFormat::Rgba8Unorm
-            },
-        ))
-    } else {
-        let texture_format = texture_format_to_wgpu(image_data.format, srgb)?;
-        Ok((image_pixels.to_vec(), texture_format))
+    dbg!(image_data.format, srgb);
+    match (image_data.format, srgb) {
+        (gltf::image::Format::R8G8B8, srgb) => {
+            let image = image::RgbImage::from_raw(
+                image_data.width,
+                image_data.height,
+                image_pixels.to_vec(),
+            )
+            .ok_or_else(|| anyhow::anyhow!("Failed to decode R8G8B8 image"))?;
+            let image_pixels_conv = image::DynamicImage::ImageRgb8(image).to_rgba8().to_vec();
+            Ok((
+                image_pixels_conv,
+                if srgb {
+                    wgpu::TextureFormat::Rgba8UnormSrgb
+                } else {
+                    wgpu::TextureFormat::Rgba8Unorm
+                },
+            ))
+        }
+        (gltf::image::Format::R8G8, true) => Ok((
+            image_pixels.to_vec(),
+            // image_pixels
+            //     .iter()
+            //     .map(|channel| (srgb::gamma::expand_u8(*channel) * 255.0).round() as u8)
+            //     .collect(),
+            wgpu::TextureFormat::Rg8Unorm,
+        )),
+        _ => {
+            let texture_format = texture_format_to_wgpu(image_data.format, srgb)?;
+            Ok((image_pixels.to_vec(), texture_format))
+        }
     }
 }
 
@@ -460,7 +475,7 @@ fn build_textures_bind_group(
     let emissive_map = match material_emissive_map {
         Some(emissive_map) => &textures[emissive_map.index()],
         None => {
-            auto_generated_emissive_map = Texture::from_color(device, queue, [0, 0, 0, 255])?;
+            auto_generated_emissive_map = Texture::from_color(device, queue, [255, 255, 255, 255])?;
             &auto_generated_emissive_map
         }
     };
@@ -530,6 +545,18 @@ fn build_textures_bind_group(
         emissive_factor: Vector3::from(material.emissive_factor()),
         metallic_factor: pbr_info.metallic_factor(),
         roughness_factor: pbr_info.roughness_factor(),
+        normal_scale: material
+            .normal_texture()
+            .map(|info| info.scale())
+            .unwrap_or(BaseMaterial::default().normal_scale),
+        occlusion_strength: material
+            .occlusion_texture()
+            .map(|info| info.strength())
+            .unwrap_or(BaseMaterial::default().occlusion_strength),
+        alpha_cutoff: match material.alpha_mode() {
+            gltf::material::AlphaMode::Mask => material.alpha_cutoff().unwrap_or(0.5),
+            _ => BaseMaterial::default().alpha_cutoff,
+        },
     };
 
     Ok((textures_bind_group, base_material))
