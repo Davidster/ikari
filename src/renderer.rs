@@ -841,10 +841,10 @@ impl RendererState {
         // let gltf_import_result = gltf::import("./src/models/gltf/Triangle/Triangle.gltf")?;
         // let gltf_import_result =
         //     gltf::import("./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf")?;
-        let gltf_import_result = gltf::import(
-            "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb",
-        )?;
-        // let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
+        // let gltf_import_result = gltf::import(
+        //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb",
+        // )?;
+        let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
         // let gltf_import_result =
         //     gltf::import("./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf")?;
         // let gltf_import_result =

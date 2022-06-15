@@ -299,14 +299,16 @@ fn get_image_pixels(
                 },
             ))
         }
-        (gltf::image::Format::R8G8, true) => Ok((
-            image_pixels.to_vec(),
-            // image_pixels
-            //     .iter()
-            //     .map(|channel| (srgb::gamma::expand_u8(*channel) * 255.0).round() as u8)
-            //     .collect(),
-            wgpu::TextureFormat::Rg8Unorm,
-        )),
+        (gltf::image::Format::R8G8, true) => {
+            // srgb is true meaning this is a color image, so the red channel is luma and g is alpha
+            Ok((
+                image_pixels
+                    .chunks(2)
+                    .flat_map(|pixel| [pixel[0], pixel[0], pixel[0], pixel[1]])
+                    .collect(),
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+            ))
+        }
         _ => {
             let texture_format = texture_format_to_wgpu(image_data.format, srgb)?;
             Ok((image_pixels.to_vec(), texture_format))
