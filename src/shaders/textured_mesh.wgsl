@@ -57,6 +57,7 @@ struct VertexOutput {
     [[location(10)]] normal_scale: f32;
     [[location(11)]] occlusion_strength: f32;
     [[location(12)]] alpha_cutoff: f32;
+    [[location(13)]] object_tangent: vec3<f32>;
 };
 
 struct FragmentOutput {
@@ -90,6 +91,7 @@ fn do_vertex_shade(
     out.world_position = world_position.xyz;
     out.world_normal = world_normal;
     out.world_tangent = world_tangent;
+    out.object_tangent = vshader_input.object_tangent;
     out.world_bitangent = world_bitangent;
     out.tex_coords = vshader_input.object_tex_coords;
     out.vertex_color = vshader_input.object_color;
@@ -394,6 +396,7 @@ fn do_fragment_shade(
         ambient_irradiance_pre_ao * ambient_occlusion,
         occlusion_strength
     );
+    // let ambient_irradiance = ambient_irradiance_pre_ao;
 
     let combined_irradiance_hdr = ambient_irradiance + total_light_irradiance;
     // let combined_irradiance_hdr = total_light_irradiance;
@@ -407,6 +410,7 @@ fn do_fragment_shade(
 
     var out: FragmentOutput;
     out.color = final_color;
+    // out.color = vec4<f32>(ambient_occlusion, ambient_occlusion, ambient_occlusion, 1.0);
     return out;
 }
 
@@ -434,6 +438,10 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
             tangent_space_normal * vec3<f32>(in.normal_scale, in.normal_scale, 1.0)
         )
     );
+
+    //  var out: FragmentOutput;
+    // out.color = vec4<f32>(in.object_tangent, 1.0);;
+    // return out;
 
     return do_fragment_shade(
         in.world_position,

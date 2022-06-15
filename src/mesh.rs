@@ -169,7 +169,7 @@ impl Default for BaseMaterial {
             roughness_factor: 1.0,
             normal_scale: 1.0,
             occlusion_strength: 1.0,
-            alpha_cutoff: -1.0,
+            alpha_cutoff: 0.0,
         }
     }
 }

@@ -90,6 +90,8 @@ pub fn build_scene(
                 .any(|texture_info| texture_info.texture().index() == texture.index())
             });
 
+            dbg!(texture.name());
+
             let (image_pixels, texture_format) = get_image_pixels(image_data, srgb)?;
 
             let gltf_sampler = texture.sampler();
@@ -430,7 +432,6 @@ fn build_textures_bind_group(
 
     // TODO: support more alpha modes
     // TODO: support double-sided
-    // TODO: support base values, like base color, metallic, roughness, etc.
 
     let pbr_info = material.pbr_metallic_roughness();
 
@@ -576,14 +577,38 @@ pub fn build_geometry_buffers(
 )> {
     let get_buffer_slice_from_accessor = |accessor: gltf::Accessor| {
         let buffer_view = accessor.view().unwrap();
-        if buffer_view.stride().is_some() && buffer_view.stride().unwrap() != accessor.size() {
-            panic!("wtf m8");
-        }
         let buffer = &buffers[buffer_view.buffer().index()];
-        let byte_range_start = buffer_view.offset() + accessor.offset();
-        let byte_range_end = byte_range_start + (accessor.size() * accessor.count());
-        let byte_range = byte_range_start..byte_range_end;
-        &buffer[byte_range]
+        let first_byte_offset = buffer_view.offset() + accessor.offset();
+        if buffer_view.stride().is_some() && buffer_view.stride().unwrap() != accessor.size() {
+            // interleaved buffer
+            let buffer_view_stride = buffer_view.stride().unwrap();
+            (0..accessor.count())
+                .flat_map(|i| {
+                    let byte_range_start = first_byte_offset + i * buffer_view_stride;
+                    let byte_range_end = byte_range_start + accessor.size();
+                    let byte_range = byte_range_start..byte_range_end;
+                    (&buffer[byte_range]).to_vec()
+                })
+                .collect()
+        } else {
+            let byte_range_end = first_byte_offset + (accessor.size() * accessor.count());
+            let byte_range = first_byte_offset..byte_range_end;
+            buffer[byte_range].to_vec()
+        }
+    };
+    let get_buffer_slice_from_accessor = |accessor: gltf::Accessor| {
+        let buffer_view = accessor.view().unwrap();
+        let buffer = &buffers[buffer_view.buffer().index()];
+        let first_byte_offset = buffer_view.offset() + accessor.offset();
+        let stride = buffer_view.stride().unwrap_or_else(|| accessor.size());
+        (0..accessor.count())
+            .flat_map(|i| {
+                let byte_range_start = first_byte_offset + i * stride;
+                let byte_range_end = byte_range_start + accessor.size();
+                let byte_range = byte_range_start..byte_range_end;
+                (&buffer[byte_range]).to_vec()
+            })
+            .collect::<Vec<_>>()
     };
 
     let slice_3_to_vec_3 = |slice: &[f32; 3]| Vector3::new(slice[0], slice[1], slice[2]);
@@ -601,10 +626,12 @@ pub fn build_geometry_buffers(
         if data_type != gltf::accessor::DataType::F32 {
             bail!("Expected f32 data but found: {:?}", data_type);
         }
-        let positions: &[[f32; 3]] = bytemuck::cast_slice(get_buffer_slice_from_accessor(accessor));
+        let positions_u8 = get_buffer_slice_from_accessor(accessor);
+        let positions: &[[f32; 3]] = bytemuck::cast_slice(&positions_u8);
         anyhow::Ok(positions.to_vec().iter().map(slice_3_to_vec_3).collect())
     }?;
     let vertex_position_count = vertex_positions.len();
+    dbg!(vertex_position_count);
 
     let indices: Option<Vec<u16>> = primitive_group
         .indices()
@@ -614,20 +641,20 @@ pub fn build_geometry_buffers(
 
             let indices: Vec<u16> = match data_type {
                 gltf::accessor::DataType::U16 => {
-                    anyhow::Ok(bytemuck::cast_slice(buffer_slice).to_vec())
+                    anyhow::Ok(bytemuck::cast_slice(&buffer_slice).to_vec())
                 }
                 gltf::accessor::DataType::U8 => {
                     anyhow::Ok(buffer_slice.iter().map(|&x| x as u16).collect::<Vec<u16>>())
                 }
                 gltf::accessor::DataType::U32 => {
-                    let as_u32 = bytemuck::cast_slice::<_, u32>(buffer_slice);
+                    let as_u32 = bytemuck::cast_slice::<_, u32>(&buffer_slice);
                     let as_u16: Vec<_> = as_u32.iter().map(|&x| x as u16).collect();
                     let as_u16_u32: Vec<_> = as_u16.iter().map(|&x| x as u32).collect();
                     println!("as_u32 == as_u16: {}", as_u32.to_vec() == as_u16_u32);
                     anyhow::Ok(as_u16)
                 }
                 data_type => {
-                    bail!("Expected u16 or u8 indices but found: {:?}", data_type)
+                    bail!("Expected u32, u16 or u8 indices but found: {:?}", data_type)
                 }
             }?;
             anyhow::Ok(indices)
@@ -665,7 +692,7 @@ pub fn build_geometry_buffers(
             if data_type != gltf::accessor::DataType::F32 {
                 bail!("Expected f32 data but found: {:?}", data_type);
             }
-            Ok(bytemuck::cast_slice(get_buffer_slice_from_accessor(accessor)).to_vec())
+            Ok(bytemuck::cast_slice(&get_buffer_slice_from_accessor(accessor)).to_vec())
         })
         .map_or(Ok(None), |v| v.map(Some))?
         .unwrap_or_else(|| (0..vertex_position_count).map(|_| [0.5, 0.5]).collect());
@@ -683,7 +710,7 @@ pub fn build_geometry_buffers(
             if data_type != gltf::accessor::DataType::F32 {
                 bail!("Expected f32 data but found: {:?}", data_type);
             }
-            Ok(bytemuck::cast_slice(get_buffer_slice_from_accessor(accessor)).to_vec())
+            Ok(bytemuck::cast_slice(&get_buffer_slice_from_accessor(accessor)).to_vec())
         })
         .map_or(Ok(None), |v| v.map(Some))?
         .unwrap_or_else(|| {
@@ -705,8 +732,8 @@ pub fn build_geometry_buffers(
             if data_type != gltf::accessor::DataType::F32 {
                 bail!("Expected f32 data but found: {:?}", data_type);
             }
-            let normals: &[[f32; 3]] =
-                bytemuck::cast_slice(get_buffer_slice_from_accessor(accessor));
+            let normals_u8 = get_buffer_slice_from_accessor(accessor);
+            let normals: &[[f32; 3]] = bytemuck::cast_slice(&normals_u8);
             Ok(normals.to_vec().iter().map(slice_3_to_vec_3).collect())
         })
         .map_or(Ok(None), |v| v.map(Some))?
@@ -779,8 +806,8 @@ pub fn build_geometry_buffers(
             if data_type != gltf::accessor::DataType::F32 {
                 bail!("Expected f32 data but found: {:?}", data_type);
             }
-            let tangents: &[[f32; 4]] =
-                bytemuck::cast_slice(get_buffer_slice_from_accessor(accessor));
+            let tangents_u8 = get_buffer_slice_from_accessor(accessor);
+            let tangents: &[[f32; 4]] = bytemuck::cast_slice(&tangents_u8);
 
             Ok(tangents
                 .to_vec()
@@ -792,7 +819,7 @@ pub fn build_geometry_buffers(
                         Vector3::new(tangent_slice[0], tangent_slice[1], tangent_slice[2]);
                     // handedness is stored in w component: http://foundationsofgameenginedev.com/FGED2-sample.pdf
                     let coordinate_system_handedness =
-                        if tangent_slice[3] > 0.0 { 1.0 } else { -1.0 };
+                        if tangent_slice[3] > 0.0 { -1.0 } else { 1.0 };
                     let bitangent = coordinate_system_handedness * normal.cross(tangent);
                     (tangent, bitangent)
                 })
@@ -819,11 +846,13 @@ pub fn build_geometry_buffers(
                         })
                         .collect();
 
-                    let edge_1 = points_with_attribs[1].0 - points_with_attribs[0].0;
-                    let edge_2 = points_with_attribs[2].0 - points_with_attribs[0].0;
+                    let edge_1 = (points_with_attribs[1].0 - points_with_attribs[0].0);
+                    let edge_2 = (points_with_attribs[2].0 - points_with_attribs[0].0);
 
-                    let delta_uv_1 = points_with_attribs[1].2 - points_with_attribs[0].2;
-                    let delta_uv_2 = points_with_attribs[2].2 - points_with_attribs[0].2;
+                    let delta_uv_1 = (points_with_attribs[1].2 - points_with_attribs[0].2);
+                    let delta_uv_2 = (points_with_attribs[2].2 - points_with_attribs[0].2);
+                    // let delta_uv_1 = Vector2::new(delta_uv_1.x, -delta_uv_1.y);
+                    // let delta_uv_2 = Vector2::new(delta_uv_2.x, -delta_uv_2.y);
 
                     let (tangent, bitangent) = {
                         if abs_diff_eq!(delta_uv_1.x, 0.0, epsilon = 0.00001)
@@ -882,10 +911,25 @@ pub fn build_geometry_buffers(
         })
         .collect();
 
-    let indices: Option<Vec<u16>> = Some((0..(triangle_count * 3)).map(|i| i as u16).collect());
+    // let indices: Option<Vec<u16>> = Some((0..(triangle_count * 3)).map(|i| i as u16).collect());
 
     let vertices_with_all_data: Vec<_> =
         triangles_with_all_data.iter().flatten().cloned().collect();
+
+    let vertices_with_all_data: Vec<_> = (0..(vertex_position_count))
+        .map(|index| {
+            let to_arr = |vec: &Vector3<f32>| [vec.x, vec.y, vec.z];
+            let (tangent, bitangent) = vertex_tangents_and_bitangents[index];
+            Vertex {
+                position: vertex_positions[index].into(),
+                normal: vertex_normals[index].into(),
+                tex_coords: vertex_tex_coords[index],
+                tangent: to_arr(&tangent),
+                bitangent: to_arr(&bitangent),
+                color: vertex_colors[index],
+            }
+        })
+        .collect();
 
     // println!("triangle count: {:?}", triangle_count);
     // println!(

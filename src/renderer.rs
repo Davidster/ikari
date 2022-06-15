@@ -830,7 +830,13 @@ impl RendererState {
             device.create_render_pipeline(&brdf_lut_gen_pipeline_descriptor);
 
         // let gltf_import_result = gltf::import(
-        //     "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf",
+        //     "/Users/david/Programming/rand/glTF-Sample-Models/2.0/FlightHelmet/glTF/FlightHelmet.gltf",
+        // )?;
+        // let gltf_import_result = gltf::import(
+        //     "/Users/david/Programming/rand/glTF-Sample-Models/2.0/MetalRoughSpheres/glTF/MetalRoughSpheres.gltf",
+        // )?;
+        // let gltf_import_result = gltf::import(
+        //     "/Users/david/Programming/rand/glTF-Sample-Models/2.0/NormalTangentMirrorTest/glTF/NormalTangentMirrorTest.gltf",
         // )?;
         // let gltf_import_result = gltf::import(
         //     "/home/david/Programming/glTF-Sample-Models/2.0/Lantern/glTF/Lantern.gltf",
@@ -973,22 +979,22 @@ impl RendererState {
         // let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
 
         // Newport Loft
-        let skybox_background = SkyboxBackground::Equirectangular {
-            image_path: "./src/textures/newport_loft/background.jpg",
-        };
-        let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-            Some(SkyboxHDREnvironment::Equirectangular {
-                image_path: "./src/textures/newport_loft/radiance.hdr",
-            });
-
-        // My photosphere pic
         // let skybox_background = SkyboxBackground::Equirectangular {
-        //     image_path: "./src/textures/photosphere_skybox.jpg",
+        //     image_path: "./src/textures/newport_loft/background.jpg",
         // };
         // let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
         //     Some(SkyboxHDREnvironment::Equirectangular {
-        //         image_path: "./src/textures/photosphere_skybox_small.jpg",
+        //         image_path: "./src/textures/newport_loft/radiance.hdr",
         //     });
+
+        // My photosphere pic
+        let skybox_background = SkyboxBackground::Equirectangular {
+            image_path: "./src/textures/photosphere_skybox.jpg",
+        };
+        let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+            Some(SkyboxHDREnvironment::Equirectangular {
+                image_path: "./src/textures/photosphere_skybox_small.jpg",
+            });
 
         let skybox_texture = match skybox_background {
             SkyboxBackground::Equirectangular { image_path } => {
