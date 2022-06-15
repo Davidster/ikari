@@ -4,6 +4,7 @@ use std::{num::NonZeroU32, ops::Deref};
 use anyhow::*;
 use wgpu::util::DeviceExt;
 
+#[derive(Debug)]
 pub struct Texture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
@@ -100,6 +101,8 @@ impl Texture {
                 | wgpu::TextureUsages::RENDER_ATTACHMENT,
         });
 
+        let format_info = format.describe();
+
         queue.write_texture(
             wgpu::ImageCopyTexture {
                 aspect: wgpu::TextureAspect::All,
@@ -110,12 +113,14 @@ impl Texture {
             img_bytes,
             wgpu::ImageDataLayout {
                 offset: 0,
+                bytes_per_row: NonZeroU32::new(format_info.block_size as u32 * dimensions.0),
                 // TODO: fix this horrible hack
-                bytes_per_row: if format == wgpu::TextureFormat::Rgba16Float {
-                    NonZeroU32::new(8 * dimensions.0)
-                } else {
-                    NonZeroU32::new(4 * dimensions.0)
-                },
+                // TODO: is it fixed?
+                // bytes_per_row: if format == wgpu::TextureFormat::Rgba16Float {
+                //     NonZeroU32::new(8 * dimensions.0)
+                // } else {
+                //     NonZeroU32::new(4 * dimensions.0)
+                // },
                 rows_per_image: NonZeroU32::new(dimensions.1),
             },
             size,
@@ -147,7 +152,11 @@ impl Texture {
         })
     }
 
-    pub fn from_color(device: &wgpu::Device, queue: &wgpu::Queue, color: [u8; 4]) -> Result<Self> {
+    pub fn from_color_srgb(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        color: [u8; 4],
+    ) -> Result<Self> {
         let one_pixel_image = {
             let mut img = image::RgbaImage::new(1, 1);
             img.put_pixel(0, 0, image::Rgba(color));
@@ -159,7 +168,7 @@ impl Texture {
             &one_pixel_image,
             one_pixel_image.dimensions(),
             Some("from_color texture"),
-            None,
+            wgpu::TextureFormat::Rgba8UnormSrgb.into(),
             false,
             &SamplerDescriptor(wgpu::SamplerDescriptor {
                 mag_filter: wgpu::FilterMode::Nearest,
@@ -169,11 +178,7 @@ impl Texture {
         )
     }
 
-    pub fn from_color_gamma_corrected(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        color: [u8; 4],
-    ) -> Result<Self> {
+    pub fn from_color(device: &wgpu::Device, queue: &wgpu::Queue, color: [u8; 4]) -> Result<Self> {
         let one_pixel_image = {
             let mut img = image::RgbaImage::new(1, 1);
             img.put_pixel(0, 0, image::Rgba(color));

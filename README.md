@@ -24,16 +24,29 @@
 - [x] merge photosphere and cubemap skybox shaders into one?
 - [x] try to implement PBR shaders based on [article](https://learnopengl.com/PBR/Theory)
 - [x] pass roughness, metallicness and ao via textures
-- [x] support multiple lights
 - [ ] support gltf format
-- [ ] load in some [sample models](https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0):
-  - [ ] [Triangle Without Indices](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TriangleWithoutIndices)
-  - [ ] [Triangle](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/Triangle)
-  - [ ] [Simple Meshes](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/SimpleMeshes)
-  - [ ] [Texture Coordinate Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TextureCoordinateTest)
-  - [ ] [Texture Linear Interpolation Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TextureLinearInterpolationTest)
-  - [ ] [Vertex Color Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/VertexColorTest)
-  - [ ] [Environment Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/EnvironmentTest)
+  - [x] support multiple lights
+  - [x] support tangent vector map
+  - [x] support srgb
+  - [x] support non-texture material params (pass through instance buffer?)
+  - [x] why is the lantern mis-aligned?
+  - [x] why doesn't the photosphere skybox work on mac?
+  - [x] support vertex colors
+  - [x] support ambient occlusion strength and normal map strength
+  - [x] support Texture Linear Interpolation Test
+  - [x] load in some [sample models](https://github.com/KhronosGroup/glTF-Sample-Models/tree/master/2.0):
+    - [x] [Triangle Without Indices](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TriangleWithoutIndices)
+    - [x] [Triangle](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/Triangle)
+    - [x] [Simple Meshes](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/SimpleMeshes)
+    - [x] [Texture Coordinate Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TextureCoordinateTest)
+    - [x] [Texture Linear Interpolation Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/TextureLinearInterpolationTest)
+    - [x] [Vertex Color Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/VertexColorTest)
+    - [x] [Environment Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/EnvironmentTest)
+- [ ] add shadows
+- [ ] add bloom
 - [ ] add adaptive exposure based on histogram
-- [ ] add bloom effect for emissive materials
+- [ ] improve macos support: 
+  - [ ] make sure the skybox rad texture resolution is capped at a sane level; it causes the renderer to break on my m1.
+- [ ] make the NormalTangentTest work????
+- [ ] support srgb conversions for all unsupported texture types
 - [ ] remove duped shader functions?

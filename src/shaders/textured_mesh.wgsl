@@ -28,13 +28,18 @@ struct VertexInput {
     [[location(2)]] object_tex_coords: vec2<f32>;
     [[location(3)]] object_tangent: vec3<f32>;
     [[location(4)]] object_bitangent: vec3<f32>;
+    [[location(5)]] object_color: vec4<f32>;
 };
 
-struct ModelTransformInstance {
-    [[location(5)]]  model_transform_0: vec4<f32>;
-    [[location(6)]]  model_transform_1: vec4<f32>;
-    [[location(7)]]  model_transform_2: vec4<f32>;
-    [[location(8)]]  model_transform_3: vec4<f32>;
+struct Instance {
+    [[location(6)]]  model_transform_0: vec4<f32>;
+    [[location(7)]]  model_transform_1: vec4<f32>;
+    [[location(8)]]  model_transform_2: vec4<f32>;
+    [[location(9)]]  model_transform_3: vec4<f32>;
+    [[location(10)]] base_color_factor: vec4<f32>;
+    [[location(11)]] emissive_factor: vec4<f32>;
+    [[location(12)]] mrno: vec4<f32>; // metallic_factor, roughness_factor, normal scale, occlusion strength
+    [[location(13)]] alpha_cutoff: f32;
 };
 
 struct VertexOutput {
@@ -44,13 +49,32 @@ struct VertexOutput {
     [[location(2)]] world_tangent: vec3<f32>;
     [[location(3)]] world_bitangent: vec3<f32>;
     [[location(4)]] tex_coords: vec2<f32>;
+    [[location(5)]] vertex_color: vec4<f32>;
+    [[location(6)]] base_color_factor: vec4<f32>;
+    [[location(7)]] emissive_factor: vec4<f32>;
+    [[location(8)]] metallic_factor: f32;
+    [[location(9)]] roughness_factor: f32;
+    [[location(10)]] normal_scale: f32;
+    [[location(11)]] occlusion_strength: f32;
+    [[location(12)]] alpha_cutoff: f32;
+    [[location(13)]] object_tangent: vec3<f32>;
 };
 
 struct FragmentOutput {
     [[location(0)]] color: vec4<f32>;
 };
 
-fn do_vertex_shade(vshader_input: VertexInput, model_transform: mat4x4<f32>) -> VertexOutput {
+fn do_vertex_shade(
+    vshader_input: VertexInput,
+    model_transform: mat4x4<f32>,
+    base_color_factor: vec4<f32>,
+    emissive_factor: vec4<f32>,
+    metallic_factor: f32,
+    roughness_factor: f32,
+    normal_scale: f32,
+    occlusion_strength: f32,
+    alpha_cutoff: f32
+) -> VertexOutput {
     var out: VertexOutput;
     out.world_normal = vshader_input.object_normal;
 
@@ -67,8 +91,17 @@ fn do_vertex_shade(vshader_input: VertexInput, model_transform: mat4x4<f32>) -> 
     out.world_position = world_position.xyz;
     out.world_normal = world_normal;
     out.world_tangent = world_tangent;
+    out.object_tangent = vshader_input.object_tangent;
     out.world_bitangent = world_bitangent;
     out.tex_coords = vshader_input.object_tex_coords;
+    out.vertex_color = vshader_input.object_color;
+    out.base_color_factor = base_color_factor;
+    out.emissive_factor = emissive_factor;
+    out.metallic_factor = metallic_factor;
+    out.roughness_factor = roughness_factor;
+    out.normal_scale = normal_scale;
+    out.occlusion_strength = occlusion_strength;
+    out.alpha_cutoff = alpha_cutoff;
 
     return out;
 }
@@ -76,7 +109,7 @@ fn do_vertex_shade(vshader_input: VertexInput, model_transform: mat4x4<f32>) -> 
 [[stage(vertex)]]
 fn vs_main(
     vshader_input: VertexInput,
-    instance: ModelTransformInstance,
+    instance: Instance,
 ) -> VertexOutput {
     let model_transform = mat4x4<f32>(
         instance.model_transform_0,
@@ -84,7 +117,18 @@ fn vs_main(
         instance.model_transform_2,
         instance.model_transform_3,
     );
-    return do_vertex_shade(vshader_input, model_transform);
+    
+    return do_vertex_shade(
+        vshader_input,
+        model_transform,
+        instance.base_color_factor,
+        instance.emissive_factor,
+        instance.mrno[0],
+        instance.mrno[1],
+        instance.mrno[2],
+        instance.mrno[3],
+        instance.alpha_cutoff
+    );
 }
 
 [[group(0), binding(0)]]
@@ -96,20 +140,16 @@ var normal_map_texture: texture_2d<f32>;
 [[group(0), binding(3)]]
 var normal_map_sampler: sampler;
 [[group(0), binding(4)]]
-var metallic_map_texture: texture_2d<f32>;
+var metallic_roughness_map_texture: texture_2d<f32>;
 [[group(0), binding(5)]]
-var metallic_map_sampler: sampler;
+var metallic_roughness_map_sampler: sampler;
 [[group(0), binding(6)]]
-var roughness_map_texture: texture_2d<f32>;
-[[group(0), binding(7)]]
-var roughness_map_sampler: sampler;
-[[group(0), binding(8)]]
 var emissive_map_texture: texture_2d<f32>;
-[[group(0), binding(9)]]
+[[group(0), binding(7)]]
 var emissive_map_sampler: sampler;
-[[group(0), binding(10)]]
+[[group(0), binding(8)]]
 var ambient_occlusion_map_texture: texture_2d<f32>;
-[[group(0), binding(11)]]
+[[group(0), binding(9)]]
 var ambient_occlusion_map_sampler: sampler;
 
 [[group(2), binding(0)]]
@@ -225,26 +265,31 @@ fn do_fragment_shade(
     world_position: vec3<f32>,
     world_normal: vec3<f32>,
     tex_coords: vec2<f32>,
+    vertex_color: vec4<f32>,
     camera_position: vec3<f32>,
+    base_color_factor: vec4<f32>,
+    emissive_factor: vec4<f32>,
+    metallic_factor: f32,
+    roughness_factor: f32,
+    occlusion_strength: f32,
+    alpha_cutoff: f32
 ) -> FragmentOutput {
 
     // let roughness = 0.12;
     // let metallicness = 0.8;
-    let albedo = textureSample(
+    let base_color_t = textureSample(
         diffuse_texture,
         diffuse_sampler,
         tex_coords
+    );
+    let base_color = base_color_t.rgb * base_color_factor.rgb * vertex_color.rgb;
+    let metallic_roughness = textureSample(
+        metallic_roughness_map_texture,
+        metallic_roughness_map_sampler,
+        tex_coords
     ).rgb;
-    let roughness = textureSample(
-        roughness_map_texture,
-        roughness_map_sampler,
-        tex_coords
-    ).r;
-    let metallicness = textureSample(
-        metallic_map_texture,
-        metallic_map_sampler,
-        tex_coords
-    ).r;
+    let metallicness = metallic_roughness.z * metallic_factor;
+    let roughness = metallic_roughness.y * roughness_factor;
     let ambient_occlusion = textureSample(
         ambient_occlusion_map_texture,
         ambient_occlusion_map_sampler,
@@ -254,14 +299,14 @@ fn do_fragment_shade(
         emissive_map_texture,
         emissive_map_sampler,
         tex_coords
-    ).rgb;
+    ).rgb * emissive_factor.rgb;
 
     let to_viewer_vec = normalize(camera_position - world_position);
     let reflection_vec = reflect(-to_viewer_vec, normalize(world_normal));
     let surface_reflection_at_zero_incidence_dialectric = vec3<f32>(0.04);
     let surface_reflection_at_zero_incidence = mix(
         surface_reflection_at_zero_incidence_dialectric,
-        albedo,
+        base_color,
         metallicness
     );
 
@@ -304,7 +349,7 @@ fn do_fragment_shade(
         let ks = fresnel;
 
         // diffuse
-        let diffuse_component = albedo / pi; // lambertian
+        let diffuse_component = base_color / pi; // lambertian
         let kd = (vec3<f32>(1.0) - ks) * (1.0 - metallicness);
 
         // https://learnopengl.com/Lighting/Light-casters
@@ -333,22 +378,39 @@ fn do_fragment_shade(
         world_normal_to_cubemap_vec(reflection_vec),
         roughness * MAX_REFLECTION_LOD
     ).rgb;
+    // let pre_filtered_color = textureSample(
+    //     specular_env_map_texture,
+    //     specular_env_map_sampler,
+    //     world_normal_to_cubemap_vec(reflection_vec)
+    // ).rgb;
     let brdf_lut_res = textureSample(brdf_lut_texture, brdf_lut_sampler, vec2<f32>(n_dot_v, roughness));
     let ambient_specular_irradiance = pre_filtered_color * (fresnel_ambient * brdf_lut_res.r + brdf_lut_res.g);
 
     let kd_ambient = (vec3<f32>(1.0) - fresnel_ambient) * (1.0 - metallicness);
     let env_map_diffuse_irradiance = textureSample(diffuse_env_map_texture, diffuse_env_map_sampler, world_normal_to_cubemap_vec(world_normal)).rgb;
-    let ambient_diffuse_irradiance = env_map_diffuse_irradiance * albedo;
+    let ambient_diffuse_irradiance = env_map_diffuse_irradiance * base_color;
 
-    let ambient_irradiance = (kd_ambient * ambient_diffuse_irradiance + ambient_specular_irradiance) * ambient_occlusion;
+    let ambient_irradiance_pre_ao = (kd_ambient * ambient_diffuse_irradiance + ambient_specular_irradiance);
+    let ambient_irradiance = mix(
+        ambient_irradiance_pre_ao,
+        ambient_irradiance_pre_ao * ambient_occlusion,
+        occlusion_strength
+    );
+    // let ambient_irradiance = ambient_irradiance_pre_ao;
 
     let combined_irradiance_hdr = ambient_irradiance + total_light_irradiance;
+    // let combined_irradiance_hdr = total_light_irradiance;
     let combined_irradiance_ldr = (combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0))) + emissive;
 
     let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
 
+    if (base_color_t.a <= alpha_cutoff) {
+        discard;
+    }
+
     var out: FragmentOutput;
     out.color = final_color;
+    // out.color = vec4<f32>(ambient_occlusion, ambient_occlusion, ambient_occlusion, 1.0);
     return out;
 }
 
@@ -369,12 +431,29 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
         -normal_map_normal.y, // I guess this is needed due to differing uv-mapping conventions
         normal_map_normal.z
     );
-    let transformed_normal = normalize(tbn * tangent_space_normal);
+    // normal scale helpful comment:
+    // https://github.com/KhronosGroup/glTF/issues/885#issuecomment-288320363
+    let transformed_normal = normalize(
+        tbn * normalize(
+            tangent_space_normal * vec3<f32>(in.normal_scale, in.normal_scale, 1.0)
+        )
+    );
+
+    //  var out: FragmentOutput;
+    // out.color = vec4<f32>(in.object_tangent, 1.0);;
+    // return out;
 
     return do_fragment_shade(
         in.world_position,
         transformed_normal,
         in.tex_coords,
-        camera.position.xyz
+        in.vertex_color,
+        camera.position.xyz,
+        in.base_color_factor,
+        in.emissive_factor,
+        in.metallic_factor,
+        in.roughness_factor,
+        in.occlusion_strength,
+        in.alpha_cutoff
     );
 }

@@ -9,7 +9,8 @@ pub struct Transform {
     pub position: Cell<Vector3<f32>>,
     pub rotation: Cell<Quaternion<f32>>, // euler angles
     pub scale: Cell<Vector3<f32>>,
-    pub matrix: Cell<Matrix4<f32>>,
+    matrix: Cell<Matrix4<f32>>,
+    base_matrix: Matrix4<f32>,
 }
 
 impl Transform {
@@ -19,6 +20,7 @@ impl Transform {
             rotation: Cell::new(Quaternion::new(0.0, 0.0, 1.0, 0.0)),
             scale: Cell::new(Vector3::new(1.0, 1.0, 1.0)),
             matrix: Cell::new(Matrix4::one()),
+            base_matrix: Matrix4::one(),
         }
     }
 
@@ -34,8 +36,8 @@ impl Transform {
         self.scale.get()
     }
 
-    pub fn _matrix(&self) -> Matrix4<f32> {
-        self.matrix.get()
+    pub fn matrix(&self) -> Matrix4<f32> {
+        self.matrix.get() * self.base_matrix
     }
 
     pub fn set_position(&self, new_position: Vector3<f32>) {
@@ -58,7 +60,7 @@ impl Transform {
     }
 
     pub fn get_rotation_matrix(&self) -> Matrix4<f32> {
-        make_rotation_matrix(self.rotation.get())
+        make_rotation_matrix(self.rotation.get()) * self.base_matrix
     }
 
     pub fn _get_rotation_matrix3(&self) -> Matrix3<f32> {
@@ -88,5 +90,13 @@ impl Transform {
                 * make_rotation_matrix(self.rotation.get())
                 * make_scale_matrix(self.scale.get()),
         );
+    }
+}
+
+impl From<Matrix4<f32>> for Transform {
+    fn from(matrix: Matrix4<f32>) -> Self {
+        let mut transform = Transform::new();
+        transform.base_matrix = matrix;
+        transform
     }
 }

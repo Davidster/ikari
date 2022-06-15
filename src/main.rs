@@ -6,6 +6,7 @@ mod light;
 mod logger;
 mod mesh;
 mod renderer;
+mod scene;
 mod texture;
 mod transform;
 
@@ -16,6 +17,7 @@ use light::*;
 use logger::*;
 use mesh::*;
 use renderer::*;
+use scene::*;
 use texture::*;
 
 use cgmath::prelude::*;

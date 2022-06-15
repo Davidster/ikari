@@ -4,7 +4,7 @@ use super::*;
 
 use anyhow::Result;
 
-use cgmath::{Matrix4, One, Rad, Vector2, Vector3};
+use cgmath::{Matrix4, One, Rad, Vector2, Vector3, Vector4};
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -198,22 +198,24 @@ pub struct RendererState {
     actual_balls: Vec<BallComponent>,
 
     lights: Vec<PointLightComponent>,
-    test_object_transforms: Vec<super::transform::Transform>,
-    plane_transforms: Vec<super::transform::Transform>,
+    test_object_instances: Vec<MeshInstance>,
+    plane_instances: Vec<MeshInstance>,
 
     light_mesh: InstancedMeshComponent,
     sphere_mesh: InstancedMeshComponent,
     test_object_mesh: InstancedMeshComponent,
     plane_mesh: InstancedMeshComponent,
     skybox_mesh: MeshComponent, // TODO: always use InstancedMeshComponent
+
+    scene: Scene,
 }
 
 impl RendererState {
     pub async fn new(window: &winit::window::Window) -> Result<Self> {
         let mut logger = Logger::new();
         // force it to vulkan to get renderdoc to work:
-        let backends = wgpu::Backends::from(wgpu::Backend::Vulkan);
-        // let backends = wgpu::Backends::all();
+        // let backends = wgpu::Backends::from(wgpu::Backend::Dx12);
+        let backends = wgpu::Backends::all();
         let instance = wgpu::Instance::new(backends);
         let size = window.inner_size();
         let surface = unsafe { instance.create_surface(&window) };
@@ -308,7 +310,7 @@ impl RendererState {
                 ],
                 label: Some("single_texture_bind_group_layout"),
             });
-        let six_texture_bind_group_layout =
+        let five_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -387,22 +389,6 @@ impl RendererState {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 9,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 10,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 11,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
@@ -556,7 +542,7 @@ impl RendererState {
         let mesh_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Mesh Pipeline Layout"),
             bind_group_layouts: &[
-                &six_texture_bind_group_layout,
+                &five_texture_bind_group_layout,
                 &two_uniform_bind_group_layout,
                 &pbr_env_map_bind_group_layout,
             ],
@@ -568,7 +554,7 @@ impl RendererState {
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
                 entry_point: "vs_main",
-                buffers: &[TexturedVertex::desc(), GpuMeshInstance::desc()],
+                buffers: &[Vertex::desc(), GpuMeshInstance::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &textured_mesh_shader,
@@ -610,7 +596,7 @@ impl RendererState {
         flat_color_mesh_pipeline_descriptor.label = Some("Flat Color Mesh Render Pipeline");
         flat_color_mesh_pipeline_descriptor.layout = Some(&flat_color_mesh_pipeline_layout);
         let flat_color_mesh_pipeline_v_buffers =
-            &[TexturedVertex::desc(), GpuFlatColorMeshInstance::desc()];
+            &[Vertex::desc(), GpuFlatColorMeshInstance::desc()];
         flat_color_mesh_pipeline_descriptor.vertex = wgpu::VertexState {
             module: &flat_color_mesh_shader,
             entry_point: "vs_main",
@@ -686,7 +672,7 @@ impl RendererState {
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
-                buffers: &[TexturedVertex::desc()],
+                buffers: &[Vertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
@@ -721,7 +707,7 @@ impl RendererState {
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
-                buffers: &[TexturedVertex::desc()],
+                buffers: &[Vertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
@@ -756,7 +742,7 @@ impl RendererState {
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
-                buffers: &[TexturedVertex::desc()],
+                buffers: &[Vertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
@@ -792,7 +778,7 @@ impl RendererState {
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
-                buffers: &[TexturedVertex::desc()],
+                buffers: &[Vertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
@@ -842,6 +828,48 @@ impl RendererState {
         };
         let brdf_lut_gen_pipeline =
             device.create_render_pipeline(&brdf_lut_gen_pipeline_descriptor);
+
+        // let gltf_import_result = gltf::import(
+        //     "/Users/david/Programming/rand/glTF-Sample-Models/2.0/FlightHelmet/glTF/FlightHelmet.gltf",
+        // )?;
+        let gltf_import_result = gltf::import(
+            "/Users/david/Programming/rand/glTF-Sample-Models/2.0/AlphaBlendModeTest/glTF/AlphaBlendModeTest.gltf",
+        )?;
+        // let gltf_import_result = gltf::import(
+        //     "/Users/david/Programming/rand/glTF-Sample-Models/2.0/NormalTangentMirrorTest/glTF/NormalTangentMirrorTest.gltf",
+        // )?;
+        // let gltf_import_result = gltf::import(
+        //     "/home/david/Programming/glTF-Sample-Models/2.0/Lantern/glTF/Lantern.gltf",
+        // )?;
+        // let gltf_import_result =
+        //     gltf::import("./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf")?;
+        // let gltf_import_result = gltf::import("./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf")?;
+        // let gltf_import_result = gltf::import("./src/models/gltf/Triangle/Triangle.gltf")?;
+        // let gltf_import_result =
+        //     gltf::import("./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf")?;
+        // let gltf_import_result = gltf::import(
+        //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb",
+        // )?;
+        // let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
+        // let gltf_import_result =
+        //     gltf::import("./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf")?;
+        // let gltf_import_result =
+        //     gltf::import("./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf")?;
+        // let gltf_import_result =
+        //     gltf::import("./src/models/gltf/VertexColorTest/VertexColorTest.gltf")?;
+        let (document, buffers, images) = gltf_import_result;
+        let scene = build_scene(
+            &device,
+            &queue,
+            &five_texture_bind_group_layout,
+            GltfAsset {
+                document,
+                buffers,
+                images,
+            },
+        )?;
+        // dbg!(&scene);
+        // panic!("heyyyyyyy");
 
         let initial_render_scale = INITIAL_RENDER_SCALE;
 
@@ -951,19 +979,22 @@ impl RendererState {
         // let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
 
         // Newport Loft
+        // let skybox_background = SkyboxBackground::Equirectangular {
+        //     image_path: "./src/textures/newport_loft/background.jpg",
+        // };
+        // let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+        //     Some(SkyboxHDREnvironment::Equirectangular {
+        //         image_path: "./src/textures/newport_loft/radiance.hdr",
+        //     });
+
+        // My photosphere pic
         let skybox_background = SkyboxBackground::Equirectangular {
-            image_path: "./src/textures/newport_loft/background.jpg",
+            image_path: "./src/textures/photosphere_skybox.jpg",
         };
         let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
             Some(SkyboxHDREnvironment::Equirectangular {
-                image_path: "./src/textures/newport_loft/radiance.hdr",
+                image_path: "./src/textures/photosphere_skybox_small.jpg",
             });
-
-        // My photosphere pic
-        // let skybox_background = SkyboxBackground::Equirectangular {
-        //     image_path: "./src/textures/photosphere_skybox.jpg",
-        // };
-        // let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
 
         let skybox_texture = match skybox_background {
             SkyboxBackground::Equirectangular { image_path } => {
@@ -1177,10 +1208,10 @@ impl RendererState {
 
         let light_flat_color_instances: Vec<_> = lights
             .iter()
-            .map(|light| GpuFlatColorMeshInstance::new(light.transform.matrix.get(), light.color))
+            .map(|light| GpuFlatColorMeshInstance::new(light.transform.matrix(), light.color))
             .collect();
 
-        let light_emissive_map = Texture::from_color_gamma_corrected(
+        let light_emissive_map = Texture::from_color(
             &device,
             &queue,
             [
@@ -1191,8 +1222,11 @@ impl RendererState {
             ],
             // [255, 0, 0, 255],
         )?;
-        let light_roughness_map =
-            Texture::from_gray(&device, &queue, (0.1 * 255.0f32).round() as u8)?;
+        let light_metallic_roughness_map = Texture::from_color(
+            &device,
+            &queue,
+            [255, (0.1 * 255.0f32).round() as u8, 0, 255],
+        )?;
         let light_ambient_occlusion_map = Texture::from_gray(&device, &queue, 0)?;
 
         let light_mesh = InstancedMeshComponent::new(
@@ -1202,28 +1236,36 @@ impl RendererState {
             // TODO: InstancedMeshMaterialParams is tied to the mesh pipeline, not the flat color pipeline...
             &InstancedMeshMaterialParams {
                 emissive: Some(&light_emissive_map),
-                roughness: Some(&light_roughness_map),
+                metallic_roughness: Some(&light_metallic_roughness_map),
                 ambient_occlusion: Some(&light_ambient_occlusion_map),
                 ..Default::default()
             },
-            &six_texture_bind_group_layout,
+            &five_texture_bind_group_layout,
             bytemuck::cast_slice(&light_flat_color_instances),
         )?;
 
-        let test_object_transforms = vec![super::transform::Transform::new()];
-        test_object_transforms[0].set_position(Vector3::new(0.0, 1.0, 0.0));
+        let test_object_instances = vec![MeshInstance::new()];
+        test_object_instances[0]
+            .transform
+            .set_position(Vector3::new(4.0, 1.0, 4.0));
 
-        let test_object_transforms_gpu: Vec<_> = test_object_transforms
+        let test_object_transforms_gpu: Vec<_> = test_object_instances
             .iter()
-            .map(|transform| GpuMeshInstance::new(transform.matrix.get()))
+            .map(GpuMeshInstance::new)
             .collect();
 
         // let test_object_diffuse_texture =
         //     Texture::from_color(&device, &queue, [255, 255, 255, 255])?;
-        let test_object_metallic_map =
-            Texture::from_gray(&device, &queue, (0.8 * 255.0f32).round() as u8)?;
-        let test_object_roughness_map =
-            Texture::from_gray(&device, &queue, (0.12 * 255.0f32).round() as u8)?;
+        let test_object_metallic_roughness_map = Texture::from_color(
+            &device,
+            &queue,
+            [
+                255,
+                (0.12 * 255.0f32).round() as u8,
+                (0.8 * 255.0f32).round() as u8,
+                255,
+            ],
+        )?;
         let test_object_mesh = InstancedMeshComponent::new(
             &device,
             &queue,
@@ -1231,20 +1273,23 @@ impl RendererState {
             &InstancedMeshMaterialParams {
                 diffuse: Some(&earth_texture),
                 normal: Some(&earth_normal_map),
-                metallic: Some(&test_object_metallic_map),
-                roughness: Some(&test_object_roughness_map),
+                metallic_roughness: Some(&test_object_metallic_roughness_map),
                 ..Default::default()
             },
-            &six_texture_bind_group_layout,
+            &five_texture_bind_group_layout,
             bytemuck::cast_slice(&test_object_transforms_gpu),
         )?;
 
-        let plane_transforms = vec![super::transform::Transform::new()];
-        plane_transforms[0].set_scale(Vector3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH));
+        let plane_instances = vec![MeshInstance::new()];
+        plane_instances[0].transform.set_scale(Vector3::new(
+            ARENA_SIDE_LENGTH,
+            1.0,
+            ARENA_SIDE_LENGTH,
+        ));
 
-        let plane_transforms_gpu: Vec<_> = plane_transforms
+        let plane_transforms_gpu: Vec<_> = plane_instances
             .iter()
-            .map(|transform| GpuMeshInstance::new(transform.matrix.get()))
+            .map(|instance| GpuMeshInstance::new(instance))
             .collect();
 
         let plane_mesh = InstancedMeshComponent::new(
@@ -1255,7 +1300,7 @@ impl RendererState {
                 diffuse: Some(&checkerboard_texture),
                 ..Default::default()
             },
-            &six_texture_bind_group_layout,
+            &five_texture_bind_group_layout,
             bytemuck::cast_slice(&plane_transforms_gpu),
         )?;
 
@@ -1313,7 +1358,7 @@ impl RendererState {
 
         let balls_transforms: Vec<_> = balls
             .iter()
-            .map(|ball| GpuMeshInstance::new(ball.transform.matrix.get()))
+            .map(|ball| GpuMeshInstance::new(&ball.instance))
             .collect();
 
         let sphere_mesh = InstancedMeshComponent::new(
@@ -1324,7 +1369,7 @@ impl RendererState {
                 diffuse: Some(&mars_texture),
                 ..Default::default()
             },
-            &six_texture_bind_group_layout,
+            &five_texture_bind_group_layout,
             bytemuck::cast_slice(&balls_transforms),
         )?;
 
@@ -1364,14 +1409,16 @@ impl RendererState {
             actual_balls: balls,
 
             lights,
-            test_object_transforms,
-            plane_transforms,
+            test_object_instances,
+            plane_instances,
 
             light_mesh,
             sphere_mesh,
             test_object_mesh,
             plane_mesh,
             skybox_mesh,
+
+            scene,
         })
     }
 
@@ -1564,7 +1611,7 @@ impl RendererState {
         let balls_transforms: Vec<_> = self
             .actual_balls
             .iter()
-            .map(|ball| GpuMeshInstance::new(ball.transform.matrix.get()))
+            .map(|ball| GpuMeshInstance::new(&ball.instance))
             .collect();
         self.queue.write_buffer(
             &self.sphere_mesh.instance_buffer,
@@ -1572,9 +1619,9 @@ impl RendererState {
             bytemuck::cast_slice(&balls_transforms),
         );
         let test_object_transforms_gpu: Vec<_> = self
-            .test_object_transforms
+            .test_object_instances
             .iter()
-            .map(|transform| GpuMeshInstance::new(transform.matrix.get()))
+            .map(GpuMeshInstance::new)
             .collect();
         self.queue.write_buffer(
             &self.test_object_mesh.instance_buffer,
@@ -1592,7 +1639,7 @@ impl RendererState {
         let light_flat_color_instances: Vec<_> = self
             .lights
             .iter()
-            .map(|light| GpuFlatColorMeshInstance::new(light.transform.matrix.get(), light.color))
+            .map(|light| GpuFlatColorMeshInstance::new(light.transform.matrix(), light.color))
             .collect();
         self.queue.write_buffer(
             &self.light_mesh.instance_buffer,
@@ -1648,6 +1695,61 @@ impl RendererState {
                 }),
             });
 
+            // render gltf scene
+            scene_render_pass.set_pipeline(&self.mesh_pipeline);
+            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            scene_render_pass.set_bind_group(2, &self.skybox_texture_bind_group, &[]);
+
+            let meshes: Vec<_> = self.scene.source_asset.document.meshes().collect();
+            let drawable_primitive_groups: Vec<_> = meshes
+                .iter()
+                .flat_map(|mesh| mesh.primitives().map(|prim| (&meshes[mesh.index()], prim)))
+                .filter(|(_, prim)| prim.mode() == gltf::mesh::Mode::Triangles)
+                .collect();
+
+            // println!(
+            //     "meshes: {:?}",
+            //     meshes.iter().map(|mesh| mesh.name()).collect::<Vec<_>>()
+            // );
+            drawable_primitive_groups
+                .iter()
+                .enumerate()
+                .filter(|(_, (_, prim))| {
+                    prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
+                        || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask
+                })
+                .for_each(|(drawable_prim_index, _)| {
+                    let BindableMeshData {
+                        vertex_buffer,
+                        index_buffer,
+                        instance_buffer,
+                        textures_bind_group,
+                    } = &self.scene.buffers.bindable_mesh_data[drawable_prim_index];
+                    scene_render_pass.set_bind_group(0, textures_bind_group, &[]);
+                    scene_render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
+                    scene_render_pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
+                    match index_buffer {
+                        Some(index_buffer) => {
+                            // println!("Calling draw draw_indexed for mesh: {:?}", mesh.name());
+                            scene_render_pass.set_index_buffer(
+                                index_buffer.buffer.slice(..),
+                                wgpu::IndexFormat::Uint16,
+                            );
+                            scene_render_pass.draw_indexed(
+                                0..index_buffer.length as u32,
+                                0,
+                                0..instance_buffer.length as u32,
+                            );
+                        }
+                        None => {
+                            scene_render_pass.draw(
+                                0..vertex_buffer.length as u32,
+                                0..instance_buffer.length as u32,
+                            );
+                        }
+                    }
+                });
+
             // render test object
             scene_render_pass.set_pipeline(&self.mesh_pipeline);
             scene_render_pass.set_bind_group(0, &self.test_object_mesh.textures_bind_group, &[]);
@@ -1662,24 +1764,24 @@ impl RendererState {
             scene_render_pass.draw_indexed(
                 0..self.test_object_mesh.num_indices,
                 0,
-                0..self.test_object_transforms.len() as u32,
+                0..self.test_object_instances.len() as u32,
             );
 
-            // render floor
-            scene_render_pass.set_pipeline(&self.mesh_pipeline);
-            scene_render_pass.set_bind_group(0, &self.plane_mesh.textures_bind_group, &[]);
-            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
-            scene_render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
-            scene_render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
-            scene_render_pass.set_index_buffer(
-                self.plane_mesh.index_buffer.slice(..),
-                wgpu::IndexFormat::Uint16,
-            );
-            scene_render_pass.draw_indexed(
-                0..self.plane_mesh.num_indices,
-                0,
-                0..self.plane_transforms.len() as u32,
-            );
+            // // render floor
+            // scene_render_pass.set_pipeline(&self.mesh_pipeline);
+            // scene_render_pass.set_bind_group(0, &self.plane_mesh.textures_bind_group, &[]);
+            // scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            // scene_render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
+            // scene_render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
+            // scene_render_pass.set_index_buffer(
+            //     self.plane_mesh.index_buffer.slice(..),
+            //     wgpu::IndexFormat::Uint16,
+            // );
+            // scene_render_pass.draw_indexed(
+            //     0..self.plane_mesh.num_indices,
+            //     0,
+            //     0..self.plane_instances.len() as u32,
+            // );
 
             // render balls
             scene_render_pass.set_pipeline(&self.mesh_pipeline);

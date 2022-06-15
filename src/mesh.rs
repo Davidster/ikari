@@ -3,35 +3,38 @@ use std::collections::{hash_map, HashMap};
 use super::*;
 
 use anyhow::Result;
-use cgmath::{Matrix4, Vector2, Vector3};
+use cgmath::{Matrix4, Vector2, Vector3, Vector4};
 use wgpu::util::DeviceExt;
 
 type VertexPosition = [f32; 3];
 type VertexNormal = [f32; 3];
+type VertexColor = [f32; 4];
 type VertexTextureCoords = [f32; 2];
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct TexturedVertex {
-    position: VertexPosition,
-    normal: VertexNormal,
-    tex_coords: VertexTextureCoords,
-    tangent: VertexNormal,
-    bitangent: VertexNormal,
+pub struct Vertex {
+    pub position: VertexPosition,
+    pub normal: VertexNormal,
+    pub tex_coords: VertexTextureCoords,
+    pub tangent: VertexNormal,
+    pub bitangent: VertexNormal,
+    pub color: VertexColor,
 }
 
-impl TexturedVertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+impl Vertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
         0 => Float32x3,
         1 => Float32x3,
         2 => Float32x2,
         3 => Float32x3,
-        4 => Float32x3
+        4 => Float32x3,
+        5 => Float32x4,
     ];
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<TexturedVertex>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &Self::ATTRIBS,
         }
@@ -42,12 +45,20 @@ impl TexturedVertex {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuMeshInstance {
     model_transform: GpuMatrix4,
+    base_color_factor: [f32; 4],
+    emissive_factor: [f32; 4],
+    mrno: [f32; 4], // metallic_factor, roughness_factor, normal scale, occlusion strength
+    alpha_cutoff: f32,
+    padding: [f32; 3], // TODO: is this needed?
 }
 
 impl GpuMeshInstance {
     const ATTRIBS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
-        5 => Float32x4,  6 => Float32x4,  7 => Float32x4,  8 => Float32x4,
-        9 => Float32x4, 10 => Float32x4, 11 => Float32x4, 12 => Float32x4
+        6 => Float32x4,  7 => Float32x4,  8 => Float32x4,  9 => Float32x4, // transform
+        10 => Float32x4,
+        11 => Float32x4,
+        12 => Float32x4,
+        13 => Float32,
     ];
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
@@ -58,9 +69,37 @@ impl GpuMeshInstance {
         }
     }
 
-    pub fn new(model_transform: Matrix4<f32>) -> GpuMeshInstance {
+    pub fn new(instance: &MeshInstance) -> GpuMeshInstance {
+        let MeshInstance {
+            transform,
+            base_material,
+        } = instance;
+        let BaseMaterial {
+            base_color_factor,
+            emissive_factor,
+            metallic_factor,
+            roughness_factor,
+            normal_scale,
+            occlusion_strength,
+            alpha_cutoff,
+        } = base_material;
         GpuMeshInstance {
-            model_transform: GpuMatrix4(model_transform),
+            model_transform: GpuMatrix4(transform.matrix()),
+            base_color_factor: (*base_color_factor).into(),
+            emissive_factor: [
+                emissive_factor[0],
+                emissive_factor[1],
+                emissive_factor[2],
+                1.0,
+            ],
+            mrno: [
+                *metallic_factor,
+                *roughness_factor,
+                *normal_scale,
+                *occlusion_strength,
+            ],
+            alpha_cutoff: *alpha_cutoff,
+            padding: [0.0, 0.0, 0.0],
         }
     }
 }
@@ -74,9 +113,9 @@ pub struct GpuFlatColorMeshInstance {
 
 impl GpuFlatColorMeshInstance {
     const ATTRIBS: [wgpu::VertexAttribute; 9] = wgpu::vertex_attr_array![
-        5 => Float32x4,  6 => Float32x4,  7 => Float32x4,  8 => Float32x4,
-        9 => Float32x4, 10 => Float32x4, 11 => Float32x4, 12 => Float32x4,
-        13 => Float32x4
+        6 => Float32x4,  7 => Float32x4,  8 => Float32x4,  9 => Float32x4,
+        10 => Float32x4, 11 => Float32x4, 12 => Float32x4, 13 => Float32x4,
+        14 => Float32x4
     ];
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
@@ -91,6 +130,46 @@ impl GpuFlatColorMeshInstance {
         GpuFlatColorMeshInstance {
             model_transform: GpuMatrix4(model_transform),
             color: [color.x, color.y, color.z, 1.0],
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct MeshInstance {
+    pub transform: transform::Transform,
+    pub base_material: BaseMaterial,
+}
+
+impl MeshInstance {
+    pub fn new() -> MeshInstance {
+        MeshInstance {
+            transform: transform::Transform::new(),
+            base_material: Default::default(),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct BaseMaterial {
+    pub base_color_factor: Vector4<f32>,
+    pub emissive_factor: Vector3<f32>,
+    pub metallic_factor: f32,
+    pub roughness_factor: f32,
+    pub normal_scale: f32,
+    pub occlusion_strength: f32,
+    pub alpha_cutoff: f32,
+}
+
+impl Default for BaseMaterial {
+    fn default() -> Self {
+        BaseMaterial {
+            base_color_factor: Vector4::new(1.0, 1.0, 1.0, 1.0),
+            emissive_factor: Vector3::new(0.0, 0.0, 0.0),
+            metallic_factor: 1.0,
+            roughness_factor: 1.0,
+            normal_scale: 1.0,
+            occlusion_strength: 1.0,
+            alpha_cutoff: -1.0,
         }
     }
 }
@@ -179,7 +258,7 @@ impl MeshComponent {
 
         let transform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("MeshComponent Transform Buffer"),
-            contents: bytemuck::cast_slice(&[GpuMatrix4(transform.matrix.get())]),
+            contents: bytemuck::cast_slice(&[GpuMatrix4(transform.matrix())]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -235,8 +314,7 @@ pub struct InstancedMeshComponent {
 pub struct InstancedMeshMaterialParams<'a> {
     pub diffuse: Option<&'a Texture>,
     pub normal: Option<&'a Texture>,
-    pub metallic: Option<&'a Texture>,
-    pub roughness: Option<&'a Texture>,
+    pub metallic_roughness: Option<&'a Texture>,
     pub emissive: Option<&'a Texture>,
     pub ambient_occlusion: Option<&'a Texture>,
 }
@@ -290,21 +368,15 @@ impl InstancedMeshComponent {
             }
         };
 
-        let auto_generated_metallic_map;
-        let metallic_map = match material.metallic {
-            Some(metallic_map) => metallic_map,
-            None => {
-                auto_generated_metallic_map = Texture::from_gray(device, queue, 0)?;
-                &auto_generated_metallic_map
-            }
-        };
+        // TODO: merge metallic and roughness into one texture, B channel is metallic, G channel is roughness
 
-        let auto_generated_roughness_map;
-        let roughness_map = match material.roughness {
-            Some(roughness_map) => roughness_map,
+        let auto_generated_metallic_roughness_map;
+        let metallic_roughness_map = match material.metallic_roughness {
+            Some(metallic_roughness_map) => metallic_roughness_map,
             None => {
-                auto_generated_roughness_map = Texture::from_gray(device, queue, 127)?;
-                &auto_generated_roughness_map
+                auto_generated_metallic_roughness_map =
+                    Texture::from_color(device, queue, [255, 127, 0, 255])?;
+                &auto_generated_metallic_roughness_map
             }
         };
 
@@ -321,7 +393,8 @@ impl InstancedMeshComponent {
         let ambient_occlusion_map = match material.ambient_occlusion {
             Some(ambient_occlusion_map) => ambient_occlusion_map,
             None => {
-                auto_generated_ambient_occlusion_map = Texture::from_gray(device, queue, 255)?;
+                auto_generated_ambient_occlusion_map =
+                    Texture::from_color(device, queue, [255, 255, 255, 255])?;
                 &auto_generated_ambient_occlusion_map
             }
         };
@@ -347,34 +420,26 @@ impl InstancedMeshComponent {
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&metallic_map.view),
+                    resource: wgpu::BindingResource::TextureView(&metallic_roughness_map.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
-                    resource: wgpu::BindingResource::Sampler(&metallic_map.sampler),
+                    resource: wgpu::BindingResource::Sampler(&metallic_roughness_map.sampler),
                 },
                 wgpu::BindGroupEntry {
                     binding: 6,
-                    resource: wgpu::BindingResource::TextureView(&roughness_map.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: wgpu::BindingResource::Sampler(&roughness_map.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 8,
                     resource: wgpu::BindingResource::TextureView(&emissive_map.view),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 9,
+                    binding: 7,
                     resource: wgpu::BindingResource::Sampler(&emissive_map.sampler),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 10,
+                    binding: 8,
                     resource: wgpu::BindingResource::TextureView(&ambient_occlusion_map.view),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 11,
+                    binding: 9,
                     resource: wgpu::BindingResource::Sampler(&ambient_occlusion_map.sampler),
                 },
             ],
@@ -393,7 +458,7 @@ impl InstancedMeshComponent {
 }
 
 pub struct BasicMesh {
-    vertices: Vec<TexturedVertex>,
+    vertices: Vec<Vertex>,
     indices: Vec<u16>,
 }
 
@@ -434,8 +499,7 @@ impl BasicMesh {
                 },
             )
             .collect();
-        let mut composite_index_map: HashMap<(usize, usize, usize), TexturedVertex> =
-            HashMap::new();
+        let mut composite_index_map: HashMap<(usize, usize, usize), Vertex> = HashMap::new();
         triangles.iter().for_each(|(vti1, vti2, vti3)| {
             let points = vec![vti1, vti2, vti3];
             let points_with_attribs: Vec<_> = points
@@ -489,18 +553,19 @@ impl BasicMesh {
                 .for_each(|(key, position, normal, tex_coords)| {
                     if let hash_map::Entry::Vacant(vacant_entry) = composite_index_map.entry(*key) {
                         let to_arr = |vec: &Vector3<f32>| [vec.x, vec.y, vec.z];
-                        vacant_entry.insert(TexturedVertex {
+                        vacant_entry.insert(Vertex {
                             position: to_arr(position),
                             normal: to_arr(normal),
                             tex_coords: [tex_coords.x, tex_coords.y],
                             tangent: to_arr(&tangent),
                             bitangent: to_arr(&bitangent),
+                            color: [1.0, 1.0, 1.0, 1.0],
                         });
                     }
                 });
         });
         let mut index_map: HashMap<(usize, usize, usize), usize> = HashMap::new();
-        let mut vertices: Vec<TexturedVertex> = Vec::new();
+        let mut vertices: Vec<Vertex> = Vec::new();
         composite_index_map
             .iter()
             .enumerate()
