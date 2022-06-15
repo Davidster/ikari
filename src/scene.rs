@@ -632,6 +632,37 @@ pub fn build_geometry_buffers(
     }?;
     let vertex_position_count = vertex_positions.len();
     dbg!(vertex_position_count);
+    let bounding_box = {
+        let max_x = vertex_positions
+            .iter()
+            .map(|pos| pos.x)
+            .max_by(|a, b| a.partial_cmp(b).unwrap());
+        let max_y = vertex_positions
+            .iter()
+            .map(|pos| pos.y)
+            .max_by(|a, b| a.partial_cmp(b).unwrap());
+        let max_z = vertex_positions
+            .iter()
+            .map(|pos| pos.z)
+            .max_by(|a, b| a.partial_cmp(b).unwrap());
+        let min_x = vertex_positions
+            .iter()
+            .map(|pos| pos.x)
+            .min_by(|a, b| a.partial_cmp(b).unwrap());
+        let min_y = vertex_positions
+            .iter()
+            .map(|pos| pos.y)
+            .min_by(|a, b| a.partial_cmp(b).unwrap());
+        let min_z = vertex_positions
+            .iter()
+            .map(|pos| pos.z)
+            .min_by(|a, b| a.partial_cmp(b).unwrap());
+        (
+            Vector3::new(min_x, min_y, min_z),
+            Vector3::new(max_x, max_y, max_z),
+        )
+    };
+    dbg!(bounding_box);
 
     let indices: Option<Vec<u16>> = primitive_group
         .indices()
