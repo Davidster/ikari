@@ -16,6 +16,41 @@ pub fn lerp_vec(a: Vector3<f32>, b: Vector3<f32>, alpha: f32) -> Vector3<f32> {
     b * alpha + a * (1.0 - alpha)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn my_test() {
+        println!(
+            "{:?}",
+            make_rotation_matrix(make_quat_from_axis_angle(
+                Vector3::new(1.0, 0.0, 0.0),
+                cgmath::Deg(-90.0).into()
+            ))
+        );
+        println!(
+            "{:?}",
+            make_rotation_matrix(make_quat_from_axis_angle(
+                Vector3::new(0.0, 1.0, 0.0),
+                cgmath::Deg(-90.0).into()
+            ))
+        );
+        println!(
+            "{:?}",
+            make_rotation_matrix(
+                make_quat_from_axis_angle(Vector3::new(1.0, 0.0, 0.0), cgmath::Deg(-90.0).into())
+                    * make_quat_from_axis_angle(
+                        Vector3::new(0.0, 1.0, 0.0),
+                        cgmath::Deg(-90.0).into()
+                    )
+            )
+        );
+        println!("{:?}", make_translation_matrix(Vector3::new(2.0, 3.0, 4.0)));
+        assert_eq!(true, true);
+    }
+}
+
 // from https://stackoverflow.com/questions/4436764/rotating-a-quaternion-on-1-axis
 pub fn make_quat_from_axis_angle(axis: Vector3<f32>, angle: Rad<f32>) -> Quaternion<f32> {
     let factor = (angle.0 / 2.0).sin();

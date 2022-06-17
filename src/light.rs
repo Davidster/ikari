@@ -1,6 +1,4 @@
-use cgmath::{Rad, Vector2, Vector3};
-
-use super::*;
+use cgmath::Vector3;
 
 #[derive(Clone, Debug)]
 pub struct PointLightComponent {

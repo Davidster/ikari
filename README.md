@@ -46,9 +46,13 @@
 - [ ] add shadows
 - [ ] add bloom
 - [ ] add adaptive exposure based on histogram
+- [ ] support pbrSpecularGlossiness so I can load adamHead model
 - [ ] make sure normal mapping is working
 - [ ] improve macos support: 
   - [ ] make sure the skybox rad texture resolution is capped at a sane level; it causes the renderer to break on my m1.
+- [ ] Improve shadow edge softness over current PCF approach using PCSS: [link 1](https://download.nvidia.com/developer/SDK/Individual_Samples/MEDIA/docPix/docs/PCSS.pdf), [link 2](https://developer.download.nvidia.com/whitepapers/2008/PCSS_Integration.pdf)
+  - [ ] juding by [this link](https://developer.download.nvidia.com/presentations/2008/GDC/GDC08_SoftShadowMapping.pdf), PCSS with 9x9 PCF seems to be a good tradeoff
 - [ ] make the NormalTangentTest work????
 - [ ] support srgb conversions for all unsupported texture types
 - [ ] remove duped shader functions?
+- [ ] support gltf doubleSided materials

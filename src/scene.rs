@@ -1,17 +1,12 @@
-use std::borrow::Borrow;
 use std::collections::HashMap;
-use std::collections::HashSet;
-use std::iter::Map;
 
 use anyhow::bail;
 use anyhow::Result;
 use cgmath::abs_diff_eq;
-use cgmath::ulps_eq;
 use cgmath::Matrix4;
 use cgmath::Vector2;
 use cgmath::Vector3;
 use cgmath::Vector4;
-use image::imageops::FilterType::Nearest;
 use wgpu::util::DeviceExt;
 
 use super::*;
@@ -220,7 +215,7 @@ pub fn build_scene(
     let bindable_mesh_data = drawable_primitive_groups
         .iter()
         .enumerate()
-        .map(|(prim_index, (mesh, primitive_group))| {
+        .map(|(_, (mesh, primitive_group))| {
             let (textures_bind_group, base_material) = build_textures_bind_group(
                 device,
                 queue,
@@ -229,7 +224,7 @@ pub fn build_scene(
                 five_texture_bind_group_layout,
             )?;
 
-            let (vertex_buffer, index_buffer, vertices, indices) =
+            let (vertex_buffer, index_buffer) =
                 build_geometry_buffers(device, primitive_group, buffers)?;
             let mesh_transforms: Vec<_> = scene_nodes
                 .iter()
@@ -362,14 +357,9 @@ fn get_ancestry_list_impl(
 }
 
 fn get_full_node_list(scene: gltf::scene::Scene) -> Vec<gltf::scene::Node> {
-    // println!("node count: {:?}", scene.nodes().count());
     scene
         .nodes()
-        .flat_map(|node| {
-            let res = get_full_node_list_impl(node, Vec::new());
-            // println!("res len: {:?}", res.len());
-            res
-        })
+        .flat_map(|node| get_full_node_list_impl(node, Vec::new()))
         .collect()
 }
 
@@ -377,7 +367,6 @@ fn get_full_node_list_impl<'a>(
     node: gltf::scene::Node<'a>,
     acc: Vec<gltf::scene::Node<'a>>,
 ) -> Vec<gltf::scene::Node<'a>> {
-    // println!("child count: {:?}", node.children().count());
     if node.children().count() == 0 {
         acc.iter()
             .chain(vec![node.clone()].iter())
@@ -424,18 +413,11 @@ fn build_textures_bind_group(
 ) -> Result<(wgpu::BindGroup, BaseMaterial)> {
     let material = triangles_prim.material();
 
-    println!("alpha mode: {:?}", material.alpha_mode());
-    // let alpha_mode = material.alpha_mode();
-    // if alpha_mode != gltf::material::AlphaMode::Opaque {
-    //     bail!("Only opaque alpha mode is supported");
-    // }
-
-    // TODO: support more alpha modes
-    // TODO: support double-sided
+    // println!("alpha mode: {:?}", material.alpha_mode());
 
     let pbr_info = material.pbr_metallic_roughness();
 
-    let mut material_diffuse_texture = pbr_info.base_color_texture().map(|info| info.texture());
+    let material_diffuse_texture = pbr_info.base_color_texture().map(|info| info.texture());
     // material_diffuse_texture = None;
     let auto_generated_diffuse_texture;
     let diffuse_texture = match material_diffuse_texture {
@@ -447,7 +429,7 @@ fn build_textures_bind_group(
         }
     };
 
-    let mut material_metallic_roughness_map = pbr_info
+    let material_metallic_roughness_map = pbr_info
         .metallic_roughness_texture()
         .map(|info| info.texture());
     // material_metallic_roughness_map = None;
@@ -461,7 +443,7 @@ fn build_textures_bind_group(
         }
     };
 
-    let mut material_normal_map = material.normal_texture().map(|info| info.texture());
+    let material_normal_map = material.normal_texture().map(|info| info.texture());
     // material_normal_map = None;
     let auto_generated_normal_map;
     let normal_map = match material_normal_map {
@@ -472,7 +454,7 @@ fn build_textures_bind_group(
         }
     };
 
-    let mut material_emissive_map = material.emissive_texture().map(|info| info.texture());
+    let material_emissive_map = material.emissive_texture().map(|info| info.texture());
     // material_emissive_map = None;
     let auto_generated_emissive_map;
     let emissive_map = match material_emissive_map {
@@ -483,8 +465,7 @@ fn build_textures_bind_group(
         }
     };
 
-    let mut material_ambient_occlusion_map =
-        material.occlusion_texture().map(|info| info.texture());
+    let material_ambient_occlusion_map = material.occlusion_texture().map(|info| info.texture());
     // material_ambient_occlusion_map = None;
     let auto_generated_ambient_occlusion_map;
     let ambient_occlusion_map = match material_ambient_occlusion_map {
@@ -569,33 +550,7 @@ pub fn build_geometry_buffers(
     device: &wgpu::Device,
     primitive_group: &gltf::mesh::Primitive,
     buffers: &[gltf::buffer::Data],
-) -> Result<(
-    BufferAndLength,
-    Option<BufferAndLength>,
-    Vec<Vertex>,
-    Option<Vec<u16>>,
-)> {
-    let get_buffer_slice_from_accessor = |accessor: gltf::Accessor| {
-        let buffer_view = accessor.view().unwrap();
-        let buffer = &buffers[buffer_view.buffer().index()];
-        let first_byte_offset = buffer_view.offset() + accessor.offset();
-        if buffer_view.stride().is_some() && buffer_view.stride().unwrap() != accessor.size() {
-            // interleaved buffer
-            let buffer_view_stride = buffer_view.stride().unwrap();
-            (0..accessor.count())
-                .flat_map(|i| {
-                    let byte_range_start = first_byte_offset + i * buffer_view_stride;
-                    let byte_range_end = byte_range_start + accessor.size();
-                    let byte_range = byte_range_start..byte_range_end;
-                    (&buffer[byte_range]).to_vec()
-                })
-                .collect()
-        } else {
-            let byte_range_end = first_byte_offset + (accessor.size() * accessor.count());
-            let byte_range = first_byte_offset..byte_range_end;
-            buffer[byte_range].to_vec()
-        }
-    };
+) -> Result<(BufferAndLength, Option<BufferAndLength>)> {
     let get_buffer_slice_from_accessor = |accessor: gltf::Accessor| {
         let buffer_view = accessor.view().unwrap();
         let buffer = &buffers[buffer_view.buffer().index()];
@@ -877,13 +832,11 @@ pub fn build_geometry_buffers(
                         })
                         .collect();
 
-                    let edge_1 = (points_with_attribs[1].0 - points_with_attribs[0].0);
-                    let edge_2 = (points_with_attribs[2].0 - points_with_attribs[0].0);
+                    let edge_1 = points_with_attribs[1].0 - points_with_attribs[0].0;
+                    let edge_2 = points_with_attribs[2].0 - points_with_attribs[0].0;
 
-                    let delta_uv_1 = (points_with_attribs[1].2 - points_with_attribs[0].2);
-                    let delta_uv_2 = (points_with_attribs[2].2 - points_with_attribs[0].2);
-                    // let delta_uv_1 = Vector2::new(delta_uv_1.x, -delta_uv_1.y);
-                    // let delta_uv_2 = Vector2::new(delta_uv_2.x, -delta_uv_2.y);
+                    let delta_uv_1 = points_with_attribs[1].2 - points_with_attribs[0].2;
+                    let delta_uv_2 = points_with_attribs[2].2 - points_with_attribs[0].2;
 
                     let (tangent, bitangent) = {
                         if abs_diff_eq!(delta_uv_1.x, 0.0, epsilon = 0.00001)
@@ -917,36 +870,6 @@ pub fn build_geometry_buffers(
                 .collect()
         });
 
-    let triangles_with_all_data: Vec<_> = triangles_as_index_tuples
-        .iter()
-        .copied()
-        .enumerate()
-        .map(|(triangle_index, (index_a, index_b, index_c))| {
-            // let (tangent, bitangent) = triangles_with_tangents_and_bitangents[triangle_index];
-            vec![index_a, index_b, index_c]
-                .iter()
-                .map(|index| {
-                    // let vertex_index = triangle_index * 3 + index;
-                    let to_arr = |vec: &Vector3<f32>| [vec.x, vec.y, vec.z];
-                    let (tangent, bitangent) = vertex_tangents_and_bitangents[*index];
-                    Vertex {
-                        position: vertex_positions[*index].into(),
-                        normal: vertex_normals[*index].into(),
-                        tex_coords: vertex_tex_coords[*index],
-                        tangent: to_arr(&tangent),
-                        bitangent: to_arr(&bitangent),
-                        color: vertex_colors[*index],
-                    }
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
-
-    // let indices: Option<Vec<u16>> = Some((0..(triangle_count * 3)).map(|i| i as u16).collect());
-
-    let vertices_with_all_data: Vec<_> =
-        triangles_with_all_data.iter().flatten().cloned().collect();
-
     let vertices_with_all_data: Vec<_> = (0..(vertex_position_count))
         .map(|index| {
             let to_arr = |vec: &Vector3<f32>| [vec.x, vec.y, vec.z];
@@ -962,17 +885,6 @@ pub fn build_geometry_buffers(
         })
         .collect();
 
-    // println!("triangle count: {:?}", triangle_count);
-    // println!(
-    //     "vertices_with_all_data len: {:?}",
-    //     vertices_with_all_data.len()
-    // );
-
-    // println!("{:?}", vertex_positions);
-    // println!("{:?}", vertices_with_all_data);
-    // println!("{:?}", indices);
-    // panic!();
-
     let vertex_buffer = BufferAndLength {
         buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Scene Vertex Buffer"),
@@ -982,7 +894,7 @@ pub fn build_geometry_buffers(
         length: vertices_with_all_data.len(),
     };
 
-    let index_buffer = indices.clone().map(|indices| BufferAndLength {
+    let index_buffer = indices.map(|indices| BufferAndLength {
         buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Scene Index Buffer"),
             contents: bytemuck::cast_slice(&indices),
@@ -991,5 +903,5 @@ pub fn build_geometry_buffers(
         length: indices.len(),
     });
 
-    Ok((vertex_buffer, index_buffer, vertices_with_all_data, indices))
+    Ok((vertex_buffer, index_buffer))
 }

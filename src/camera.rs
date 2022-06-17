@@ -31,6 +31,20 @@ pub struct CameraViewProjMatrices {
     pub position: Vector3<f32>,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn my_test() {
+        println!(
+            "{:?}",
+            make_perspective_matrix(0.1, 100.0, cgmath::Deg(90.0).into(), 1.0)
+        );
+        assert_eq!(true, true);
+    }
+}
+
 impl Camera {
     pub fn new(initial_position: Vector3<f32>) -> Self {
         Camera {

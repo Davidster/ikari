@@ -6,7 +6,7 @@ struct CameraUniform {
     near_plane_distance: f32;
     far_plane_distance: f32;
 };
-[[group(1), binding(0)]]
+[[group(0), binding(0)]]
 var<uniform> camera: CameraUniform;
 
 let MAX_LIGHTS = 32u;
@@ -19,7 +19,7 @@ struct Light {
 struct LightsUniform {
     values: array<Light, MAX_LIGHTS>;
 };
-[[group(1), binding(1)]]
+[[group(0), binding(1)]]
 var<uniform> lights: LightsUniform;
 
 struct VertexInput {
@@ -66,6 +66,8 @@ struct FragmentOutput {
 
 fn do_vertex_shade(
     vshader_input: VertexInput,
+    camera_proj: mat4x4<f32>,
+    camera_view: mat4x4<f32>,
     model_transform: mat4x4<f32>,
     base_color_factor: vec4<f32>,
     emissive_factor: vec4<f32>,
@@ -79,7 +81,7 @@ fn do_vertex_shade(
     out.world_normal = vshader_input.object_normal;
 
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
-    let camera_view_proj = camera.proj * camera.view;
+    let camera_view_proj = camera_proj * camera_view;
     let model_view_matrix = camera_view_proj * model_transform;
     let world_position = model_transform * object_position;
     let clip_position = model_view_matrix * object_position;
@@ -117,9 +119,11 @@ fn vs_main(
         instance.model_transform_2,
         instance.model_transform_3,
     );
-    
+
     return do_vertex_shade(
         vshader_input,
+        camera.proj,
+        camera.view,
         model_transform,
         instance.base_color_factor,
         instance.emissive_factor,
@@ -131,25 +135,77 @@ fn vs_main(
     );
 }
 
-[[group(0), binding(0)]]
+[[stage(vertex)]]
+fn shadow_mapping_vs_main(
+    vshader_input: VertexInput,
+    instance: Instance,
+) -> VertexOutput {
+    let model_transform = mat4x4<f32>(
+        instance.model_transform_0,
+        instance.model_transform_1,
+        instance.model_transform_2,
+        instance.model_transform_3,
+    );
+
+    let camera_rotation_matrix = mat4x4<f32>(
+        vec4<f32>(1.0, 0.0, 0.0, 0.0),
+        vec4<f32>(0.0, 0.0, 1.0, 0.0),
+        vec4<f32>(0.0, -1.0, 0.0, 0.0),
+        vec4<f32>(1.0, 0.0, 0.0, 1.0),
+    );
+
+    let first_light = lights.values[0];
+
+    let camera_translation_matrix = mat4x4<f32>(
+        vec4<f32>(1.0, 0.0, 0.0, 0.0),
+        vec4<f32>(0.0, 1.0, 0.0, 0.0),
+        vec4<f32>(0.0, 0.0, 1.0, 0.0),
+        vec4<f32>(-first_light.position.xyz, 1.0),
+    );
+
+    let camera_view_matrix = camera_rotation_matrix * camera_translation_matrix;
+
+    let camera_proj_matrix = mat4x4<f32>(
+        vec4<f32>(1.0, 0.0, 0.0, 0.0),
+        vec4<f32>(0.0, 1.0, 0.0, 0.0),
+        vec4<f32>(0.0, 0.0, 0.001, -1.0),
+        vec4<f32>(0.0, 0.0, 0.1, 0.0)
+    );
+
+    return do_vertex_shade(
+        vshader_input,
+        camera_proj_matrix,
+        camera_view_matrix,
+        model_transform,
+        instance.base_color_factor,
+        instance.emissive_factor,
+        instance.mrno[0],
+        instance.mrno[1],
+        instance.mrno[2],
+        instance.mrno[3],
+        instance.alpha_cutoff
+    );
+}
+
+[[group(1), binding(0)]]
 var diffuse_texture: texture_2d<f32>;
-[[group(0), binding(1)]]
+[[group(1), binding(1)]]
 var diffuse_sampler: sampler;
-[[group(0), binding(2)]]
+[[group(1), binding(2)]]
 var normal_map_texture: texture_2d<f32>;
-[[group(0), binding(3)]]
+[[group(1), binding(3)]]
 var normal_map_sampler: sampler;
-[[group(0), binding(4)]]
+[[group(1), binding(4)]]
 var metallic_roughness_map_texture: texture_2d<f32>;
-[[group(0), binding(5)]]
+[[group(1), binding(5)]]
 var metallic_roughness_map_sampler: sampler;
-[[group(0), binding(6)]]
+[[group(1), binding(6)]]
 var emissive_map_texture: texture_2d<f32>;
-[[group(0), binding(7)]]
+[[group(1), binding(7)]]
 var emissive_map_sampler: sampler;
-[[group(0), binding(8)]]
+[[group(1), binding(8)]]
 var ambient_occlusion_map_texture: texture_2d<f32>;
-[[group(0), binding(9)]]
+[[group(1), binding(9)]]
 var ambient_occlusion_map_sampler: sampler;
 
 [[group(2), binding(0)]]
@@ -168,6 +224,10 @@ var specular_env_map_sampler: sampler;
 var brdf_lut_texture: texture_2d<f32>;
 [[group(2), binding(7)]]
 var brdf_lut_sampler: sampler;
+[[group(2), binding(8)]]
+var shadow_map_texture: texture_2d<f32>;
+[[group(2), binding(9)]]
+var shadow_map_sampler: sampler;
 
 let pi: f32 = 3.141592653589793;
 let two_pi: f32 = 6.283185307179586;
@@ -320,8 +380,71 @@ fn do_fragment_shade(
 
     var total_light_irradiance = vec3<f32>(0.0);
 
+    // let camera_rotation_matrix = mat4x4<f32>(
+    //     vec4<f32>(1.0, 0.0, 0.0, 0.0),
+    //     vec4<f32>(0.0, 0.0, 1.0, 0.0),
+    //     vec4<f32>(0.0, -1.0, 0.0, 0.0),
+    //     vec4<f32>(1.0, 0.0, 0.0, 1.0),
+    // );
+    let camera_rotation_matrix = mat4x4<f32>(
+        vec4<f32>(1.0, 0.0, 0.0, 0.0),
+        vec4<f32>(0.0, 0.0, 1.0, 0.0),
+        vec4<f32>(0.0, -1.0, 0.0, 0.0),
+        vec4<f32>(1.0, 0.0, 0.0, 1.0),
+    );
+
+    let first_light = lights.values[0];
+
+    let camera_translation_matrix = mat4x4<f32>(
+        vec4<f32>(1.0, 0.0, 0.0, 0.0),
+        vec4<f32>(0.0, 1.0, 0.0, 0.0),
+        vec4<f32>(0.0, 0.0, 1.0, 0.0),
+        vec4<f32>(-first_light.position.xyz, 1.0),
+    );
+
+    let camera_view_matrix = camera_rotation_matrix * camera_translation_matrix;
+
+    let camera_proj_matrix = mat4x4<f32>(
+        vec4<f32>(1.0, 0.0, 0.0, 0.0),
+        vec4<f32>(0.0, 1.0, 0.0, 0.0),
+        vec4<f32>(0.0, 0.0, 0.001, -1.0),
+        vec4<f32>(0.0, 0.0, 0.1, 0.0)
+    );
+
+    let camera_view_proj = camera_proj_matrix * camera_view_matrix;
+
+    let shadow_map_space_position = camera_view_proj * vec4<f32>(world_position, 1.0);
+    let shadow_map_space_position_norm = shadow_map_space_position.xyz / shadow_map_space_position.w;
+    let shadow_map_uv = shadow_map_space_position_norm.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
+    let bias = max(
+        0.0005 * (1.0 - dot(world_normal, first_light.position.xyz - world_position)),
+        0.00005
+    );
+    let closest_depth = textureSample(shadow_map_texture, shadow_map_sampler, shadow_map_uv).r;
+    let current_depth = shadow_map_space_position_norm.z;
+    var shadow = 0.0;
+    let shadow_map_dimensions = textureDimensions(shadow_map_texture);
+    let texel_size = 1.0 / vec2<f32>(f32(shadow_map_dimensions.x), f32(shadow_map_dimensions.y));
+    for (var x = -1; x <= 1; x = x + 1) {
+        for (var y = -1; y <= 1; y = y + 1) {
+            let pcf_depth = textureSample(
+                shadow_map_texture,
+                shadow_map_sampler,
+                shadow_map_uv + vec2<f32>(f32(x), f32(y)) * texel_size
+            ).r;
+            if (current_depth + bias >= pcf_depth) {
+                shadow = shadow + 1.0;
+            }
+        }
+    }
+    shadow = shadow / 9.0;
+
     for (var light_index = 0u; light_index < MAX_LIGHTS; light_index = light_index + 1u) {
         let light = lights.values[light_index];
+
+        if (light_index == 0u && shadow < epsilon) {
+            continue;
+        }
 
         if (light.color.x < epsilon && light.color.y < epsilon && light.color.z < epsilon) {
             continue;
@@ -354,15 +477,15 @@ fn do_fragment_shade(
 
         // https://learnopengl.com/Lighting/Light-casters
         // let light_attenuation_factor_d20 = 1.0 / (1.0 + 0.22 * distance_from_light + 0.20 * distance_from_light * distance_from_light);
-        let light_attenuation_factor_d100 = 1.0 / (1.0 + 0.045 * distance_from_light + 0.0075 * distance_from_light * distance_from_light);
-        // let light_attenuation_factor_d600 = 1.0 / (1.0 + 0.007 * distance_from_light + 0.0002 * distance_from_light * distance_from_light);
+        // let light_attenuation_factor_d100 = 1.0 / (1.0 + 0.045 * distance_from_light + 0.0075 * distance_from_light * distance_from_light);
+        let light_attenuation_factor_d600 = 1.0 / (1.0 + 0.007 * distance_from_light + 0.0002 * distance_from_light * distance_from_light);
         // let light_attenuation_factor_d3250 = 1.0 / (1.0 + 0.0014 * distance_from_light + 0.000007 * distance_from_light * distance_from_light);
-        let light_attenuation_factor = light_attenuation_factor_d100;
+        let light_attenuation_factor = light_attenuation_factor_d600;
         let incident_angle_factor = max(dot(n, wi), 0.0);      
         //                                  ks was already multiplied by fresnel so it's omitted here       
         let bdrf = kd * diffuse_component + specular_component;
         let light_irradiance = bdrf * incident_angle_factor * light_attenuation_factor * light.color.rgb;
-        total_light_irradiance = total_light_irradiance + light_irradiance;
+        total_light_irradiance = total_light_irradiance + light_irradiance * shadow;
     }
 
 
@@ -398,10 +521,13 @@ fn do_fragment_shade(
     );
     // let ambient_irradiance = ambient_irradiance_pre_ao;
 
-    let combined_irradiance_hdr = ambient_irradiance + total_light_irradiance;
+    let combined_irradiance_hdr = 0.25 * ambient_irradiance + total_light_irradiance;
     // let combined_irradiance_hdr = total_light_irradiance;
     let combined_irradiance_ldr = (combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0))) + emissive;
 
+    // let hi = textureSample(shadow_map_texture, shadow_map_sampler, vec2<f32>(0.1, 0.1));
+
+    // let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
     let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
 
     if (base_color_t.a <= alpha_cutoff) {

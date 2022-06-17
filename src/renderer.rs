@@ -4,7 +4,7 @@ use super::*;
 
 use anyhow::Result;
 
-use cgmath::{Matrix4, One, Rad, Vector2, Vector3, Vector4};
+use cgmath::{Matrix4, One, Vector2, Vector3};
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -185,6 +185,9 @@ pub struct RendererState {
     flat_color_mesh_pipeline: wgpu::RenderPipeline,
     skybox_pipeline: wgpu::RenderPipeline,
     surface_blit_pipeline: wgpu::RenderPipeline,
+    shadow_mapping_pipeline: wgpu::RenderPipeline,
+
+    shadow_map_texture: Texture,
 
     render_texture: Texture,
     depth_texture: Texture,
@@ -214,8 +217,11 @@ impl RendererState {
     pub async fn new(window: &winit::window::Window) -> Result<Self> {
         let mut logger = Logger::new();
         // force it to vulkan to get renderdoc to work:
-        // let backends = wgpu::Backends::from(wgpu::Backend::Dx12);
-        let backends = wgpu::Backends::all();
+        let backends = if cfg!(target_os = "linux") {
+            wgpu::Backends::from(wgpu::Backend::Vulkan)
+        } else {
+            wgpu::Backends::all()
+        };
         let instance = wgpu::Instance::new(backends);
         let size = window.inner_size();
         let surface = unsafe { instance.create_surface(&window) };
@@ -254,8 +260,8 @@ impl RendererState {
             format: swapchain_format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
-            // present_mode: wgpu::PresentMode::Immediate,
+            // present_mode: wgpu::PresentMode::Fifo,
+            present_mode: wgpu::PresentMode::Immediate,
         };
 
         surface.configure(&device, &config);
@@ -487,6 +493,22 @@ impl RendererState {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 8,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 9,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
                 ],
                 label: Some("pbr_env_map_bind_group_layout"),
             });
@@ -542,8 +564,8 @@ impl RendererState {
         let mesh_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Mesh Pipeline Layout"),
             bind_group_layouts: &[
-                &five_texture_bind_group_layout,
                 &two_uniform_bind_group_layout,
+                &five_texture_bind_group_layout,
                 &pbr_env_map_bind_group_layout,
             ],
             push_constant_ranges: &[],
@@ -660,7 +682,7 @@ impl RendererState {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Skybox Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &pbr_env_map_bind_group_layout,
+                    &pbr_env_map_bind_group_layout, // TODO: only using 1 texture here, don't put a bgl with so 8 of them lol
                     &two_uniform_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
@@ -829,9 +851,48 @@ impl RendererState {
         let brdf_lut_gen_pipeline =
             device.create_render_pipeline(&brdf_lut_gen_pipeline_descriptor);
 
-        // let gltf_import_result = gltf::import(
-        //     "/Users/david/Programming/rand/glTF-Sample-Models/2.0/FlightHelmet/glTF/FlightHelmet.gltf",
-        // )?;
+        let shadow_mapping_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Shadow Mapping Pipeline Layout"),
+                bind_group_layouts: &[&two_uniform_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+        let shadow_mapping_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("Shadow Mapping Pipeline"),
+            layout: Some(&shadow_mapping_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &textured_mesh_shader,
+                entry_point: "shadow_mapping_vs_main",
+                buffers: &[Vertex::desc(), GpuMeshInstance::desc()],
+            },
+            fragment: None,
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::GreaterEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        };
+        let shadow_mapping_pipeline =
+            device.create_render_pipeline(&shadow_mapping_pipeline_descriptor);
+
+        // let gltf_import_result = gltf::import("/Users/david/Downloads/adamHead/adamHead.gltf")?;
         // let gltf_import_result = gltf::import(
         //     "/Users/david/Programming/rand/glTF-Sample-Models/2.0/AlphaBlendModeTest/glTF/AlphaBlendModeTest.gltf",
         // )?;
@@ -904,6 +965,12 @@ impl RendererState {
         let depth_texture =
             Texture::create_depth_texture(&device, &config, initial_render_scale, "depth_texture");
 
+        // TODO: be able to configure the resolution
+        let shadow_map_texture =
+            Texture::create_depth_texture(&device, &config, 1.0, "shadow_map_texture");
+        let shadow_map_read_view = shadow_map_texture.texture.create_view(&Default::default());
+        let shadow_map_read_sampler = device.create_sampler(&SamplerDescriptor::default().0);
+
         // source: https://www.solarsystemscope.com/textures/
         let mars_texture_path = "./src/textures/8k_mars.jpg";
         let mars_texture_bytes = std::fs::read(mars_texture_path)?;
@@ -966,17 +1033,17 @@ impl RendererState {
         // )?;
 
         // Mountains
-        // let skybox_background = SkyboxBackground::Cube {
-        //     face_image_paths: [
-        //         "./src/textures/skybox/right.jpg",
-        //         "./src/textures/skybox/left.jpg",
-        //         "./src/textures/skybox/top.jpg",
-        //         "./src/textures/skybox/bottom.jpg",
-        //         "./src/textures/skybox/front.jpg",
-        //         "./src/textures/skybox/back.jpg",
-        //     ],
-        // };
-        // let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
+        let _skybox_background = SkyboxBackground::Cube {
+            face_image_paths: [
+                "./src/textures/skybox/right.jpg",
+                "./src/textures/skybox/left.jpg",
+                "./src/textures/skybox/top.jpg",
+                "./src/textures/skybox/bottom.jpg",
+                "./src/textures/skybox/front.jpg",
+                "./src/textures/skybox/back.jpg",
+            ],
+        };
+        let _skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
 
         // Newport Loft
         let skybox_background = SkyboxBackground::Equirectangular {
@@ -988,13 +1055,13 @@ impl RendererState {
             });
 
         // My photosphere pic
-        // let skybox_background = SkyboxBackground::Equirectangular {
-        //     image_path: "./src/textures/photosphere_skybox.jpg",
-        // };
-        // let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-        //     Some(SkyboxHDREnvironment::Equirectangular {
-        //         image_path: "./src/textures/photosphere_skybox_small.jpg",
-        //     });
+        let _skybox_background = SkyboxBackground::Equirectangular {
+            image_path: "./src/textures/photosphere_skybox.jpg",
+        };
+        let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+            Some(SkyboxHDREnvironment::Equirectangular {
+                image_path: "./src/textures/photosphere_skybox_small.jpg",
+            });
 
         let skybox_texture = match skybox_background {
             SkyboxBackground::Equirectangular { image_path } => {
@@ -1147,6 +1214,14 @@ impl RendererState {
                     binding: 7,
                     resource: wgpu::BindingResource::Sampler(&brdf_lut.sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: wgpu::BindingResource::TextureView(&shadow_map_read_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 9,
+                    resource: wgpu::BindingResource::Sampler(&shadow_map_read_sampler),
+                },
             ],
             label: Some("skybox_texture_bind_group"),
         });
@@ -1200,11 +1275,11 @@ impl RendererState {
             .set_scale(Vector3::new(0.05, 0.05, 0.05));
         lights[0]
             .transform
-            .set_position(Vector3::new(0.0, 2.0, 3.0));
+            .set_position(Vector3::new(0.0, 50.0, 0.0));
         lights[1].transform.set_scale(Vector3::new(0.1, 0.1, 0.1));
         lights[1]
             .transform
-            .set_position(Vector3::new(0.0, 2.0, -3.0));
+            .set_position(Vector3::new(0.0, 200.0, -3.0));
 
         let light_flat_color_instances: Vec<_> = lights
             .iter()
@@ -1287,10 +1362,8 @@ impl RendererState {
             ARENA_SIDE_LENGTH,
         ));
 
-        let plane_transforms_gpu: Vec<_> = plane_instances
-            .iter()
-            .map(|instance| GpuMeshInstance::new(instance))
-            .collect();
+        let plane_transforms_gpu: Vec<_> =
+            plane_instances.iter().map(GpuMeshInstance::new).collect();
 
         let plane_mesh = InstancedMeshComponent::new(
             &device,
@@ -1338,7 +1411,7 @@ impl RendererState {
             label: Some("camera_light_bind_group"),
         });
 
-        let balls: Vec<_> = (0..100)
+        let balls: Vec<_> = (0..500)
             .into_iter()
             .map(|_| {
                 BallComponent::new(
@@ -1397,6 +1470,9 @@ impl RendererState {
             flat_color_mesh_pipeline,
             surface_blit_pipeline,
             skybox_pipeline,
+            shadow_mapping_pipeline,
+
+            shadow_map_texture,
 
             render_texture,
             depth_texture,
@@ -1580,18 +1656,20 @@ impl RendererState {
 
         let light_1 = &mut self.lights[0];
         light_1.transform.set_position(Vector3::new(
-            1.1 * (time_seconds * 0.5).cos(),
-            light_1.transform.position.get().y,
-            1.1 * (time_seconds * 0.5).sin(),
+            // light_1.transform.position.get().x,
+            1.5 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
+            light_1.transform.position.get().y - frame_time_seconds * 0.25,
+            1.5 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
+            // light_1.transform.position.get().z,
         ));
         light_1.color = lerp_vec(LIGHT_COLOR_A, LIGHT_COLOR_B, (time_seconds * 2.0).sin());
 
         let light_2 = &mut self.lights[1];
-        light_2.transform.set_position(Vector3::new(
-            1.1 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
-            light_2.transform.position.get().y,
-            1.1 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
-        ));
+        // light_2.transform.set_position(Vector3::new(
+        //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
+        //     light_2.transform.position.get().y,
+        //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
+        // ));
 
         light_2.color = lerp_vec(LIGHT_COLOR_B, LIGHT_COLOR_A, (time_seconds * 2.0).sin());
 
@@ -1673,8 +1751,31 @@ impl RendererState {
         };
 
         {
-            let mut scene_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
+            let shadow_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Shadow Render Pass"),
+                color_attachments: &[],
+                // depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.shadow_map_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0.0),
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
+            });
+
+            self.render_scene(
+                shadow_render_pass,
+                &self.shadow_mapping_pipeline,
+                &self.camera_light_bind_group,
+                None,
+            );
+        }
+
+        {
+            let mut main_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Main Render Pass"),
                 color_attachments: &[wgpu::RenderPassColorAttachment {
                     // view: &surface_texture,
                     view: &self.render_texture.view,
@@ -1695,120 +1796,23 @@ impl RendererState {
                 }),
             });
 
-            // render gltf scene
-            scene_render_pass.set_pipeline(&self.mesh_pipeline);
-            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
-            scene_render_pass.set_bind_group(2, &self.skybox_texture_bind_group, &[]);
-
-            let meshes: Vec<_> = self.scene.source_asset.document.meshes().collect();
-            let drawable_primitive_groups: Vec<_> = meshes
-                .iter()
-                .flat_map(|mesh| mesh.primitives().map(|prim| (&meshes[mesh.index()], prim)))
-                .filter(|(_, prim)| prim.mode() == gltf::mesh::Mode::Triangles)
-                .collect();
-
-            // println!(
-            //     "meshes: {:?}",
-            //     meshes.iter().map(|mesh| mesh.name()).collect::<Vec<_>>()
-            // );
-            drawable_primitive_groups
-                .iter()
-                .enumerate()
-                .filter(|(_, (_, prim))| {
-                    prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
-                        || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask
-                })
-                .for_each(|(drawable_prim_index, _)| {
-                    let BindableMeshData {
-                        vertex_buffer,
-                        index_buffer,
-                        instance_buffer,
-                        textures_bind_group,
-                    } = &self.scene.buffers.bindable_mesh_data[drawable_prim_index];
-                    scene_render_pass.set_bind_group(0, textures_bind_group, &[]);
-                    scene_render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
-                    scene_render_pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
-                    match index_buffer {
-                        Some(index_buffer) => {
-                            // println!("Calling draw draw_indexed for mesh: {:?}", mesh.name());
-                            scene_render_pass.set_index_buffer(
-                                index_buffer.buffer.slice(..),
-                                wgpu::IndexFormat::Uint16,
-                            );
-                            scene_render_pass.draw_indexed(
-                                0..index_buffer.length as u32,
-                                0,
-                                0..instance_buffer.length as u32,
-                            );
-                        }
-                        None => {
-                            scene_render_pass.draw(
-                                0..vertex_buffer.length as u32,
-                                0..instance_buffer.length as u32,
-                            );
-                        }
-                    }
-                });
-
-            // render test object
-            scene_render_pass.set_pipeline(&self.mesh_pipeline);
-            scene_render_pass.set_bind_group(0, &self.test_object_mesh.textures_bind_group, &[]);
-            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
-            scene_render_pass.set_bind_group(2, &self.skybox_texture_bind_group, &[]);
-            scene_render_pass.set_vertex_buffer(0, self.test_object_mesh.vertex_buffer.slice(..));
-            scene_render_pass.set_vertex_buffer(1, self.test_object_mesh.instance_buffer.slice(..));
-            scene_render_pass.set_index_buffer(
-                self.test_object_mesh.index_buffer.slice(..),
-                wgpu::IndexFormat::Uint16,
-            );
-            scene_render_pass.draw_indexed(
-                0..self.test_object_mesh.num_indices,
-                0,
-                0..self.test_object_instances.len() as u32,
-            );
-
-            // // render floor
-            // scene_render_pass.set_pipeline(&self.mesh_pipeline);
-            // scene_render_pass.set_bind_group(0, &self.plane_mesh.textures_bind_group, &[]);
-            // scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
-            // scene_render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
-            // scene_render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
-            // scene_render_pass.set_index_buffer(
-            //     self.plane_mesh.index_buffer.slice(..),
-            //     wgpu::IndexFormat::Uint16,
-            // );
-            // scene_render_pass.draw_indexed(
-            //     0..self.plane_mesh.num_indices,
-            //     0,
-            //     0..self.plane_instances.len() as u32,
-            // );
-
-            // render balls
-            scene_render_pass.set_pipeline(&self.mesh_pipeline);
-            scene_render_pass.set_bind_group(0, &self.sphere_mesh.textures_bind_group, &[]);
-            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
-            scene_render_pass.set_vertex_buffer(0, self.sphere_mesh.vertex_buffer.slice(..));
-            scene_render_pass.set_vertex_buffer(1, self.sphere_mesh.instance_buffer.slice(..));
-            scene_render_pass.set_index_buffer(
-                self.sphere_mesh.index_buffer.slice(..),
-                wgpu::IndexFormat::Uint16,
-            );
-            scene_render_pass.draw_indexed(
-                0..self.sphere_mesh.num_indices,
-                0,
-                0..self.actual_balls.len() as u32,
+            main_render_pass = self.render_scene(
+                main_render_pass,
+                &self.mesh_pipeline,
+                &self.camera_light_bind_group,
+                Some(&self.skybox_texture_bind_group),
             );
 
             // render light
-            scene_render_pass.set_pipeline(&self.flat_color_mesh_pipeline);
-            scene_render_pass.set_bind_group(0, &self.camera_light_bind_group, &[]);
-            scene_render_pass.set_vertex_buffer(0, self.light_mesh.vertex_buffer.slice(..));
-            scene_render_pass.set_vertex_buffer(1, self.light_mesh.instance_buffer.slice(..));
-            scene_render_pass.set_index_buffer(
+            main_render_pass.set_pipeline(&self.flat_color_mesh_pipeline);
+            main_render_pass.set_bind_group(0, &self.camera_light_bind_group, &[]);
+            main_render_pass.set_vertex_buffer(0, self.light_mesh.vertex_buffer.slice(..));
+            main_render_pass.set_vertex_buffer(1, self.light_mesh.instance_buffer.slice(..));
+            main_render_pass.set_index_buffer(
                 self.light_mesh.index_buffer.slice(..),
                 wgpu::IndexFormat::Uint16,
             );
-            scene_render_pass.draw_indexed(
+            main_render_pass.draw_indexed(
                 0..self.light_mesh.num_indices,
                 0,
                 0..self.lights.len() as u32,
@@ -1817,15 +1821,15 @@ impl RendererState {
             // render skybox
             // TODO: does it make sense to render the skybox here?
             // doing it in the surface blit pass is faster and might not change the quality when using SSAA
-            scene_render_pass.set_pipeline(&self.skybox_pipeline);
-            scene_render_pass.set_bind_group(0, &self.skybox_texture_bind_group, &[]);
-            scene_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
-            scene_render_pass.set_vertex_buffer(0, self.skybox_mesh.vertex_buffer.slice(..));
-            scene_render_pass.set_index_buffer(
+            main_render_pass.set_pipeline(&self.skybox_pipeline);
+            main_render_pass.set_bind_group(0, &self.skybox_texture_bind_group, &[]);
+            main_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            main_render_pass.set_vertex_buffer(0, self.skybox_mesh.vertex_buffer.slice(..));
+            main_render_pass.set_index_buffer(
                 self.skybox_mesh.index_buffer.slice(..),
                 wgpu::IndexFormat::Uint16,
             );
-            scene_render_pass.draw_indexed(0..self.skybox_mesh.num_indices, 0, 0..1);
+            main_render_pass.draw_indexed(0..self.skybox_mesh.num_indices, 0, 0..1);
         }
 
         {
@@ -1851,5 +1855,114 @@ impl RendererState {
         self.queue.submit(std::iter::once(encoder.finish()));
         surface_texture.present();
         Ok(())
+    }
+
+    fn render_scene<'a>(
+        &'a self,
+        mut render_pass: wgpu::RenderPass<'a>,
+        pipeline: &'a wgpu::RenderPipeline,
+        camera_light_bind_group: &'a wgpu::BindGroup,
+        skybox_texture_bind_group: Option<&'a wgpu::BindGroup>,
+    ) -> wgpu::RenderPass<'a> {
+        render_pass.set_pipeline(pipeline);
+        render_pass.set_bind_group(0, camera_light_bind_group, &[]);
+        if let Some(skybox_texture_bind_group) = skybox_texture_bind_group {
+            render_pass.set_bind_group(2, skybox_texture_bind_group, &[]);
+        }
+
+        // render gltf scene
+        let meshes: Vec<_> = self.scene.source_asset.document.meshes().collect();
+        let drawable_primitive_groups: Vec<_> = meshes
+            .iter()
+            .flat_map(|mesh| mesh.primitives().map(|prim| (&meshes[mesh.index()], prim)))
+            .filter(|(_, prim)| prim.mode() == gltf::mesh::Mode::Triangles)
+            .collect();
+
+        // println!(
+        //     "meshes: {:?}",
+        //     meshes.iter().map(|mesh| mesh.name()).collect::<Vec<_>>()
+        // );
+        drawable_primitive_groups
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, prim))| {
+                prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
+                    || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask
+            })
+            .for_each(|(drawable_prim_index, _)| {
+                let BindableMeshData {
+                    vertex_buffer,
+                    index_buffer,
+                    instance_buffer,
+                    textures_bind_group,
+                } = &self.scene.buffers.bindable_mesh_data[drawable_prim_index];
+                render_pass.set_bind_group(1, textures_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
+                render_pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
+                match index_buffer {
+                    Some(index_buffer) => {
+                        // println!("Calling draw draw_indexed for mesh: {:?}", mesh.name());
+                        render_pass.set_index_buffer(
+                            index_buffer.buffer.slice(..),
+                            wgpu::IndexFormat::Uint16,
+                        );
+                        render_pass.draw_indexed(
+                            0..index_buffer.length as u32,
+                            0,
+                            0..instance_buffer.length as u32,
+                        );
+                    }
+                    None => {
+                        render_pass.draw(
+                            0..vertex_buffer.length as u32,
+                            0..instance_buffer.length as u32,
+                        );
+                    }
+                }
+            });
+
+        // render test object
+        render_pass.set_bind_group(1, &self.test_object_mesh.textures_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.test_object_mesh.vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, self.test_object_mesh.instance_buffer.slice(..));
+        render_pass.set_index_buffer(
+            self.test_object_mesh.index_buffer.slice(..),
+            wgpu::IndexFormat::Uint16,
+        );
+        render_pass.draw_indexed(
+            0..self.test_object_mesh.num_indices,
+            0,
+            0..self.test_object_instances.len() as u32,
+        );
+
+        // // render floor
+        render_pass.set_bind_group(1, &self.plane_mesh.textures_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
+        render_pass.set_index_buffer(
+            self.plane_mesh.index_buffer.slice(..),
+            wgpu::IndexFormat::Uint16,
+        );
+        render_pass.draw_indexed(
+            0..self.plane_mesh.num_indices,
+            0,
+            0..self.plane_instances.len() as u32,
+        );
+
+        // render balls
+        render_pass.set_bind_group(1, &self.sphere_mesh.textures_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.sphere_mesh.vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, self.sphere_mesh.instance_buffer.slice(..));
+        render_pass.set_index_buffer(
+            self.sphere_mesh.index_buffer.slice(..),
+            wgpu::IndexFormat::Uint16,
+        );
+        render_pass.draw_indexed(
+            0..self.sphere_mesh.num_indices,
+            0,
+            0..self.actual_balls.len() as u32,
+        );
+
+        render_pass
     }
 }

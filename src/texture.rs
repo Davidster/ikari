@@ -152,7 +152,7 @@ impl Texture {
         })
     }
 
-    pub fn from_color_srgb(
+    pub fn _from_color_srgb(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         color: [u8; 4],
