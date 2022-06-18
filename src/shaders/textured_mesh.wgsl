@@ -64,6 +64,15 @@ struct FragmentOutput {
     [[location(0)]] color: vec4<f32>;
 };
 
+struct ShadowMappingVertexOutput {
+    [[builtin(position)]] clip_position: vec4<f32>;
+    [[location(0)]] world_position: vec3<f32>;
+};
+
+struct ShadowMappingFragmentOutput {
+    [[builtin(frag_depth)]] depth: f32;
+};
+
 fn do_vertex_shade(
     vshader_input: VertexInput,
     camera_proj: mat4x4<f32>,
@@ -139,7 +148,7 @@ fn vs_main(
 fn shadow_mapping_vs_main(
     vshader_input: VertexInput,
     instance: Instance,
-) -> VertexOutput {
+) -> ShadowMappingVertexOutput {
     let model_transform = mat4x4<f32>(
         instance.model_transform_0,
         instance.model_transform_1,
@@ -147,44 +156,27 @@ fn shadow_mapping_vs_main(
         instance.model_transform_3,
     );
 
-    let camera_rotation_matrix = mat4x4<f32>(
-        vec4<f32>(1.0, 0.0, 0.0, 0.0),
-        vec4<f32>(0.0, 0.0, 1.0, 0.0),
-        vec4<f32>(0.0, -1.0, 0.0, 0.0),
-        vec4<f32>(1.0, 0.0, 0.0, 1.0),
-    );
+    let object_position = vec4<f32>(vshader_input.object_position, 1.0);
+    let camera_view_proj = camera.proj * camera.view;
+    let model_view_matrix = camera_view_proj * model_transform;
+    let world_position = model_transform * object_position;
+    let clip_position = model_view_matrix * object_position;
 
-    let first_light = lights.values[0];
 
-    let camera_translation_matrix = mat4x4<f32>(
-        vec4<f32>(1.0, 0.0, 0.0, 0.0),
-        vec4<f32>(0.0, 1.0, 0.0, 0.0),
-        vec4<f32>(0.0, 0.0, 1.0, 0.0),
-        vec4<f32>(-first_light.position.xyz, 1.0),
-    );
+    var out: ShadowMappingVertexOutput;
+    out.clip_position = clip_position;
+    out.world_position = world_position.xyz;
+    return out;
+}
 
-    let camera_view_matrix = camera_rotation_matrix * camera_translation_matrix;
-
-    let camera_proj_matrix = mat4x4<f32>(
-        vec4<f32>(1.0, 0.0, 0.0, 0.0),
-        vec4<f32>(0.0, 1.0, 0.0, 0.0),
-        vec4<f32>(0.0, 0.0, 0.001, -1.0),
-        vec4<f32>(0.0, 0.0, 0.1, 0.0)
-    );
-
-    return do_vertex_shade(
-        vshader_input,
-        camera_proj_matrix,
-        camera_view_matrix,
-        model_transform,
-        instance.base_color_factor,
-        instance.emissive_factor,
-        instance.mrno[0],
-        instance.mrno[1],
-        instance.mrno[2],
-        instance.mrno[3],
-        instance.alpha_cutoff
-    );
+[[stage(fragment)]]
+fn shadow_mapping_fs_main(
+    in: ShadowMappingVertexOutput
+) -> ShadowMappingFragmentOutput {
+    var out: ShadowMappingFragmentOutput;
+    let light_distance = length(in.world_position - camera.position.xyz);
+    out.depth = light_distance / camera.far_plane_distance;
+    return out;
 }
 
 [[group(1), binding(0)]]
@@ -225,7 +217,7 @@ var brdf_lut_texture: texture_2d<f32>;
 [[group(2), binding(7)]]
 var brdf_lut_sampler: sampler;
 [[group(2), binding(8)]]
-var shadow_map_texture: texture_2d<f32>;
+var shadow_map_texture: texture_cube<f32>;
 [[group(2), binding(9)]]
 var shadow_map_sampler: sampler;
 
@@ -413,31 +405,29 @@ fn do_fragment_shade(
 
     let camera_view_proj = camera_proj_matrix * camera_view_matrix;
 
-    let shadow_map_space_position = camera_view_proj * vec4<f32>(world_position, 1.0);
-    let shadow_map_space_position_norm = shadow_map_space_position.xyz / shadow_map_space_position.w;
-    let shadow_map_uv = shadow_map_space_position_norm.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
-    let bias = max(
-        0.0005 * (1.0 - dot(world_normal, first_light.position.xyz - world_position)),
-        0.00005
-    );
-    let closest_depth = textureSample(shadow_map_texture, shadow_map_sampler, shadow_map_uv).r;
-    let current_depth = shadow_map_space_position_norm.z;
+    let from_shadow_vec = world_position - first_light.position.xyz;
+    let shadow_camera_far_plane_distance = 1000.0;
+    let current_depth = length(from_shadow_vec) / shadow_camera_far_plane_distance;
+
     var shadow = 0.0;
-    let shadow_map_dimensions = textureDimensions(shadow_map_texture);
-    let texel_size = 1.0 / vec2<f32>(f32(shadow_map_dimensions.x), f32(shadow_map_dimensions.y));
-    for (var x = -1; x <= 1; x = x + 1) {
-        for (var y = -1; y <= 1; y = y + 1) {
-            let pcf_depth = textureSample(
-                shadow_map_texture,
-                shadow_map_sampler,
-                shadow_map_uv + vec2<f32>(f32(x), f32(y)) * texel_size
-            ).r;
-            if (current_depth + bias >= pcf_depth) {
-                shadow = shadow + 1.0;
+    let bias = 0.0001;
+    let samples = 4.0;
+    let offset = 0.1;
+    for (var x = -offset; x < offset; x = x + offset / (samples * 0.5)) {
+        for (var y = -offset; y < offset; y = y + offset / (samples * 0.5)) {
+            for (var z = -offset; z < offset; z = z + offset / (samples * 0.5)) {
+                let closest_depth = textureSample(
+                    shadow_map_texture,
+                    shadow_map_sampler,
+                    world_normal_to_cubemap_vec(from_shadow_vec + vec3<f32>(x, y, z))
+                ).r;
+                if (current_depth - bias < closest_depth) {
+                    shadow = shadow + 1.0;
+                }
             }
         }
     }
-    shadow = shadow / 9.0;
+    shadow = shadow / (samples * samples * samples);
 
     for (var light_index = 0u; light_index < MAX_LIGHTS; light_index = light_index + 1u) {
         let light = lights.values[light_index];
@@ -536,7 +526,6 @@ fn do_fragment_shade(
 
     var out: FragmentOutput;
     out.color = final_color;
-    // out.color = vec4<f32>(ambient_occlusion, ambient_occlusion, ambient_occlusion, 1.0);
     return out;
 }
 

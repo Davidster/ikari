@@ -29,18 +29,32 @@ pub struct CameraViewProjMatrices {
     pub view: Matrix4<f32>,
     pub rotation_only_view: Matrix4<f32>,
     pub position: Vector3<f32>,
+    pub z_near: f32,
+    pub z_far: f32,
 }
 
 #[cfg(test)]
 mod tests {
+    use cgmath::Vector4;
+
     use super::*;
 
     #[test]
     fn my_test() {
-        println!(
-            "{:?}",
-            make_perspective_matrix(0.1, 100.0, cgmath::Deg(90.0).into(), 1.0)
-        );
+        let reverse_z_mat =
+            make_perspective_matrix(0.1, 100000.0, cgmath::Deg(90.0).into(), 1.0, true);
+        let reg_z_mat =
+            make_perspective_matrix(0.1, 100000.0, cgmath::Deg(90.0).into(), 1.0, false);
+        let pos = Vector4::new(-0.5, -0.5, -0.11, 1.0);
+        let reverse_proj_pos = reverse_z_mat * pos;
+        let reg_proj_pos = reg_z_mat * pos;
+        let persp_div = |yo: Vector4<f32>| yo / yo.w;
+        println!("{:?}", reverse_z_mat);
+        println!("{:?}", reg_z_mat);
+        println!("{:?}", reverse_proj_pos);
+        println!("{:?}", reg_proj_pos);
+        println!("{:?}", persp_div(reverse_proj_pos));
+        println!("{:?}", persp_div(reg_proj_pos));
         assert_eq!(true, true);
     }
 }
@@ -65,6 +79,7 @@ impl Camera {
             Z_FAR,
             FOV_Y.into(),
             window.inner_size().width as f32 / window.inner_size().height as f32,
+            true,
         );
         let rotation_only_view = make_rotation_matrix(Quaternion::from(Euler::new(
             -self.pose.vertical_rotation,
@@ -82,6 +97,8 @@ impl Camera {
             view,
             rotation_only_view,
             position,
+            z_near: Z_NEAR,
+            z_far: Z_FAR,
         }
     }
 
@@ -96,7 +113,12 @@ impl Camera {
     }
 
     // TODO: should this function really be in the camera module?
-    pub fn build_cubemap_view_projection_matrices() -> Vec<CameraViewProjMatrices> {
+    pub fn build_cubemap_view_projection_matrices(
+        position: Vector3<f32>,
+        z_near: f32,
+        z_far: f32,
+        reverse_z: bool,
+    ) -> Vec<CameraViewProjMatrices> {
         return vec![
             (Deg(90.0), Deg(0.0)),    // right
             (Deg(-90.0), Deg(0.0)),   // left
@@ -107,7 +129,7 @@ impl Camera {
         ]
         .iter()
         .map(|(horizontal_rotation, vertical_rotation)| {
-            let proj = make_perspective_matrix(Z_NEAR, Z_FAR, Deg(90.0).into(), 1.0);
+            let proj = make_perspective_matrix(z_near, z_far, Deg(90.0).into(), 1.0, reverse_z);
             let rotation_only_view = make_rotation_matrix(Quaternion::from(Euler::new(
                 -Rad::from(*vertical_rotation),
                 Rad(0.0),
@@ -117,13 +139,14 @@ impl Camera {
                 -Rad::from(*horizontal_rotation),
                 Rad(0.0),
             )));
-            let position = Vector3::new(0.0, 0.0, 0.0);
             let view = rotation_only_view * make_translation_matrix(-position);
             CameraViewProjMatrices {
                 proj,
                 view,
                 rotation_only_view,
                 position,
+                z_near,
+                z_far,
             }
         })
         .collect();

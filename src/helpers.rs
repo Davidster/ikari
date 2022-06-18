@@ -163,6 +163,7 @@ pub fn make_perspective_matrix(
     far_plane_distance: f32,
     vertical_fov: cgmath::Rad<f32>,
     aspect_ratio: f32,
+    reverse_z: bool,
 ) -> Matrix4<f32> {
     let n = near_plane_distance;
     let f = far_plane_distance;
@@ -175,12 +176,16 @@ pub fn make_perspective_matrix(
         0.0,    0.0, f/(n-f), n*f/(n-f),
         0.0,    0.0, -1.0,     0.0,
     ).transpose();
-    #[rustfmt::skip]
-    let reverse_z = Matrix4::new(
-        1.0, 0.0, 0.0,  0.0,
-        0.0, 1.0, 0.0,  0.0,
-        0.0, 0.0, -1.0, 1.0,
-        0.0, 0.0, 0.0,  1.0,
-    ).transpose();
-    reverse_z * persp_matrix
+    if !reverse_z {
+        persp_matrix
+    } else {
+        #[rustfmt::skip]
+        let reverse_z = Matrix4::new(
+            1.0, 0.0, 0.0,  0.0,
+            0.0, 1.0, 0.0,  0.0,
+            0.0, 0.0, -1.0, 1.0,
+            0.0, 0.0, 0.0,  1.0,
+        ).transpose();
+        reverse_z * persp_matrix
+    }
 }

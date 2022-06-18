@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{num::NonZeroU32, time::Instant};
 
 use super::*;
 
@@ -106,8 +106,8 @@ impl CameraUniform {
             view: Matrix4::one().into(),
             rotation_only_view: Matrix4::one().into(),
             position: [0.0; 4],
-            near_plane_distance: camera::Z_NEAR,
-            far_plane_distance: camera::Z_FAR,
+            near_plane_distance: 0.0,
+            far_plane_distance: 0.0,
             padding: [0.0; 2],
         }
     }
@@ -118,11 +118,15 @@ impl CameraUniform {
             view,
             rotation_only_view,
             position,
+            z_near,
+            z_far,
         } = camera.build_view_projection_matrices(window);
         self.proj = proj.into();
         self.view = view.into();
         self.rotation_only_view = rotation_only_view.into();
         self.position = [position.x, position.y, position.z, 1.0];
+        self.near_plane_distance = z_near;
+        self.far_plane_distance = z_far;
     }
 
     pub fn from_view_proj_matrices(
@@ -131,6 +135,8 @@ impl CameraUniform {
             view,
             rotation_only_view,
             position,
+            z_near,
+            z_far,
         }: &CameraViewProjMatrices,
     ) -> Self {
         Self {
@@ -138,8 +144,8 @@ impl CameraUniform {
             view: (*view).into(),
             rotation_only_view: (*rotation_only_view).into(),
             position: [position.x, position.y, position.z, 1.0],
-            near_plane_distance: 0.0, // TODO: ewwwww
-            far_plane_distance: 0.0,  // TODO: ewwwww
+            near_plane_distance: *z_near,
+            far_plane_distance: *z_far,
             padding: [0.0; 2],
         }
     }
@@ -185,14 +191,16 @@ pub struct RendererState {
     flat_color_mesh_pipeline: wgpu::RenderPipeline,
     skybox_pipeline: wgpu::RenderPipeline,
     surface_blit_pipeline: wgpu::RenderPipeline,
-    shadow_mapping_pipeline: wgpu::RenderPipeline,
 
+    shadow_mapping_pipeline: wgpu::RenderPipeline,
     shadow_map_texture: Texture,
+    shadow_camera_bind_group: wgpu::BindGroup,
+    shadow_camera_buffer: wgpu::Buffer,
 
     render_texture: Texture,
     depth_texture: Texture,
 
-    skybox_texture_bind_group: wgpu::BindGroup,
+    environment_textures_bind_group: wgpu::BindGroup,
     render_texture_bind_group: wgpu::BindGroup,
 
     // store the previous state and next state and interpolate between them
@@ -260,8 +268,8 @@ impl RendererState {
             format: swapchain_format,
             width: size.width,
             height: size.height,
-            // present_mode: wgpu::PresentMode::Fifo,
-            present_mode: wgpu::PresentMode::Immediate,
+            present_mode: wgpu::PresentMode::Fifo,
+            // present_mode: wgpu::PresentMode::Immediate,
         };
 
         surface.configure(&device, &config);
@@ -426,7 +434,7 @@ impl RendererState {
                 label: Some("single_cube_texture_bind_group_layout"),
             });
 
-        let pbr_env_map_bind_group_layout =
+        let environment_textures_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -498,7 +506,7 @@ impl RendererState {
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
+                            view_dimension: wgpu::TextureViewDimension::Cube,
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         },
                         count: None,
@@ -510,7 +518,7 @@ impl RendererState {
                         count: None,
                     },
                 ],
-                label: Some("pbr_env_map_bind_group_layout"),
+                label: Some("environment_textures_bind_group_layout"),
             });
 
         let single_uniform_bind_group_layout =
@@ -566,7 +574,7 @@ impl RendererState {
             bind_group_layouts: &[
                 &two_uniform_bind_group_layout,
                 &five_texture_bind_group_layout,
-                &pbr_env_map_bind_group_layout,
+                &environment_textures_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -682,7 +690,7 @@ impl RendererState {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Skybox Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &pbr_env_map_bind_group_layout, // TODO: only using 1 texture here, don't put a bgl with so 8 of them lol
+                    &environment_textures_bind_group_layout, // TODO: only using 1 texture here, don't put a bgl with so 8 of them lol
                     &two_uniform_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
@@ -854,7 +862,7 @@ impl RendererState {
         let shadow_mapping_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Shadow Mapping Pipeline Layout"),
-                bind_group_layouts: &[&two_uniform_bind_group_layout],
+                bind_group_layouts: &[&single_uniform_bind_group_layout],
                 push_constant_ranges: &[],
             });
         let shadow_mapping_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -865,7 +873,11 @@ impl RendererState {
                 entry_point: "shadow_mapping_vs_main",
                 buffers: &[Vertex::desc(), GpuMeshInstance::desc()],
             },
-            fragment: None,
+            fragment: Some(wgpu::FragmentState {
+                module: &textured_mesh_shader,
+                entry_point: "shadow_mapping_fs_main",
+                targets: &[],
+            }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
@@ -878,7 +890,7 @@ impl RendererState {
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: Texture::DEPTH_FORMAT,
                 depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::GreaterEqual,
+                depth_compare: wgpu::CompareFunction::Less,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -965,11 +977,8 @@ impl RendererState {
         let depth_texture =
             Texture::create_depth_texture(&device, &config, initial_render_scale, "depth_texture");
 
-        // TODO: be able to configure the resolution
         let shadow_map_texture =
-            Texture::create_depth_texture(&device, &config, 1.0, "shadow_map_texture");
-        let shadow_map_read_view = shadow_map_texture.texture.create_view(&Default::default());
-        let shadow_map_read_sampler = device.create_sampler(&SamplerDescriptor::default().0);
+            Texture::create_cube_depth_texture(&device, 1024, Some("shadow_map_texture"));
 
         // source: https://www.solarsystemscope.com/textures/
         let mars_texture_path = "./src/textures/8k_mars.jpg";
@@ -1179,52 +1188,53 @@ impl RendererState {
 
         let brdf_lut = Texture::create_brdf_lut(&device, &queue, &brdf_lut_gen_pipeline);
 
-        let skybox_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &pbr_env_map_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&skybox_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&skybox_texture.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&diffuse_env_map.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&diffuse_env_map.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&specular_env_map.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::Sampler(&specular_env_map.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: wgpu::BindingResource::TextureView(&brdf_lut.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: wgpu::BindingResource::Sampler(&brdf_lut.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 8,
-                    resource: wgpu::BindingResource::TextureView(&shadow_map_read_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 9,
-                    resource: wgpu::BindingResource::Sampler(&shadow_map_read_sampler),
-                },
-            ],
-            label: Some("skybox_texture_bind_group"),
-        });
+        let environment_textures_bind_group =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &environment_textures_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&skybox_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&skybox_texture.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&diffuse_env_map.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Sampler(&diffuse_env_map.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(&specular_env_map.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::Sampler(&specular_env_map.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: wgpu::BindingResource::TextureView(&brdf_lut.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 7,
+                        resource: wgpu::BindingResource::Sampler(&brdf_lut.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 8,
+                        resource: wgpu::BindingResource::TextureView(&shadow_map_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 9,
+                        resource: wgpu::BindingResource::Sampler(&shadow_map_texture.sampler),
+                    },
+                ],
+                label: Some("skybox_texture_bind_group"),
+            });
 
         let checkerboard_texture_img = {
             let mut img = image::RgbaImage::new(4096, 4096);
@@ -1275,7 +1285,7 @@ impl RendererState {
             .set_scale(Vector3::new(0.05, 0.05, 0.05));
         lights[0]
             .transform
-            .set_position(Vector3::new(0.0, 50.0, 0.0));
+            .set_position(Vector3::new(0.0, 15.0, 0.0));
         lights[1].transform.set_scale(Vector3::new(0.1, 0.1, 0.1));
         lights[1]
             .transform
@@ -1322,7 +1332,7 @@ impl RendererState {
         let test_object_instances = vec![MeshInstance::new()];
         test_object_instances[0]
             .transform
-            .set_position(Vector3::new(4.0, 1.0, 4.0));
+            .set_position(Vector3::new(4.0, 10.0, 4.0));
 
         let test_object_transforms_gpu: Vec<_> = test_object_instances
             .iter()
@@ -1411,6 +1421,21 @@ impl RendererState {
             label: Some("camera_light_bind_group"),
         });
 
+        let shadow_camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Shadow Camera Buffer"),
+            contents: bytemuck::cast_slice(&[CameraUniform::new()]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let shadow_camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &single_uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: shadow_camera_buffer.as_entire_binding(),
+            }],
+            label: Some("shadow_camera_bind_group"),
+        });
+
         let balls: Vec<_> = (0..500)
             .into_iter()
             .map(|_| {
@@ -1470,14 +1495,16 @@ impl RendererState {
             flat_color_mesh_pipeline,
             surface_blit_pipeline,
             skybox_pipeline,
-            shadow_mapping_pipeline,
 
+            shadow_mapping_pipeline,
             shadow_map_texture,
+            shadow_camera_bind_group,
+            shadow_camera_buffer,
 
             render_texture,
             depth_texture,
 
-            skybox_texture_bind_group,
+            environment_textures_bind_group,
             render_texture_bind_group,
 
             next_balls: balls.clone(),
@@ -1734,6 +1761,72 @@ impl RendererState {
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        {
+            let shadow_camera_matrices = Camera::build_cubemap_view_projection_matrices(
+                self.lights[0].transform.position.get(),
+                0.1,
+                1000.0,
+                false,
+            );
+
+            shadow_camera_matrices
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, view_proj_matrices)| {
+                    (
+                        view_proj_matrices,
+                        self.shadow_map_texture
+                            .texture
+                            .create_view(&wgpu::TextureViewDescriptor {
+                                dimension: Some(wgpu::TextureViewDimension::D2),
+                                base_array_layer: i as u32,
+                                array_layer_count: NonZeroU32::new(1),
+                                ..Default::default()
+                            }),
+                    )
+                })
+                .for_each(|(face_view_proj_matrices, face_texture_view)| {
+                    let mut shadow_encoder =
+                        self.device
+                            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                                label: Some("Render Encoder"),
+                            });
+                    {
+                        let mut shadow_render_pass =
+                            shadow_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                label: Some("Shadow Render Pass"),
+                                color_attachments: &[],
+                                depth_stencil_attachment: Some(
+                                    wgpu::RenderPassDepthStencilAttachment {
+                                        view: &face_texture_view,
+                                        depth_ops: Some(wgpu::Operations {
+                                            load: wgpu::LoadOp::Clear(1.0),
+                                            store: true,
+                                        }),
+                                        stencil_ops: None,
+                                    },
+                                ),
+                            });
+                        self.queue.write_buffer(
+                            &self.shadow_camera_buffer,
+                            0,
+                            bytemuck::cast_slice(&[CameraUniform::from_view_proj_matrices(
+                                &face_view_proj_matrices,
+                            )]),
+                        );
+                        shadow_render_pass = self.render_scene(
+                            shadow_render_pass,
+                            &self.shadow_mapping_pipeline,
+                            &self.shadow_camera_bind_group,
+                            None,
+                        );
+                    }
+                    self.queue.submit(std::iter::once(shadow_encoder.finish()));
+                });
+        }
+        // let shadow_map_texture_view = self.sh
+
         let surface_texture = self.surface.get_current_texture()?;
         let surface_texture_view = surface_texture
             .texture
@@ -1749,29 +1842,6 @@ impl RendererState {
             b: 1.0,
             a: 1.0,
         };
-
-        {
-            let shadow_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Shadow Render Pass"),
-                color_attachments: &[],
-                // depth_stencil_attachment: None,
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.shadow_map_texture.view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0.0),
-                        store: true,
-                    }),
-                    stencil_ops: None,
-                }),
-            });
-
-            self.render_scene(
-                shadow_render_pass,
-                &self.shadow_mapping_pipeline,
-                &self.camera_light_bind_group,
-                None,
-            );
-        }
 
         {
             let mut main_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1800,7 +1870,7 @@ impl RendererState {
                 main_render_pass,
                 &self.mesh_pipeline,
                 &self.camera_light_bind_group,
-                Some(&self.skybox_texture_bind_group),
+                Some(&self.environment_textures_bind_group),
             );
 
             // render light
@@ -1822,7 +1892,7 @@ impl RendererState {
             // TODO: does it make sense to render the skybox here?
             // doing it in the surface blit pass is faster and might not change the quality when using SSAA
             main_render_pass.set_pipeline(&self.skybox_pipeline);
-            main_render_pass.set_bind_group(0, &self.skybox_texture_bind_group, &[]);
+            main_render_pass.set_bind_group(0, &self.environment_textures_bind_group, &[]);
             main_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
             main_render_pass.set_vertex_buffer(0, self.skybox_mesh.vertex_buffer.slice(..));
             main_render_pass.set_index_buffer(
@@ -1861,13 +1931,13 @@ impl RendererState {
         &'a self,
         mut render_pass: wgpu::RenderPass<'a>,
         pipeline: &'a wgpu::RenderPipeline,
-        camera_light_bind_group: &'a wgpu::BindGroup,
-        skybox_texture_bind_group: Option<&'a wgpu::BindGroup>,
+        bind_group_0: &'a wgpu::BindGroup,
+        bind_group_2: Option<&'a wgpu::BindGroup>,
     ) -> wgpu::RenderPass<'a> {
         render_pass.set_pipeline(pipeline);
-        render_pass.set_bind_group(0, camera_light_bind_group, &[]);
-        if let Some(skybox_texture_bind_group) = skybox_texture_bind_group {
-            render_pass.set_bind_group(2, skybox_texture_bind_group, &[]);
+        render_pass.set_bind_group(0, bind_group_0, &[]);
+        if let Some(bind_group_2) = bind_group_2 {
+            render_pass.set_bind_group(2, bind_group_2, &[]);
         }
 
         // render gltf scene
