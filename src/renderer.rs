@@ -1961,44 +1961,44 @@ impl RendererState {
         //     "meshes: {:?}",
         //     meshes.iter().map(|mesh| mesh.name()).collect::<Vec<_>>()
         // );
-        drawable_primitive_groups
-            .iter()
-            .enumerate()
-            .filter(|(_, (_, prim))| {
-                prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
-                    || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask
-            })
-            .for_each(|(drawable_prim_index, _)| {
-                let BindableMeshData {
-                    vertex_buffer,
-                    index_buffer,
-                    instance_buffer,
-                    textures_bind_group,
-                } = &self.scene.buffers.bindable_mesh_data[drawable_prim_index];
-                render_pass.set_bind_group(1, textures_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
-                render_pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
-                match index_buffer {
-                    Some(index_buffer) => {
-                        // println!("Calling draw draw_indexed for mesh: {:?}", mesh.name());
-                        render_pass.set_index_buffer(
-                            index_buffer.buffer.slice(..),
-                            wgpu::IndexFormat::Uint16,
-                        );
-                        render_pass.draw_indexed(
-                            0..index_buffer.length as u32,
-                            0,
-                            0..instance_buffer.length as u32,
-                        );
-                    }
-                    None => {
-                        render_pass.draw(
-                            0..vertex_buffer.length as u32,
-                            0..instance_buffer.length as u32,
-                        );
-                    }
-                }
-            });
+        // drawable_primitive_groups
+        //     .iter()
+        //     .enumerate()
+        //     .filter(|(_, (_, prim))| {
+        //         prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
+        //             || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask
+        //     })
+        //     .for_each(|(drawable_prim_index, _)| {
+        //         let BindableMeshData {
+        //             vertex_buffer,
+        //             index_buffer,
+        //             instance_buffer,
+        //             textures_bind_group,
+        //         } = &self.scene.buffers.bindable_mesh_data[drawable_prim_index];
+        //         render_pass.set_bind_group(1, textures_bind_group, &[]);
+        //         render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
+        //         render_pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
+        //         match index_buffer {
+        //             Some(index_buffer) => {
+        //                 // println!("Calling draw draw_indexed for mesh: {:?}", mesh.name());
+        //                 render_pass.set_index_buffer(
+        //                     index_buffer.buffer.slice(..),
+        //                     wgpu::IndexFormat::Uint16,
+        //                 );
+        //                 render_pass.draw_indexed(
+        //                     0..index_buffer.length as u32,
+        //                     0,
+        //                     0..instance_buffer.length as u32,
+        //                 );
+        //             }
+        //             None => {
+        //                 render_pass.draw(
+        //                     0..vertex_buffer.length as u32,
+        //                     0..instance_buffer.length as u32,
+        //                 );
+        //             }
+        //         }
+        //     });
 
         // render test object
         render_pass.set_bind_group(1, &self.test_object_mesh.textures_bind_group, &[]);
