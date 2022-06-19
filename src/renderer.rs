@@ -193,7 +193,7 @@ pub struct RendererState {
     surface_blit_pipeline: wgpu::RenderPipeline,
 
     shadow_mapping_pipeline: wgpu::RenderPipeline,
-    shadow_map_texture: Texture,
+    shadow_map_textures: Texture,
     shadow_camera_bind_group: wgpu::BindGroup,
     shadow_camera_buffer: wgpu::Buffer,
 
@@ -506,7 +506,7 @@ impl RendererState {
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::Cube,
+                            view_dimension: wgpu::TextureViewDimension::CubeArray,
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         },
                         count: None,
@@ -923,11 +923,11 @@ impl RendererState {
         // let gltf_import_result = gltf::import(
         //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb",
         // )?;
-        // let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
+        let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
         // let gltf_import_result =
         //     gltf::import("./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf")?;
-        let gltf_import_result =
-            gltf::import("./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf")?;
+        // let gltf_import_result =
+        //     gltf::import("./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf")?;
         // let gltf_import_result =
         //     gltf::import("./src/models/gltf/VertexColorTest/VertexColorTest.gltf")?;
         let (document, buffers, images) = gltf_import_result;
@@ -976,9 +976,6 @@ impl RendererState {
 
         let depth_texture =
             Texture::create_depth_texture(&device, &config, initial_render_scale, "depth_texture");
-
-        let shadow_map_texture =
-            Texture::create_cube_depth_texture(&device, 1024, Some("shadow_map_texture"));
 
         // source: https://www.solarsystemscope.com/textures/
         let mars_texture_path = "./src/textures/8k_mars.jpg";
@@ -1188,54 +1185,6 @@ impl RendererState {
 
         let brdf_lut = Texture::create_brdf_lut(&device, &queue, &brdf_lut_gen_pipeline);
 
-        let environment_textures_bind_group =
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &environment_textures_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&skybox_texture.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&skybox_texture.sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&diffuse_env_map.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Sampler(&diffuse_env_map.sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: wgpu::BindingResource::TextureView(&specular_env_map.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: wgpu::BindingResource::Sampler(&specular_env_map.sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 6,
-                        resource: wgpu::BindingResource::TextureView(&brdf_lut.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 7,
-                        resource: wgpu::BindingResource::Sampler(&brdf_lut.sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 8,
-                        resource: wgpu::BindingResource::TextureView(&shadow_map_texture.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 9,
-                        resource: wgpu::BindingResource::Sampler(&shadow_map_texture.sampler),
-                    },
-                ],
-                label: Some("skybox_texture_bind_group"),
-            });
-
         let checkerboard_texture_img = {
             let mut img = image::RgbaImage::new(4096, 4096);
             for x in 0..img.width() {
@@ -1289,7 +1238,7 @@ impl RendererState {
         lights[1].transform.set_scale(Vector3::new(0.1, 0.1, 0.1));
         lights[1]
             .transform
-            .set_position(Vector3::new(0.0, 200.0, -3.0));
+            .set_position(Vector3::new(0.0, 15.0, 0.0));
 
         let light_flat_color_instances: Vec<_> = lights
             .iter()
@@ -1471,6 +1420,66 @@ impl RendererState {
             bytemuck::cast_slice(&balls_transforms),
         )?;
 
+        let shadow_map_textures = Texture::create_cube_depth_texture_array(
+            &device,
+            1024,
+            Some("shadow_map_texture"),
+            lights.len().try_into().unwrap(),
+        );
+        let shadow_map_sampler = device.create_sampler(&Default::default());
+
+        // dbg!(shadow_map_textures.len());
+
+        let environment_textures_bind_group =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &environment_textures_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&skybox_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&skybox_texture.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&diffuse_env_map.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Sampler(&diffuse_env_map.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(&specular_env_map.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::Sampler(&specular_env_map.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: wgpu::BindingResource::TextureView(&brdf_lut.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 7,
+                        resource: wgpu::BindingResource::Sampler(&brdf_lut.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 8,
+                        resource: wgpu::BindingResource::TextureView(&shadow_map_textures.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 9,
+                        resource: wgpu::BindingResource::Sampler(&&shadow_map_textures.sampler),
+                    },
+                ],
+                label: Some("skybox_texture_bind_group"),
+            });
+
+        dbg!("yo");
+
         Ok(Self {
             surface,
             device,
@@ -1497,7 +1506,7 @@ impl RendererState {
             skybox_pipeline,
 
             shadow_mapping_pipeline,
-            shadow_map_texture,
+            shadow_map_textures,
             shadow_camera_bind_group,
             shadow_camera_buffer,
 
@@ -1762,28 +1771,27 @@ impl RendererState {
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         {
-            let shadow_camera_matrices = Camera::build_cubemap_view_projection_matrices(
-                self.lights[0].transform.position.get(),
-                0.1,
-                1000.0,
-                false,
-            );
-
-            shadow_camera_matrices
+            (0..self.lights.len()).for_each(|light_index| {
+                Camera::build_cubemap_view_projection_matrices(
+                    self.lights[light_index].transform.position.get(),
+                    0.1,
+                    1000.0,
+                    false,
+                )
                 .iter()
                 .copied()
                 .enumerate()
                 .map(|(i, view_proj_matrices)| {
                     (
                         view_proj_matrices,
-                        self.shadow_map_texture
-                            .texture
-                            .create_view(&wgpu::TextureViewDescriptor {
+                        self.shadow_map_textures.texture.create_view(
+                            &wgpu::TextureViewDescriptor {
                                 dimension: Some(wgpu::TextureViewDimension::D2),
-                                base_array_layer: i as u32,
+                                base_array_layer: (6 * light_index + i).try_into().unwrap(),
                                 array_layer_count: NonZeroU32::new(1),
                                 ..Default::default()
-                            }),
+                            },
+                        ),
                     )
                 })
                 .for_each(|(face_view_proj_matrices, face_texture_view)| {
@@ -1793,7 +1801,7 @@ impl RendererState {
                                 label: Some("Render Encoder"),
                             });
                     {
-                        let mut shadow_render_pass =
+                        let shadow_render_pass =
                             shadow_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                                 label: Some("Shadow Render Pass"),
                                 color_attachments: &[],
@@ -1815,7 +1823,7 @@ impl RendererState {
                                 &face_view_proj_matrices,
                             )]),
                         );
-                        shadow_render_pass = self.render_scene(
+                        self.render_scene(
                             shadow_render_pass,
                             &self.shadow_mapping_pipeline,
                             &self.shadow_camera_bind_group,
@@ -1824,6 +1832,7 @@ impl RendererState {
                     }
                     self.queue.submit(std::iter::once(shadow_encoder.finish()));
                 });
+            });
         }
         // let shadow_map_texture_view = self.sh
 

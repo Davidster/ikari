@@ -45,6 +45,7 @@
 - [x] why doesn't MetalRoughSpheresNoTextures work?
 - [ ] add shadows
   - [ ] add shadow bias material property to instances
+- [ ] get windows support back by removing the srgb thing
 - [ ] add bloom
 - [ ] add adaptive exposure based on histogram
 - [ ] support pbrSpecularGlossiness so I can load adamHead model

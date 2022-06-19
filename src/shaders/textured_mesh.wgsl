@@ -217,7 +217,7 @@ var brdf_lut_texture: texture_2d<f32>;
 [[group(2), binding(7)]]
 var brdf_lut_sampler: sampler;
 [[group(2), binding(8)]]
-var shadow_map_texture: texture_cube<f32>;
+var shadow_map_textures: texture_cube_array<f32>;
 [[group(2), binding(9)]]
 var shadow_map_sampler: sampler;
 
@@ -313,6 +313,15 @@ fn world_normal_to_cubemap_vec(world_pos: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(-world_pos.x, world_pos.y, world_pos.z);
 }
 
+fn rand(co: vec2<f32>) -> f32 {
+    let a = 12.9898;
+    let b = 78.233;
+    let c = 43758.5453;
+    let dt = dot(co, vec2<f32>(a, b));
+    let sn = dt % 3.14;
+    return fract(sin(sn) * c);
+}
+
 fn do_fragment_shade(
     world_position: vec3<f32>,
     world_normal: vec3<f32>,
@@ -370,74 +379,56 @@ fn do_fragment_shade(
     let f0 = surface_reflection_at_zero_incidence;
     let k = geometry_func_schlick_ggx_k_direct(a);
 
+    let random_seed = vec2<f32>(
+        round(100000.0 * (world_position.x + world_position.y)),
+        round(100000.0 * (world_position.y + world_position.z)),
+    );
+
     var total_light_irradiance = vec3<f32>(0.0);
-
-    // let camera_rotation_matrix = mat4x4<f32>(
-    //     vec4<f32>(1.0, 0.0, 0.0, 0.0),
-    //     vec4<f32>(0.0, 0.0, 1.0, 0.0),
-    //     vec4<f32>(0.0, -1.0, 0.0, 0.0),
-    //     vec4<f32>(1.0, 0.0, 0.0, 1.0),
-    // );
-    let camera_rotation_matrix = mat4x4<f32>(
-        vec4<f32>(1.0, 0.0, 0.0, 0.0),
-        vec4<f32>(0.0, 0.0, 1.0, 0.0),
-        vec4<f32>(0.0, -1.0, 0.0, 0.0),
-        vec4<f32>(1.0, 0.0, 0.0, 1.0),
-    );
-
-    let first_light = lights.values[0];
-
-    let camera_translation_matrix = mat4x4<f32>(
-        vec4<f32>(1.0, 0.0, 0.0, 0.0),
-        vec4<f32>(0.0, 1.0, 0.0, 0.0),
-        vec4<f32>(0.0, 0.0, 1.0, 0.0),
-        vec4<f32>(-first_light.position.xyz, 1.0),
-    );
-
-    let camera_view_matrix = camera_rotation_matrix * camera_translation_matrix;
-
-    let camera_proj_matrix = mat4x4<f32>(
-        vec4<f32>(1.0, 0.0, 0.0, 0.0),
-        vec4<f32>(0.0, 1.0, 0.0, 0.0),
-        vec4<f32>(0.0, 0.0, 0.001, -1.0),
-        vec4<f32>(0.0, 0.0, 0.1, 0.0)
-    );
-
-    let camera_view_proj = camera_proj_matrix * camera_view_matrix;
-
-    let from_shadow_vec = world_position - first_light.position.xyz;
-    let shadow_camera_far_plane_distance = 1000.0;
-    let current_depth = length(from_shadow_vec) / shadow_camera_far_plane_distance;
-
-    var shadow = 0.0;
-    let bias = 0.0001;
-    let samples = 4.0;
-    let offset = 0.1;
-    for (var x = -offset; x < offset; x = x + offset / (samples * 0.5)) {
-        for (var y = -offset; y < offset; y = y + offset / (samples * 0.5)) {
-            for (var z = -offset; z < offset; z = z + offset / (samples * 0.5)) {
-                let closest_depth = textureSample(
-                    shadow_map_texture,
-                    shadow_map_sampler,
-                    world_normal_to_cubemap_vec(from_shadow_vec + vec3<f32>(x, y, z))
-                ).r;
-                if (current_depth - bias < closest_depth) {
-                    shadow = shadow + 1.0;
-                }
-            }
-        }
-    }
-    shadow = shadow / (samples * samples * samples);
-
     for (var light_index = 0u; light_index < MAX_LIGHTS; light_index = light_index + 1u) {
         let light = lights.values[light_index];
 
-        if (light_index == 0u && shadow < epsilon) {
+        if (light.color.x < epsilon && light.color.y < epsilon && light.color.z < epsilon) {
             continue;
         }
 
-        if (light.color.x < epsilon && light.color.y < epsilon && light.color.z < epsilon) {
-            continue;
+        let from_shadow_vec = world_position - light.position.xyz;
+        let shadow_camera_far_plane_distance = 1000.0;
+        let current_depth = length(from_shadow_vec) / shadow_camera_far_plane_distance;
+
+        var shadow_occlusion_acc = 0.0;
+        let bias = 0.0001;
+        let samples = 4.0;
+        let sample_count = 4.0;
+        let offset = 0.1;
+
+        let max_offset_x = 0.05 + 0.1 * rand(random_seed * 1.0);
+        let max_offset_y = 0.05 + 0.1 * rand(random_seed * 2.0);
+        let max_offset_z = 0.05 + 0.1 * rand(random_seed * 3.0);
+        for (var x = 0.0; x < sample_count; x = x + 1.0) {
+            for (var y = 0.0; y < sample_count; y = y + 1.0) {
+                for (var z = 0.0; z < sample_count; z = z + 1.0) {
+                    let irregular_offset = vec3<f32>(
+                        max_offset_x * ((2.0 * x / (sample_count - 1.0)) - 1.0),
+                        max_offset_y * ((2.0 * y / (sample_count - 1.0)) - 1.0),
+                        max_offset_z * ((2.0 * z / (sample_count - 1.0)) - 1.0),
+                    );
+                    let closest_depth = textureSample(
+                        shadow_map_textures,
+                        shadow_map_sampler,
+                        world_normal_to_cubemap_vec(from_shadow_vec + irregular_offset),
+                        i32(light_index)
+                    ).r;
+                    if (current_depth - bias < closest_depth) {
+                        shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
+                    }
+                }
+            }
+        }
+        let shadow_occlusion_amount = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
+
+        if (shadow_occlusion_amount < epsilon) {
+                continue;
         }
 
         let to_light_vec = light.position.xyz - world_position;
@@ -475,14 +466,16 @@ fn do_fragment_shade(
         //                                  ks was already multiplied by fresnel so it's omitted here       
         let bdrf = kd * diffuse_component + specular_component;
         let light_irradiance = bdrf * incident_angle_factor * light_attenuation_factor * light.color.rgb;
-        total_light_irradiance = total_light_irradiance + light_irradiance * shadow;
+        total_light_irradiance = total_light_irradiance + light_irradiance * shadow_occlusion_amount;
     }
 
 
 
-    let n_dot_v = max(dot(n, v), 0.0);
+    let
+        n_dot_v = max(dot(n, v), 0.0);
 
-    let fresnel_ambient = fresnel_func_schlick_with_roughness(n_dot_v, f0, a);
+    let
+        fresnel_ambient = fresnel_func_schlick_with_roughness(n_dot_v, f0, a);
     // mip level count - 1
     let MAX_REFLECTION_LOD = 4.0;
     let pre_filtered_color = textureSampleLevel(

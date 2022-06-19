@@ -330,15 +330,16 @@ impl Texture {
         }
     }
 
-    pub fn create_cube_depth_texture(
+    pub fn create_cube_depth_texture_array(
         device: &wgpu::Device,
         size: u32,
         label: Option<&str>,
+        length: u32,
     ) -> Self {
         let size = wgpu::Extent3d {
             width: size,
             height: size,
-            depth_or_array_layers: 6,
+            depth_or_array_layers: 6 * length,
         };
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -352,7 +353,7 @@ impl Texture {
         });
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::Cube),
+            dimension: Some(wgpu::TextureViewDimension::CubeArray),
             ..Default::default()
         });
 
