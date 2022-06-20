@@ -51,6 +51,12 @@ fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     return textureSample(r_color, r_sampler, in.tex_coords);
 }
 
+[[stage(fragment)]]
+fn surface_blit_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+    let hdr_color = textureSample(r_color, r_sampler, in.tex_coords);
+    return hdr_color / (hdr_color + 1.0);
+}
+
 // BRDF LUT:
 
 let pi: f32 = 3.141592653589793;

@@ -192,7 +192,7 @@ pub struct RendererState {
     skybox_pipeline: wgpu::RenderPipeline,
     surface_blit_pipeline: wgpu::RenderPipeline,
 
-    shadow_mapping_pipeline: wgpu::RenderPipeline,
+    shadow_map_pipeline: wgpu::RenderPipeline,
     shadow_map_textures: Texture,
     shadow_camera_bind_group: wgpu::BindGroup,
     shadow_camera_buffer: wgpu::Buffer,
@@ -564,7 +564,7 @@ impl RendererState {
             });
 
         let fragment_shader_color_targets = &[wgpu::ColorTargetState {
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba16Float,
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
         }];
@@ -640,7 +640,7 @@ impl RendererState {
         let flat_color_mesh_pipeline =
             device.create_render_pipeline(&flat_color_mesh_pipeline_descriptor);
 
-        let suface_blit_color_targets = &[wgpu::ColorTargetState {
+        let surface_blit_color_targets = &[wgpu::ColorTargetState {
             format: config.format,
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
@@ -661,8 +661,8 @@ impl RendererState {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &blit_shader,
-                entry_point: "fs_main",
-                targets: suface_blit_color_targets,
+                entry_point: "surface_blit_fs_main",
+                targets: surface_blit_color_targets,
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -859,23 +859,23 @@ impl RendererState {
         let brdf_lut_gen_pipeline =
             device.create_render_pipeline(&brdf_lut_gen_pipeline_descriptor);
 
-        let shadow_mapping_pipeline_layout =
+        let shadow_map_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Shadow Mapping Pipeline Layout"),
+                label: Some("Shadow Map Pipeline Layout"),
                 bind_group_layouts: &[&single_uniform_bind_group_layout],
                 push_constant_ranges: &[],
             });
-        let shadow_mapping_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("Shadow Mapping Pipeline"),
-            layout: Some(&shadow_mapping_pipeline_layout),
+        let shadow_map_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("Shadow Map Pipeline"),
+            layout: Some(&shadow_map_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
-                entry_point: "shadow_mapping_vs_main",
+                entry_point: "shadow_map_vs_main",
                 buffers: &[Vertex::desc(), GpuMeshInstance::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &textured_mesh_shader,
-                entry_point: "shadow_mapping_fs_main",
+                entry_point: "shadow_map_fs_main",
                 targets: &[],
             }),
             primitive: wgpu::PrimitiveState {
@@ -901,15 +901,13 @@ impl RendererState {
             },
             multiview: None,
         };
-        let shadow_mapping_pipeline =
-            device.create_render_pipeline(&shadow_mapping_pipeline_descriptor);
+        let shadow_map_pipeline = device.create_render_pipeline(&shadow_map_pipeline_descriptor);
 
-        // let gltf_import_result = gltf::import("/Users/david/Downloads/adamHead/adamHead.gltf")?;
+        // let gltf_import_result = gltf::import("/home/david/Downloads/adamHead/adamHead.gltf")?;
+        // let gltf_import_result =
+        //     gltf::import("/home/david/Programming/glTF-Sample-Models/2.0/VC/glTF/VC.gltf")?;
         // let gltf_import_result = gltf::import(
-        //     "/Users/david/Programming/rand/glTF-Sample-Models/2.0/AlphaBlendModeTest/glTF/AlphaBlendModeTest.gltf",
-        // )?;
-        // let gltf_import_result = gltf::import(
-        //     "/Users/david/Programming/rand/glTF-Sample-Models/2.0/NormalTangentMirrorTest/glTF/NormalTangentMirrorTest.gltf",
+        //     "/home/david/Programming/glTF-Sample-Models/2.0/NormalTangentMirrorTest/glTF/NormalTangentMirrorTest.gltf",
         // )?;
         // let gltf_import_result = gltf::import(
         //     "/home/david/Programming/glTF-Sample-Models/2.0/Lantern/glTF/Lantern.gltf",
@@ -1505,7 +1503,7 @@ impl RendererState {
             surface_blit_pipeline,
             skybox_pipeline,
 
-            shadow_mapping_pipeline,
+            shadow_map_pipeline,
             shadow_map_textures,
             shadow_camera_bind_group,
             shadow_camera_buffer,
@@ -1825,7 +1823,7 @@ impl RendererState {
                         );
                         self.render_scene(
                             shadow_render_pass,
-                            &self.shadow_mapping_pipeline,
+                            &self.shadow_map_pipeline,
                             &self.shadow_camera_bind_group,
                             None,
                         );

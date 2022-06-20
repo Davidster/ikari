@@ -145,7 +145,7 @@ fn vs_main(
 }
 
 [[stage(vertex)]]
-fn shadow_mapping_vs_main(
+fn shadow_map_vs_main(
     vshader_input: VertexInput,
     instance: Instance,
 ) -> ShadowMappingVertexOutput {
@@ -170,7 +170,7 @@ fn shadow_mapping_vs_main(
 }
 
 [[stage(fragment)]]
-fn shadow_mapping_fs_main(
+fn shadow_map_fs_main(
     in: ShadowMappingVertexOutput
 ) -> ShadowMappingFragmentOutput {
     var out: ShadowMappingFragmentOutput;
@@ -471,11 +471,9 @@ fn do_fragment_shade(
 
 
 
-    let
-        n_dot_v = max(dot(n, v), 0.0);
+    let n_dot_v = max(dot(n, v), 0.0);
 
-    let
-        fresnel_ambient = fresnel_func_schlick_with_roughness(n_dot_v, f0, a);
+    let fresnel_ambient = fresnel_func_schlick_with_roughness(n_dot_v, f0, a);
     // mip level count - 1
     let MAX_REFLECTION_LOD = 4.0;
     let pre_filtered_color = textureSampleLevel(
@@ -506,12 +504,12 @@ fn do_fragment_shade(
 
     let combined_irradiance_hdr = 0.25 * ambient_irradiance + total_light_irradiance;
     // let combined_irradiance_hdr = total_light_irradiance;
-    let combined_irradiance_ldr = (combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0))) + emissive;
+    // let combined_irradiance_ldr = (combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0))) + emissive;
 
     // let hi = textureSample(shadow_map_texture, shadow_map_sampler, vec2<f32>(0.1, 0.1));
 
     // let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
-    let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
+    let final_color = vec4<f32>(combined_irradiance_hdr, 1.0);
 
     if (base_color_t.a <= alpha_cutoff) {
         discard;

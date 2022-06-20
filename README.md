@@ -47,6 +47,8 @@
 - [x] add shadows
 - [ ] get windows support back by removing the srgb thing
 - [ ] add bloom
+  - [x] move tone mapping to later pass
+  - [ ] support light intensity value
 - [ ] add adaptive exposure based on histogram
 
 ## Low priority
