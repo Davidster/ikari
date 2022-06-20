@@ -49,7 +49,6 @@
 - [x] add bloom
   - [x] move tone mapping to later pass
   - [x] support light intensity value
-- [ ] add adaptive exposure based on histogram
 
 ## Low priority
 - [ ] Asset loading
@@ -60,4 +59,5 @@
 - [ ] Shadows
   - [ ] Try out PCSS: [link 1](https://download.nvidia.com/developer/SDK/Individual_Samples/MEDIA/docPix/docs/PCSS.pdf), [link 2](https://developer.download.nvidia.com/whitepapers/2008/PCSS_Integration.pdf). Judging by [this link](https://developer.download.nvidia.com/presentations/2008/GDC/GDC08_SoftShadowMapping.pdf), PCSS with 9x9 PCF seems to be a good tradeoff
   - [ ] add shadow bias material property to instances
+- [ ] add adaptive exposure based on histogram
 - [ ] make sure the skybox rad texture resolution is capped at a sane level; it causes the renderer to break on my m1.
