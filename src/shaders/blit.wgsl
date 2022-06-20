@@ -62,7 +62,7 @@ fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 
 [[stage(fragment)]]
 fn tone_mapping_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-    let exposure = 1.0;
+    let exposure = 0.5;
     let shaded_color = textureSample(texture_1, sampler_1, in.tex_coords).rgb;
     let bloom_color = textureSample(texture_2, sampler_2, in.tex_coords).rgb;
     let final_color_hdr = shaded_color + bloom_color;

@@ -790,6 +790,18 @@ impl RendererState {
         let surface_blit_pipeline =
             device.create_render_pipeline(&surface_blit_pipeline_descriptor);
 
+        let tone_mapping_colors_targets = &[wgpu::ColorTargetState {
+            format: wgpu::TextureFormat::Rgba16Float,
+            blend: Some(wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::One,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent::REPLACE,
+            }),
+            write_mask: wgpu::ColorWrites::ALL,
+        }];
         let tone_mapping_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
@@ -807,7 +819,7 @@ impl RendererState {
             fragment: Some(wgpu::FragmentState {
                 module: &blit_shader,
                 entry_point: "tone_mapping_fs_main",
-                targets: fragment_shader_color_targets,
+                targets: tone_mapping_colors_targets,
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -1066,11 +1078,11 @@ impl RendererState {
         // let gltf_import_result = gltf::import(
         //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb",
         // )?;
-        let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
+        // let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
         // let gltf_import_result =
         //     gltf::import("./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf")?;
-        // let gltf_import_result =
-        //     gltf::import("./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf")?;
+        let gltf_import_result =
+            gltf::import("./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf")?;
         // let gltf_import_result =
         //     gltf::import("./src/models/gltf/VertexColorTest/VertexColorTest.gltf")?;
         let (document, buffers, images) = gltf_import_result;
@@ -1321,10 +1333,10 @@ impl RendererState {
             });
 
         // My photosphere pic
-        let _skybox_background = SkyboxBackground::Equirectangular {
+        let skybox_background = SkyboxBackground::Equirectangular {
             image_path: "./src/textures/photosphere_skybox.jpg",
         };
-        let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+        let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
             Some(SkyboxHDREnvironment::Equirectangular {
                 image_path: "./src/textures/photosphere_skybox_small.jpg",
             });
@@ -1496,7 +1508,7 @@ impl RendererState {
             .set_scale(Vector3::new(0.05, 0.05, 0.05));
         lights[0]
             .transform
-            .set_position(Vector3::new(0.0, 5.0, 0.0));
+            .set_position(Vector3::new(0.0, 12.0, 0.0));
         lights[1].transform.set_scale(Vector3::new(0.1, 0.1, 0.1));
         lights[1]
             .transform
@@ -2336,10 +2348,10 @@ impl RendererState {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("Shading Encoder"),
                 });
-        let clear_color = wgpu::Color {
+        let black = wgpu::Color {
             r: 0.0,
             g: 0.0,
-            b: 1.0,
+            b: 0.0,
             a: 1.0,
         };
 
@@ -2351,7 +2363,7 @@ impl RendererState {
                         view: &self.shading_texture.view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(clear_color),
+                            load: wgpu::LoadOp::Clear(black),
                             store: true,
                         },
                     }],
@@ -2403,7 +2415,7 @@ impl RendererState {
                         view: &self.bloom_pingpong_textures[0].view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                            load: wgpu::LoadOp::Clear(black),
                             store: true,
                         },
                     }],
@@ -2431,7 +2443,7 @@ impl RendererState {
                             view: dst_texture,
                             resolve_target: None,
                             ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                                load: wgpu::LoadOp::Clear(black),
                                 store: true,
                             },
                         }],
@@ -2461,6 +2473,46 @@ impl RendererState {
                 i % 2 == 0,
             );
         });
+
+        let mut skybox_encoder =
+            self.device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Skybox Encoder"),
+                });
+        {
+            let mut skybox_render_pass =
+                skybox_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: None,
+                    color_attachments: &[wgpu::RenderPassColorAttachment {
+                        view: &self.tone_mapping_texture.view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(black),
+                            store: true,
+                        },
+                    }],
+                    // depth_stencil_attachment: None,
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &self.depth_texture.view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: true,
+                        }),
+                        stencil_ops: None,
+                    }),
+                });
+            skybox_render_pass.set_pipeline(&self.skybox_pipeline);
+            skybox_render_pass.set_bind_group(0, &self.environment_textures_bind_group, &[]);
+            skybox_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            skybox_render_pass.set_vertex_buffer(0, self.skybox_mesh.vertex_buffer.slice(..));
+            skybox_render_pass.set_index_buffer(
+                self.skybox_mesh.index_buffer.slice(..),
+                wgpu::IndexFormat::Uint16,
+            );
+            skybox_render_pass.draw_indexed(0..self.skybox_mesh.num_indices, 0, 0..1);
+        }
+
+        self.queue.submit(std::iter::once(skybox_encoder.finish()));
 
         let mut tone_mapping_encoder =
             self.device
@@ -2493,46 +2545,6 @@ impl RendererState {
         self.queue
             .submit(std::iter::once(tone_mapping_encoder.finish()));
 
-        let mut skybox_encoder =
-            self.device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Skybox Encoder"),
-                });
-        {
-            let mut skybox_render_pass =
-                skybox_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[wgpu::RenderPassColorAttachment {
-                        view: &self.tone_mapping_texture.view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: true,
-                        },
-                    }],
-                    // depth_stencil_attachment: None,
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &self.depth_texture.view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: true,
-                        }),
-                        stencil_ops: None,
-                    }),
-                });
-            skybox_render_pass.set_pipeline(&self.skybox_pipeline);
-            skybox_render_pass.set_bind_group(0, &self.environment_textures_bind_group, &[]);
-            skybox_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
-            skybox_render_pass.set_vertex_buffer(0, self.skybox_mesh.vertex_buffer.slice(..));
-            skybox_render_pass.set_index_buffer(
-                self.skybox_mesh.index_buffer.slice(..),
-                wgpu::IndexFormat::Uint16,
-            );
-            skybox_render_pass.draw_indexed(0..self.skybox_mesh.num_indices, 0, 0..1);
-        }
-
-        self.queue.submit(std::iter::once(skybox_encoder.finish()));
-
         let mut surface_blit_encoder =
             self.device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -2547,7 +2559,7 @@ impl RendererState {
                         view: &surface_texture_view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                            load: wgpu::LoadOp::Clear(black),
                             store: true,
                         },
                     }],
@@ -2645,32 +2657,32 @@ impl RendererState {
         );
 
         // // render floor
-        render_pass.set_bind_group(1, &self.plane_mesh.textures_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
-        render_pass.set_index_buffer(
-            self.plane_mesh.index_buffer.slice(..),
-            wgpu::IndexFormat::Uint16,
-        );
-        render_pass.draw_indexed(
-            0..self.plane_mesh.num_indices,
-            0,
-            0..self.plane_instances.len() as u32,
-        );
+        // render_pass.set_bind_group(1, &self.plane_mesh.textures_bind_group, &[]);
+        // render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
+        // render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
+        // render_pass.set_index_buffer(
+        //     self.plane_mesh.index_buffer.slice(..),
+        //     wgpu::IndexFormat::Uint16,
+        // );
+        // render_pass.draw_indexed(
+        //     0..self.plane_mesh.num_indices,
+        //     0,
+        //     0..self.plane_instances.len() as u32,
+        // );
 
         // render balls
-        render_pass.set_bind_group(1, &self.sphere_mesh.textures_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.sphere_mesh.vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, self.sphere_mesh.instance_buffer.slice(..));
-        render_pass.set_index_buffer(
-            self.sphere_mesh.index_buffer.slice(..),
-            wgpu::IndexFormat::Uint16,
-        );
-        render_pass.draw_indexed(
-            0..self.sphere_mesh.num_indices,
-            0,
-            0..self.actual_balls.len() as u32,
-        );
+        // render_pass.set_bind_group(1, &self.sphere_mesh.textures_bind_group, &[]);
+        // render_pass.set_vertex_buffer(0, self.sphere_mesh.vertex_buffer.slice(..));
+        // render_pass.set_vertex_buffer(1, self.sphere_mesh.instance_buffer.slice(..));
+        // render_pass.set_index_buffer(
+        //     self.sphere_mesh.index_buffer.slice(..),
+        //     wgpu::IndexFormat::Uint16,
+        // );
+        // render_pass.draw_indexed(
+        //     0..self.sphere_mesh.num_indices,
+        //     0,
+        //     0..self.actual_balls.len() as u32,
+        // );
 
         render_pass
     }
