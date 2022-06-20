@@ -152,7 +152,7 @@ impl CameraUniform {
     }
 }
 
-const INITIAL_RENDER_SCALE: f32 = 2.0;
+const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const ARENA_SIDE_LENGTH: f32 = 50.0;
 pub const MAX_LIGHT_COUNT: u8 = 32;
 pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
@@ -191,6 +191,7 @@ pub struct RendererState {
     mesh_pipeline: wgpu::RenderPipeline,
     flat_color_mesh_pipeline: wgpu::RenderPipeline,
     skybox_pipeline: wgpu::RenderPipeline,
+    tone_mapping_pipeline: wgpu::RenderPipeline,
     surface_blit_pipeline: wgpu::RenderPipeline,
 
     shadow_map_pipeline: wgpu::RenderPipeline,
@@ -202,6 +203,7 @@ pub struct RendererState {
     two_texture_bind_group_layout: wgpu::BindGroupLayout,
 
     shading_texture: Texture,
+    tone_mapping_texture: Texture,
     depth_texture: Texture,
 
     bloom_threshold_pipeline: wgpu::RenderPipeline,
@@ -211,7 +213,8 @@ pub struct RendererState {
     bloom_blur_direction_buffer: wgpu::Buffer,
 
     environment_textures_bind_group: wgpu::BindGroup,
-    surface_blit_textures_bind_group: wgpu::BindGroup,
+    shading_and_bloom_textures_bind_group: wgpu::BindGroup,
+    tone_mapping_texture_bind_group: wgpu::BindGroup,
     shading_texture_bind_group: wgpu::BindGroup,
     bloom_pingpong_texture_bind_groups: [wgpu::BindGroup; 2],
 
@@ -760,7 +763,7 @@ impl RendererState {
         let surface_blit_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&two_texture_bind_group_layout],
+                bind_group_layouts: &[&single_texture_bind_group_layout],
                 push_constant_ranges: &[],
             });
         let surface_blit_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -773,7 +776,7 @@ impl RendererState {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &blit_shader,
-                entry_point: "surface_blit_fs_main",
+                entry_point: "fs_main",
                 targets: surface_blit_color_targets,
             }),
             primitive: wgpu::PrimitiveState {
@@ -786,6 +789,36 @@ impl RendererState {
         };
         let surface_blit_pipeline =
             device.create_render_pipeline(&surface_blit_pipeline_descriptor);
+
+        let tone_mapping_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[&two_texture_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+        let tone_mapping_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("Tone Mapping Render Pipeline"),
+            layout: Some(&tone_mapping_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &blit_shader,
+                entry_point: "vs_main",
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &blit_shader,
+                entry_point: "tone_mapping_fs_main",
+                targets: fragment_shader_color_targets,
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        };
+        let tone_mapping_pipeline =
+            device.create_render_pipeline(&tone_mapping_pipeline_descriptor);
 
         let skybox_pipeline_primitive_state = wgpu::PrimitiveState {
             front_face: wgpu::FrontFace::Cw,
@@ -1033,11 +1066,11 @@ impl RendererState {
         // let gltf_import_result = gltf::import(
         //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb",
         // )?;
-        // let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
+        let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
         // let gltf_import_result =
         //     gltf::import("./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf")?;
-        let gltf_import_result =
-            gltf::import("./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf")?;
+        // let gltf_import_result =
+        //     gltf::import("./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf")?;
         // let gltf_import_result =
         //     gltf::import("./src/models/gltf/VertexColorTest/VertexColorTest.gltf")?;
         let (document, buffers, images) = gltf_import_result;
@@ -1083,6 +1116,12 @@ impl RendererState {
                 "bloom_texture_2",
             ),
         ];
+        let tone_mapping_texture = Texture::create_scaled_surface_texture(
+            &device,
+            &config,
+            initial_render_scale,
+            "tone_mapping_texture",
+        );
         let shading_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &single_texture_bind_group_layout,
             entries: &[
@@ -1097,7 +1136,22 @@ impl RendererState {
             ],
             label: Some("shading_texture_bind_group"),
         });
-        let surface_blit_textures_bind_group =
+        let tone_mapping_texture_bind_group =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &single_texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&tone_mapping_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&tone_mapping_texture.sampler),
+                    },
+                ],
+                label: Some("tone_mapping_texture_bind_group"),
+            });
+        let shading_and_bloom_textures_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &two_texture_bind_group_layout,
                 entries: &[
@@ -1258,10 +1312,10 @@ impl RendererState {
         let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
 
         // Newport Loft
-        let _skybox_background = SkyboxBackground::Equirectangular {
+        let skybox_background = SkyboxBackground::Equirectangular {
             image_path: "./src/textures/newport_loft/background.jpg",
         };
-        let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+        let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
             Some(SkyboxHDREnvironment::Equirectangular {
                 image_path: "./src/textures/newport_loft/radiance.hdr",
             });
@@ -1710,8 +1764,9 @@ impl RendererState {
 
             mesh_pipeline,
             flat_color_mesh_pipeline,
-            surface_blit_pipeline,
             skybox_pipeline,
+            tone_mapping_pipeline,
+            surface_blit_pipeline,
 
             shadow_map_pipeline,
             shadow_map_textures,
@@ -1722,16 +1777,18 @@ impl RendererState {
             two_texture_bind_group_layout,
 
             shading_texture,
+            tone_mapping_texture,
             depth_texture,
 
             environment_textures_bind_group,
-            surface_blit_textures_bind_group,
+            shading_and_bloom_textures_bind_group,
+            tone_mapping_texture_bind_group,
             shading_texture_bind_group,
+            bloom_pingpong_texture_bind_groups,
 
             bloom_threshold_pipeline,
             bloom_blur_pipeline,
             bloom_pingpong_textures,
-            bloom_pingpong_texture_bind_groups,
             bloom_blur_direction_bind_group,
             bloom_blur_direction_buffer,
 
@@ -1803,7 +1860,12 @@ impl RendererState {
                         "bloom_texture_2",
                     ),
                 ];
-
+                self.tone_mapping_texture = Texture::create_scaled_surface_texture(
+                    &self.device,
+                    &self.config,
+                    self.render_scale,
+                    "tone_mapping_texture",
+                );
                 self.depth_texture = Texture::create_depth_texture(
                     &self.device,
                     &self.config,
@@ -1829,7 +1891,26 @@ impl RendererState {
                         ],
                         label: Some("shading_texture_bind_group"),
                     });
-                self.surface_blit_textures_bind_group =
+                self.tone_mapping_texture_bind_group =
+                    self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        layout: &self.single_texture_bind_group_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: wgpu::BindingResource::TextureView(
+                                    &self.tone_mapping_texture.view,
+                                ),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::Sampler(
+                                    &self.tone_mapping_texture.sampler,
+                                ),
+                            },
+                        ],
+                        label: Some("tone_mapping_texture_bind_group"),
+                    });
+                self.shading_and_bloom_textures_bind_group =
                     self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         layout: &self.two_texture_bind_group_layout,
                         entries: &[
@@ -1940,6 +2021,12 @@ impl RendererState {
                 "bloom_texture_2",
             ),
         ];
+        self.tone_mapping_texture = Texture::create_scaled_surface_texture(
+            &self.device,
+            &self.config,
+            self.render_scale,
+            "tone_mapping_texture",
+        );
         self.depth_texture = Texture::create_depth_texture(
             &self.device,
             &self.config,
@@ -1962,7 +2049,26 @@ impl RendererState {
                 ],
                 label: Some("shading_texture_bind_group"),
             });
-        self.surface_blit_textures_bind_group =
+        self.tone_mapping_texture_bind_group =
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.single_texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(
+                            &self.tone_mapping_texture.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(
+                            &self.tone_mapping_texture.sampler,
+                        ),
+                    },
+                ],
+                label: Some("tone_mapping_texture_bind_group"),
+            });
+        self.shading_and_bloom_textures_bind_group =
             self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &self.two_texture_bind_group_layout,
                 entries: &[
@@ -2216,7 +2322,6 @@ impl RendererState {
                 });
             });
         }
-        // let shadow_map_texture_view = self.sh
 
         let surface_texture = self.surface.get_current_texture()?;
         let surface_texture_view = surface_texture
@@ -2239,7 +2344,6 @@ impl RendererState {
                 shading_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Shading Render Pass"),
                     color_attachments: &[wgpu::RenderPassColorAttachment {
-                        // view: &surface_texture,
                         view: &self.shading_texture.view,
                         resolve_target: None,
                         ops: wgpu::Operations {
@@ -2247,7 +2351,6 @@ impl RendererState {
                             store: true,
                         },
                     }],
-                    // depth_stencil_attachment: None,
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                         view: &self.depth_texture.view,
                         depth_ops: Some(wgpu::Operations {
@@ -2265,7 +2368,7 @@ impl RendererState {
                 Some(&self.environment_textures_bind_group),
             );
 
-            // render light
+            // render lights
             shading_render_pass.set_pipeline(&self.flat_color_mesh_pipeline);
             shading_render_pass.set_bind_group(0, &self.camera_light_bind_group, &[]);
             shading_render_pass.set_vertex_buffer(0, self.light_mesh.vertex_buffer.slice(..));
@@ -2279,19 +2382,6 @@ impl RendererState {
                 0,
                 0..self.lights.len() as u32,
             );
-
-            // render skybox
-            // TODO: does it make sense to render the skybox here?
-            // doing it in the surface blit pass is faster and might not change the quality when using SSAA
-            shading_render_pass.set_pipeline(&self.skybox_pipeline);
-            shading_render_pass.set_bind_group(0, &self.environment_textures_bind_group, &[]);
-            shading_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
-            shading_render_pass.set_vertex_buffer(0, self.skybox_mesh.vertex_buffer.slice(..));
-            shading_render_pass.set_index_buffer(
-                self.skybox_mesh.index_buffer.slice(..),
-                wgpu::IndexFormat::Uint16,
-            );
-            shading_render_pass.draw_indexed(0..self.skybox_mesh.num_indices, 0, 0..1);
         }
 
         self.queue.submit(std::iter::once(shading_encoder.finish()));
@@ -2360,11 +2450,6 @@ impl RendererState {
         // do 10 gaussian blur passes, switching between horizontal and vertical and ping ponging between
         // the two textures, effectively doing 5 full blurs
         let blur_passes = 10;
-        // do_bloom_blur_pass(
-        //     &self.shading_texture_bind_group,
-        //     &self.bloom_pingpong_textures[0].view,
-        //     true,
-        // );
         (0..blur_passes).for_each(|i| {
             do_bloom_blur_pass(
                 &self.bloom_pingpong_texture_bind_groups[i % 2],
@@ -2372,6 +2457,77 @@ impl RendererState {
                 i % 2 == 0,
             );
         });
+
+        let mut tone_mapping_encoder =
+            self.device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Tone Mapping Encoder"),
+                });
+        {
+            let mut tone_mapping_render_pass =
+                tone_mapping_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: None,
+                    color_attachments: &[wgpu::RenderPassColorAttachment {
+                        view: &self.tone_mapping_texture.view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: true,
+                        },
+                    }],
+                    depth_stencil_attachment: None,
+                });
+            tone_mapping_render_pass.set_pipeline(&self.tone_mapping_pipeline);
+            tone_mapping_render_pass.set_bind_group(
+                0,
+                &self.shading_and_bloom_textures_bind_group,
+                &[],
+            );
+            tone_mapping_render_pass.draw(0..3, 0..1);
+        }
+
+        self.queue
+            .submit(std::iter::once(tone_mapping_encoder.finish()));
+
+        let mut skybox_encoder =
+            self.device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Skybox Encoder"),
+                });
+        {
+            let mut skybox_render_pass =
+                skybox_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: None,
+                    color_attachments: &[wgpu::RenderPassColorAttachment {
+                        view: &self.tone_mapping_texture.view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: true,
+                        },
+                    }],
+                    // depth_stencil_attachment: None,
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &self.depth_texture.view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: true,
+                        }),
+                        stencil_ops: None,
+                    }),
+                });
+            skybox_render_pass.set_pipeline(&self.skybox_pipeline);
+            skybox_render_pass.set_bind_group(0, &self.environment_textures_bind_group, &[]);
+            skybox_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            skybox_render_pass.set_vertex_buffer(0, self.skybox_mesh.vertex_buffer.slice(..));
+            skybox_render_pass.set_index_buffer(
+                self.skybox_mesh.index_buffer.slice(..),
+                wgpu::IndexFormat::Uint16,
+            );
+            skybox_render_pass.draw_indexed(0..self.skybox_mesh.num_indices, 0, 0..1);
+        }
+
+        self.queue.submit(std::iter::once(skybox_encoder.finish()));
 
         let mut surface_blit_encoder =
             self.device
@@ -2395,7 +2551,7 @@ impl RendererState {
                 });
 
             surface_blit_render_pass.set_pipeline(&self.surface_blit_pipeline);
-            surface_blit_render_pass.set_bind_group(0, &self.surface_blit_textures_bind_group, &[]);
+            surface_blit_render_pass.set_bind_group(0, &self.tone_mapping_texture_bind_group, &[]);
             surface_blit_render_pass.draw(0..3, 0..1);
         }
 

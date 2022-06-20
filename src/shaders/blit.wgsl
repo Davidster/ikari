@@ -61,14 +61,14 @@ fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 }
 
 [[stage(fragment)]]
-fn surface_blit_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+fn tone_mapping_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     let exposure = 1.0;
     let shaded_color = textureSample(texture_1, sampler_1, in.tex_coords).rgb;
     let bloom_color = textureSample(texture_2, sampler_2, in.tex_coords).rgb;
     let final_color_hdr = shaded_color + bloom_color;
     // return final_color_hdr / (final_color_hdr + 1.0);
-    // return vec4<f32>(1.0 - exp(-final_color_hdr * exposure), 1.0);
-    return vec4<f32>(final_color_hdr, 1.0);
+    return vec4<f32>(1.0 - exp(-final_color_hdr * exposure), 1.0);
+    // return vec4<f32>(final_color_hdr, 1.0);
 }
 
 [[stage(fragment)]]

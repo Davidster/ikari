@@ -397,15 +397,15 @@ fn do_fragment_shade(
         let shadow_camera_far_plane_distance = 1000.0;
         let current_depth = length(from_shadow_vec) / shadow_camera_far_plane_distance;
 
+        // irregular shadow sampling
         var shadow_occlusion_acc = 0.0;
         let bias = 0.0001;
-        let samples = 4.0;
         let sample_count = 4.0;
         let offset = 0.1;
 
-        let max_offset_x = 0.05 + 0.1 * rand(random_seed * 1.0);
-        let max_offset_y = 0.05 + 0.1 * rand(random_seed * 2.0);
-        let max_offset_z = 0.05 + 0.1 * rand(random_seed * 3.0);
+        let max_offset_x = 0.02 + 0.04 * rand(random_seed * 1.0);
+        let max_offset_y = 0.02 + 0.04 * rand(random_seed * 2.0);
+        let max_offset_z = 0.02 + 0.04 * rand(random_seed * 3.0);
         for (var x = 0.0; x < sample_count; x = x + 1.0) {
             for (var y = 0.0; y < sample_count; y = y + 1.0) {
                 for (var z = 0.0; z < sample_count; z = z + 1.0) {
@@ -427,6 +427,30 @@ fn do_fragment_shade(
             }
         }
         let shadow_occlusion_amount = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
+
+        // regular shadow sampling
+        // var shadow_occlusion_acc = 0.0;
+        // let bias = 0.0001;
+        // let sample_count = 4.0;
+        // let offset = 0.01;
+
+        // let max_offset = 0.1;
+        // for (var x = -max_offset; x < max_offset; x = x + max_offset / (sample_count * 0.5)) {
+        //     for (var y = -max_offset; y < max_offset; y = y + max_offset / (sample_count * 0.5)) {
+        //         for (var z = -max_offset; z < max_offset; z = z + max_offset / (sample_count * 0.5)) {
+        //             let closest_depth = textureSample(
+        //                 shadow_map_textures,
+        //                 shadow_map_sampler,
+        //                 world_normal_to_cubemap_vec(from_shadow_vec + vec3<f32>(x, y, z)),
+        //                 i32(light_index)
+        //             ).r;
+        //             if (current_depth - bias < closest_depth) {
+        //                 shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
+        //             }
+        //         }
+        //     }
+        // }
+        // let shadow_occlusion_amount = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
 
         if (shadow_occlusion_amount < epsilon) {
                 continue;
