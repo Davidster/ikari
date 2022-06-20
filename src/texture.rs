@@ -245,7 +245,7 @@ impl Texture {
         )
     }
 
-    pub fn create_render_texture(
+    pub fn create_scaled_surface_texture(
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
         render_scale: f32,

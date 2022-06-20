@@ -1,3 +1,9 @@
+struct BloomDirectionUniform {
+    value: f32;
+};
+[[group(1), binding(0)]]
+var<uniform> bloom_direction: BloomDirectionUniform;
+
 struct VertexOutput {
     [[builtin(position)]] position: vec4<f32>;
     [[location(2)]] tex_coords: vec2<f32>;
@@ -41,20 +47,86 @@ fn vs_main([[builtin(vertex_index)]] vertex_index: u32) -> VertexOutput {
 }
 
 [[group(0), binding(0)]]
-var r_color: texture_2d<f32>;
-
+var texture_1: texture_2d<f32>;
 [[group(0), binding(1)]]
-var r_sampler: sampler;
+var sampler_1: sampler;
+[[group(0), binding(2)]]
+var texture_2: texture_2d<f32>;
+[[group(0), binding(3)]]
+var sampler_2: sampler;
 
 [[stage(fragment)]]
 fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-    return textureSample(r_color, r_sampler, in.tex_coords);
+    return textureSample(texture_1, sampler_1, in.tex_coords);
 }
 
 [[stage(fragment)]]
 fn surface_blit_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-    let hdr_color = textureSample(r_color, r_sampler, in.tex_coords);
-    return hdr_color / (hdr_color + 1.0);
+    let exposure = 1.0;
+    let shaded_color = textureSample(texture_1, sampler_1, in.tex_coords).rgb;
+    let bloom_color = textureSample(texture_2, sampler_2, in.tex_coords).rgb;
+    let final_color_hdr = shaded_color + bloom_color;
+    // return final_color_hdr / (final_color_hdr + 1.0);
+    // return vec4<f32>(1.0 - exp(-final_color_hdr * exposure), 1.0);
+    return vec4<f32>(final_color_hdr, 1.0);
+}
+
+[[stage(fragment)]]
+fn bloom_threshold_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+    let threshold = 0.8;
+    let hdr_color = textureSample(texture_1, sampler_1, in.tex_coords);
+    let brightness = dot(hdr_color.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+
+    var out: vec4<f32>;
+    if (brightness > threshold) {
+        out = vec4<f32>(hdr_color.rgb, 1.0);
+    } else {
+        out = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    }
+    return out;
+}
+
+[[stage(fragment)]]
+fn bloom_blur_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+    var gaussian_blur_weights: array<f32, 5>;
+    gaussian_blur_weights[0] = 0.227027;
+    gaussian_blur_weights[1] = 0.1945946;
+    gaussian_blur_weights[2] = 0.1216216;
+    gaussian_blur_weights[3] = 0.054054;
+    gaussian_blur_weights[4] = 0.016216;
+
+    let tex_dimensions = textureDimensions(texture_1);
+    let tex_dimension_f32 = vec2<f32>(f32(tex_dimensions.x), f32(tex_dimensions.y));
+    let tex_offset = 1.0 / tex_dimension_f32;
+    var result = textureSample(texture_1, sampler_1, in.tex_coords).rgb * gaussian_blur_weights[0];
+    if (bloom_direction.value == 0.0) {
+        for (var i = 1; i < 5; i = i + 1) {
+            result = result + textureSample(
+                texture_1,
+                sampler_1,
+                in.tex_coords + vec2<f32>(tex_offset.x * f32(i), 0.0)
+            ).rgb * gaussian_blur_weights[i];
+            result = result + textureSample(
+                texture_1,
+                sampler_1,
+                in.tex_coords - vec2<f32>(tex_offset.x * f32(i), 0.0)
+            ).rgb * gaussian_blur_weights[i];
+        }
+    } else {
+        for (var i = 1; i < 5; i = i + 1) {
+            result = result + textureSample(
+                texture_1,
+                sampler_1,
+                in.tex_coords + vec2<f32>(0.0, tex_offset.y * f32(i))
+            ).rgb * gaussian_blur_weights[i];
+            result = result + textureSample(
+                texture_1,
+                sampler_1,
+                in.tex_coords - vec2<f32>(0.0, tex_offset.y * f32(i))
+            ).rgb * gaussian_blur_weights[i];
+        }
+    }
+    return vec4<f32>(result, 1.0);
 }
 
 // BRDF LUT:

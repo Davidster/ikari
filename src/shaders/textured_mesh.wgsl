@@ -503,7 +503,7 @@ fn do_fragment_shade(
     );
     // let ambient_irradiance = ambient_irradiance_pre_ao;
 
-    let combined_irradiance_hdr = 0.25 * ambient_irradiance + total_light_irradiance;
+    let combined_irradiance_hdr = ambient_irradiance + total_light_irradiance;
     // let combined_irradiance_hdr = total_light_irradiance;
     // let combined_irradiance_ldr = (combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0))) + emissive;
 

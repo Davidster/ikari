@@ -134,6 +134,12 @@ impl GpuFlatColorMeshInstance {
     }
 }
 
+impl From<PointLightComponent> for GpuFlatColorMeshInstance {
+    fn from(light: PointLightComponent) -> Self {
+        GpuFlatColorMeshInstance::new(light.transform.matrix(), light.color * light.intensity)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct MeshInstance {
     pub transform: transform::Transform,
