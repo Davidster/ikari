@@ -387,8 +387,9 @@ fn do_fragment_shade(
     var total_light_irradiance = vec3<f32>(0.0);
     for (var light_index = 0u; light_index < MAX_LIGHTS; light_index = light_index + 1u) {
         let light = lights.values[light_index];
+        let light_color_scaled = light.color.xyz * light.color.w;
 
-        if (light.color.x < epsilon && light.color.y < epsilon && light.color.z < epsilon) {
+        if (light_color_scaled.x < epsilon && light_color_scaled.y < epsilon && light_color_scaled.z < epsilon) {
             continue;
         }
 
@@ -465,7 +466,7 @@ fn do_fragment_shade(
         let incident_angle_factor = max(dot(n, wi), 0.0);      
         //                                  ks was already multiplied by fresnel so it's omitted here       
         let bdrf = kd * diffuse_component + specular_component;
-        let light_irradiance = bdrf * incident_angle_factor * light_attenuation_factor * light.color.rgb;
+        let light_irradiance = bdrf * incident_angle_factor * light_attenuation_factor * light_color_scaled;
         total_light_irradiance = total_light_irradiance + light_irradiance * shadow_occlusion_amount;
     }
 

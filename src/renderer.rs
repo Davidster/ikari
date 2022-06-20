@@ -40,9 +40,10 @@ impl From<&PointLightComponent> for PointLightUniform {
     fn from(light: &PointLightComponent) -> Self {
         let position = light.transform.position.get();
         let color = light.color;
+        let intensity = light.intensity;
         Self {
             position: [position.x, position.y, position.z, 1.0],
-            color: [color.x, color.y, color.z, 1.0],
+            color: [color.x, color.y, color.z, intensity],
         }
     }
 }
@@ -1221,10 +1222,12 @@ impl RendererState {
             PointLightComponent {
                 transform: super::transform::Transform::new(),
                 color: LIGHT_COLOR_A,
+                intensity: 2.0,
             },
             PointLightComponent {
                 transform: super::transform::Transform::new(),
                 color: LIGHT_COLOR_B,
+                intensity: 1.0,
             },
         ];
         lights[0]
@@ -1751,7 +1754,12 @@ impl RendererState {
         let light_flat_color_instances: Vec<_> = self
             .lights
             .iter()
-            .map(|light| GpuFlatColorMeshInstance::new(light.transform.matrix(), light.color))
+            .map(|light| {
+                GpuFlatColorMeshInstance::new(
+                    light.transform.matrix(),
+                    light.color * light.intensity,
+                )
+            })
             .collect();
         self.queue.write_buffer(
             &self.light_mesh.instance_buffer,
