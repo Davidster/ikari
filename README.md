@@ -1,6 +1,6 @@
 ## Latest screenshots:
 
-![screenshot_1](https://user-images.githubusercontent.com/2389735/174689902-616fb791-8038-4233-b8db-18bc5baf3641.jpg)
+![screenshot_1](https://user-images.githubusercontent.com/2389735/174690197-1761b4ca-3c93-43c2-ba0f-a17470802613.jpg)
 ![screenshot_2](https://user-images.githubusercontent.com/2389735/174689921-9aad3283-171a-48ee-9d3a-c544aed2314e.jpg)
 
 ## TODO List
