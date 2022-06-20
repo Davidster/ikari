@@ -1,7 +1,7 @@
 ## Latest screenshots:
 
-![screenshot_1](https://user-images.githubusercontent.com/2389735/173738402-6c08ccc7-7f59-47df-b221-ca4fa8bcd4a9.png)
-![screenshot_2](https://user-images.githubusercontent.com/2389735/174463825-ef5b8acd-93e9-4ec6-9223-a484e778081f.jpg)
+![screenshot_1](https://user-images.githubusercontent.com/2389735/174689902-616fb791-8038-4233-b8db-18bc5baf3641.jpg)
+![screenshot_2](https://user-images.githubusercontent.com/2389735/174689921-9aad3283-171a-48ee-9d3a-c544aed2314e.jpg)
 
 ## TODO List
 - [x] basic phong shading 
