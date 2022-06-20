@@ -1838,8 +1838,12 @@ impl RendererState {
                 let delta = 0.1;
                 let change = if increase { delta } else { -delta };
                 self.render_scale = (self.render_scale + change).max(0.1).min(4.0);
-                self.logger
-                    .log(&format!("Render scale: {:?}", self.render_scale));
+                self.logger.log(&format!(
+                    "Render scale: {:?} ({:?}x{:?})",
+                    self.render_scale,
+                    (self.config.width as f32 * self.render_scale.sqrt()).round() as u32,
+                    (self.config.height as f32 * self.render_scale.sqrt()).round() as u32,
+                ));
                 self.shading_texture = Texture::create_scaled_surface_texture(
                     &self.device,
                     &self.config,

@@ -403,9 +403,9 @@ fn do_fragment_shade(
         let sample_count = 4.0;
         let offset = 0.1;
 
-        let max_offset_x = 0.02 + 0.04 * rand(random_seed * 1.0);
-        let max_offset_y = 0.02 + 0.04 * rand(random_seed * 2.0);
-        let max_offset_z = 0.02 + 0.04 * rand(random_seed * 3.0);
+        let max_offset_x = 0.01 + 0.04 * rand(random_seed * 1.0);
+        let max_offset_y = 0.01 + 0.04 * rand(random_seed * 2.0);
+        let max_offset_z = 0.01 + 0.04 * rand(random_seed * 3.0);
         for (var x = 0.0; x < sample_count; x = x + 1.0) {
             for (var y = 0.0; y < sample_count; y = y + 1.0) {
                 for (var z = 0.0; z < sample_count; z = z + 1.0) {

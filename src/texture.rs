@@ -252,8 +252,8 @@ impl Texture {
         label: &str,
     ) -> Self {
         let size = wgpu::Extent3d {
-            width: ((config.width as f32) * render_scale).round() as u32,
-            height: ((config.height as f32) * render_scale).round() as u32,
+            width: ((config.width as f32) * render_scale.sqrt()).round() as u32,
+            height: ((config.height as f32) * render_scale.sqrt()).round() as u32,
             depth_or_array_layers: 1,
         };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -294,8 +294,8 @@ impl Texture {
         label: &str,
     ) -> Self {
         let size = wgpu::Extent3d {
-            width: ((config.width as f32) * render_scale).round() as u32,
-            height: ((config.height as f32) * render_scale).round() as u32,
+            width: ((config.width as f32) * render_scale.sqrt()).round() as u32,
+            height: ((config.height as f32) * render_scale.sqrt()).round() as u32,
             depth_or_array_layers: 1,
         };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
