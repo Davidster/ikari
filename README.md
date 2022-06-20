@@ -45,8 +45,8 @@
     - [x] [Environment Test](https://github.com/KhronosGroup/glTF-Sample-Models/blob/master/2.0/EnvironmentTest)
 - [x] why doesn't MetalRoughSpheresNoTextures work?
 - [x] add shadows
-- [ ] get windows support back by removing the srgb thing
-- [ ] add bloom
+- [x] get windows support back by removing the srgb thing
+- [x] add bloom
   - [x] move tone mapping to later pass
   - [x] support light intensity value
 - [ ] add adaptive exposure based on histogram
