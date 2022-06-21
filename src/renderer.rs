@@ -76,6 +76,59 @@ fn make_point_light_uniform_buffer(lights: &[PointLightComponent]) -> Vec<PointL
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct DirectionalLightUniform {
+    position: [f32; 4],
+    direction: [f32; 4],
+    color: [f32; 4],
+}
+
+impl From<&DirectionalLightComponent> for DirectionalLightUniform {
+    fn from(light: &DirectionalLightComponent) -> Self {
+        let DirectionalLightComponent {
+            position,
+            direction,
+            color,
+            intensity,
+        } = light;
+        Self {
+            position: [position.x, position.y, position.z, 1.0],
+            direction: [direction.x, direction.y, direction.z, 1.0],
+            color: [color.x, color.y, color.z, *intensity],
+        }
+    }
+}
+
+impl Default for DirectionalLightUniform {
+    fn default() -> Self {
+        Self {
+            position: [0.0, 0.0, 0.0, 1.0],
+            direction: [0.0, -1.0, 0.0, 1.0],
+            color: [0.0, 0.0, 0.0, 1.0],
+        }
+    }
+}
+
+fn make_directional_light_uniform_buffer(
+    lights: &[DirectionalLightComponent],
+) -> Vec<DirectionalLightUniform> {
+    let mut light_uniforms = Vec::new();
+
+    let mut active_lights = lights
+        .iter()
+        .map(DirectionalLightUniform::from)
+        .collect::<Vec<_>>();
+    light_uniforms.append(&mut active_lights);
+
+    let mut inactive_lights = (0..(MAX_LIGHT_COUNT as usize - active_lights.len()))
+        .map(|_| DirectionalLightUniform::default())
+        .collect::<Vec<_>>();
+    light_uniforms.append(&mut inactive_lights);
+
+    light_uniforms
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct FlatColorUniform {
     color: [f32; 4],
 }
@@ -184,9 +237,10 @@ pub struct RendererState {
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
 
-    lights_buffer: wgpu::Buffer,
+    point_lights_buffer: wgpu::Buffer,
+    directional_lights_buffer: wgpu::Buffer,
 
-    camera_light_bind_group: wgpu::BindGroup,
+    camera_and_lights_bind_group: wgpu::BindGroup,
 
     mesh_pipeline: wgpu::RenderPipeline,
     flat_color_mesh_pipeline: wgpu::RenderPipeline,
@@ -223,11 +277,12 @@ pub struct RendererState {
     prev_balls: Vec<BallComponent>,
     actual_balls: Vec<BallComponent>,
 
-    lights: Vec<PointLightComponent>,
+    point_lights: Vec<PointLightComponent>,
+    directional_lights: Vec<DirectionalLightComponent>,
     test_object_instances: Vec<MeshInstance>,
     plane_instances: Vec<MeshInstance>,
 
-    light_mesh: InstancedMeshComponent,
+    point_light_mesh: InstancedMeshComponent,
     sphere_mesh: InstancedMeshComponent,
     test_object_mesh: InstancedMeshComponent,
     plane_mesh: InstancedMeshComponent,
@@ -615,6 +670,42 @@ impl RendererState {
                 ],
                 label: Some("two_uniform_bind_group_layout"),
             });
+        let camera_and_lights_uniform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+                label: Some("camera_and_lights_uniform_bind_group_layout"),
+            });
 
         let fragment_shader_color_targets = &[wgpu::ColorTargetState {
             format: wgpu::TextureFormat::Rgba16Float,
@@ -625,7 +716,7 @@ impl RendererState {
         let mesh_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Mesh Pipeline Layout"),
             bind_group_layouts: &[
-                &two_uniform_bind_group_layout,
+                &camera_and_lights_uniform_bind_group_layout,
                 &five_texture_bind_group_layout,
                 &environment_textures_bind_group_layout,
             ],
@@ -672,7 +763,7 @@ impl RendererState {
         let flat_color_mesh_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Flat Color Mesh Pipeline Layout"),
-                bind_group_layouts: &[&two_uniform_bind_group_layout],
+                bind_group_layouts: &[&camera_and_lights_uniform_bind_group_layout],
                 push_constant_ranges: &[],
             });
         let mut flat_color_mesh_pipeline_descriptor = mesh_pipeline_descriptor.clone();
@@ -848,7 +939,7 @@ impl RendererState {
                 label: Some("Skybox Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &environment_textures_bind_group_layout, // TODO: only using 1 texture here, don't put a bgl with so 8 of them lol
-                    &two_uniform_bind_group_layout,
+                    &camera_and_lights_uniform_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -1491,61 +1582,70 @@ impl RendererState {
             }),
         )?;
 
-        let lights = vec![
+        let directional_lights = vec![DirectionalLightComponent {
+            position: Vector3::new(10.0, 10.0, 10.0),
+            direction: Vector3::new(-1.0, -1.0, -1.0).normalize(),
+            color: LIGHT_COLOR_A,
+            intensity: 1.0,
+        }];
+
+        let point_lights = vec![
             PointLightComponent {
                 transform: super::transform::Transform::new(),
                 color: LIGHT_COLOR_A,
-                intensity: 3.0,
+                intensity: 0.0,
             },
             PointLightComponent {
                 transform: super::transform::Transform::new(),
                 color: LIGHT_COLOR_B,
-                intensity: 1.0,
+                intensity: 0.0,
             },
         ];
-        lights[0]
+        point_lights[0]
             .transform
             .set_scale(Vector3::new(0.05, 0.05, 0.05));
-        lights[0]
+        point_lights[0]
             .transform
             .set_position(Vector3::new(0.0, 12.0, 0.0));
-        lights[1].transform.set_scale(Vector3::new(0.1, 0.1, 0.1));
-        lights[1]
+        point_lights[1]
+            .transform
+            .set_scale(Vector3::new(0.1, 0.1, 0.1));
+        point_lights[1]
             .transform
             .set_position(Vector3::new(0.0, 15.0, 0.0));
 
-        let light_flat_color_instances: Vec<_> = lights
+        let light_flat_color_instances: Vec<_> = point_lights
             .iter()
             .map(|light| GpuFlatColorMeshInstance::from(light.clone()))
             .collect();
 
-        let light_emissive_map = Texture::from_color(
+        let point_light_emissive_map = Texture::from_color(
             &device,
             &queue,
             [
-                (lights[0].color.x * 255.0).round() as u8,
-                (lights[0].color.y * 255.0).round() as u8,
-                (lights[0].color.z * 255.0).round() as u8,
+                (point_lights[0].color.x * 255.0).round() as u8,
+                (point_lights[0].color.y * 255.0).round() as u8,
+                (point_lights[0].color.z * 255.0).round() as u8,
                 255,
             ],
             // [255, 0, 0, 255],
         )?;
-        let light_metallic_roughness_map = Texture::from_color(
+        let point_light_metallic_roughness_map = Texture::from_color(
             &device,
             &queue,
             [255, (0.1 * 255.0f32).round() as u8, 0, 255],
         )?;
-        let light_ambient_occlusion_map = Texture::from_gray(&device, &queue, 0)?;
+        let point_light_ambient_occlusion_map = Texture::from_gray(&device, &queue, 0)?;
 
-        let light_mesh = InstancedMeshComponent::new(
+        let point_light_mesh = InstancedMeshComponent::new(
             &device,
             &queue,
             &sphere_mesh,
             // TODO: InstancedMeshMaterialParams is tied to the mesh pipeline, not the flat color pipeline...
             &InstancedMeshMaterialParams {
-                emissive: Some(&light_emissive_map),
-                metallic_roughness: Some(&light_metallic_roughness_map),
-                ambient_occlusion: Some(&light_ambient_occlusion_map),
+                emissive: Some(&point_light_emissive_map),
+                metallic_roughness: Some(&point_light_metallic_roughness_map),
+                ambient_occlusion: Some(&point_light_ambient_occlusion_map),
                 ..Default::default()
             },
             &five_texture_bind_group_layout,
@@ -1623,14 +1723,33 @@ impl RendererState {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let lights_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Light Buffer"),
-            contents: bytemuck::cast_slice(&make_point_light_uniform_buffer(&lights)),
+        // let point_lights_uniform = make_point_light_uniform_buffer(&point_lights);
+        // let point_lights_bytes: &[u8] = bytemuck::cast_slice(&point_lights_uniform);
+        // let directional_lights_uniform = make_directional_light_uniform_buffer(&directional_lights);
+        // let directional_lights_bytes: &[u8] = bytemuck::cast_slice(&directional_lights_uniform);
+        // let all_lights_bytes: Vec<u8> = point_lights_bytes
+        //     .iter()
+        //     .chain(directional_lights_bytes)
+        //     .copied()
+        //     .collect();
+
+        let point_lights_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Point Lights Buffer"),
+            contents: bytemuck::cast_slice(&make_point_light_uniform_buffer(&point_lights)),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let camera_light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &two_uniform_bind_group_layout,
+        let directional_lights_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Directional Lights Buffer"),
+                contents: bytemuck::cast_slice(&make_directional_light_uniform_buffer(
+                    &directional_lights,
+                )),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        let camera_and_lights_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &camera_and_lights_uniform_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -1638,10 +1757,14 @@ impl RendererState {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: lights_buffer.as_entire_binding(),
+                    resource: point_lights_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: directional_lights_buffer.as_entire_binding(),
                 },
             ],
-            label: Some("camera_light_bind_group"),
+            label: Some("camera_and_lights_bind_group"),
         });
 
         let shadow_camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1698,7 +1821,7 @@ impl RendererState {
             &device,
             1024,
             Some("shadow_map_texture"),
-            lights.len().try_into().unwrap(),
+            point_lights.len().try_into().unwrap(),
         );
         let shadow_map_sampler = device.create_sampler(&Default::default());
 
@@ -1770,9 +1893,10 @@ impl RendererState {
             camera_controller,
             camera_uniform,
             camera_buffer,
-            camera_light_bind_group,
+            camera_and_lights_bind_group,
 
-            lights_buffer,
+            point_lights_buffer,
+            directional_lights_buffer,
 
             mesh_pipeline,
             flat_color_mesh_pipeline,
@@ -1808,11 +1932,12 @@ impl RendererState {
             prev_balls: balls.clone(),
             actual_balls: balls,
 
-            lights,
+            point_lights,
+            directional_lights,
             test_object_instances,
             plane_instances,
 
-            light_mesh,
+            point_light_mesh,
             sphere_mesh,
             test_object_mesh,
             plane_mesh,
@@ -2194,24 +2319,24 @@ impl RendererState {
             .map(|(prev_ball, next_ball)| prev_ball.lerp(next_ball, alpha))
             .collect();
 
-        let light_1 = &mut self.lights[0];
-        light_1.transform.set_position(Vector3::new(
+        let point_light_1 = &mut self.point_lights[0];
+        point_light_1.transform.set_position(Vector3::new(
             // light_1.transform.position.get().x,
             1.5 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
-            light_1.transform.position.get().y - frame_time_seconds * 0.25,
+            point_light_1.transform.position.get().y - frame_time_seconds * 0.25,
             1.5 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
             // light_1.transform.position.get().z,
         ));
-        light_1.color = lerp_vec(LIGHT_COLOR_A, LIGHT_COLOR_B, (time_seconds * 2.0).sin());
+        point_light_1.color = lerp_vec(LIGHT_COLOR_A, LIGHT_COLOR_B, (time_seconds * 2.0).sin());
 
-        let light_2 = &mut self.lights[1];
+        let point_light_2 = &mut self.point_lights[1];
         // light_2.transform.set_position(Vector3::new(
         //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
         //     light_2.transform.position.get().y,
         //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
         // ));
 
-        light_2.color = lerp_vec(LIGHT_COLOR_B, LIGHT_COLOR_A, (time_seconds * 2.0).sin());
+        point_light_2.color = lerp_vec(LIGHT_COLOR_B, LIGHT_COLOR_A, (time_seconds * 2.0).sin());
 
         // let rotational_displacement =
         //     make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(frame_time_seconds / 5.0));
@@ -2254,30 +2379,47 @@ impl RendererState {
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
-        let light_flat_color_instances: Vec<_> = self
-            .lights
+        let point_light_flat_color_instances: Vec<_> = self
+            .point_lights
             .iter()
             .map(|light| GpuFlatColorMeshInstance::from(light.clone()))
             .collect();
         self.queue.write_buffer(
-            &self.light_mesh.instance_buffer,
+            &self.point_light_mesh.instance_buffer,
             0,
-            bytemuck::cast_slice(&light_flat_color_instances),
+            bytemuck::cast_slice(&point_light_flat_color_instances),
         );
 
-        let light_uniforms = make_point_light_uniform_buffer(&self.lights);
+        // let point_lights_uniform = make_point_light_uniform_buffer(&self.point_lights);
+        // let point_lights_bytes: &[u8] = bytemuck::cast_slice(&point_lights_uniform);
+        // let directional_lights_uniform =
+        //     make_directional_light_uniform_buffer(&self.directional_lights);
+        // let directional_lights_bytes: &[u8] = bytemuck::cast_slice(&directional_lights_uniform);
+        // let all_lights_bytes: Vec<u8> = point_lights_bytes
+        //     .iter()
+        //     .chain(directional_lights_bytes)
+        //     .copied()
+        //     .collect();
+
         self.queue.write_buffer(
-            &self.lights_buffer,
+            &self.point_lights_buffer,
             0,
-            bytemuck::cast_slice(&light_uniforms),
+            bytemuck::cast_slice(&make_point_light_uniform_buffer(&self.point_lights)),
+        );
+        self.queue.write_buffer(
+            &self.directional_lights_buffer,
+            0,
+            bytemuck::cast_slice(&make_directional_light_uniform_buffer(
+                &self.directional_lights,
+            )),
         );
     }
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         {
-            (0..self.lights.len()).for_each(|light_index| {
+            (0..self.point_lights.len()).for_each(|light_index| {
                 Camera::build_cubemap_view_projection_matrices(
-                    self.lights[light_index].transform.position.get(),
+                    self.point_lights[light_index].transform.position.get(),
                     0.1,
                     1000.0,
                     false,
@@ -2380,23 +2522,24 @@ impl RendererState {
             shading_render_pass = self.render_scene(
                 shading_render_pass,
                 &self.mesh_pipeline,
-                &self.camera_light_bind_group,
+                &self.camera_and_lights_bind_group,
                 Some(&self.environment_textures_bind_group),
             );
 
             // render lights
             shading_render_pass.set_pipeline(&self.flat_color_mesh_pipeline);
-            shading_render_pass.set_bind_group(0, &self.camera_light_bind_group, &[]);
-            shading_render_pass.set_vertex_buffer(0, self.light_mesh.vertex_buffer.slice(..));
-            shading_render_pass.set_vertex_buffer(1, self.light_mesh.instance_buffer.slice(..));
+            shading_render_pass.set_bind_group(0, &self.camera_and_lights_bind_group, &[]);
+            shading_render_pass.set_vertex_buffer(0, self.point_light_mesh.vertex_buffer.slice(..));
+            shading_render_pass
+                .set_vertex_buffer(1, self.point_light_mesh.instance_buffer.slice(..));
             shading_render_pass.set_index_buffer(
-                self.light_mesh.index_buffer.slice(..),
+                self.point_light_mesh.index_buffer.slice(..),
                 wgpu::IndexFormat::Uint16,
             );
             shading_render_pass.draw_indexed(
-                0..self.light_mesh.num_indices,
+                0..self.point_light_mesh.num_indices,
                 0,
-                0..self.lights.len() as u32,
+                0..self.point_lights.len() as u32,
             );
         }
 
@@ -2503,7 +2646,7 @@ impl RendererState {
                 });
             skybox_render_pass.set_pipeline(&self.skybox_pipeline);
             skybox_render_pass.set_bind_group(0, &self.environment_textures_bind_group, &[]);
-            skybox_render_pass.set_bind_group(1, &self.camera_light_bind_group, &[]);
+            skybox_render_pass.set_bind_group(1, &self.camera_and_lights_bind_group, &[]);
             skybox_render_pass.set_vertex_buffer(0, self.skybox_mesh.vertex_buffer.slice(..));
             skybox_render_pass.set_index_buffer(
                 self.skybox_mesh.index_buffer.slice(..),
@@ -2657,32 +2800,32 @@ impl RendererState {
         );
 
         // // render floor
-        // render_pass.set_bind_group(1, &self.plane_mesh.textures_bind_group, &[]);
-        // render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
-        // render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
-        // render_pass.set_index_buffer(
-        //     self.plane_mesh.index_buffer.slice(..),
-        //     wgpu::IndexFormat::Uint16,
-        // );
-        // render_pass.draw_indexed(
-        //     0..self.plane_mesh.num_indices,
-        //     0,
-        //     0..self.plane_instances.len() as u32,
-        // );
+        render_pass.set_bind_group(1, &self.plane_mesh.textures_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
+        render_pass.set_index_buffer(
+            self.plane_mesh.index_buffer.slice(..),
+            wgpu::IndexFormat::Uint16,
+        );
+        render_pass.draw_indexed(
+            0..self.plane_mesh.num_indices,
+            0,
+            0..self.plane_instances.len() as u32,
+        );
 
         // render balls
-        // render_pass.set_bind_group(1, &self.sphere_mesh.textures_bind_group, &[]);
-        // render_pass.set_vertex_buffer(0, self.sphere_mesh.vertex_buffer.slice(..));
-        // render_pass.set_vertex_buffer(1, self.sphere_mesh.instance_buffer.slice(..));
-        // render_pass.set_index_buffer(
-        //     self.sphere_mesh.index_buffer.slice(..),
-        //     wgpu::IndexFormat::Uint16,
-        // );
-        // render_pass.draw_indexed(
-        //     0..self.sphere_mesh.num_indices,
-        //     0,
-        //     0..self.actual_balls.len() as u32,
-        // );
+        render_pass.set_bind_group(1, &self.sphere_mesh.textures_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, self.sphere_mesh.vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, self.sphere_mesh.instance_buffer.slice(..));
+        render_pass.set_index_buffer(
+            self.sphere_mesh.index_buffer.slice(..),
+            wgpu::IndexFormat::Uint16,
+        );
+        render_pass.draw_indexed(
+            0..self.sphere_mesh.num_indices,
+            0,
+            0..self.actual_balls.len() as u32,
+        );
 
         render_pass
     }

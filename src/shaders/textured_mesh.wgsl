@@ -11,16 +11,27 @@ var<uniform> camera: CameraUniform;
 
 let MAX_LIGHTS = 32u;
 
-struct Light {
+struct PointLight {
     position: vec4<f32>;
     color: vec4<f32>;
 };
 
-struct LightsUniform {
-    values: array<Light, MAX_LIGHTS>;
+struct DirectionalLight {
+    position: vec4<f32>;
+    direction: vec4<f32>;
+    color: vec4<f32>;
+};
+
+struct PointLightsUniform {
+    values: array<PointLight, MAX_LIGHTS>;
 };
 [[group(0), binding(1)]]
-var<uniform> lights: LightsUniform;
+var<uniform> point_lights: PointLightsUniform;
+struct DirectionalLightsUniform {
+    values: array<DirectionalLight, MAX_LIGHTS>;
+};
+[[group(0), binding(2)]]
+var<uniform> directional_lights: DirectionalLightsUniform;
 
 struct VertexInput {
     [[location(0)]] object_position: vec3<f32>;
@@ -38,7 +49,7 @@ struct Instance {
     [[location(9)]]  model_transform_3: vec4<f32>;
     [[location(10)]] base_color_factor: vec4<f32>;
     [[location(11)]] emissive_factor: vec4<f32>;
-    [[location(12)]] mrno: vec4<f32>; // metallic_factor, roughness_factor, normal scale, occlusion strength
+    [[location(12)]] mrno: vec4<f32>; // metallicness_factor, roughness_factor, normal scale, occlusion strength
     [[location(13)]] alpha_cutoff: f32;
 };
 
@@ -52,7 +63,7 @@ struct VertexOutput {
     [[location(5)]] vertex_color: vec4<f32>;
     [[location(6)]] base_color_factor: vec4<f32>;
     [[location(7)]] emissive_factor: vec4<f32>;
-    [[location(8)]] metallic_factor: f32;
+    [[location(8)]] metallicness_factor: f32;
     [[location(9)]] roughness_factor: f32;
     [[location(10)]] normal_scale: f32;
     [[location(11)]] occlusion_strength: f32;
@@ -80,7 +91,7 @@ fn do_vertex_shade(
     model_transform: mat4x4<f32>,
     base_color_factor: vec4<f32>,
     emissive_factor: vec4<f32>,
-    metallic_factor: f32,
+    metallicness_factor: f32,
     roughness_factor: f32,
     normal_scale: f32,
     occlusion_strength: f32,
@@ -108,7 +119,7 @@ fn do_vertex_shade(
     out.vertex_color = vshader_input.object_color;
     out.base_color_factor = base_color_factor;
     out.emissive_factor = emissive_factor;
-    out.metallic_factor = metallic_factor;
+    out.metallicness_factor = metallicness_factor;
     out.roughness_factor = roughness_factor;
     out.normal_scale = normal_scale;
     out.occlusion_strength = occlusion_strength;
@@ -322,6 +333,52 @@ fn rand(co: vec2<f32>) -> f32 {
     return fract(sin(sn) * c);
 }
 
+fn compute_direct_lighting(
+    world_normal: vec3<f32>,
+    to_viewer_vec: vec3<f32>,
+    to_light_vec: vec3<f32>,
+    light_color_scaled: vec3<f32>,
+    light_attenuation_factor: f32,
+    base_color: vec3<f32>,
+    roughness: f32,
+    metallicness: f32,
+    f0: vec3<f32>
+) -> vec3<f32> {
+    // copy variable names from the math formulas
+    let n = world_normal;
+    let w0 = to_viewer_vec;
+    let v = w0;
+    let a = roughness;
+
+    let halfway_vec = normalize(to_viewer_vec + to_light_vec);
+    
+    // let surface_reflection_at_zero_incidence = vec3<f32>(0.95, 0.93, 0.88);
+
+    // copy variable names from the math formulas
+    let wi = to_light_vec;
+    let l = wi;
+    let h = halfway_vec;
+
+    // specular
+    let h_dot_v = max(dot(h, v), 0.0);
+    let normal_distribution = normal_distribution_func_tr_ggx(a, n, h);
+    let k = geometry_func_schlick_ggx_k_direct(a);
+    let geometry = geometry_func_smith_ggx(k, n, v, l);
+    let fresnel = fresnel_func_schlick(h_dot_v, f0);
+    let cook_torrance_denominator = 4.0 * max(dot(n, w0), 0.0) * max(dot(n, wi), 0.0) + epsilon;
+    let specular_component = normal_distribution * geometry * fresnel / cook_torrance_denominator;
+    let ks = fresnel;
+
+    // diffuse
+    let diffuse_component = base_color / pi; // lambertian
+    let kd = (vec3<f32>(1.0) - ks) * (1.0 - metallicness);
+
+    let incident_angle_factor = max(dot(n, wi), 0.0);      
+    //                                  ks was already multiplied by fresnel so it's omitted here       
+    let bdrf = kd * diffuse_component + specular_component;
+    return bdrf * incident_angle_factor * light_attenuation_factor * light_color_scaled;
+}
+
 fn do_fragment_shade(
     world_position: vec3<f32>,
     world_normal: vec3<f32>,
@@ -330,7 +387,7 @@ fn do_fragment_shade(
     camera_position: vec3<f32>,
     base_color_factor: vec4<f32>,
     emissive_factor: vec4<f32>,
-    metallic_factor: f32,
+    metallicness_factor: f32,
     roughness_factor: f32,
     occlusion_strength: f32,
     alpha_cutoff: f32
@@ -349,7 +406,7 @@ fn do_fragment_shade(
         metallic_roughness_map_sampler,
         tex_coords
     ).rgb;
-    let metallicness = metallic_roughness.z * metallic_factor;
+    let metallicness = metallic_roughness.z * metallicness_factor;
     let roughness = metallic_roughness.y * roughness_factor;
     let ambient_occlusion = textureSample(
         ambient_occlusion_map_texture,
@@ -377,7 +434,7 @@ fn do_fragment_shade(
     let v = w0;
     let a = roughness;
     let f0 = surface_reflection_at_zero_incidence;
-    let k = geometry_func_schlick_ggx_k_direct(a);
+
 
     let random_seed = vec2<f32>(
         round(100000.0 * (world_position.x + world_position.y)),
@@ -386,7 +443,7 @@ fn do_fragment_shade(
 
     var total_light_irradiance = vec3<f32>(0.0);
     for (var light_index = 0u; light_index < MAX_LIGHTS; light_index = light_index + 1u) {
-        let light = lights.values[light_index];
+        let light = point_lights.values[light_index];
         let light_color_scaled = light.color.xyz * light.color.w;
 
         if (light_color_scaled.x < epsilon && light_color_scaled.y < epsilon && light_color_scaled.z < epsilon) {
@@ -426,7 +483,7 @@ fn do_fragment_shade(
                 }
             }
         }
-        let shadow_occlusion_amount = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
+        let shadow_occlusion_factor = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
 
         // regular shadow sampling
         // var shadow_occlusion_acc = 0.0;
@@ -450,48 +507,68 @@ fn do_fragment_shade(
         //         }
         //     }
         // }
-        // let shadow_occlusion_amount = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
+        // let shadow_occlusion_factor = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
 
-        if (shadow_occlusion_amount < epsilon) {
+        if (shadow_occlusion_factor < epsilon) {
                 continue;
         }
 
         let to_light_vec = light.position.xyz - world_position;
         let to_light_vec_norm = normalize(to_light_vec);
+
         let distance_from_light = length(to_light_vec);
-        let halfway_vec = normalize(to_viewer_vec + to_light_vec_norm);
-        
-        // let surface_reflection_at_zero_incidence = vec3<f32>(0.95, 0.93, 0.88);
-
-        // copy variable names from the math formulas
-        let wi = to_light_vec_norm;
-        let l = wi;
-        let h = halfway_vec;
-
-        // specular
-        let h_dot_v = max(dot(h, v), 0.0);
-        let normal_distribution = normal_distribution_func_tr_ggx(a, n, h);
-        let geometry = geometry_func_smith_ggx(k, n, v, l);
-        let fresnel = fresnel_func_schlick(h_dot_v, f0);
-        let cook_torrance_denominator = 4.0 * max(dot(n, w0), 0.0) * max(dot(n, wi), 0.0) + epsilon;
-        let specular_component = normal_distribution * geometry * fresnel / cook_torrance_denominator;
-        let ks = fresnel;
-
-        // diffuse
-        let diffuse_component = base_color / pi; // lambertian
-        let kd = (vec3<f32>(1.0) - ks) * (1.0 - metallicness);
-
         // https://learnopengl.com/Lighting/Light-casters
         // let light_attenuation_factor_d20 = 1.0 / (1.0 + 0.22 * distance_from_light + 0.20 * distance_from_light * distance_from_light);
         // let light_attenuation_factor_d100 = 1.0 / (1.0 + 0.045 * distance_from_light + 0.0075 * distance_from_light * distance_from_light);
         let light_attenuation_factor_d600 = 1.0 / (1.0 + 0.007 * distance_from_light + 0.0002 * distance_from_light * distance_from_light);
         // let light_attenuation_factor_d3250 = 1.0 / (1.0 + 0.0014 * distance_from_light + 0.000007 * distance_from_light * distance_from_light);
         let light_attenuation_factor = light_attenuation_factor_d600;
-        let incident_angle_factor = max(dot(n, wi), 0.0);      
-        //                                  ks was already multiplied by fresnel so it's omitted here       
-        let bdrf = kd * diffuse_component + specular_component;
-        let light_irradiance = bdrf * incident_angle_factor * light_attenuation_factor * light_color_scaled;
-        total_light_irradiance = total_light_irradiance + light_irradiance * shadow_occlusion_amount;
+
+        let light_irradiance = compute_direct_lighting(
+            world_normal,
+            to_viewer_vec,
+            to_light_vec_norm,
+            light_color_scaled,
+            light_attenuation_factor,
+            base_color,
+            roughness,
+            metallicness,
+            f0
+        );
+        total_light_irradiance = total_light_irradiance + light_irradiance * shadow_occlusion_factor;
+    }
+
+    for (var light_index = 0u; light_index < MAX_LIGHTS; light_index = light_index + 1u) {
+        let light = directional_lights.values[light_index];
+        let light_color_scaled = light.color.xyz * light.color.w;
+
+        if (light_color_scaled.x < epsilon && light_color_scaled.y < epsilon && light_color_scaled.z < epsilon) {
+            continue;
+        }
+
+        // TODO: check if we're in shadow
+        let shadow_occlusion_factor = 1.0;
+
+        if (shadow_occlusion_factor < epsilon) {
+                continue;
+        }
+
+        let to_light_vec = -light.direction.xyz;
+        let to_light_vec_norm = normalize(to_light_vec);
+        let light_attenuation_factor = 1.0;
+
+        let light_irradiance = compute_direct_lighting(
+            world_normal,
+            to_viewer_vec,
+            to_light_vec_norm,
+            light_color_scaled,
+            light_attenuation_factor,
+            base_color,
+            roughness,
+            metallicness,
+            f0
+        );
+        total_light_irradiance = total_light_irradiance + light_irradiance * shadow_occlusion_factor;
     }
 
 
@@ -582,7 +659,7 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
         camera.position.xyz,
         in.base_color_factor,
         in.emissive_factor,
-        in.metallic_factor,
+        in.metallicness_factor,
         in.roughness_factor,
         in.occlusion_strength,
         in.alpha_cutoff

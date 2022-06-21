@@ -49,6 +49,7 @@
 - [x] add bloom
   - [x] move tone mapping to later pass
   - [x] support light intensity value
+- [ ] directional lights + shadows
 
 ## Low priority
 - [ ] Asset loading
