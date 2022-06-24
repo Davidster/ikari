@@ -73,6 +73,7 @@ impl Texture {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn from_decoded_image(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
