@@ -376,6 +376,52 @@ impl Texture {
         }
     }
 
+    pub fn create_depth_texture_array(
+        device: &wgpu::Device,
+        size: u32,
+        label: Option<&str>,
+        length: u32,
+    ) -> Self {
+        let size = wgpu::Extent3d {
+            width: size,
+            height: size,
+            depth_or_array_layers: length,
+        };
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label,
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: Texture::DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        });
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            // compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+
+        Self {
+            texture,
+            view,
+            sampler,
+            size,
+        }
+    }
+
     pub fn create_cubemap_from_equirectangular(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -470,27 +516,23 @@ impl Texture {
             label: Some("cubemap_gen_camera_bind_group"),
         });
 
-        let faces: Vec<_> = Camera::build_cubemap_view_projection_matrices(
-            Vector3::new(0.0, 0.0, 0.0),
-            Z_NEAR,
-            Z_FAR,
-            true,
-        )
-        .iter()
-        .copied()
-        .enumerate()
-        .map(|(i, view_proj_matrices)| {
-            (
-                view_proj_matrices,
-                cubemap_texture.create_view(&wgpu::TextureViewDescriptor {
-                    dimension: Some(wgpu::TextureViewDimension::D2),
-                    base_array_layer: i as u32,
-                    array_layer_count: NonZeroU32::new(1),
-                    ..Default::default()
-                }),
-            )
-        })
-        .collect();
+        let faces: Vec<_> =
+            build_cubemap_face_camera_views(Vector3::new(0.0, 0.0, 0.0), Z_NEAR, Z_FAR, true)
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, view_proj_matrices)| {
+                    (
+                        view_proj_matrices,
+                        cubemap_texture.create_view(&wgpu::TextureViewDescriptor {
+                            dimension: Some(wgpu::TextureViewDimension::D2),
+                            base_array_layer: i as u32,
+                            array_layer_count: NonZeroU32::new(1),
+                            ..Default::default()
+                        }),
+                    )
+                })
+                .collect();
 
         for (face_view_proj_matrices, face_texture_view) in faces {
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -513,9 +555,7 @@ impl Texture {
             queue.write_buffer(
                 &camera_buffer,
                 0,
-                bytemuck::cast_slice(&[CameraUniform::from_view_proj_matrices(
-                    &face_view_proj_matrices,
-                )]),
+                bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
             );
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -661,27 +701,23 @@ impl Texture {
             label: Some("env_map_gen_camera_bind_group"),
         });
 
-        let faces: Vec<_> = Camera::build_cubemap_view_projection_matrices(
-            Vector3::new(0.0, 0.0, 0.0),
-            Z_NEAR,
-            Z_FAR,
-            true,
-        )
-        .iter()
-        .copied()
-        .enumerate()
-        .map(|(i, view_proj_matrices)| {
-            (
-                view_proj_matrices,
-                env_map.create_view(&wgpu::TextureViewDescriptor {
-                    dimension: Some(wgpu::TextureViewDimension::D2),
-                    base_array_layer: i as u32,
-                    array_layer_count: NonZeroU32::new(1),
-                    ..Default::default()
-                }),
-            )
-        })
-        .collect();
+        let faces: Vec<_> =
+            build_cubemap_face_camera_views(Vector3::new(0.0, 0.0, 0.0), Z_NEAR, Z_FAR, true)
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, view_proj_matrices)| {
+                    (
+                        view_proj_matrices,
+                        env_map.create_view(&wgpu::TextureViewDescriptor {
+                            dimension: Some(wgpu::TextureViewDimension::D2),
+                            base_array_layer: i as u32,
+                            array_layer_count: NonZeroU32::new(1),
+                            ..Default::default()
+                        }),
+                    )
+                })
+                .collect();
 
         for (face_view_proj_matrices, face_texture_view) in faces {
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -705,9 +741,7 @@ impl Texture {
             queue.write_buffer(
                 &camera_buffer,
                 0,
-                bytemuck::cast_slice(&[CameraUniform::from_view_proj_matrices(
-                    &face_view_proj_matrices,
-                )]),
+                bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
             );
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -866,12 +900,8 @@ impl Texture {
             label: Some("env_map_gen_camera_bind_group"),
         });
 
-        let camera_projection_matrices = Camera::build_cubemap_view_projection_matrices(
-            Vector3::new(0.0, 0.0, 0.0),
-            Z_NEAR,
-            Z_FAR,
-            true,
-        );
+        let camera_projection_matrices =
+            build_cubemap_face_camera_views(Vector3::new(0.0, 0.0, 0.0), Z_NEAR, Z_FAR, true);
 
         // TODO: level 0 doesn't really need to be done since roughness = 0 basically copies the skybox plainly
         //       but we'll need to write the contents of skybox_rad_texture to the first mip level of the cubemap above
@@ -922,9 +952,7 @@ impl Texture {
                         queue.write_buffer(
                             &camera_buffer,
                             0,
-                            bytemuck::cast_slice(&[CameraUniform::from_view_proj_matrices(
-                                &face_view_proj_matrices,
-                            )]),
+                            bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
                         );
                         queue.write_buffer(
                             &roughness_buffer,

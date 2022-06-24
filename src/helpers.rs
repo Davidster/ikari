@@ -1,10 +1,10 @@
-use cgmath::{Matrix, Matrix4, Quaternion, Rad, Vector3};
+use cgmath::{InnerSpace, Matrix, Matrix4, Quaternion, Rad, Vector3};
 
 pub fn _to_srgb(val: f32) -> f32 {
     val.powf(2.2)
 }
 
-pub fn lerp_f32(from: f32, to: f32, alpha: f32) -> f32 {
+pub fn lerp(from: f32, to: f32, alpha: f32) -> f32 {
     (alpha * to) + ((1.0 - alpha) * from)
 }
 
@@ -14,41 +14,6 @@ pub fn _lerp_f64(from: f64, to: f64, alpha: f64) -> f64 {
 
 pub fn lerp_vec(a: Vector3<f32>, b: Vector3<f32>, alpha: f32) -> Vector3<f32> {
     b * alpha + a * (1.0 - alpha)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn my_test() {
-        println!(
-            "{:?}",
-            make_rotation_matrix(make_quat_from_axis_angle(
-                Vector3::new(1.0, 0.0, 0.0),
-                cgmath::Deg(-90.0).into()
-            ))
-        );
-        println!(
-            "{:?}",
-            make_rotation_matrix(make_quat_from_axis_angle(
-                Vector3::new(0.0, 1.0, 0.0),
-                cgmath::Deg(-90.0).into()
-            ))
-        );
-        println!(
-            "{:?}",
-            make_rotation_matrix(
-                make_quat_from_axis_angle(Vector3::new(1.0, 0.0, 0.0), cgmath::Deg(-90.0).into())
-                    * make_quat_from_axis_angle(
-                        Vector3::new(0.0, 1.0, 0.0),
-                        cgmath::Deg(-90.0).into()
-                    )
-            )
-        );
-        println!("{:?}", make_translation_matrix(Vector3::new(2.0, 3.0, 4.0)));
-        assert_eq!(true, true);
-    }
 }
 
 // from https://stackoverflow.com/questions/4436764/rotating-a-quaternion-on-1-axis
@@ -158,7 +123,7 @@ pub fn make_scale_matrix(scale: Vector3<f32>) -> Matrix4<f32> {
 }
 
 // from https://vincent-p.github.io/posts/vulkan_perspective_matrix/ and https://thxforthefish.com/posts/reverse_z/
-pub fn make_perspective_matrix(
+pub fn make_perspective_proj_matrix(
     near_plane_distance: f32,
     far_plane_distance: f32,
     vertical_fov: cgmath::Rad<f32>,
@@ -187,5 +152,128 @@ pub fn make_perspective_matrix(
             0.0, 0.0, 0.0,  1.0,
         ).transpose();
         reverse_z * persp_matrix
+    }
+}
+
+pub fn make_orthographic_proj_matrix(
+    width: f32,
+    height: f32,
+    near_plane: f32,
+    far_plane: f32,
+    reverse_z: bool,
+) -> Matrix4<f32> {
+    let l = -width / 2.0;
+    let r = width / 2.0;
+    let t = height / 2.0;
+    let b = -height / 2.0;
+    let n = near_plane;
+    let f = far_plane;
+    #[rustfmt::skip]
+    let orth_matrix = Matrix4::new(
+        2.0/(r-l), 0.0,       0.0,       -(r+l)/(r-l),
+        0.0,       2.0/(t-b), 0.0,       -(t+b)/(t-b),
+        0.0,       0.0,       1.0/(n-f), n/(n-f),
+        0.0,       0.0,       0.0,       1.0,
+    ).transpose();
+    if !reverse_z {
+        orth_matrix
+    } else {
+        #[rustfmt::skip]
+        let reverse_z = Matrix4::new(
+            1.0, 0.0, 0.0,  0.0,
+            0.0, 1.0, 0.0,  0.0,
+            0.0, 0.0, -1.0, 1.0,
+            0.0, 0.0, 0.0,  1.0,
+        ).transpose();
+        reverse_z * orth_matrix
+    }
+}
+
+pub fn direction_vector_to_coordinate_frame_matrix(dir: Vector3<f32>) -> Matrix4<f32> {
+    look_at_dir(Vector3::new(0.0, 0.0, 0.0), dir)
+}
+
+pub fn _look_at(eye_pos: Vector3<f32>, dst_pos: Vector3<f32>) -> Matrix4<f32> {
+    look_at_dir(eye_pos, (dst_pos - eye_pos).normalize())
+}
+
+// this gives a coordinate frame for an object that points in directio dir.
+// you can use it to point a model in direction dir from position eye_pos.
+// to make a camera view matrix (one that transforms world space coordinates
+// into the camera's view space, take the inverse of this matrix)
+// warning: fails if pointing directly upward or downward
+// a.k.a. if dir.normalize() is approximately (0, 1, 0) or (0, -1, 0)
+pub fn look_at_dir(eye_pos: Vector3<f32>, dir: Vector3<f32>) -> Matrix4<f32> {
+    let world_up = Vector3::new(0.0, 1.0, 0.0);
+    let forward = dir.normalize();
+    let left = world_up.cross(forward).normalize();
+    let camera_up = forward.cross(left).normalize();
+    #[rustfmt::skip]
+    let look_at_matrix = Matrix4::new(
+        left.x, camera_up.x, forward.x, eye_pos.x,
+        left.y, camera_up.y, forward.y, eye_pos.y,
+        left.z, camera_up.z, forward.z, eye_pos.z,
+        0.0,    0.0, 0.0, 1.0,
+    ).transpose();
+    look_at_matrix
+}
+
+#[cfg(test)]
+mod tests {
+    use cgmath::Vector4;
+
+    use super::*;
+
+    #[test]
+    fn my_test() {
+        // println!(
+        //     "{:?}",
+        //     make_rotation_matrix(make_quat_from_axis_angle(
+        //         Vector3::new(1.0, 0.0, 0.0),
+        //         cgmath::Deg(-90.0).into()
+        //     ))
+        // );
+        // println!(
+        //     "{:?}",
+        //     make_rotation_matrix(make_quat_from_axis_angle(
+        //         Vector3::new(0.0, 1.0, 0.0),
+        //         cgmath::Deg(-90.0).into()
+        //     ))
+        // );
+        // println!(
+        //     "{:?}",
+        //     make_rotation_matrix(
+        //         make_quat_from_axis_angle(Vector3::new(1.0, 0.0, 0.0), cgmath::Deg(-90.0).into())
+        //             * make_quat_from_axis_angle(
+        //                 Vector3::new(0.0, 1.0, 0.0),
+        //                 cgmath::Deg(-90.0).into()
+        //             )
+        //     )
+        // );
+        // println!("{:?}", make_translation_matrix(Vector3::new(2.0, 3.0, 4.0)));
+        let view = look_at_dir(-Vector3::new(0.0, 3.0, 4.0), Vector3::new(1.0, -1.0, 0.0));
+        let proj = make_orthographic_proj_matrix(100.0, 100.0, 0.0, 100.0, false);
+        let proj_rev = make_orthographic_proj_matrix(100.0, 100.0, 0.0, 100.0, true);
+
+        let p1_proj_nopersp = proj * view * Vector4::new(-5.0, 0.0, 0.0, 1.0);
+        let p1 = p1_proj_nopersp / p1_proj_nopersp.w;
+
+        let p1_proj_rev_nopersp = proj_rev * view * Vector4::new(-5.0, 0.0, 0.0, 1.0);
+        let p1_rev = p1_proj_rev_nopersp / p1_proj_rev_nopersp.w;
+
+        let p2_proj_nopersp = proj * view * Vector4::new(-5.0, 0.0, 0.0, 1.0);
+        let p2 = p2_proj_nopersp / p2_proj_nopersp.w;
+
+        let p3_proj_nopersp = proj * view * Vector4::new(0.0, 0.0, -5.0, 1.0);
+        let p3 = p3_proj_nopersp / p3_proj_nopersp.w;
+
+        println!("proj: {:?}", proj.transpose());
+        println!("view: {:?}", view.transpose());
+        println!("proj*view: {:?}", (proj * view).transpose());
+        println!("p1_proj: {:?}", p1);
+        println!("p1_proj_rev: {:?}", p1_rev);
+        println!("p2_proj: {:?}", p2);
+        println!("p3_proj: {:?}", p3);
+        assert_eq!(true, true);
     }
 }

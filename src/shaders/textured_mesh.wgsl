@@ -17,6 +17,7 @@ struct PointLight {
 };
 
 struct DirectionalLight {
+    world_space_to_light_space: mat4x4<f32>;
     position: vec4<f32>;
     direction: vec4<f32>;
     color: vec4<f32>;
@@ -181,7 +182,7 @@ fn shadow_map_vs_main(
 }
 
 [[stage(fragment)]]
-fn shadow_map_fs_main(
+fn point_shadow_map_fs_main(
     in: ShadowMappingVertexOutput
 ) -> ShadowMappingFragmentOutput {
     var out: ShadowMappingFragmentOutput;
@@ -228,9 +229,14 @@ var brdf_lut_texture: texture_2d<f32>;
 [[group(2), binding(7)]]
 var brdf_lut_sampler: sampler;
 [[group(2), binding(8)]]
-var shadow_map_textures: texture_cube_array<f32>;
+var point_shadow_map_textures: texture_cube_array<f32>;
 [[group(2), binding(9)]]
-var shadow_map_sampler: sampler;
+var point_shadow_map_sampler: sampler;
+[[group(2), binding(10)]]
+var directional_shadow_map_textures: texture_2d_array<f32>;
+[[group(2), binding(11)]]
+var directional_shadow_map_sampler: sampler;
+
 
 let pi: f32 = 3.141592653589793;
 let two_pi: f32 = 6.283185307179586;
@@ -458,7 +464,6 @@ fn do_fragment_shade(
         var shadow_occlusion_acc = 0.0;
         let bias = 0.0001;
         let sample_count = 4.0;
-        let offset = 0.1;
 
         let max_offset_x = 0.01 + 0.04 * rand(random_seed * 1.0);
         let max_offset_y = 0.01 + 0.04 * rand(random_seed * 2.0);
@@ -472,8 +477,8 @@ fn do_fragment_shade(
                         max_offset_z * ((2.0 * z / (sample_count - 1.0)) - 1.0),
                     );
                     let closest_depth = textureSample(
-                        shadow_map_textures,
-                        shadow_map_sampler,
+                        point_shadow_map_textures,
+                        point_shadow_map_sampler,
                         world_normal_to_cubemap_vec(from_shadow_vec + irregular_offset),
                         i32(light_index)
                     ).r;
@@ -546,8 +551,50 @@ fn do_fragment_shade(
             continue;
         }
 
-        // TODO: check if we're in shadow
-        let shadow_occlusion_factor = 1.0;
+        let from_shadow_vec = world_position - light.position.xyz;
+        // let shadow_camera_far_plane_distance = 40.0;
+        // let current_depth = length(from_shadow_vec) / shadow_camera_far_plane_distance;
+        let light_space_position_nopersp = light.world_space_to_light_space * vec4<f32>(world_position, 1.0);
+        let light_space_position = light_space_position_nopersp / light_space_position_nopersp.w;
+        let light_space_position_uv = vec2<f32>(
+            light_space_position.x * 0.5 + 0.5,
+            1.0 - (light_space_position.y * 0.5 + 0.5),
+        );
+        let current_depth = light_space_position.z;
+
+        var shadow_occlusion_acc = 0.0;
+        let bias = 0.0001;
+        let sample_count = 4.0;
+
+        let max_offset_x = 0.0001 + 0.001 * rand(random_seed * 1.0);
+        let max_offset_y = 0.0001 + 0.001 * rand(random_seed * 2.0);
+
+        for (var x = 0.0; x < sample_count; x = x + 1.0) {
+            for (var y = 0.0; y < sample_count; y = y + 1.0) {
+                let irregular_offset = vec2<f32>(
+                    max_offset_x * ((2.0 * x / (sample_count - 1.0)) - 1.0),
+                    max_offset_y * ((2.0 * y / (sample_count - 1.0)) - 1.0)
+                );
+                let closest_depth = textureSample(
+                    directional_shadow_map_textures,
+                    directional_shadow_map_sampler,
+                    light_space_position_uv + irregular_offset,
+                    i32(light_index)
+                ).r;
+                if (light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0) {
+                    if (current_depth - bias < closest_depth) {
+                        shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
+                    }
+                } else {
+                    shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
+                }
+            }
+        }
+
+
+
+        let shadow_occlusion_factor = shadow_occlusion_acc / (sample_count * sample_count);
+        // let shadow_occlusion_factor = shadow_occlusion_acc;
 
         if (shadow_occlusion_factor < epsilon) {
                 continue;

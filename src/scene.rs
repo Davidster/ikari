@@ -40,6 +40,7 @@ pub struct BindableMeshData {
     pub index_buffer: Option<BufferAndLength>,
 
     pub instance_buffer: BufferAndLength,
+    pub instances: Vec<MeshInstance>,
 
     pub textures_bind_group: wgpu::BindGroup,
 }
@@ -226,38 +227,38 @@ pub fn build_scene(
 
             let (vertex_buffer, index_buffer) =
                 build_geometry_buffers(device, primitive_group, buffers)?;
-            let mesh_transforms: Vec<_> = scene_nodes
+            let instances: Vec<_> = scene_nodes
                 .iter()
                 .filter(|node| {
                     node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index()
                 })
-                .map(|node| {
-                    GpuMeshInstance::new(&MeshInstance {
-                        transform: node_transforms[node.index()].into(),
-                        base_material,
-                    })
+                .map(|node| MeshInstance {
+                    transform: node_transforms[node.index()].into(),
+                    base_material,
                 })
                 .collect();
+            let gpu_instances: Vec<_> = instances.iter().map(GpuMeshInstance::new).collect();
 
             println!(
                 "{:?}: mesh_transforms len: {:?}",
                 mesh.name(),
-                mesh_transforms.len()
+                instances.len()
             );
 
             let instance_buffer = BufferAndLength {
                 buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("InstancedMeshComponent instance_buffer"),
-                    contents: bytemuck::cast_slice(&mesh_transforms),
+                    contents: bytemuck::cast_slice(&gpu_instances),
                     usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 }),
-                length: mesh_transforms.len(),
+                length: instances.len(),
             };
 
             anyhow::Ok(BindableMeshData {
                 vertex_buffer,
                 index_buffer,
                 instance_buffer,
+                instances,
                 textures_bind_group,
             })
         })

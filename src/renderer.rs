@@ -4,7 +4,7 @@ use super::*;
 
 use anyhow::Result;
 
-use cgmath::{Matrix4, One, Vector2, Vector3};
+use cgmath::{Deg, Matrix4, One, Vector2, Vector3};
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -77,6 +77,7 @@ fn make_point_light_uniform_buffer(lights: &[PointLightComponent]) -> Vec<PointL
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct DirectionalLightUniform {
+    world_space_to_light_space: [[f32; 4]; 4],
     position: [f32; 4],
     direction: [f32; 4],
     color: [f32; 4],
@@ -90,7 +91,10 @@ impl From<&DirectionalLightComponent> for DirectionalLightUniform {
             color,
             intensity,
         } = light;
+        let view_proj_matrices =
+            build_directional_light_camera_view(-light.direction, 100.0, 100.0, 1000.0);
         Self {
+            world_space_to_light_space: (view_proj_matrices.proj * view_proj_matrices.view).into(),
             position: [position.x, position.y, position.z, 1.0],
             direction: [direction.x, direction.y, direction.z, 1.0],
             color: [color.x, color.y, color.z, *intensity],
@@ -101,6 +105,7 @@ impl From<&DirectionalLightComponent> for DirectionalLightUniform {
 impl Default for DirectionalLightUniform {
     fn default() -> Self {
         Self {
+            world_space_to_light_space: Matrix4::one().into(),
             position: [0.0, 0.0, 0.0, 1.0],
             direction: [0.0, -1.0, 0.0, 1.0],
             color: [0.0, 0.0, 0.0, 1.0],
@@ -141,75 +146,14 @@ impl From<Vector3<f32>> for FlatColorUniform {
     }
 }
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct CameraUniform {
-    proj: [[f32; 4]; 4],
-    view: [[f32; 4]; 4],
-    rotation_only_view: [[f32; 4]; 4],
-    position: [f32; 4],
-    near_plane_distance: f32,
-    far_plane_distance: f32,
-    padding: [f32; 2],
-}
-
-impl CameraUniform {
-    pub fn new() -> Self {
-        Self {
-            proj: Matrix4::one().into(),
-            view: Matrix4::one().into(),
-            rotation_only_view: Matrix4::one().into(),
-            position: [0.0; 4],
-            near_plane_distance: 0.0,
-            far_plane_distance: 0.0,
-            padding: [0.0; 2],
-        }
-    }
-
-    fn update_view_proj(&mut self, camera: &Camera, window: &winit::window::Window) {
-        let CameraViewProjMatrices {
-            proj,
-            view,
-            rotation_only_view,
-            position,
-            z_near,
-            z_far,
-        } = camera.build_view_projection_matrices(window);
-        self.proj = proj.into();
-        self.view = view.into();
-        self.rotation_only_view = rotation_only_view.into();
-        self.position = [position.x, position.y, position.z, 1.0];
-        self.near_plane_distance = z_near;
-        self.far_plane_distance = z_far;
-    }
-
-    pub fn from_view_proj_matrices(
-        CameraViewProjMatrices {
-            proj,
-            view,
-            rotation_only_view,
-            position,
-            z_near,
-            z_far,
-        }: &CameraViewProjMatrices,
-    ) -> Self {
-        Self {
-            proj: (*proj).into(),
-            view: (*view).into(),
-            rotation_only_view: (*rotation_only_view).into(),
-            position: [position.x, position.y, position.z, 1.0],
-            near_plane_distance: *z_near,
-            far_plane_distance: *z_far,
-            padding: [0.0; 2],
-        }
-    }
-}
-
-const INITIAL_RENDER_SCALE: f32 = 1.0;
+pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const ARENA_SIDE_LENGTH: f32 = 50.0;
 pub const MAX_LIGHT_COUNT: u8 = 32;
 pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
 pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
+pub const Z_NEAR: f32 = 0.001;
+pub const Z_FAR: f32 = 100000.0;
+pub const FOV_Y: Deg<f32> = Deg(45.0);
 
 enum SkyboxBackground<'a> {
     Cube { face_image_paths: [&'a str; 6] },
@@ -232,7 +176,6 @@ pub struct RendererState {
     pub current_window_size: winit::dpi::PhysicalSize<u32>,
     pub logger: Logger,
 
-    camera: Camera,
     camera_controller: CameraController,
     camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
@@ -248,10 +191,12 @@ pub struct RendererState {
     tone_mapping_pipeline: wgpu::RenderPipeline,
     surface_blit_pipeline: wgpu::RenderPipeline,
 
-    shadow_map_pipeline: wgpu::RenderPipeline,
-    shadow_map_textures: Texture,
+    point_shadow_map_pipeline: wgpu::RenderPipeline,
+    directional_shadow_map_pipeline: wgpu::RenderPipeline,
     shadow_camera_bind_group: wgpu::BindGroup,
     shadow_camera_buffer: wgpu::Buffer,
+    point_shadow_map_textures: Texture,
+    directional_shadow_map_textures: Texture,
 
     single_texture_bind_group_layout: wgpu::BindGroupLayout,
     two_texture_bind_group_layout: wgpu::BindGroupLayout,
@@ -293,6 +238,54 @@ pub struct RendererState {
 
 impl RendererState {
     pub async fn new(window: &winit::window::Window) -> Result<Self> {
+        // Mountains
+        let _skybox_background = SkyboxBackground::Cube {
+            face_image_paths: [
+                "./src/textures/skybox/right.jpg",
+                "./src/textures/skybox/left.jpg",
+                "./src/textures/skybox/top.jpg",
+                "./src/textures/skybox/bottom.jpg",
+                "./src/textures/skybox/front.jpg",
+                "./src/textures/skybox/back.jpg",
+            ],
+        };
+        let _skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
+
+        // Newport Loft
+        let skybox_background = SkyboxBackground::Equirectangular {
+            image_path: "./src/textures/newport_loft/background.jpg",
+        };
+        let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+            Some(SkyboxHDREnvironment::Equirectangular {
+                image_path: "./src/textures/newport_loft/radiance.hdr",
+            });
+
+        // My photosphere pic
+        let _skybox_background = SkyboxBackground::Equirectangular {
+            image_path: "./src/textures/photosphere_skybox.jpg",
+        };
+        let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+            Some(SkyboxHDREnvironment::Equirectangular {
+                image_path: "./src/textures/photosphere_skybox_small.jpg",
+            });
+
+        // let gltf_path = "/home/david/Downloads/adamHead/adamHead.gltf";
+        // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/VC/glTF/VC.gltf";
+        // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/Lantern/glTF/Lantern.gltf";
+        // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
+        // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf";
+        // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
+        // let gltf_path = "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf";
+        // let gltf_path = "./src/models/gltf/Sponza/Sponza.gltf";
+        // let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
+        // let gltf_path = "./src/models/gltf/Arrow/Arrow.gltf";
+        let gltf_path = "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf";
+        // let gltf_path = "./src/models/gltf/VertexColorTest/VertexColorTest.gltf";
+        // let gltf_path =
+        //     "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf";
+        // let gltf_path =
+        //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb";
+
         let mut logger = Logger::new();
         // force it to vulkan to get renderdoc to work:
         let backends = if cfg!(target_os = "linux") {
@@ -621,6 +614,22 @@ impl RendererState {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 9,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 10,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 11,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
@@ -1113,8 +1122,8 @@ impl RendererState {
                 bind_group_layouts: &[&single_uniform_bind_group_layout],
                 push_constant_ranges: &[],
             });
-        let shadow_map_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("Shadow Map Pipeline"),
+        let point_shadow_map_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("Point Shadow Map Pipeline"),
             layout: Some(&shadow_map_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
@@ -1123,7 +1132,7 @@ impl RendererState {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &textured_mesh_shader,
-                entry_point: "shadow_map_fs_main",
+                entry_point: "point_shadow_map_fs_main",
                 targets: &[],
             }),
             primitive: wgpu::PrimitiveState {
@@ -1149,34 +1158,45 @@ impl RendererState {
             },
             multiview: None,
         };
-        let shadow_map_pipeline = device.create_render_pipeline(&shadow_map_pipeline_descriptor);
+        let point_shadow_map_pipeline =
+            device.create_render_pipeline(&point_shadow_map_pipeline_descriptor);
 
-        // let gltf_import_result = gltf::import("/home/david/Downloads/adamHead/adamHead.gltf")?;
-        // let gltf_import_result =
-        //     gltf::import("/home/david/Programming/glTF-Sample-Models/2.0/VC/glTF/VC.gltf")?;
-        // let gltf_import_result = gltf::import(
-        //     "/home/david/Programming/glTF-Sample-Models/2.0/NormalTangentMirrorTest/glTF/NormalTangentMirrorTest.gltf",
-        // )?;
-        // let gltf_import_result = gltf::import(
-        //     "/home/david/Programming/glTF-Sample-Models/2.0/Lantern/glTF/Lantern.gltf",
-        // )?;
-        // let gltf_import_result =
-        //     gltf::import("./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf")?;
-        // let gltf_import_result = gltf::import("./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf")?;
-        // let gltf_import_result = gltf::import("./src/models/gltf/Triangle/Triangle.gltf")?;
-        // let gltf_import_result =
-        //     gltf::import("./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf")?;
-        // let gltf_import_result = gltf::import(
-        //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb",
-        // )?;
-        // let gltf_import_result = gltf::import("./src/models/gltf/Sponza/Sponza.gltf")?;
-        // let gltf_import_result =
-        //     gltf::import("./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf")?;
-        let gltf_import_result =
-            gltf::import("./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf")?;
-        // let gltf_import_result =
-        //     gltf::import("./src/models/gltf/VertexColorTest/VertexColorTest.gltf")?;
-        let (document, buffers, images) = gltf_import_result;
+        let directional_shadow_map_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("Directional Shadow Map Pipeline"),
+            layout: Some(&shadow_map_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &textured_mesh_shader,
+                entry_point: "shadow_map_vs_main",
+                buffers: &[Vertex::desc(), GpuMeshInstance::desc()],
+            },
+            fragment: None,
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        };
+        let directional_shadow_map_pipeline =
+            device.create_render_pipeline(&directional_shadow_map_pipeline_descriptor);
+
+        let (document, buffers, images) = gltf::import(gltf_path)?;
         let scene = build_scene(
             &device,
             &queue,
@@ -1187,8 +1207,6 @@ impl RendererState {
                 images,
             },
         )?;
-        // dbg!(&scene);
-        // panic!("heyyyyyyy");
 
         let initial_render_scale = INITIAL_RENDER_SCALE;
 
@@ -1401,37 +1419,6 @@ impl RendererState {
         //     &Default::default(),
         // )?;
 
-        // Mountains
-        let skybox_background = SkyboxBackground::Cube {
-            face_image_paths: [
-                "./src/textures/skybox/right.jpg",
-                "./src/textures/skybox/left.jpg",
-                "./src/textures/skybox/top.jpg",
-                "./src/textures/skybox/bottom.jpg",
-                "./src/textures/skybox/front.jpg",
-                "./src/textures/skybox/back.jpg",
-            ],
-        };
-        let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
-
-        // Newport Loft
-        let skybox_background = SkyboxBackground::Equirectangular {
-            image_path: "./src/textures/newport_loft/background.jpg",
-        };
-        let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-            Some(SkyboxHDREnvironment::Equirectangular {
-                image_path: "./src/textures/newport_loft/radiance.hdr",
-            });
-
-        // My photosphere pic
-        let skybox_background = SkyboxBackground::Equirectangular {
-            image_path: "./src/textures/photosphere_skybox.jpg",
-        };
-        let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-            Some(SkyboxHDREnvironment::Equirectangular {
-                image_path: "./src/textures/photosphere_skybox_small.jpg",
-            });
-
         let skybox_texture = match skybox_background {
             SkyboxBackground::Equirectangular { image_path } => {
                 let er_skybox_texture_bytes = std::fs::read(image_path)?;
@@ -1583,36 +1570,42 @@ impl RendererState {
         )?;
 
         let directional_lights = vec![DirectionalLightComponent {
-            position: Vector3::new(10.0, 10.0, 10.0),
-            direction: Vector3::new(-1.0, -1.0, -1.0).normalize(),
+            position: Vector3::new(10.0, 5.0, 0.0) * 10.0,
+            direction: Vector3::new(-1.0, -0.7, 0.0).normalize(),
             color: LIGHT_COLOR_A,
             intensity: 1.0,
         }];
+        // let directional_lights: Vec<DirectionalLightComponent> = vec![];
 
         let point_lights = vec![
             PointLightComponent {
                 transform: super::transform::Transform::new(),
                 color: LIGHT_COLOR_A,
-                intensity: 0.0,
+                intensity: 1.0,
             },
             PointLightComponent {
                 transform: super::transform::Transform::new(),
                 color: LIGHT_COLOR_B,
-                intensity: 0.0,
+                intensity: 1.0,
             },
         ];
-        point_lights[0]
-            .transform
-            .set_scale(Vector3::new(0.05, 0.05, 0.05));
-        point_lights[0]
-            .transform
-            .set_position(Vector3::new(0.0, 12.0, 0.0));
-        point_lights[1]
-            .transform
-            .set_scale(Vector3::new(0.1, 0.1, 0.1));
-        point_lights[1]
-            .transform
-            .set_position(Vector3::new(0.0, 15.0, 0.0));
+        // let point_lights: Vec<PointLightComponent> = vec![];
+        if let Some(point_light_0) = point_lights.get(0) {
+            point_light_0
+                .transform
+                .set_scale(Vector3::new(0.05, 0.05, 0.05));
+            point_light_0
+                .transform
+                .set_position(Vector3::new(0.0, 12.0, 0.0));
+        }
+        if let Some(point_light_1) = point_lights.get(1) {
+            point_light_1
+                .transform
+                .set_scale(Vector3::new(0.1, 0.1, 0.1));
+            point_light_1
+                .transform
+                .set_position(Vector3::new(0.0, 15.0, 0.0));
+        }
 
         let light_flat_color_instances: Vec<_> = point_lights
             .iter()
@@ -1623,9 +1616,9 @@ impl RendererState {
             &device,
             &queue,
             [
-                (point_lights[0].color.x * 255.0).round() as u8,
-                (point_lights[0].color.y * 255.0).round() as u8,
-                (point_lights[0].color.z * 255.0).round() as u8,
+                (LIGHT_COLOR_A.x * 255.0).round() as u8,
+                (LIGHT_COLOR_A.y * 255.0).round() as u8,
+                (LIGHT_COLOR_A.z * 255.0).round() as u8,
                 255,
             ],
             // [255, 0, 0, 255],
@@ -1710,12 +1703,15 @@ impl RendererState {
             bytemuck::cast_slice(&plane_transforms_gpu),
         )?;
 
-        let camera = Camera::new((0.0, 3.0, 4.0).into());
+        let camera_controller = CameraController::new(6.0, Camera::new((0.0, 3.0, 4.0).into()));
 
-        let camera_controller = CameraController::new(6.0, &camera);
-
-        let mut camera_uniform = CameraUniform::new();
-        camera_uniform.update_view_proj(&camera, window);
+        let camera_uniform = CameraUniform::from_camera(
+            camera_controller.current_pose,
+            window,
+            Z_NEAR,
+            Z_FAR,
+            FOV_Y.into(),
+        );
 
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
@@ -1768,7 +1764,7 @@ impl RendererState {
         });
 
         let shadow_camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Shadow Camera Buffer"),
+            label: Some("Point Shadow Camera Buffer"),
             contents: bytemuck::cast_slice(&[CameraUniform::new()]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -1779,7 +1775,7 @@ impl RendererState {
                 binding: 0,
                 resource: shadow_camera_buffer.as_entire_binding(),
             }],
-            label: Some("shadow_camera_bind_group"),
+            label: Some("point_shadow_camera_bind_group"),
         });
 
         let balls: Vec<_> = (0..500)
@@ -1817,13 +1813,21 @@ impl RendererState {
             bytemuck::cast_slice(&balls_transforms),
         )?;
 
-        let shadow_map_textures = Texture::create_cube_depth_texture_array(
+        let point_light_count: u32 = point_lights.len().try_into().unwrap();
+        let point_shadow_map_textures = Texture::create_cube_depth_texture_array(
             &device,
             1024,
-            Some("shadow_map_texture"),
-            point_lights.len().try_into().unwrap(),
+            Some("point_shadow_map_texture"),
+            point_light_count.max(1),
         );
-        let shadow_map_sampler = device.create_sampler(&Default::default());
+
+        let directional_light_count: u32 = directional_lights.len().try_into().unwrap();
+        let directional_shadow_map_textures = Texture::create_depth_texture_array(
+            &device,
+            1024,
+            Some("directional_shadow_map_texture"),
+            directional_light_count.max(1),
+        );
 
         // dbg!(shadow_map_textures.len());
 
@@ -1865,11 +1869,27 @@ impl RendererState {
                     },
                     wgpu::BindGroupEntry {
                         binding: 8,
-                        resource: wgpu::BindingResource::TextureView(&shadow_map_textures.view),
+                        resource: wgpu::BindingResource::TextureView(
+                            &point_shadow_map_textures.view,
+                        ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 9,
-                        resource: wgpu::BindingResource::Sampler(&&shadow_map_textures.sampler),
+                        resource: wgpu::BindingResource::Sampler(
+                            &point_shadow_map_textures.sampler,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 10,
+                        resource: wgpu::BindingResource::TextureView(
+                            &directional_shadow_map_textures.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 11,
+                        resource: wgpu::BindingResource::Sampler(
+                            &directional_shadow_map_textures.sampler,
+                        ),
                     },
                 ],
                 label: Some("skybox_texture_bind_group"),
@@ -1889,7 +1909,6 @@ impl RendererState {
             logger,
             current_window_size: size,
 
-            camera,
             camera_controller,
             camera_uniform,
             camera_buffer,
@@ -1904,10 +1923,12 @@ impl RendererState {
             tone_mapping_pipeline,
             surface_blit_pipeline,
 
-            shadow_map_pipeline,
-            shadow_map_textures,
+            point_shadow_map_pipeline,
+            directional_shadow_map_pipeline,
             shadow_camera_bind_group,
             shadow_camera_buffer,
+            point_shadow_map_textures,
+            directional_shadow_map_textures,
 
             single_texture_bind_group_layout,
             two_texture_bind_group_layout,
@@ -2319,24 +2340,63 @@ impl RendererState {
             .map(|(prev_ball, next_ball)| prev_ball.lerp(next_ball, alpha))
             .collect();
 
-        let point_light_1 = &mut self.point_lights[0];
-        point_light_1.transform.set_position(Vector3::new(
-            // light_1.transform.position.get().x,
-            1.5 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
-            point_light_1.transform.position.get().y - frame_time_seconds * 0.25,
-            1.5 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
-            // light_1.transform.position.get().z,
-        ));
-        point_light_1.color = lerp_vec(LIGHT_COLOR_A, LIGHT_COLOR_B, (time_seconds * 2.0).sin());
+        let new_point_light_0 = self.point_lights.get(0).map(|point_light_0| {
+            let transform = point_light_0.transform.clone();
+            transform.set_position(Vector3::new(
+                // light_1.transform.position.get().x,
+                1.5 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
+                point_light_0.transform.position.get().y - frame_time_seconds * 0.25,
+                1.5 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
+                // light_1.transform.position.get().z,
+            ));
+            let color = lerp_vec(LIGHT_COLOR_A, LIGHT_COLOR_B, (time_seconds * 2.0).sin());
 
-        let point_light_2 = &mut self.point_lights[1];
-        // light_2.transform.set_position(Vector3::new(
-        //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
-        //     light_2.transform.position.get().y,
-        //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
-        // ));
+            PointLightComponent {
+                transform,
+                color,
+                intensity: point_light_0.intensity,
+            }
+        });
+        if let Some(new_point_light_0) = new_point_light_0 {
+            self.point_lights[0] = new_point_light_0;
+        }
 
-        point_light_2.color = lerp_vec(LIGHT_COLOR_B, LIGHT_COLOR_A, (time_seconds * 2.0).sin());
+        let new_point_light_1 = self.point_lights.get(1).map(|point_light_1| {
+            let transform = point_light_1.transform.clone();
+            // transform.set_position(Vector3::new(
+            //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
+            //     transform.position.get().y,
+            //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
+            // ));
+            let color = lerp_vec(LIGHT_COLOR_B, LIGHT_COLOR_A, (time_seconds * 2.0).sin());
+
+            PointLightComponent {
+                transform,
+                color,
+                intensity: point_light_1.intensity,
+            }
+        });
+        if let Some(new_point_light_1) = new_point_light_1 {
+            self.point_lights[1] = new_point_light_1;
+        }
+
+        let directional_light_0 = self.directional_lights.get(0).map(|directional_light_0| {
+            let direction = directional_light_0.direction;
+            // transform.set_position(Vector3::new(
+            //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
+            //     transform.position.get().y,
+            //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
+            // ));
+            // let color = lerp_vec(LIGHT_COLOR_B, LIGHT_COLOR_A, (time_seconds * 2.0).sin());
+
+            DirectionalLightComponent {
+                direction: Vector3::new(direction.x, direction.y + 0.0001, direction.z),
+                ..*directional_light_0
+            }
+        });
+        if let Some(directional_light_0) = directional_light_0 {
+            self.directional_lights[0] = directional_light_0;
+        }
 
         // let rotational_displacement =
         //     make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(frame_time_seconds / 5.0));
@@ -2349,6 +2409,53 @@ impl RendererState {
         //     "state_update_time_accumulator: {:?}",
         //     self.state_update_time_accumulator
         // ));
+
+        // to move the boom box with axes around:
+        // let meshes: Vec<_> = self.scene.source_asset.document.meshes().collect();
+        // let drawable_primitive_groups: Vec<_> = meshes
+        //     .iter()
+        //     .flat_map(|mesh| mesh.primitives().map(|prim| (&meshes[mesh.index()], prim)))
+        //     .filter(|(_, prim)| prim.mode() == gltf::mesh::Mode::Triangles)
+        //     .collect();
+        // let prim_groups: Vec<_> = drawable_primitive_groups
+        //     .iter()
+        //     .enumerate()
+        //     .filter(|(_, (_, prim))| {
+        //         prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
+        //             || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask
+        //     })
+        //     .collect();
+        // let transform_him = |prim_index| {
+        //     let BindableMeshData {
+        //         instance_buffer,
+        //         instances,
+        //         ..
+        //     } = &self.scene.buffers.bindable_mesh_data[prim_index];
+        //     let first_directional_light = &self.directional_lights[0];
+        //     let rotation_matrix = look_at_dir(
+        //         first_directional_light.position * 0.9,
+        //         first_directional_light.direction,
+        //         // Vector3::new(10.0, 5.0, 0.0) * 9.0,
+        //         // Vector3::new(-1.0, -1.0, 0.0).normalize(),
+        //     );
+        //     let scale_matrix = make_scale_matrix(Vector3::new(100.0, 100.0, 100.0));
+        //     let new_transform =
+        //         (rotation_matrix * scale_matrix * instances[0].transform.matrix()).into();
+        //     let transformed_instance = GpuMeshInstance::new(&MeshInstance {
+        //         transform: new_transform,
+        //         base_material: instances[0].base_material,
+        //     });
+        //     self.queue.write_buffer(
+        //         &instance_buffer.buffer,
+        //         0,
+        //         bytemuck::cast_slice(&[transformed_instance]),
+        //     );
+        // };
+        // transform_him(prim_groups[0].0);
+        // transform_him(prim_groups[1].0);
+        // transform_him(prim_groups[2].0);
+        // transform_him(prim_groups[3].0);
+        // transform_him(prim_groups[4].0);
 
         // send data to gpu
         let balls_transforms: Vec<_> = self
@@ -2371,9 +2478,14 @@ impl RendererState {
             0,
             bytemuck::cast_slice(&test_object_transforms_gpu),
         );
-        self.camera_controller
-            .update_camera(&mut self.camera, frame_time_seconds);
-        self.camera_uniform.update_view_proj(&self.camera, window);
+        self.camera_controller.update(frame_time_seconds);
+        self.camera_uniform = CameraUniform::from_camera(
+            self.camera_controller.current_pose,
+            window,
+            Z_NEAR,
+            Z_FAR,
+            FOV_Y.into(),
+        );
         self.queue.write_buffer(
             &self.camera_buffer,
             0,
@@ -2400,7 +2512,7 @@ impl RendererState {
         //     .chain(directional_lights_bytes)
         //     .copied()
         //     .collect();
-
+        // self.logger.log(&format!("{:?}", &self.point_lights));
         self.queue.write_buffer(
             &self.point_lights_buffer,
             0,
@@ -2417,8 +2529,57 @@ impl RendererState {
 
     pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         {
+            self.directional_lights
+                .iter()
+                .enumerate()
+                .for_each(|(light_index, light)| {
+                    let view_proj_matrices =
+                        build_directional_light_camera_view(-light.direction, 100.0, 100.0, 1000.0);
+                    let texture_view = self.directional_shadow_map_textures.texture.create_view(
+                        &wgpu::TextureViewDescriptor {
+                            dimension: Some(wgpu::TextureViewDimension::D2),
+                            base_array_layer: light_index.try_into().unwrap(),
+                            array_layer_count: NonZeroU32::new(1),
+                            ..Default::default()
+                        },
+                    );
+                    let mut shadow_encoder =
+                        self.device
+                            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                                label: Some("Render Encoder"),
+                            });
+                    {
+                        let shadow_render_pass =
+                            shadow_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                label: Some("Shadow Render Pass"),
+                                color_attachments: &[],
+                                depth_stencil_attachment: Some(
+                                    wgpu::RenderPassDepthStencilAttachment {
+                                        view: &texture_view,
+                                        depth_ops: Some(wgpu::Operations {
+                                            load: wgpu::LoadOp::Clear(1.0),
+                                            store: true,
+                                        }),
+                                        stencil_ops: None,
+                                    },
+                                ),
+                            });
+                        self.queue.write_buffer(
+                            &self.shadow_camera_buffer,
+                            0,
+                            bytemuck::cast_slice(&[CameraUniform::from(view_proj_matrices)]),
+                        );
+                        self.render_scene(
+                            shadow_render_pass,
+                            &self.directional_shadow_map_pipeline,
+                            &self.shadow_camera_bind_group,
+                            None,
+                        );
+                    }
+                    self.queue.submit(std::iter::once(shadow_encoder.finish()));
+                });
             (0..self.point_lights.len()).for_each(|light_index| {
-                Camera::build_cubemap_view_projection_matrices(
+                build_cubemap_face_camera_views(
                     self.point_lights[light_index].transform.position.get(),
                     0.1,
                     1000.0,
@@ -2430,7 +2591,7 @@ impl RendererState {
                 .map(|(i, view_proj_matrices)| {
                     (
                         view_proj_matrices,
-                        self.shadow_map_textures.texture.create_view(
+                        self.point_shadow_map_textures.texture.create_view(
                             &wgpu::TextureViewDescriptor {
                                 dimension: Some(wgpu::TextureViewDimension::D2),
                                 base_array_layer: (6 * light_index + i).try_into().unwrap(),
@@ -2465,13 +2626,11 @@ impl RendererState {
                         self.queue.write_buffer(
                             &self.shadow_camera_buffer,
                             0,
-                            bytemuck::cast_slice(&[CameraUniform::from_view_proj_matrices(
-                                &face_view_proj_matrices,
-                            )]),
+                            bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
                         );
                         self.render_scene(
                             shadow_render_pass,
-                            &self.shadow_map_pipeline,
+                            &self.point_shadow_map_pipeline,
                             &self.shadow_camera_bind_group,
                             None,
                         );
@@ -2606,6 +2765,7 @@ impl RendererState {
 
                 self.queue.submit(std::iter::once(encoder.finish()));
             };
+
         // do 10 gaussian blur passes, switching between horizontal and vertical and ping ponging between
         // the two textures, effectively doing 5 full blurs
         let blur_passes = 10;
@@ -2742,10 +2902,6 @@ impl RendererState {
             .filter(|(_, prim)| prim.mode() == gltf::mesh::Mode::Triangles)
             .collect();
 
-        // println!(
-        //     "meshes: {:?}",
-        //     meshes.iter().map(|mesh| mesh.name()).collect::<Vec<_>>()
-        // );
         drawable_primitive_groups
             .iter()
             .enumerate()
@@ -2759,6 +2915,7 @@ impl RendererState {
                     index_buffer,
                     instance_buffer,
                     textures_bind_group,
+                    ..
                 } = &self.scene.buffers.bindable_mesh_data[drawable_prim_index];
                 render_pass.set_bind_group(1, textures_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
@@ -2799,7 +2956,7 @@ impl RendererState {
             0..self.test_object_instances.len() as u32,
         );
 
-        // // render floor
+        // render floor
         render_pass.set_bind_group(1, &self.plane_mesh.textures_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));

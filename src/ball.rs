@@ -109,8 +109,8 @@ impl BallComponent {
                 base_material: self.instance.base_material,
             },
             direction: lerp_vec(self.direction, other.direction, alpha),
-            speed: lerp_f32(self.speed, other.speed, alpha),
-            radius: lerp_f32(self.radius, other.radius, alpha),
+            speed: lerp(self.speed, other.speed, alpha),
+            radius: lerp(self.radius, other.radius, alpha),
         }
     }
 }

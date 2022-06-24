@@ -49,7 +49,8 @@
 - [x] add bloom
   - [x] move tone mapping to later pass
   - [x] support light intensity value
-- [ ] directional lights + shadows
+- [x] directional lights + shadows
+- [ ] Fix bloom pop-in on the blue light
 
 ## Low priority
 - [ ] Asset loading
@@ -58,6 +59,7 @@
   - [ ] make sure normal mapping is working (make the NormalTangentTest work????)
   - [ ] support srgb conversions for all unsupported texture types
 - [ ] Shadows
+  - [ ] Scale irregular sampling offset by distance from light? Cuz close objects should cast harder shadows and wil have a higher resolution?
   - [ ] Try out PCSS: [link 1](https://download.nvidia.com/developer/SDK/Individual_Samples/MEDIA/docPix/docs/PCSS.pdf), [link 2](https://developer.download.nvidia.com/whitepapers/2008/PCSS_Integration.pdf). Judging by [this link](https://developer.download.nvidia.com/presentations/2008/GDC/GDC08_SoftShadowMapping.pdf), PCSS with 9x9 PCF seems to be a good tradeoff
   - [ ] add shadow bias material property to instances
 - [ ] add adaptive exposure based on histogram
