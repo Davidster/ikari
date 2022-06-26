@@ -1,66 +1,64 @@
-use std::cell::Cell;
+use std::ops::Mul;
 
 use cgmath::{Matrix3, Matrix4, One, Quaternion, Vector3};
 
 use super::*;
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct Transform {
-    pub position: Cell<Vector3<f32>>,
-    pub rotation: Cell<Quaternion<f32>>, // euler angles
-    pub scale: Cell<Vector3<f32>>,
-    matrix: Cell<Matrix4<f32>>,
+    position: Vector3<f32>,
+    rotation: Quaternion<f32>,
+    scale: Vector3<f32>,
+    matrix: Matrix4<f32>,
     base_matrix: Matrix4<f32>,
 }
 
 impl Transform {
     pub fn new() -> Transform {
         Transform {
-            position: Cell::new(Vector3::new(0.0, 0.0, 0.0)),
-            rotation: Cell::new(Quaternion::new(0.0, 0.0, 1.0, 0.0)),
-            scale: Cell::new(Vector3::new(1.0, 1.0, 1.0)),
-            matrix: Cell::new(Matrix4::one()),
+            position: Vector3::new(0.0, 0.0, 0.0),
+            rotation: Quaternion::new(0.0, 0.0, 1.0, 0.0),
+            scale: Vector3::new(1.0, 1.0, 1.0),
+            matrix: Matrix4::one(),
             base_matrix: Matrix4::one(),
         }
     }
 
-    pub fn _position(&self) -> Vector3<f32> {
-        self.position.get()
+    pub fn position(&self) -> Vector3<f32> {
+        self.position
     }
 
-    pub fn _rotation(&self) -> Quaternion<f32> {
-        self.rotation.get()
+    pub fn rotation(&self) -> Quaternion<f32> {
+        self.rotation
     }
 
-    pub fn _scale(&self) -> Vector3<f32> {
-        self.scale.get()
+    pub fn scale(&self) -> Vector3<f32> {
+        self.scale
     }
 
     pub fn matrix(&self) -> Matrix4<f32> {
-        self.matrix.get() * self.base_matrix
+        self.matrix * self.base_matrix
     }
 
-    pub fn set_position(&self, new_position: Vector3<f32>) {
-        self.position.set(new_position);
-        let mut matrix = self.matrix.get();
-        matrix.w.x = new_position.x;
-        matrix.w.y = new_position.y;
-        matrix.w.z = new_position.z;
-        self.matrix.set(matrix);
+    pub fn set_position(&mut self, new_position: Vector3<f32>) {
+        self.position = new_position;
+        self.matrix.w.x = new_position.x;
+        self.matrix.w.y = new_position.y;
+        self.matrix.w.z = new_position.z;
     }
 
-    pub fn set_rotation(&self, new_rotation: Quaternion<f32>) {
-        self.rotation.set(new_rotation);
+    pub fn set_rotation(&mut self, new_rotation: Quaternion<f32>) {
+        self.rotation = new_rotation;
         self.resync_matrix();
     }
 
-    pub fn set_scale(&self, new_scale: Vector3<f32>) {
-        self.scale.set(new_scale);
+    pub fn set_scale(&mut self, new_scale: Vector3<f32>) {
+        self.scale = new_scale;
         self.resync_matrix();
     }
 
     pub fn get_rotation_matrix(&self) -> Matrix4<f32> {
-        make_rotation_matrix(self.rotation.get()) * self.base_matrix
+        make_rotation_matrix(self.rotation) * self.base_matrix
     }
 
     pub fn _get_rotation_matrix3(&self) -> Matrix3<f32> {
@@ -84,12 +82,10 @@ impl Transform {
         )
     }
 
-    fn resync_matrix(&self) {
-        self.matrix.set(
-            make_translation_matrix(self.position.get())
-                * make_rotation_matrix(self.rotation.get())
-                * make_scale_matrix(self.scale.get()),
-        );
+    fn resync_matrix(&mut self) {
+        self.matrix = make_translation_matrix(self.position)
+            * make_rotation_matrix(self.rotation)
+            * make_scale_matrix(self.scale);
     }
 }
 
@@ -98,5 +94,78 @@ impl From<Matrix4<f32>> for Transform {
         let mut transform = Transform::new();
         transform.base_matrix = matrix;
         transform
+    }
+}
+
+impl From<gltf::scene::Transform> for Transform {
+    fn from(gltf_transform: gltf::scene::Transform) -> Self {
+        match gltf_transform {
+            gltf::scene::Transform::Decomposed {
+                translation,
+                rotation,
+                scale,
+            } => TransformBuilder::new()
+                .position(translation.into())
+                .scale(scale.into())
+                .rotation(rotation.into())
+                .build(),
+            gltf::scene::Transform::Matrix { matrix } => Matrix4::from(matrix).into(),
+        }
+    }
+}
+
+impl Mul for Transform {
+    // The multiplication of rational numbers is a closed operation.
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self {
+        (self.matrix() * rhs.matrix()).into()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TransformBuilder {
+    position: Vector3<f32>,
+    rotation: Quaternion<f32>,
+    scale: Vector3<f32>,
+    base_matrix: Matrix4<f32>,
+}
+
+impl TransformBuilder {
+    pub fn new() -> Self {
+        Self {
+            position: Vector3::new(0.0, 0.0, 0.0),
+            rotation: Quaternion::new(0.0, 0.0, 1.0, 0.0),
+            scale: Vector3::new(1.0, 1.0, 1.0),
+            base_matrix: Matrix4::one(),
+        }
+    }
+
+    pub fn position(mut self, position: Vector3<f32>) -> Self {
+        self.position = position;
+        self
+    }
+
+    pub fn rotation(mut self, rotation: Quaternion<f32>) -> Self {
+        self.rotation = rotation;
+        self
+    }
+
+    pub fn scale(mut self, scale: Vector3<f32>) -> Self {
+        self.scale = scale;
+        self
+    }
+
+    pub fn base_matrix(mut self, base_matrix: Matrix4<f32>) -> Self {
+        self.base_matrix = base_matrix;
+        self
+    }
+
+    pub fn build(self) -> Transform {
+        let mut result = Transform::from(self.base_matrix);
+        result.set_position(self.position);
+        result.set_rotation(self.rotation);
+        result.set_scale(self.scale);
+        result
     }
 }

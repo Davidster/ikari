@@ -68,8 +68,10 @@ impl GpuMeshInstance {
             attributes: &Self::ATTRIBS,
         }
     }
+}
 
-    pub fn new(instance: &MeshInstance) -> GpuMeshInstance {
+impl From<MeshInstance> for GpuMeshInstance {
+    fn from(instance: MeshInstance) -> Self {
         let MeshInstance {
             transform,
             base_material,
@@ -83,9 +85,9 @@ impl GpuMeshInstance {
             occlusion_strength,
             alpha_cutoff,
         } = base_material;
-        GpuMeshInstance {
+        Self {
             model_transform: GpuMatrix4(transform.matrix()),
-            base_color_factor: (*base_color_factor).into(),
+            base_color_factor: base_color_factor.into(),
             emissive_factor: [
                 emissive_factor[0],
                 emissive_factor[1],
@@ -93,12 +95,12 @@ impl GpuMeshInstance {
                 1.0,
             ],
             mrno: [
-                *metallic_factor,
-                *roughness_factor,
-                *normal_scale,
-                *occlusion_strength,
+                metallic_factor,
+                roughness_factor,
+                normal_scale,
+                occlusion_strength,
             ],
-            alpha_cutoff: *alpha_cutoff,
+            alpha_cutoff,
             padding: [0.0, 0.0, 0.0],
         }
     }
@@ -142,15 +144,30 @@ impl From<PointLightComponent> for GpuFlatColorMeshInstance {
 
 #[derive(Clone, Debug)]
 pub struct MeshInstance {
-    pub transform: transform::Transform,
+    pub transform: crate::transform::Transform,
     pub base_material: BaseMaterial,
 }
 
 impl MeshInstance {
     pub fn new() -> MeshInstance {
         MeshInstance {
-            transform: transform::Transform::new(),
+            transform: crate::transform::Transform::new(),
             base_material: Default::default(),
+        }
+    }
+}
+
+impl From<SceneMeshInstance> for MeshInstance {
+    fn from(
+        SceneMeshInstance {
+            transform,
+            base_material,
+            ..
+        }: SceneMeshInstance,
+    ) -> Self {
+        Self {
+            transform,
+            base_material,
         }
     }
 }
@@ -194,7 +211,7 @@ pub struct MeshComponent {
 
     pub transform_buffer: wgpu::Buffer,
     pub transform_bind_group: wgpu::BindGroup,
-    pub transform: super::transform::Transform,
+    pub transform: crate::transform::Transform,
 }
 
 impl MeshComponent {
@@ -260,7 +277,7 @@ impl MeshComponent {
             None
         };
 
-        let transform = super::transform::Transform::new();
+        let transform = crate::transform::Transform::new();
 
         let transform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("MeshComponent Transform Buffer"),

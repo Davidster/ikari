@@ -12,9 +12,10 @@ pub struct BallComponent {
 
 impl BallComponent {
     pub fn new(position: Vector2<f32>, direction: Vector2<f32>, radius: f32, speed: f32) -> Self {
-        let transform = super::transform::Transform::new();
-        transform.set_position(Vector3::new(position.x, radius, position.y));
-        transform.set_scale(Vector3::new(radius, radius, radius));
+        let transform = TransformBuilder::new()
+            .position(Vector3::new(position.x, radius, position.y))
+            .scale(Vector3::new(radius, radius, radius))
+            .build();
         let Vector2 {
             x: direction_x,
             y: direction_z,
@@ -32,13 +33,13 @@ impl BallComponent {
 
     pub fn update(&mut self, dt: f32, _logger: &mut Logger) {
         // update position
-        let curr_position = self.instance.transform.position.get();
+        let curr_position = self.instance.transform.position();
         let displacement = self.direction * self.speed * dt;
         let new_position = curr_position + (displacement / 1.0);
         self.instance.transform.set_position(new_position);
 
         // update rotation
-        let curr_rotation = self.instance.transform.rotation.get();
+        let curr_rotation = self.instance.transform.rotation();
         let up = Vector3::new(0.0, 1.0, 0.0);
         let axis_of_rotation = self.direction.cross(up);
         let circumference = 2.0 * std::f32::consts::PI * self.radius;
@@ -84,24 +85,24 @@ impl BallComponent {
     }
 
     pub fn lerp(&self, other: &Self, alpha: f32) -> Self {
-        let transform = super::transform::Transform::new();
-        transform.set_position(lerp_vec(
-            self.instance.transform.position.get(),
-            other.instance.transform.position.get(),
-            alpha,
-        ));
-        transform.set_scale(lerp_vec(
-            self.instance.transform.scale.get(),
-            other.instance.transform.scale.get(),
-            alpha,
-        ));
-        transform.set_rotation(
-            self.instance
-                .transform
-                .rotation
-                .get()
-                .nlerp(other.instance.transform.rotation.get(), alpha),
-        );
+        let transform = TransformBuilder::new()
+            .position(lerp_vec(
+                self.instance.transform.position(),
+                other.instance.transform.position(),
+                alpha,
+            ))
+            .scale(lerp_vec(
+                self.instance.transform.scale(),
+                other.instance.transform.scale(),
+                alpha,
+            ))
+            .rotation(
+                self.instance
+                    .transform
+                    .rotation()
+                    .nlerp(other.instance.transform.rotation(), alpha),
+            )
+            .build();
 
         BallComponent {
             instance: MeshInstance {

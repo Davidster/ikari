@@ -22,7 +22,10 @@ pub struct GltfAsset {
 pub struct Scene {
     pub source_asset: GltfAsset,
     pub buffers: SceneBuffers,
-    // TODO: add bind groups
+    // same order as the nodes list
+    pub node_transforms: Vec<crate::transform::Transform>,
+    // node index -> parent node index
+    pub parent_index_map: HashMap<usize, usize>,
 }
 
 #[derive(Debug)]
@@ -40,7 +43,7 @@ pub struct BindableMeshData {
     pub index_buffer: Option<BufferAndLength>,
 
     pub instance_buffer: BufferAndLength,
-    pub instances: Vec<MeshInstance>,
+    pub instances: Vec<SceneMeshInstance>,
 
     pub textures_bind_group: wgpu::BindGroup,
 }
@@ -49,6 +52,33 @@ pub struct BindableMeshData {
 pub struct BufferAndLength {
     pub buffer: wgpu::Buffer,
     pub length: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct SceneMeshInstance {
+    pub node_index: usize,
+    pub transform: crate::transform::Transform,
+    pub base_material: BaseMaterial,
+}
+
+impl Scene {
+    pub fn get_drawable_mesh_iterator(&self) -> impl Iterator<Item = &BindableMeshData> {
+        let drawable_prim_indices: Vec<_> = self
+            .source_asset
+            .document
+            .meshes()
+            .flat_map(|mesh| mesh.primitives())
+            .filter(|prim| prim.mode() == gltf::mesh::Mode::Triangles)
+            .enumerate()
+            .filter(|(_, prim)| {
+                prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
+                    || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask
+            })
+            .map(|(prim_index, _)| prim_index)
+            .collect();
+        (0..drawable_prim_indices.len())
+            .map(move |i| &self.buffers.bindable_mesh_data[drawable_prim_indices[i]])
+    }
 }
 
 pub fn build_scene(
@@ -154,33 +184,21 @@ pub fn build_scene(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let node_transforms: Vec<_> = {
-        // node index -> parent node index
-        let parent_index_map: HashMap<usize, usize> = document
-            .nodes()
-            .flat_map(|parent_node| {
-                let parent_node_index = parent_node.index();
-                parent_node
-                    .children()
-                    .map(move |child_node| (child_node.index(), parent_node_index))
-            })
-            .collect();
-        let nodes: Vec<_> = document.nodes().collect();
-        nodes
-            .iter()
-            .map(|node| {
-                let node_ancestry_list = get_ancestry_list(node.index(), &parent_index_map);
-                node_ancestry_list
-                    .iter()
-                    .rev()
-                    .fold(Matrix4::identity(), |acc, node_index| {
-                        let node = &nodes[*node_index];
-                        let node_transform = gltf_transform_to_mat4(node.transform());
-                        acc * node_transform
-                    })
-            })
-            .collect()
-    };
+    // node index -> parent node index
+    let parent_index_map: HashMap<usize, usize> = document
+        .nodes()
+        .flat_map(|parent_node| {
+            let parent_node_index = parent_node.index();
+            parent_node
+                .children()
+                .map(move |child_node| (child_node.index(), parent_node_index))
+        })
+        .collect();
+
+    let node_transforms: Vec<_> = document
+        .nodes()
+        .map(|node| crate::transform::Transform::from(node.transform()))
+        .collect();
 
     let scene_nodes: Vec<_> = get_full_node_list(
         document
@@ -232,12 +250,28 @@ pub fn build_scene(
                 .filter(|node| {
                     node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index()
                 })
-                .map(|node| MeshInstance {
-                    transform: node_transforms[node.index()].into(),
-                    base_material,
+                .map(|node| {
+                    let node_ancestry_list =
+                        get_node_ancestry_list(node.index(), &parent_index_map);
+                    let transform = node_ancestry_list
+                        .iter()
+                        .rev()
+                        .fold(crate::transform::Transform::new(), |acc, node_index| {
+                            acc * node_transforms[*node_index]
+                        });
+                    SceneMeshInstance {
+                        node_index: node.index(),
+                        transform,
+                        base_material,
+                    }
                 })
                 .collect();
-            let gpu_instances: Vec<_> = instances.iter().map(GpuMeshInstance::new).collect();
+            let gpu_instances: Vec<_> = instances
+                .iter()
+                .cloned()
+                .map(MeshInstance::from)
+                .map(GpuMeshInstance::from)
+                .collect();
 
             println!(
                 "{:?}: mesh_transforms len: {:?}",
@@ -264,12 +298,23 @@ pub fn build_scene(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    let runtime_node_transforms: Vec<_> = node_transforms
+        .iter()
+        .map(|transform| crate::transform::Transform::from(*transform))
+        .collect();
+
+    // runtime_node_transforms[0] = TransformBuilder::new()
+    //     .scale(Vector3::new(1.0, 1.0, 1.0))
+    //     .build();
+
     Ok(Scene {
         source_asset: gltf_asset,
         buffers: SceneBuffers {
             bindable_mesh_data,
             textures,
         },
+        parent_index_map,
+        node_transforms,
     })
 }
 
@@ -339,11 +384,14 @@ fn sampler_wrapping_mode_to_wgpu(wrapping_mode: gltf::texture::WrappingMode) -> 
     }
 }
 
-fn get_ancestry_list(node_index: usize, parent_index_map: &HashMap<usize, usize>) -> Vec<usize> {
-    get_ancestry_list_impl(node_index, parent_index_map, Vec::new())
+pub fn get_node_ancestry_list(
+    node_index: usize,
+    parent_index_map: &HashMap<usize, usize>,
+) -> Vec<usize> {
+    get_node_ancestry_list_impl(node_index, parent_index_map, Vec::new())
 }
 
-fn get_ancestry_list_impl(
+fn get_node_ancestry_list_impl(
     node_index: usize,
     parent_index_map: &HashMap<usize, usize>,
     acc: Vec<usize>,
@@ -351,7 +399,7 @@ fn get_ancestry_list_impl(
     let with_self: Vec<_> = acc.iter().chain(vec![node_index].iter()).copied().collect();
     match parent_index_map.get(&node_index) {
         Some(parent_index) => {
-            get_ancestry_list_impl(*parent_index, parent_index_map, with_self).to_vec()
+            get_node_ancestry_list_impl(*parent_index, parent_index_map, with_self).to_vec()
         }
         None => with_self,
     }
@@ -394,13 +442,12 @@ fn gltf_transform_to_mat4(gltf_transform: gltf::scene::Transform) -> Matrix4<f32
             translation,
             rotation,
             scale,
-        } => {
-            let transform = transform::Transform::new();
-            transform.set_position(translation.into());
-            transform.set_rotation(rotation.into());
-            transform.set_scale(scale.into());
-            transform.matrix()
-        }
+        } => TransformBuilder::new()
+            .position(translation.into())
+            .scale(scale.into())
+            .rotation(rotation.into())
+            .build()
+            .matrix(),
         gltf::scene::Transform::Matrix { matrix } => Matrix4::from(matrix),
     }
 }
@@ -547,27 +594,43 @@ fn build_textures_bind_group(
     Ok((textures_bind_group, base_material))
 }
 
+pub fn get_buffer_slice_from_accessor(
+    accessor: gltf::Accessor,
+    buffers: &[gltf::buffer::Data],
+) -> Vec<u8> {
+    let buffer_view = accessor.view().unwrap();
+    let buffer = &buffers[buffer_view.buffer().index()];
+    let first_byte_offset = buffer_view.offset() + accessor.offset();
+    let stride = buffer_view.stride().unwrap_or_else(|| accessor.size());
+    (0..accessor.count())
+        .flat_map(|i| {
+            let byte_range_start = first_byte_offset + i * stride;
+            let byte_range_end = byte_range_start + accessor.size();
+            let byte_range = byte_range_start..byte_range_end;
+            (&buffer[byte_range]).to_vec()
+        })
+        .collect()
+}
+
 pub fn build_geometry_buffers(
     device: &wgpu::Device,
     primitive_group: &gltf::mesh::Primitive,
     buffers: &[gltf::buffer::Data],
 ) -> Result<(BufferAndLength, Option<BufferAndLength>)> {
-    let get_buffer_slice_from_accessor = |accessor: gltf::Accessor| {
-        let buffer_view = accessor.view().unwrap();
-        let buffer = &buffers[buffer_view.buffer().index()];
-        let first_byte_offset = buffer_view.offset() + accessor.offset();
-        let stride = buffer_view.stride().unwrap_or_else(|| accessor.size());
-        (0..accessor.count())
-            .flat_map(|i| {
-                let byte_range_start = first_byte_offset + i * stride;
-                let byte_range_end = byte_range_start + accessor.size();
-                let byte_range = byte_range_start..byte_range_end;
-                (&buffer[byte_range]).to_vec()
-            })
-            .collect::<Vec<_>>()
-    };
-
-    let slice_3_to_vec_3 = |slice: &[f32; 3]| Vector3::new(slice[0], slice[1], slice[2]);
+    // let get_buffer_slice_from_accessor = |accessor: gltf::Accessor| {
+    //     let buffer_view = accessor.view().unwrap();
+    //     let buffer = &buffers[buffer_view.buffer().index()];
+    //     let first_byte_offset = buffer_view.offset() + accessor.offset();
+    //     let stride = buffer_view.stride().unwrap_or_else(|| accessor.size());
+    //     (0..accessor.count())
+    //         .flat_map(|i| {
+    //             let byte_range_start = first_byte_offset + i * stride;
+    //             let byte_range_end = byte_range_start + accessor.size();
+    //             let byte_range = byte_range_start..byte_range_end;
+    //             (&buffer[byte_range]).to_vec()
+    //         })
+    //         .collect::<Vec<_>>()
+    // };
 
     let vertex_positions: Vec<Vector3<f32>> = {
         let (_, accessor) = primitive_group
@@ -582,9 +645,16 @@ pub fn build_geometry_buffers(
         if data_type != gltf::accessor::DataType::F32 {
             bail!("Expected f32 data but found: {:?}", data_type);
         }
-        let positions_u8 = get_buffer_slice_from_accessor(accessor);
+        let positions_u8 = get_buffer_slice_from_accessor(accessor, buffers);
         let positions: &[[f32; 3]] = bytemuck::cast_slice(&positions_u8);
-        anyhow::Ok(positions.to_vec().iter().map(slice_3_to_vec_3).collect())
+        anyhow::Ok(
+            positions
+                .to_vec()
+                .iter()
+                .copied()
+                .map(Vector3::from)
+                .collect(),
+        )
     }?;
     let vertex_position_count = vertex_positions.len();
     dbg!(vertex_position_count);
@@ -624,7 +694,7 @@ pub fn build_geometry_buffers(
         .indices()
         .map(|accessor| {
             let data_type = accessor.data_type();
-            let buffer_slice = get_buffer_slice_from_accessor(accessor);
+            let buffer_slice = get_buffer_slice_from_accessor(accessor, buffers);
 
             let indices: Vec<u16> = match data_type {
                 gltf::accessor::DataType::U16 => {
@@ -679,7 +749,7 @@ pub fn build_geometry_buffers(
             if data_type != gltf::accessor::DataType::F32 {
                 bail!("Expected f32 data but found: {:?}", data_type);
             }
-            Ok(bytemuck::cast_slice(&get_buffer_slice_from_accessor(accessor)).to_vec())
+            Ok(bytemuck::cast_slice(&get_buffer_slice_from_accessor(accessor, buffers)).to_vec())
         })
         .map_or(Ok(None), |v| v.map(Some))?
         .unwrap_or_else(|| (0..vertex_position_count).map(|_| [0.5, 0.5]).collect());
@@ -697,7 +767,7 @@ pub fn build_geometry_buffers(
             if data_type != gltf::accessor::DataType::F32 {
                 bail!("Expected f32 data but found: {:?}", data_type);
             }
-            Ok(bytemuck::cast_slice(&get_buffer_slice_from_accessor(accessor)).to_vec())
+            Ok(bytemuck::cast_slice(&get_buffer_slice_from_accessor(accessor, buffers)).to_vec())
         })
         .map_or(Ok(None), |v| v.map(Some))?
         .unwrap_or_else(|| {
@@ -719,9 +789,14 @@ pub fn build_geometry_buffers(
             if data_type != gltf::accessor::DataType::F32 {
                 bail!("Expected f32 data but found: {:?}", data_type);
             }
-            let normals_u8 = get_buffer_slice_from_accessor(accessor);
+            let normals_u8 = get_buffer_slice_from_accessor(accessor, buffers);
             let normals: &[[f32; 3]] = bytemuck::cast_slice(&normals_u8);
-            Ok(normals.to_vec().iter().map(slice_3_to_vec_3).collect())
+            Ok(normals
+                .to_vec()
+                .iter()
+                .copied()
+                .map(Vector3::from)
+                .collect())
         })
         .map_or(Ok(None), |v| v.map(Some))?
         .unwrap_or_else(|| {
@@ -793,7 +868,7 @@ pub fn build_geometry_buffers(
             if data_type != gltf::accessor::DataType::F32 {
                 bail!("Expected f32 data but found: {:?}", data_type);
             }
-            let tangents_u8 = get_buffer_slice_from_accessor(accessor);
+            let tangents_u8 = get_buffer_slice_from_accessor(accessor, buffers);
             let tangents: &[[f32; 4]] = bytemuck::cast_slice(&tangents_u8);
 
             Ok(tangents

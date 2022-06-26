@@ -1,3 +1,4 @@
+mod animation;
 mod ball;
 mod camera;
 mod camera_controller;
@@ -11,6 +12,7 @@ mod scene;
 mod texture;
 mod transform;
 
+use animation::*;
 use ball::*;
 use camera::*;
 use camera_controller::*;
@@ -21,6 +23,7 @@ use mesh::*;
 use renderer::*;
 use scene::*;
 use texture::*;
+use transform::*;
 
 use cgmath::prelude::*;
 

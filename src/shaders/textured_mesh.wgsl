@@ -566,8 +566,8 @@ fn do_fragment_shade(
         let bias = 0.0001;
         let sample_count = 4.0;
 
-        let max_offset_x = 0.0001 + 0.001 * rand(random_seed * 1.0);
-        let max_offset_y = 0.0001 + 0.001 * rand(random_seed * 2.0);
+        let max_offset_x = 0.0001 + 0.0005 * rand(random_seed * 1.0);
+        let max_offset_y = 0.0001 + 0.0005 * rand(random_seed * 2.0);
 
         for (var x = 0.0; x < sample_count; x = x + 1.0) {
             for (var y = 0.0; y < sample_count; y = y + 1.0) {

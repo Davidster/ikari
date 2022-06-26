@@ -1,10 +1,11 @@
-use std::{num::NonZeroU32, time::Instant};
+use std::{num::NonZeroU32, thread::current, time::Instant};
 
 use super::*;
 
 use anyhow::Result;
 
 use cgmath::{Deg, Matrix4, One, Vector2, Vector3};
+use gltf::animation::Property;
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -38,7 +39,7 @@ struct PointLightUniform {
 
 impl From<&PointLightComponent> for PointLightUniform {
     fn from(light: &PointLightComponent) -> Self {
-        let position = light.transform.position.get();
+        let position = light.transform.position();
         let color = light.color;
         let intensity = light.intensity;
         Self {
@@ -271,7 +272,6 @@ impl RendererState {
 
         // let gltf_path = "/home/david/Downloads/adamHead/adamHead.gltf";
         // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/VC/glTF/VC.gltf";
-        // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/Lantern/glTF/Lantern.gltf";
         // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
         // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf";
         // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
@@ -279,12 +279,17 @@ impl RendererState {
         // let gltf_path = "./src/models/gltf/Sponza/Sponza.gltf";
         // let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
         // let gltf_path = "./src/models/gltf/Arrow/Arrow.gltf";
-        let gltf_path = "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf";
+        // let gltf_path = "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf";
         // let gltf_path = "./src/models/gltf/VertexColorTest/VertexColorTest.gltf";
         // let gltf_path =
         //     "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf";
         // let gltf_path =
         //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb";
+        // let gltf_path =
+        //     "/home/david/Programming/glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
+        // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
+        let gltf_path =
+            "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
 
         let mut logger = Logger::new();
         // force it to vulkan to get renderdoc to work:
@@ -1577,20 +1582,20 @@ impl RendererState {
         }];
         // let directional_lights: Vec<DirectionalLightComponent> = vec![];
 
-        let point_lights = vec![
+        let mut point_lights = vec![
             PointLightComponent {
-                transform: super::transform::Transform::new(),
+                transform: crate::transform::Transform::new(),
                 color: LIGHT_COLOR_A,
                 intensity: 1.0,
             },
             PointLightComponent {
-                transform: super::transform::Transform::new(),
+                transform: crate::transform::Transform::new(),
                 color: LIGHT_COLOR_B,
                 intensity: 1.0,
             },
         ];
         // let point_lights: Vec<PointLightComponent> = vec![];
-        if let Some(point_light_0) = point_lights.get(0) {
+        if let Some(point_light_0) = point_lights.get_mut(0) {
             point_light_0
                 .transform
                 .set_scale(Vector3::new(0.05, 0.05, 0.05));
@@ -1598,7 +1603,7 @@ impl RendererState {
                 .transform
                 .set_position(Vector3::new(0.0, 12.0, 0.0));
         }
-        if let Some(point_light_1) = point_lights.get(1) {
+        if let Some(point_light_1) = point_lights.get_mut(1) {
             point_light_1
                 .transform
                 .set_scale(Vector3::new(0.1, 0.1, 0.1));
@@ -1645,14 +1650,15 @@ impl RendererState {
             bytemuck::cast_slice(&light_flat_color_instances),
         )?;
 
-        let test_object_instances = vec![MeshInstance::new()];
+        let mut test_object_instances = vec![MeshInstance::new()];
         test_object_instances[0]
             .transform
             .set_position(Vector3::new(4.0, 10.0, 4.0));
 
         let test_object_transforms_gpu: Vec<_> = test_object_instances
             .iter()
-            .map(GpuMeshInstance::new)
+            .cloned()
+            .map(GpuMeshInstance::from)
             .collect();
 
         // let test_object_diffuse_texture =
@@ -1681,15 +1687,18 @@ impl RendererState {
             bytemuck::cast_slice(&test_object_transforms_gpu),
         )?;
 
-        let plane_instances = vec![MeshInstance::new()];
+        let mut plane_instances = vec![MeshInstance::new()];
         plane_instances[0].transform.set_scale(Vector3::new(
             ARENA_SIDE_LENGTH,
             1.0,
             ARENA_SIDE_LENGTH,
         ));
 
-        let plane_transforms_gpu: Vec<_> =
-            plane_instances.iter().map(GpuMeshInstance::new).collect();
+        let plane_transforms_gpu: Vec<_> = plane_instances
+            .iter()
+            .cloned()
+            .map(GpuMeshInstance::from)
+            .collect();
 
         let plane_mesh = InstancedMeshComponent::new(
             &device,
@@ -1798,7 +1807,7 @@ impl RendererState {
 
         let balls_transforms: Vec<_> = balls
             .iter()
-            .map(|ball| GpuMeshInstance::new(&ball.instance))
+            .map(|ball| GpuMeshInstance::from(ball.instance.clone()))
             .collect();
 
         let sphere_mesh = InstancedMeshComponent::new(
@@ -2341,11 +2350,11 @@ impl RendererState {
             .collect();
 
         let new_point_light_0 = self.point_lights.get(0).map(|point_light_0| {
-            let transform = point_light_0.transform.clone();
+            let mut transform = point_light_0.transform.clone();
             transform.set_position(Vector3::new(
                 // light_1.transform.position.get().x,
                 1.5 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
-                point_light_0.transform.position.get().y - frame_time_seconds * 0.25,
+                point_light_0.transform.position().y - frame_time_seconds * 0.25,
                 1.5 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
                 // light_1.transform.position.get().z,
             ));
@@ -2425,7 +2434,7 @@ impl RendererState {
         //             || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask
         //     })
         //     .collect();
-        // let transform_him = |prim_index| {
+        // let transform_him = |prim_index: usize| {
         //     let BindableMeshData {
         //         instance_buffer,
         //         instances,
@@ -2441,7 +2450,7 @@ impl RendererState {
         //     let scale_matrix = make_scale_matrix(Vector3::new(100.0, 100.0, 100.0));
         //     let new_transform =
         //         (rotation_matrix * scale_matrix * instances[0].transform.matrix()).into();
-        //     let transformed_instance = GpuMeshInstance::new(&MeshInstance {
+        //     let transformed_instance = GpuMeshInstance::from(MeshInstance {
         //         transform: new_transform,
         //         base_material: instances[0].base_material,
         //     });
@@ -2457,11 +2466,70 @@ impl RendererState {
         // transform_him(prim_groups[3].0);
         // transform_him(prim_groups[4].0);
 
+        // let scene_meshes: Vec<_> = self.scene.source_asset.document.meshes().collect();
+        // let scene_drawable_primitive_groups: Vec<_> = scene_meshes
+        //     .iter()
+        //     .flat_map(|mesh| mesh.primitives().map(|prim| (&scene_meshes[mesh.index()], prim)))
+        //     .filter(|(_, prim)| prim.mode() == gltf::mesh::Mode::Triangles)
+        //     .collect();
+        // let scene_prim_groups: Vec<_> = scene_drawable_primitive_groups
+        //     .iter()
+        //     .enumerate()
+        //     .filter(|(_, (_, prim))| {
+        //         prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
+        //             || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask
+        //     })
+        //     .collect();
+        //     self.scene.buffers.bindable_mesh_data.find(|BindableMeshData {}|)
+
+        // do animatons
+        // let animation_samplers: Vec<_> = self.scene.source_asset.document.samplers().collect();
+
+        self.scene.node_transforms = get_node_transforms_at_moment(&mut self.scene, time_seconds);
+
         // send data to gpu
+        self.scene.get_drawable_mesh_iterator().for_each(
+            |BindableMeshData {
+                 instance_buffer,
+                 instances,
+                 ..
+             }| {
+                let gpu_instances: Vec<_> = instances
+                    .iter()
+                    .cloned()
+                    .map(
+                        |SceneMeshInstance {
+                             node_index,
+                             base_material,
+                             ..
+                         }| {
+                            let node_ancestry_list =
+                                get_node_ancestry_list(node_index, &self.scene.parent_index_map);
+                            let transform = node_ancestry_list
+                                .iter()
+                                .rev()
+                                .fold(crate::transform::Transform::new(), |acc, node_index| {
+                                    acc * self.scene.node_transforms[*node_index]
+                                });
+                            MeshInstance {
+                                base_material,
+                                transform,
+                            }
+                        },
+                    )
+                    .map(GpuMeshInstance::from)
+                    .collect();
+                self.queue.write_buffer(
+                    &instance_buffer.buffer,
+                    0,
+                    bytemuck::cast_slice(&gpu_instances),
+                );
+            },
+        );
         let balls_transforms: Vec<_> = self
             .actual_balls
             .iter()
-            .map(|ball| GpuMeshInstance::new(&ball.instance))
+            .map(|ball| GpuMeshInstance::from(ball.instance.clone()))
             .collect();
         self.queue.write_buffer(
             &self.sphere_mesh.instance_buffer,
@@ -2471,7 +2539,8 @@ impl RendererState {
         let test_object_transforms_gpu: Vec<_> = self
             .test_object_instances
             .iter()
-            .map(GpuMeshInstance::new)
+            .cloned()
+            .map(GpuMeshInstance::from)
             .collect();
         self.queue.write_buffer(
             &self.test_object_mesh.instance_buffer,
@@ -2580,7 +2649,7 @@ impl RendererState {
                 });
             (0..self.point_lights.len()).for_each(|light_index| {
                 build_cubemap_face_camera_views(
-                    self.point_lights[light_index].transform.position.get(),
+                    self.point_lights[light_index].transform.position(),
                     0.1,
                     1000.0,
                     false,
@@ -2895,28 +2964,14 @@ impl RendererState {
         }
 
         // render gltf scene
-        let meshes: Vec<_> = self.scene.source_asset.document.meshes().collect();
-        let drawable_primitive_groups: Vec<_> = meshes
-            .iter()
-            .flat_map(|mesh| mesh.primitives().map(|prim| (&meshes[mesh.index()], prim)))
-            .filter(|(_, prim)| prim.mode() == gltf::mesh::Mode::Triangles)
-            .collect();
-
-        drawable_primitive_groups
-            .iter()
-            .enumerate()
-            .filter(|(_, (_, prim))| {
-                prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
-                    || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask
-            })
-            .for_each(|(drawable_prim_index, _)| {
-                let BindableMeshData {
-                    vertex_buffer,
-                    index_buffer,
-                    instance_buffer,
-                    textures_bind_group,
-                    ..
-                } = &self.scene.buffers.bindable_mesh_data[drawable_prim_index];
+        self.scene.get_drawable_mesh_iterator().for_each(
+            |BindableMeshData {
+                 vertex_buffer,
+                 index_buffer,
+                 instance_buffer,
+                 textures_bind_group,
+                 ..
+             }| {
                 render_pass.set_bind_group(1, textures_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
                 render_pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
@@ -2940,7 +2995,8 @@ impl RendererState {
                         );
                     }
                 }
-            });
+            },
+        );
 
         // render test object
         render_pass.set_bind_group(1, &self.test_object_mesh.textures_bind_group, &[]);
@@ -2957,32 +3013,32 @@ impl RendererState {
         );
 
         // render floor
-        render_pass.set_bind_group(1, &self.plane_mesh.textures_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
-        render_pass.set_index_buffer(
-            self.plane_mesh.index_buffer.slice(..),
-            wgpu::IndexFormat::Uint16,
-        );
-        render_pass.draw_indexed(
-            0..self.plane_mesh.num_indices,
-            0,
-            0..self.plane_instances.len() as u32,
-        );
+        // render_pass.set_bind_group(1, &self.plane_mesh.textures_bind_group, &[]);
+        // render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
+        // render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
+        // render_pass.set_index_buffer(
+        //     self.plane_mesh.index_buffer.slice(..),
+        //     wgpu::IndexFormat::Uint16,
+        // );
+        // render_pass.draw_indexed(
+        //     0..self.plane_mesh.num_indices,
+        //     0,
+        //     0..self.plane_instances.len() as u32,
+        // );
 
         // render balls
-        render_pass.set_bind_group(1, &self.sphere_mesh.textures_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.sphere_mesh.vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, self.sphere_mesh.instance_buffer.slice(..));
-        render_pass.set_index_buffer(
-            self.sphere_mesh.index_buffer.slice(..),
-            wgpu::IndexFormat::Uint16,
-        );
-        render_pass.draw_indexed(
-            0..self.sphere_mesh.num_indices,
-            0,
-            0..self.actual_balls.len() as u32,
-        );
+        // render_pass.set_bind_group(1, &self.sphere_mesh.textures_bind_group, &[]);
+        // render_pass.set_vertex_buffer(0, self.sphere_mesh.vertex_buffer.slice(..));
+        // render_pass.set_vertex_buffer(1, self.sphere_mesh.instance_buffer.slice(..));
+        // render_pass.set_index_buffer(
+        //     self.sphere_mesh.index_buffer.slice(..),
+        //     wgpu::IndexFormat::Uint16,
+        // );
+        // render_pass.draw_indexed(
+        //     0..self.sphere_mesh.num_indices,
+        //     0,
+        //     0..self.actual_balls.len() as u32,
+        // );
 
         render_pass
     }
