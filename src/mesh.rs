@@ -6,20 +6,17 @@ use anyhow::Result;
 use cgmath::{Matrix4, Vector2, Vector3, Vector4};
 use wgpu::util::DeviceExt;
 
-type VertexPosition = [f32; 3];
-type VertexNormal = [f32; 3];
-type VertexColor = [f32; 4];
-type VertexTextureCoords = [f32; 2];
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
-    pub position: VertexPosition,
-    pub normal: VertexNormal,
-    pub tex_coords: VertexTextureCoords,
-    pub tangent: VertexNormal,
-    pub bitangent: VertexNormal,
-    pub color: VertexColor,
+    pub position: [f32; 3],
+    pub normal: [f32; 3],
+    pub tex_coords: [f32; 2],
+    pub tangent: [f32; 3],
+    pub bitangent: [f32; 3],
+    pub color: [f32; 4],
+    pub bone_indices: [u32; 4],
+    pub bone_weights: [f32; 4],
 }
 
 impl Vertex {
@@ -53,12 +50,14 @@ pub struct GpuMeshInstance {
 }
 
 impl GpuMeshInstance {
-    const ATTRIBS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
+    const ATTRIBS: [wgpu::VertexAttribute; 10] = wgpu::vertex_attr_array![
         6 => Float32x4,  7 => Float32x4,  8 => Float32x4,  9 => Float32x4, // transform
         10 => Float32x4,
         11 => Float32x4,
         12 => Float32x4,
         13 => Float32,
+        14 => Uint32x4,
+        15 => Float32x4,
     ];
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
@@ -587,6 +586,8 @@ impl BasicMesh {
                             tangent: to_arr(&tangent),
                             bitangent: to_arr(&bitangent),
                             color: [1.0, 1.0, 1.0, 1.0],
+                            bone_indices: [0, 1, 2, 3],
+                            bone_weights: [1.0, 0.0, 0.0, 0.0],
                         });
                     }
                 });

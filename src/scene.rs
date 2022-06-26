@@ -930,6 +930,8 @@ pub fn build_geometry_buffers(
                 tangent: to_arr(&tangent),
                 bitangent: to_arr(&bitangent),
                 color: vertex_colors[index],
+                bone_indices: todo!(),
+                bone_weights: todo!(),
             }
         })
         .collect();
