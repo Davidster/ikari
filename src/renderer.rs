@@ -287,9 +287,9 @@ impl RendererState {
         //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb";
         // let gltf_path =
         //     "/home/david/Programming/glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
-        // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
-        let gltf_path =
-            "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
+        let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
+        // let gltf_path =
+        //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
 
         let mut logger = Logger::new();
         // force it to vulkan to get renderdoc to work:

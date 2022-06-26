@@ -416,39 +416,17 @@ fn get_full_node_list_impl<'a>(
     node: gltf::scene::Node<'a>,
     acc: Vec<gltf::scene::Node<'a>>,
 ) -> Vec<gltf::scene::Node<'a>> {
+    let acc_with_self: Vec<_> = acc
+        .iter()
+        .chain(vec![node.clone()].iter())
+        .cloned()
+        .collect();
     if node.children().count() == 0 {
-        acc.iter()
-            .chain(vec![node.clone()].iter())
-            .cloned()
-            .collect()
+        acc_with_self
     } else {
         node.children()
-            .flat_map(|child| {
-                get_full_node_list_impl(
-                    child,
-                    acc.iter()
-                        .chain(vec![node.clone()].iter())
-                        .cloned()
-                        .collect(),
-                )
-            })
+            .flat_map(|child| get_full_node_list_impl(child, acc_with_self.clone()))
             .collect()
-    }
-}
-
-fn gltf_transform_to_mat4(gltf_transform: gltf::scene::Transform) -> Matrix4<f32> {
-    match gltf_transform {
-        gltf::scene::Transform::Decomposed {
-            translation,
-            rotation,
-            scale,
-        } => TransformBuilder::new()
-            .position(translation.into())
-            .scale(scale.into())
-            .rotation(rotation.into())
-            .build()
-            .matrix(),
-        gltf::scene::Transform::Matrix { matrix } => Matrix4::from(matrix),
     }
 }
 
