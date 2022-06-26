@@ -174,6 +174,8 @@ pub struct RendererState {
     state_update_time_accumulator: f32,
     last_frame_instant: Option<Instant>,
     first_frame_instant: Option<Instant>,
+    animation_time_acc: f32,
+    is_playing_animations: bool,
     pub current_window_size: winit::dpi::PhysicalSize<u32>,
     pub logger: Logger,
 
@@ -287,6 +289,8 @@ impl RendererState {
         //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb";
         // let gltf_path =
         //     "/home/david/Programming/glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
+        // let gltf_path =
+        //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
         let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
         // let gltf_path =
         //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
@@ -1915,6 +1919,8 @@ impl RendererState {
             state_update_time_accumulator: 0.0,
             last_frame_instant: None,
             first_frame_instant: None,
+            animation_time_acc: 0.0,
+            is_playing_animations: true,
             logger,
             current_window_size: size,
 
@@ -2158,6 +2164,9 @@ impl RendererState {
                     }
                     VirtualKeyCode::X => {
                         increment_render_scale(true);
+                    }
+                    VirtualKeyCode::P => {
+                        self.is_playing_animations = !self.is_playing_animations;
                     }
                     _ => {}
                 }
@@ -2485,7 +2494,16 @@ impl RendererState {
         // do animatons
         // let animation_samplers: Vec<_> = self.scene.source_asset.document.samplers().collect();
 
-        self.scene.node_transforms = get_node_transforms_at_moment(&mut self.scene, time_seconds);
+        self.animation_time_acc = if self.is_playing_animations {
+            self.animation_time_acc + frame_time_seconds
+        } else {
+            self.animation_time_acc
+        };
+        self.scene.node_transforms = get_node_transforms_at_moment(
+            &mut self.scene,
+            self.animation_time_acc,
+            &mut self.logger,
+        );
 
         // send data to gpu
         self.scene.get_drawable_mesh_iterator().for_each(
