@@ -1,11 +1,10 @@
-use std::{num::NonZeroU32, thread::current, time::Instant};
+use std::{num::NonZeroU32, time::Instant};
 
 use super::*;
 
 use anyhow::Result;
 
 use cgmath::{Deg, Matrix4, One, Vector2, Vector3};
-use gltf::animation::Property;
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -1218,7 +1217,6 @@ impl RendererState {
             },
         )?;
         validate_animation_property_counts(&scene, &mut logger);
-
         let initial_render_scale = INITIAL_RENDER_SCALE;
 
         let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
@@ -2361,7 +2359,7 @@ impl RendererState {
             .collect();
 
         let new_point_light_0 = self.point_lights.get(0).map(|point_light_0| {
-            let mut transform = point_light_0.transform.clone();
+            let mut transform = point_light_0.transform;
             transform.set_position(Vector3::new(
                 // light_1.transform.position.get().x,
                 1.5 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
@@ -2382,7 +2380,7 @@ impl RendererState {
         }
 
         let new_point_light_1 = self.point_lights.get(1).map(|point_light_1| {
-            let transform = point_light_1.transform.clone();
+            let transform = point_light_1.transform;
             // transform.set_position(Vector3::new(
             //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
             //     transform.position.get().y,
@@ -2496,15 +2494,12 @@ impl RendererState {
         // do animatons
         if self.is_playing_animations {
             self.animation_time_acc += frame_time_seconds;
-            self.scene.node_transforms =
-                match get_node_transforms_at_moment(&mut self.scene, self.animation_time_acc) {
-                    Ok(new_node_transforms) => new_node_transforms,
-                    Err(err) => {
-                        self.logger
-                            .log(&format!("Error: animation computation failed: {:?}", err));
-                        self.scene.node_transforms.clone()
-                    }
-                };
+            if let Err(err) =
+                update_node_transforms_at_moment(&mut self.scene, self.animation_time_acc)
+            {
+                self.logger
+                    .log(&format!("Error: animation computation failed: {:?}", err));
+            }
         }
 
         // send data to gpu

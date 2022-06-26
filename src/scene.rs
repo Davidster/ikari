@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use anyhow::bail;
 use anyhow::Result;
 use cgmath::abs_diff_eq;
-use cgmath::Matrix4;
 use cgmath::Vector2;
 use cgmath::Vector3;
 use cgmath::Vector4;
@@ -26,6 +25,8 @@ pub struct Scene {
     pub node_transforms: Vec<crate::transform::Transform>,
     // node index -> parent node index
     pub parent_index_map: HashMap<usize, usize>,
+    // same order as the animations list in the source asset
+    pub animations: Vec<Animation>,
 }
 
 #[derive(Debug)]
@@ -298,14 +299,7 @@ pub fn build_scene(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let runtime_node_transforms: Vec<_> = node_transforms
-        .iter()
-        .map(|transform| crate::transform::Transform::from(*transform))
-        .collect();
-
-    // runtime_node_transforms[0] = TransformBuilder::new()
-    //     .scale(Vector3::new(1.0, 1.0, 1.0))
-    //     .build();
+    let animations = get_animations(&gltf_asset.document, &gltf_asset.buffers)?;
 
     Ok(Scene {
         source_asset: gltf_asset,
@@ -315,6 +309,7 @@ pub fn build_scene(
         },
         parent_index_map,
         node_transforms,
+        animations,
     })
 }
 

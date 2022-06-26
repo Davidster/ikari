@@ -73,11 +73,15 @@ async fn start() {
         // }
     };
     if let Some(window) = window {
-        let renderer_state = RendererState::new(&window)
-            .await
-            .expect("Failed to create renderer state");
-
-        gameloop::run(window, event_loop, renderer_state).await;
+        let renderer_state_result = RendererState::new(&window).await;
+        match renderer_state_result {
+            Ok(renderer_state) => {
+                gameloop::run(window, event_loop, renderer_state).await;
+            }
+            Err(err) => {
+                eprintln!("Error creating renderer state: {:?}", err)
+            }
+        }
     }
 }
 

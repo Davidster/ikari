@@ -156,7 +156,7 @@ impl TransformBuilder {
         self
     }
 
-    pub fn base_matrix(mut self, base_matrix: Matrix4<f32>) -> Self {
+    pub fn _base_matrix(mut self, base_matrix: Matrix4<f32>) -> Self {
         self.base_matrix = base_matrix;
         self
     }

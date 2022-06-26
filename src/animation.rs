@@ -5,9 +5,26 @@ use std::{
 
 use anyhow::bail;
 use anyhow::Result;
-use cgmath::{Quaternion, Vector3, Vector4};
+use cgmath::{Quaternion, Vector3};
 
 use super::*;
+
+#[derive(Debug)]
+pub struct Animation {
+    // source_animation: gltf::animation::Animation<'a>,
+    length_seconds: f32,
+    channels: Vec<Channel>,
+}
+
+#[derive(Debug)]
+pub struct Channel {
+    // source_channel: gltf::animation::Channel<'a>,
+    node_index: usize,
+    property: gltf::animation::Property,
+    interpolation_type: gltf::animation::Interpolation,
+    keyframe_timings: Vec<f32>,
+    keyframe_values_u8: Vec<u8>,
+}
 
 #[derive(Copy, Clone, Debug)]
 struct KeyframeTime {
@@ -22,132 +39,110 @@ enum PropertyValue {
     Rotation(Quaternion<f32>),
 }
 
-pub fn get_node_transforms_at_moment(
-    scene: &mut Scene,
-    global_time_seconds: f32,
-) -> Result<Vec<crate::transform::Transform>> {
-    let buffers = &scene.source_asset.buffers;
+pub fn update_node_transforms_at_moment(scene: &mut Scene, global_time_seconds: f32) -> Result<()> {
+    let mut transformed_property_values_new: Vec<(usize, PropertyValue)> = Vec::new();
+    for animation in scene.animations.iter() {
+        for channel in animation.channels.iter() {
+            let animation_time_seconds = global_time_seconds % animation.length_seconds;
+            let (previous_key_frame, next_key_frame) =
+                get_nearby_keyframes(&channel.keyframe_timings, animation_time_seconds);
+            let property_value = match channel.property {
+                gltf::animation::Property::Translation => {
+                    Some(PropertyValue::Translation(get_vec3_at_moment(
+                        channel,
+                        animation_time_seconds,
+                        previous_key_frame,
+                        next_key_frame,
+                    )?))
+                }
+                gltf::animation::Property::Scale => Some(PropertyValue::Scale(get_vec3_at_moment(
+                    channel,
+                    animation_time_seconds,
+                    previous_key_frame,
+                    next_key_frame,
+                )?)),
+                gltf::animation::Property::Rotation => {
+                    Some(PropertyValue::Rotation(get_quat_at_moment(
+                        channel,
+                        animation_time_seconds,
+                        previous_key_frame,
+                        next_key_frame,
+                    )?))
+                }
+                _ => None,
+            };
+            if let Some(property_value) = property_value {
+                transformed_property_values_new.push((channel.node_index, property_value));
+            }
+        }
+    }
 
-    let node_transform_map: HashMap<usize, Vec<PropertyValue>> =
-        scene.source_asset.document.animations().fold(
-            anyhow::Ok(HashMap::new()),
-            |acc, animation| {
-                let channel_timings: Vec<_> = animation
-                    .channels()
-                    .map(|channel| get_keyframe_times(&channel.sampler(), buffers))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let animation_length_seconds = *channel_timings
-                    .iter()
-                    .map(|keyframe_times| keyframe_times.last().unwrap())
-                    .max_by(|a, b| a.partial_cmp(b).unwrap())
-                    .unwrap();
+    for (node_index, property_value) in transformed_property_values_new {
+        let transform = &mut scene.node_transforms[node_index];
+        match property_value {
+            PropertyValue::Translation(translation) => {
+                transform.set_position(translation);
+            }
+            PropertyValue::Scale(scale) => {
+                transform.set_scale(scale);
+            }
+            PropertyValue::Rotation(rotation) => {
+                transform.set_rotation(rotation);
+            }
+        }
+    }
 
-                // TODO: no need for this to be a vec of options once we support MorphTargetWeights
-                let channel_results: Vec<Option<(usize, PropertyValue)>> = animation
-                    .channels()
-                    .enumerate()
-                    .map(|(channel_index, channel)| {
-                        let animation_time_seconds = global_time_seconds % animation_length_seconds;
-                        let (previous_key_frame, next_key_frame) = get_nearby_keyframes(
-                            &channel_timings[channel_index],
-                            animation_time_seconds,
-                        );
-                        let property_value = match channel.target().property() {
-                            gltf::animation::Property::Translation => {
-                                Some(PropertyValue::Translation(get_vec3_at_moment(
-                                    &channel.sampler(),
-                                    buffers,
-                                    animation_time_seconds,
-                                    previous_key_frame,
-                                    next_key_frame,
-                                )?))
-                            }
-                            gltf::animation::Property::Scale => {
-                                Some(PropertyValue::Scale(get_vec3_at_moment(
-                                    &channel.sampler(),
-                                    buffers,
-                                    animation_time_seconds,
-                                    previous_key_frame,
-                                    next_key_frame,
-                                )?))
-                            }
-                            gltf::animation::Property::Rotation => {
-                                Some(PropertyValue::Rotation(get_quat_at_moment(
-                                    &channel.sampler(),
-                                    buffers,
-                                    animation_time_seconds,
-                                    previous_key_frame,
-                                    next_key_frame,
-                                )?))
-                            }
-                            _ => None,
-                        };
-                        anyhow::Ok(property_value.map(|property_result| {
-                            (channel.target().node().index(), property_result)
-                        }))
+    Ok(())
+}
+
+pub fn get_animations(
+    document: &gltf::Document,
+    buffers: &[gltf::buffer::Data],
+) -> Result<Vec<Animation>> {
+    document
+        .animations()
+        .map(|animation| {
+            let channel_timings: Vec<_> = animation
+                .channels()
+                .map(|channel| get_keyframe_times(&channel.sampler(), buffers))
+                .collect::<Result<Vec<_>, _>>()?;
+            let length_seconds = *channel_timings
+                .iter()
+                .map(|keyframe_times| keyframe_times.last().unwrap())
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap();
+            let channels: Vec<_> = animation
+                .channels()
+                .enumerate()
+                .map(|(channel_index, channel)| {
+                    validate_channel_data_type(&channel)?;
+                    let sampler = channel.sampler();
+                    let accessor = sampler.output();
+                    anyhow::Ok(Channel {
+                        node_index: channel.target().node().index(),
+                        property: channel.target().property(),
+                        interpolation_type: sampler.interpolation(),
+                        keyframe_timings: channel_timings[channel_index].clone(),
+                        keyframe_values_u8: get_buffer_slice_from_accessor(accessor, buffers),
                     })
-                    .collect::<Result<Vec<_>, _>>()?;
-
-                acc.map(|mut acc| {
-                    for (nodex_index, property_result) in channel_results.iter().flatten() {
-                        let entry = acc.entry(*nodex_index).or_insert(Vec::new());
-                        entry.push(*property_result);
-                    }
-                    acc
                 })
-            },
-        )?;
-
-    Ok(scene
-        .node_transforms
-        .iter()
-        .enumerate()
-        .map(|(node_index, current_transform)| {
-            node_transform_map
-                .get(&node_index)
-                .map(|property_results| {
-                    let mut new_transform = *current_transform;
-                    property_results
-                        .iter()
-                        .for_each(|property_result| match property_result {
-                            PropertyValue::Translation(translation) => {
-                                new_transform.set_position(*translation);
-                            }
-                            PropertyValue::Scale(scale) => {
-                                new_transform.set_scale(*scale);
-                            }
-                            PropertyValue::Rotation(rotation) => {
-                                new_transform.set_rotation(*rotation);
-                            }
-                        });
-                    new_transform
-                })
-                .unwrap_or(*current_transform)
+                .collect::<Result<Vec<_>, _>>()?;
+            anyhow::Ok(Animation {
+                length_seconds,
+                channels,
+            })
         })
-        .collect())
+        .collect::<Result<Vec<_>, _>>()
 }
 
 fn get_vec3_at_moment(
-    vec3_sampler: &gltf::animation::Sampler,
-    buffers: &[gltf::buffer::Data],
+    channel: &Channel,
     animation_time_seconds: f32,
     previous_keyframe: Option<KeyframeTime>,
     next_keyframe: Option<KeyframeTime>,
 ) -> Result<Vector3<f32>> {
-    let keyframe_values_u8 = {
-        let accessor = vec3_sampler.output();
-        let data_type = accessor.data_type();
-        let dimensions = accessor.dimensions();
-        if dimensions != gltf::accessor::Dimensions::Vec3 {
-            bail!("Expected vec3 data but found: {:?}", dimensions);
-        }
-        if data_type != gltf::accessor::DataType::F32 {
-            bail!("Expected f32 data but found: {:?}", data_type);
-        }
-        get_buffer_slice_from_accessor(accessor, buffers)
-    };
     let get_basic_keyframe_values = || {
-        bytemuck::cast_slice::<_, [f32; 3]>(&keyframe_values_u8)
+        bytemuck::cast_slice::<_, [f32; 3]>(&channel.keyframe_values_u8)
             .to_vec()
             .iter()
             .copied()
@@ -155,7 +150,7 @@ fn get_vec3_at_moment(
             .collect::<Vec<_>>()
     };
     let get_cubic_keyframe_values = || {
-        bytemuck::cast_slice::<_, [[f32; 3]; 3]>(&keyframe_values_u8)
+        bytemuck::cast_slice::<_, [[f32; 3]; 3]>(&channel.keyframe_values_u8)
             .to_vec()
             .iter()
             .copied()
@@ -169,18 +164,11 @@ fn get_vec3_at_moment(
             .collect::<Vec<_>>()
     };
 
-    let keyframe_times = get_keyframe_times(vec3_sampler, buffers);
+    // TODO: inline
     let t = animation_time_seconds;
 
     Ok(match previous_keyframe {
         Some(previous_keyframe) => {
-            // let next_keyframe = keyframe_times
-            //     .iter()
-            //     .enumerate()
-            //     .find(|(_, keyframe_time)| **keyframe_time > t)
-            //     .unwrap_or(previous_keyframe);
-            // let interpolation_factor =
-            //     (t - previous_keyframe.1) / (next_keyframe.1 - previous_keyframe.1);
             let (next_keyframe, interpolation_factor) = match next_keyframe {
                 Some(next_keyframe) => (
                     next_keyframe,
@@ -189,7 +177,7 @@ fn get_vec3_at_moment(
                 None => (previous_keyframe, 1.0),
             };
 
-            match vec3_sampler.interpolation() {
+            match channel.interpolation_type {
                 gltf::animation::Interpolation::Linear => {
                     let keyframe_values = get_basic_keyframe_values();
                     let previous_keyframe_value = keyframe_values[previous_keyframe.index];
@@ -219,7 +207,7 @@ fn get_vec3_at_moment(
                 }
             }
         }
-        None => match vec3_sampler.interpolation() {
+        None => match channel.interpolation_type {
             gltf::animation::Interpolation::Linear => get_basic_keyframe_values()[0],
             gltf::animation::Interpolation::Step => get_basic_keyframe_values()[0],
             gltf::animation::Interpolation::CubicSpline => get_cubic_keyframe_values()[0][1],
@@ -228,26 +216,13 @@ fn get_vec3_at_moment(
 }
 
 fn get_quat_at_moment(
-    quat_sampler: &gltf::animation::Sampler,
-    buffers: &[gltf::buffer::Data],
+    channel: &Channel,
     animation_time_seconds: f32,
     previous_keyframe: Option<KeyframeTime>,
     next_keyframe: Option<KeyframeTime>,
 ) -> Result<Quaternion<f32>> {
-    let keyframe_values_u8 = {
-        let accessor = quat_sampler.output();
-        let data_type = accessor.data_type();
-        let dimensions = accessor.dimensions();
-        if dimensions != gltf::accessor::Dimensions::Vec4 {
-            bail!("Expected vec4 data but found: {:?}", dimensions);
-        }
-        if data_type != gltf::accessor::DataType::F32 {
-            bail!("Expected f32 data but found: {:?}", data_type);
-        }
-        get_buffer_slice_from_accessor(accessor, buffers)
-    };
     let get_basic_keyframe_values = || {
-        bytemuck::cast_slice::<_, [f32; 4]>(&keyframe_values_u8)
+        bytemuck::cast_slice::<_, [f32; 4]>(&channel.keyframe_values_u8)
             .to_vec()
             .iter()
             .copied()
@@ -255,7 +230,7 @@ fn get_quat_at_moment(
             .collect::<Vec<_>>()
     };
     let get_cubic_keyframe_values = || {
-        bytemuck::cast_slice::<_, [[f32; 4]; 3]>(&keyframe_values_u8)
+        bytemuck::cast_slice::<_, [[f32; 4]; 3]>(&channel.keyframe_values_u8)
             .to_vec()
             .iter()
             .copied()
@@ -280,7 +255,7 @@ fn get_quat_at_moment(
                 ),
                 None => (previous_keyframe, 1.0),
             };
-            match quat_sampler.interpolation() {
+            match channel.interpolation_type {
                 gltf::animation::Interpolation::Linear => {
                     let keyframe_values = get_basic_keyframe_values();
                     let previous_keyframe_value = keyframe_values[previous_keyframe.index];
@@ -307,12 +282,40 @@ fn get_quat_at_moment(
                 }
             }
         }
-        None => match quat_sampler.interpolation() {
+        None => match channel.interpolation_type {
             gltf::animation::Interpolation::Linear => get_basic_keyframe_values()[0],
             gltf::animation::Interpolation::Step => get_basic_keyframe_values()[0],
             gltf::animation::Interpolation::CubicSpline => get_cubic_keyframe_values()[0][1],
         },
     })
+}
+
+fn validate_channel_data_type(channel: &gltf::animation::Channel) -> Result<()> {
+    let accessor = channel.sampler().output();
+    let data_type = accessor.data_type();
+    let dimensions = accessor.dimensions();
+    match channel.target().property() {
+        gltf::animation::Property::Translation | gltf::animation::Property::Scale => {
+            if dimensions != gltf::accessor::Dimensions::Vec3 {
+                bail!("Expected vec3 data but found: {:?}", dimensions);
+            }
+            if data_type != gltf::accessor::DataType::F32 {
+                bail!("Expected f32 data but found: {:?}", data_type);
+            }
+        }
+        gltf::animation::Property::Rotation => {
+            if dimensions != gltf::accessor::Dimensions::Vec4 {
+                bail!("Expected vec4 data but found: {:?}", dimensions);
+            }
+            if data_type != gltf::accessor::DataType::F32 {
+                bail!("Expected f32 data but found: {:?}", data_type);
+            }
+        }
+        gltf::animation::Property::MorphTargetWeights => {
+            bail!("MorphTargetWeights not supported")
+        }
+    };
+    Ok(())
 }
 
 fn get_keyframe_times(
