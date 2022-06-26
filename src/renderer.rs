@@ -291,7 +291,8 @@ impl RendererState {
         //     "/home/david/Programming/glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
         // let gltf_path =
         //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
-        let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
+        // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
+        let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/VC/glTF/VC.gltf";
         // let gltf_path =
         //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
 
@@ -340,8 +341,8 @@ impl RendererState {
             format: swapchain_format,
             width: size.width,
             height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
-            // present_mode: wgpu::PresentMode::Immediate,
+            // present_mode: wgpu::PresentMode::Fifo,
+            present_mode: wgpu::PresentMode::Immediate,
         };
 
         surface.configure(&device, &config);
@@ -1216,6 +1217,7 @@ impl RendererState {
                 images,
             },
         )?;
+        validate_animation_property_counts(&scene, &mut logger);
 
         let initial_render_scale = INITIAL_RENDER_SCALE;
 
@@ -2492,18 +2494,18 @@ impl RendererState {
         //     self.scene.buffers.bindable_mesh_data.find(|BindableMeshData {}|)
 
         // do animatons
-        // let animation_samplers: Vec<_> = self.scene.source_asset.document.samplers().collect();
-
-        self.animation_time_acc = if self.is_playing_animations {
-            self.animation_time_acc + frame_time_seconds
-        } else {
-            self.animation_time_acc
-        };
-        self.scene.node_transforms = get_node_transforms_at_moment(
-            &mut self.scene,
-            self.animation_time_acc,
-            &mut self.logger,
-        );
+        if self.is_playing_animations {
+            self.animation_time_acc += frame_time_seconds;
+            self.scene.node_transforms =
+                match get_node_transforms_at_moment(&mut self.scene, self.animation_time_acc) {
+                    Ok(new_node_transforms) => new_node_transforms,
+                    Err(err) => {
+                        self.logger
+                            .log(&format!("Error: animation computation failed: {:?}", err));
+                        self.scene.node_transforms.clone()
+                    }
+                };
+        }
 
         // send data to gpu
         self.scene.get_drawable_mesh_iterator().for_each(
