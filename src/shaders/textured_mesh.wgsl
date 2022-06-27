@@ -30,7 +30,7 @@ struct DirectionalLightsUniform {
     values: array<DirectionalLight, MAX_LIGHTS>;
 };
 struct BonesUniform {
-    value: array<mat4x4<f32>, MAX_BONES>;
+    value: array<mat4x4<f32>>;
 };
 
 [[group(0), binding(1)]]
@@ -38,7 +38,7 @@ var<uniform> point_lights: PointLightsUniform;
 [[group(0), binding(2)]]
 var<uniform> directional_lights: DirectionalLightsUniform;
 [[group(0), binding(3)]]
-var<uniform> bones_uniform: BonesUniform;
+var<storage, read> bones_uniform: BonesUniform;
 
 struct VertexInput {
     [[location(0)]] object_position: vec3<f32>;
