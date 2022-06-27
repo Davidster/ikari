@@ -586,7 +586,7 @@ impl BasicMesh {
                             tangent: to_arr(&tangent),
                             bitangent: to_arr(&bitangent),
                             color: [1.0, 1.0, 1.0, 1.0],
-                            bone_indices: [0, 1, 2, 3],
+                            bone_indices: [0, 0, 0, 0],
                             bone_weights: [1.0, 0.0, 0.0, 0.0],
                         });
                     }

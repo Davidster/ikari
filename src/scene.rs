@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use anyhow::bail;
 use anyhow::Result;
 use cgmath::abs_diff_eq;
+use cgmath::Matrix4;
 use cgmath::Vector2;
 use cgmath::Vector3;
 use cgmath::Vector4;
@@ -17,12 +18,14 @@ pub struct GltfAsset {
     pub images: Vec<gltf::image::Data>,
 }
 
+// TODO: clean up this structure if needed
 #[derive(Debug)]
 pub struct Scene {
     pub source_asset: GltfAsset,
     pub buffers: SceneBuffers,
     // same order as the nodes list
-    pub node_transforms: Vec<crate::transform::Transform>,
+    pub nodes: Vec<Node>,
+    pub skins: Vec<Skin>,
     // node index -> parent node index
     pub parent_index_map: HashMap<usize, usize>,
     // same order as the animations list in the source asset
@@ -60,6 +63,18 @@ pub struct SceneMeshInstance {
     pub node_index: usize,
     pub transform: crate::transform::Transform,
     pub base_material: BaseMaterial,
+}
+
+#[derive(Debug, Clone)]
+pub struct Node {
+    pub transform: crate::transform::Transform,
+    pub skin_index: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Skin {
+    pub joint_inverse_bind_matrices: Vec<Matrix4<f32>>,
+    pub joint_node_indices: Vec<usize>,
 }
 
 impl Scene {
@@ -196,10 +211,48 @@ pub fn build_scene(
         })
         .collect();
 
-    let node_transforms: Vec<_> = document
+    let nodes: Vec<_> = document
         .nodes()
-        .map(|node| crate::transform::Transform::from(node.transform()))
+        .map(|node| Node {
+            transform: crate::transform::Transform::from(node.transform()),
+            skin_index: node.skin().map(|skin| skin.index()),
+        })
         .collect();
+
+    let skins: Vec<_> = document
+        .skins()
+        .map(|skin| {
+            let joint_node_indices: Vec<_> = skin.joints().map(|joint| joint.index()).collect();
+            anyhow::Ok(Skin {
+                joint_inverse_bind_matrices: skin
+                    .inverse_bind_matrices()
+                    .map(|accessor| {
+                        let data_type = accessor.data_type();
+                        let dimensions = accessor.dimensions();
+                        if dimensions != gltf::accessor::Dimensions::Mat4 {
+                            bail!("Expected mat4 data but found: {:?}", dimensions);
+                        }
+                        if data_type != gltf::accessor::DataType::F32 {
+                            bail!("Expected f32 data but found: {:?}", data_type);
+                        }
+                        let matrices_u8 = get_buffer_slice_from_accessor(accessor, buffers);
+                        Ok(bytemuck::cast_slice::<_, [[f32; 4]; 4]>(&matrices_u8)
+                            .to_vec()
+                            .iter()
+                            .cloned()
+                            .map(Matrix4::from)
+                            .collect())
+                    })
+                    .transpose()?
+                    .unwrap_or_else(|| {
+                        (0..joint_node_indices.len())
+                            .map(|_| Matrix4::one())
+                            .collect()
+                    }),
+                joint_node_indices,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     let scene_nodes: Vec<_> = get_full_node_list(
         document
@@ -258,7 +311,7 @@ pub fn build_scene(
                         .iter()
                         .rev()
                         .fold(crate::transform::Transform::new(), |acc, node_index| {
-                            acc * node_transforms[*node_index]
+                            acc * nodes[*node_index].transform
                         });
                     SceneMeshInstance {
                         node_index: node.index(),
@@ -308,7 +361,8 @@ pub fn build_scene(
             textures,
         },
         parent_index_map,
-        node_transforms,
+        nodes,
+        skins,
         animations,
     })
 }
@@ -689,7 +743,7 @@ pub fn build_geometry_buffers(
             }?;
             anyhow::Ok(indices)
         })
-        .map_or(Ok(None), |v| v.map(Some))?;
+        .transpose()?;
 
     let triangle_count = indices
         .as_ref()
@@ -724,7 +778,7 @@ pub fn build_geometry_buffers(
             }
             Ok(bytemuck::cast_slice(&get_buffer_slice_from_accessor(accessor, buffers)).to_vec())
         })
-        .map_or(Ok(None), |v| v.map(Some))?
+        .transpose()?
         .unwrap_or_else(|| (0..vertex_position_count).map(|_| [0.5, 0.5]).collect());
     let vertex_tex_coord_count = vertex_tex_coords.len();
 
@@ -742,7 +796,7 @@ pub fn build_geometry_buffers(
             }
             Ok(bytemuck::cast_slice(&get_buffer_slice_from_accessor(accessor, buffers)).to_vec())
         })
-        .map_or(Ok(None), |v| v.map(Some))?
+        .transpose()?
         .unwrap_or_else(|| {
             (0..vertex_position_count)
                 .map(|_| [1.0, 1.0, 1.0, 1.0])
@@ -771,7 +825,7 @@ pub fn build_geometry_buffers(
                 .map(Vector3::from)
                 .collect())
         })
-        .map_or(Ok(None), |v| v.map(Some))?
+        .transpose()?
         .unwrap_or_else(|| {
             // compute normals
             // key is flattened vertex position, value is accumulated normal and count
@@ -807,6 +861,61 @@ pub fn build_geometry_buffers(
         });
     let vertex_normal_count = vertex_normals.len();
 
+    let vertex_bone_indices: Vec<[u32; 4]> = primitive_group
+        .attributes()
+        .find(|(semantic, _)| *semantic == gltf::Semantic::Joints(0))
+        .map(|(_, accessor)| {
+            let data_type = accessor.data_type();
+            let dimensions = accessor.dimensions();
+            if dimensions != gltf::accessor::Dimensions::Vec4 {
+                bail!("Expected vec4 data but found: {:?}", dimensions);
+            }
+            // TODO: support more than just u16?
+            if data_type != gltf::accessor::DataType::U16 {
+                bail!("Expected u16 data but found: {:?}", data_type);
+            }
+            let bone_indices_u8 = get_buffer_slice_from_accessor(accessor, buffers);
+            let bone_indices_u16 = bytemuck::cast_slice::<_, [u16; 4]>(&bone_indices_u8);
+            Ok(bone_indices_u16
+                .to_vec()
+                .iter()
+                .map(|indices| {
+                    [
+                        indices[0] as u32,
+                        indices[1] as u32,
+                        indices[2] as u32,
+                        indices[3] as u32,
+                    ]
+                })
+                .collect())
+        })
+        .transpose()?
+        .unwrap_or_else(|| (0..vertex_position_count).map(|_| [0, 0, 0, 0]).collect());
+    let vertex_bone_indices_count = vertex_bone_indices.len();
+
+    let vertex_bone_weights: Vec<[f32; 4]> = primitive_group
+        .attributes()
+        .find(|(semantic, _)| *semantic == gltf::Semantic::Weights(0))
+        .map(|(_, accessor)| {
+            let data_type = accessor.data_type();
+            let dimensions = accessor.dimensions();
+            if dimensions != gltf::accessor::Dimensions::Vec4 {
+                bail!("Expected vec4 data but found: {:?}", dimensions);
+            }
+            if data_type != gltf::accessor::DataType::F32 {
+                bail!("Expected f32 data but found: {:?}", data_type);
+            }
+            let bone_weights_u8 = get_buffer_slice_from_accessor(accessor, buffers);
+            Ok(bytemuck::cast_slice::<_, [f32; 4]>(&bone_weights_u8).to_vec())
+        })
+        .transpose()?
+        .unwrap_or_else(|| {
+            (0..vertex_position_count)
+                .map(|_| [1.0, 0.0, 0.0, 0.0])
+                .collect()
+        });
+    let vertex_bone_weights_count = vertex_bone_weights.len();
+
     if vertex_normal_count != vertex_position_count {
         bail!(
             "Expected vertex normals for every vertex but found: vertex_position_count({:?}) != vertex_normal_count({:?})",
@@ -823,9 +932,23 @@ pub fn build_geometry_buffers(
     }
     if vertex_color_count != vertex_position_count {
         bail!(
-            "Expected vertex colors for every vertex but found: vertex_position_count({:?}) != vertex_tex_coord_count({:?})",
+            "Expected vertex colors for every vertex but found: vertex_position_count({:?}) != vertex_color_count({:?})",
             vertex_position_count,
             vertex_color_count
+        );
+    }
+    if vertex_bone_indices_count != vertex_position_count {
+        bail!(
+            "Expected vertex bone indices for every vertex but found: vertex_position_count({:?}) != vertex_bone_indices_count({:?})",
+            vertex_position_count,
+            vertex_bone_indices_count
+        );
+    }
+    if vertex_bone_weights_count != vertex_position_count {
+        bail!(
+            "Expected vertex bone weights for every vertex but found: vertex_position_count({:?}) != vertex_bone_weights_count({:?})",
+            vertex_position_count,
+            vertex_bone_weights_count
         );
     }
 
@@ -860,7 +983,7 @@ pub fn build_geometry_buffers(
                 })
                 .collect())
         })
-        .map_or(Ok(None), |v| v.map(Some))?
+        .transpose()?
         .unwrap_or_else(|| {
             triangles_as_index_tuples
                 .iter()
@@ -930,8 +1053,8 @@ pub fn build_geometry_buffers(
                 tangent: to_arr(&tangent),
                 bitangent: to_arr(&bitangent),
                 color: vertex_colors[index],
-                bone_indices: todo!(),
-                bone_weights: todo!(),
+                bone_indices: vertex_bone_indices[index],
+                bone_weights: vertex_bone_weights[index],
             }
         })
         .collect();

@@ -185,7 +185,8 @@ pub struct RendererState {
     point_lights_buffer: wgpu::Buffer,
     directional_lights_buffer: wgpu::Buffer,
 
-    camera_and_lights_bind_group: wgpu::BindGroup,
+    // bone_transforms_buffer: wgpu::Buffer,
+    camera_lights_and_bones_bind_group: wgpu::BindGroup,
 
     mesh_pipeline: wgpu::RenderPipeline,
     flat_color_mesh_pipeline: wgpu::RenderPipeline,
@@ -286,8 +287,7 @@ impl RendererState {
         //     "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf";
         // let gltf_path =
         //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb";
-        let gltf_path =
-            "/home/david/Programming/glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
+        let gltf_path = "../glTF-Sample-Models-master/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
         // let gltf_path =
         //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
         // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
@@ -1927,7 +1927,7 @@ impl RendererState {
             camera_controller,
             camera_uniform,
             camera_buffer,
-            camera_and_lights_bind_group,
+            camera_lights_and_bones_bind_group: camera_and_lights_bind_group,
 
             point_lights_buffer,
             directional_lights_buffer,
@@ -2524,7 +2524,7 @@ impl RendererState {
                                 .iter()
                                 .rev()
                                 .fold(crate::transform::Transform::new(), |acc, node_index| {
-                                    acc * self.scene.node_transforms[*node_index]
+                                    acc * self.scene.nodes[*node_index].transform
                                 });
                             MeshInstance {
                                 base_material,
@@ -2765,13 +2765,13 @@ impl RendererState {
             shading_render_pass = self.render_scene(
                 shading_render_pass,
                 &self.mesh_pipeline,
-                &self.camera_and_lights_bind_group,
+                &self.camera_lights_and_bones_bind_group,
                 Some(&self.environment_textures_bind_group),
             );
 
             // render lights
             shading_render_pass.set_pipeline(&self.flat_color_mesh_pipeline);
-            shading_render_pass.set_bind_group(0, &self.camera_and_lights_bind_group, &[]);
+            shading_render_pass.set_bind_group(0, &self.camera_lights_and_bones_bind_group, &[]);
             shading_render_pass.set_vertex_buffer(0, self.point_light_mesh.vertex_buffer.slice(..));
             shading_render_pass
                 .set_vertex_buffer(1, self.point_light_mesh.instance_buffer.slice(..));
@@ -2890,7 +2890,7 @@ impl RendererState {
                 });
             skybox_render_pass.set_pipeline(&self.skybox_pipeline);
             skybox_render_pass.set_bind_group(0, &self.environment_textures_bind_group, &[]);
-            skybox_render_pass.set_bind_group(1, &self.camera_and_lights_bind_group, &[]);
+            skybox_render_pass.set_bind_group(1, &self.camera_lights_and_bones_bind_group, &[]);
             skybox_render_pass.set_vertex_buffer(0, self.skybox_mesh.vertex_buffer.slice(..));
             skybox_render_pass.set_index_buffer(
                 self.skybox_mesh.index_buffer.slice(..),
