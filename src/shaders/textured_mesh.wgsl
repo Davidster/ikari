@@ -30,20 +30,15 @@ struct DirectionalLightsUniform {
     values: array<DirectionalLight, MAX_LIGHTS>;
 };
 struct BonesUniform {
-    value: array<mat4x4<f32>>;
+    value: array<mat4x4<f32>, MAX_BONES>;
 };
 
 [[group(0), binding(1)]]
 var<uniform> point_lights: PointLightsUniform;
 [[group(0), binding(2)]]
 var<uniform> directional_lights: DirectionalLightsUniform;
-
-struct TransformsUniform {
-    value: array<mat4x4<f32>>;
-};
-
 [[group(0), binding(3)]]
-var<storage> transforms: TransformsUniform;
+var<uniform> bones_uniform: BonesUniform;
 
 struct VertexInput {
     [[location(0)]] object_position: vec3<f32>;
@@ -103,7 +98,7 @@ fn do_vertex_shade(
     camera_proj: mat4x4<f32>,
     camera_view: mat4x4<f32>,
     model_transform: mat4x4<f32>,
-    // skin_transform: mat4x4<f32>,
+    skin_transform: mat4x4<f32>,
     base_color_factor: vec4<f32>,
     emissive_factor: vec4<f32>,
     metallicness_factor: f32,
@@ -118,10 +113,10 @@ fn do_vertex_shade(
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
     let camera_view_proj = camera_proj * camera_view;
     let model_view_matrix = camera_view_proj * model_transform;
-    // let world_position = model_transform * skin_transform * object_position;
-    // let clip_position = model_view_matrix * skin_transform * object_position;
-    let world_position = model_transform * object_position;
-    let clip_position = model_view_matrix * object_position;
+    let world_position = model_transform * skin_transform * object_position;
+    let clip_position = model_view_matrix * skin_transform * object_position;
+    // let world_position = model_transform * object_position;
+    // let clip_position = model_view_matrix * object_position;
     let world_normal = normalize((model_transform * vec4<f32>(vshader_input.object_normal, 0.0)).xyz);
     let world_tangent = normalize((model_transform * vec4<f32>(vshader_input.object_tangent, 0.0)).xyz);
     let world_bitangent = normalize((model_transform * vec4<f32>(vshader_input.object_bitangent, 0.0)).xyz);
@@ -157,18 +152,17 @@ fn vs_main(
         instance.model_transform_3,
     );
 
-    // let the_transforms = transforms.value;
-    // let bones = the_transforms;
-    // let bone_indices = vshader_input.bone_indices;
-    // let bone_weights = vshader_input.bone_weights; // one f32 per weight
-    // let skin_transform = bone_weights.x * bones[bone_indices.x] + bone_weights.y * bones[bone_indices.y] + bone_weights.z * bones[bone_indices.z] + bone_weights.w * bones[bone_indices.w];
+    let bones = bones_uniform.value;
+    let bone_indices = vshader_input.bone_indices;
+    let bone_weights = vshader_input.bone_weights; // one f32 per weight
+    let skin_transform = bone_weights.x * bones[bone_indices.x] + bone_weights.y * bones[bone_indices.y] + bone_weights.z * bones[bone_indices.z] + bone_weights.w * bones[bone_indices.w];
 
     return do_vertex_shade(
         vshader_input,
         camera.proj,
         camera.view,
         model_transform,
-        // skin_transform,
+        skin_transform,
         instance.base_color_factor,
         instance.emissive_factor,
         instance.mrno[0],
