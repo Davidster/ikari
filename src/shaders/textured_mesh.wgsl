@@ -10,12 +10,12 @@ struct CameraUniform {
 var<uniform> camera: CameraUniform;
 
 let MAX_LIGHTS = 32u;
+let MAX_BONES = 512u;
 
 struct PointLight {
     position: vec4<f32>;
     color: vec4<f32>;
 };
-
 struct DirectionalLight {
     world_space_to_light_space: mat4x4<f32>;
     position: vec4<f32>;
@@ -26,13 +26,34 @@ struct DirectionalLight {
 struct PointLightsUniform {
     values: array<PointLight, MAX_LIGHTS>;
 };
-[[group(0), binding(1)]]
-var<uniform> point_lights: PointLightsUniform;
 struct DirectionalLightsUniform {
     values: array<DirectionalLight, MAX_LIGHTS>;
 };
+struct BonesUniform {
+    value: array<mat4x4<f32>, MAX_BONES>;
+};
+
+[[group(0), binding(1)]]
+var<uniform> point_lights: PointLightsUniform;
 [[group(0), binding(2)]]
 var<uniform> directional_lights: DirectionalLightsUniform;
+[[group(0), binding(3)]]
+var<uniform> bones_uniform: BonesUniform;
+
+/// HACK: This works around naga not supporting matrix addition in SPIR-V
+// translations. See https://github.com/gfx-rs/naga/issues/1527
+fn add_matrix(
+    a: mat4x4<f32>,
+    b: mat4x4<f32>,
+) -> mat4x4<f32> {
+    return mat4x4<f32>(
+        a[0] + b[0],
+        a[1] + b[1],
+        a[2] + b[2],
+        a[3] + b[3],
+    );
+}
+
 
 struct VertexInput {
     [[location(0)]] object_position: vec3<f32>;
@@ -41,17 +62,19 @@ struct VertexInput {
     [[location(3)]] object_tangent: vec3<f32>;
     [[location(4)]] object_bitangent: vec3<f32>;
     [[location(5)]] object_color: vec4<f32>;
+    [[location(6)]] bone_indices: vec4<u32>;
+    [[location(7)]] bone_weights: vec4<f32>;
 };
 
 struct Instance {
-    [[location(6)]]  model_transform_0: vec4<f32>;
-    [[location(7)]]  model_transform_1: vec4<f32>;
-    [[location(8)]]  model_transform_2: vec4<f32>;
-    [[location(9)]]  model_transform_3: vec4<f32>;
-    [[location(10)]] base_color_factor: vec4<f32>;
-    [[location(11)]] emissive_factor: vec4<f32>;
-    [[location(12)]] mrno: vec4<f32>; // metallicness_factor, roughness_factor, normal scale, occlusion strength
-    [[location(13)]] alpha_cutoff: f32;
+    [[location(8)]]  model_transform_0: vec4<f32>;
+    [[location(9)]]  model_transform_1: vec4<f32>;
+    [[location(10)]]  model_transform_2: vec4<f32>;
+    [[location(11)]]  model_transform_3: vec4<f32>;
+    [[location(12)]] base_color_factor: vec4<f32>;
+    [[location(13)]] emissive_factor: vec4<f32>;
+    [[location(14)]] mrno: vec4<f32>; // metallicness_factor, roughness_factor, normal scale, occlusion strength
+    [[location(15)]] alpha_cutoff: f32;
 };
 
 struct VertexOutput {
@@ -90,6 +113,7 @@ fn do_vertex_shade(
     camera_proj: mat4x4<f32>,
     camera_view: mat4x4<f32>,
     model_transform: mat4x4<f32>,
+    skin_transform: mat4x4<f32>,
     base_color_factor: vec4<f32>,
     emissive_factor: vec4<f32>,
     metallicness_factor: f32,
@@ -104,8 +128,8 @@ fn do_vertex_shade(
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
     let camera_view_proj = camera_proj * camera_view;
     let model_view_matrix = camera_view_proj * model_transform;
-    let world_position = model_transform * object_position;
-    let clip_position = model_view_matrix * object_position;
+    let world_position = model_transform * skin_transform * object_position;
+    let clip_position = model_view_matrix * skin_transform * object_position;
     let world_normal = normalize((model_transform * vec4<f32>(vshader_input.object_normal, 0.0)).xyz);
     let world_tangent = normalize((model_transform * vec4<f32>(vshader_input.object_tangent, 0.0)).xyz);
     let world_bitangent = normalize((model_transform * vec4<f32>(vshader_input.object_bitangent, 0.0)).xyz);
@@ -141,11 +165,21 @@ fn vs_main(
         instance.model_transform_3,
     );
 
+    // var bones: array<mat4x4<f32>, MAX_BONES> = bones_uniform.value;
+    let bone_indices = vshader_input.bone_indices;
+    let bone_weights = vshader_input.bone_weights; // one f32 per weight
+    let skin_transform_0 = bone_weights.x * bones_uniform.value[bone_indices.x];
+    let skin_transform_1 = bone_weights.y * bones_uniform.value[bone_indices.y];
+    let skin_transform_2 = bone_weights.z * bones_uniform.value[bone_indices.z];
+    let skin_transform_3 = bone_weights.w * bones_uniform.value[bone_indices.w];
+    let skin_transform = add_matrix(skin_transform_0, add_matrix(skin_transform_1, add_matrix(skin_transform_2, skin_transform_3)));
+
     return do_vertex_shade(
         vshader_input,
         camera.proj,
         camera.view,
         model_transform,
+        skin_transform,
         instance.base_color_factor,
         instance.emissive_factor,
         instance.mrno[0],
@@ -168,11 +202,19 @@ fn shadow_map_vs_main(
         instance.model_transform_3,
     );
 
+    let bone_indices = vshader_input.bone_indices;
+    let bone_weights = vshader_input.bone_weights; // one f32 per weight
+    let skin_transform_0 = bone_weights.x * bones_uniform.value[bone_indices.x];
+    let skin_transform_1 = bone_weights.y * bones_uniform.value[bone_indices.y];
+    let skin_transform_2 = bone_weights.z * bones_uniform.value[bone_indices.z];
+    let skin_transform_3 = bone_weights.w * bones_uniform.value[bone_indices.w];
+    let skin_transform = add_matrix(skin_transform_0, add_matrix(skin_transform_1, add_matrix(skin_transform_2, skin_transform_3)));
+
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
     let camera_view_proj = camera.proj * camera.view;
     let model_view_matrix = camera_view_proj * model_transform;
-    let world_position = model_transform * object_position;
-    let clip_position = model_view_matrix * object_position;
+    let world_position = model_transform * skin_transform * object_position;
+    let clip_position = model_view_matrix * skin_transform * object_position;
 
 
     var out: ShadowMappingVertexOutput;

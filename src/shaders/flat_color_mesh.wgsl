@@ -16,14 +16,16 @@ struct VertexInput {
     [[location(3)]] object_tangent: vec3<f32>;
     [[location(4)]] object_bitangent: vec3<f32>;
     [[location(5)]] object_color: vec4<f32>;
+    [[location(6)]] bone_indices: vec4<u32>;
+    [[location(7)]] bone_weights: vec4<f32>;
 };
 
 struct Instance {
-    [[location(6)]]  model_transform_0: vec4<f32>;
-    [[location(7)]]  model_transform_1: vec4<f32>;
-    [[location(8)]]  model_transform_2: vec4<f32>;
-    [[location(9)]]  model_transform_3: vec4<f32>;
-    [[location(10)]]  color: vec4<f32>;
+    [[location(8)]]  model_transform_0: vec4<f32>;
+    [[location(9)]]  model_transform_1: vec4<f32>;
+    [[location(10)]]  model_transform_2: vec4<f32>;
+    [[location(11)]]  model_transform_3: vec4<f32>;
+    [[location(12)]]  color: vec4<f32>;
 };
 
 struct VertexOutput {

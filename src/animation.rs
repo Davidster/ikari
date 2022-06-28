@@ -32,66 +32,42 @@ struct KeyframeTime {
     time: f32,
 }
 
-#[derive(Copy, Clone, Debug)]
-enum PropertyValue {
-    Translation(Vector3<f32>),
-    Scale(Vector3<f32>),
-    Rotation(Quaternion<f32>),
-}
-
 pub fn update_node_transforms_at_moment(scene: &mut Scene, global_time_seconds: f32) -> Result<()> {
-    let mut transformed_property_values_new: Vec<(usize, PropertyValue)> = Vec::new();
     for animation in scene.animations.iter() {
         for channel in animation.channels.iter() {
+            let transform = &mut scene.nodes[channel.node_index].transform;
             let animation_time_seconds = global_time_seconds % animation.length_seconds;
             let (previous_key_frame, next_key_frame) =
                 get_nearby_keyframes(&channel.keyframe_timings, animation_time_seconds);
-            let property_value = match channel.property {
+            match channel.property {
                 gltf::animation::Property::Translation => {
-                    Some(PropertyValue::Translation(get_vec3_at_moment(
+                    transform.set_position(get_vec3_at_moment(
                         channel,
                         animation_time_seconds,
                         previous_key_frame,
                         next_key_frame,
-                    )?))
+                    )?);
                 }
-                gltf::animation::Property::Scale => Some(PropertyValue::Scale(get_vec3_at_moment(
-                    channel,
-                    animation_time_seconds,
-                    previous_key_frame,
-                    next_key_frame,
-                )?)),
+                gltf::animation::Property::Scale => {
+                    transform.set_scale(get_vec3_at_moment(
+                        channel,
+                        animation_time_seconds,
+                        previous_key_frame,
+                        next_key_frame,
+                    )?);
+                }
                 gltf::animation::Property::Rotation => {
-                    Some(PropertyValue::Rotation(get_quat_at_moment(
+                    transform.set_rotation(get_quat_at_moment(
                         channel,
                         animation_time_seconds,
                         previous_key_frame,
                         next_key_frame,
-                    )?))
+                    )?);
                 }
-                _ => None,
+                _ => {}
             };
-            if let Some(property_value) = property_value {
-                transformed_property_values_new.push((channel.node_index, property_value));
-            }
         }
     }
-
-    for (node_index, property_value) in transformed_property_values_new {
-        let transform = &mut scene.node_transforms[node_index];
-        match property_value {
-            PropertyValue::Translation(translation) => {
-                transform.set_position(translation);
-            }
-            PropertyValue::Scale(scale) => {
-                transform.set_scale(scale);
-            }
-            PropertyValue::Rotation(rotation) => {
-                transform.set_rotation(rotation);
-            }
-        }
-    }
-
     Ok(())
 }
 

@@ -50,6 +50,7 @@
   - [x] move tone mapping to later pass
   - [x] support light intensity value
 - [x] directional lights + shadows
+- [ ] Improve performance of BrainStem model
 - [ ] Fix bloom pop-in on the blue light
 
 ## Low priority

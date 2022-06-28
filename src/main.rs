@@ -9,6 +9,7 @@ mod logger;
 mod mesh;
 mod renderer;
 mod scene;
+mod skinning;
 mod texture;
 mod transform;
 
@@ -22,6 +23,7 @@ use logger::*;
 use mesh::*;
 use renderer::*;
 use scene::*;
+use skinning::*;
 use texture::*;
 use transform::*;
 
