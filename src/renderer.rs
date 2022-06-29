@@ -307,9 +307,9 @@ impl RendererState {
         //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb";
         // let gltf_path = "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.gltf";
         // let gltf_path = "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
-        let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
+        // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
         // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
-        // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
+        let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
         // let gltf_path =
         //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
         // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
@@ -1639,7 +1639,7 @@ impl RendererState {
                 intensity: 1.0,
             },
         ];
-        // let point_lights: Vec<PointLightComponent> = vec![];
+        // let mut point_lights: Vec<PointLightComponent> = vec![];
         if let Some(point_light_0) = point_lights.get_mut(0) {
             point_light_0
                 .transform
@@ -2567,11 +2567,15 @@ impl RendererState {
                     .log(&format!("Error: animation computation failed: {:?}", err));
             }
         }
-        if let Some(node_1) = self.scene.nodes.get_mut(0) {
-            node_1.transform.set_position(Vector3::new(
-                node_1.transform.position().x - 0.6 * frame_time_seconds,
-                0.0,
-                0.0,
+        if let Some(node_0) = self.scene.nodes.get_mut(0) {
+            // node_0.transform.set_position(Vector3::new(
+            //     node_0.transform.position().x - 0.75 * frame_time_seconds,
+            //     0.0,
+            //     0.0,
+            // ));
+            node_0.transform.set_rotation(make_quat_from_axis_angle(
+                Vector3::new(0.0, 1.0, 0.0),
+                Deg(90.0).into(),
             ));
         }
 
@@ -2821,9 +2825,9 @@ impl RendererState {
                 });
 
         {
-            let mut shading_render_pass =
-                lights_flat_shading_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Shading Render Pass"),
+            let mut lights_flat_shading_render_pass = lights_flat_shading_encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Lights Flat Shading Render Pass"),
                     color_attachments: &[wgpu::RenderPassColorAttachment {
                         view: &self.shading_texture.view,
                         resolve_target: None,
@@ -2843,16 +2847,21 @@ impl RendererState {
                 });
 
             // render lights
-            shading_render_pass.set_pipeline(&self.flat_color_mesh_pipeline);
-            shading_render_pass.set_bind_group(0, &self.camera_lights_and_bones_bind_group, &[]);
-            shading_render_pass.set_vertex_buffer(0, self.point_light_mesh.vertex_buffer.slice(..));
-            shading_render_pass
+            lights_flat_shading_render_pass.set_pipeline(&self.flat_color_mesh_pipeline);
+            lights_flat_shading_render_pass.set_bind_group(
+                0,
+                &self.camera_lights_and_bones_bind_group,
+                &[],
+            );
+            lights_flat_shading_render_pass
+                .set_vertex_buffer(0, self.point_light_mesh.vertex_buffer.slice(..));
+            lights_flat_shading_render_pass
                 .set_vertex_buffer(1, self.point_light_mesh.instance_buffer.slice(..));
-            shading_render_pass.set_index_buffer(
+            lights_flat_shading_render_pass.set_index_buffer(
                 self.point_light_mesh.index_buffer.slice(..),
                 wgpu::IndexFormat::Uint16,
             );
-            shading_render_pass.draw_indexed(
+            lights_flat_shading_render_pass.draw_indexed(
                 0..self.point_light_mesh.num_indices,
                 0,
                 0..self.point_lights.len() as u32,
@@ -3053,15 +3062,19 @@ impl RendererState {
                     .iter()
                     .any(|instance| self.scene.node_is_part_of_skeleton(instance.node_index))
             })
+            .enumerate()
             .for_each(
-                |BindableMeshData {
-                     vertex_buffer,
-                     index_buffer,
-                     instance_buffer,
-                     textures_bind_group,
-                     instances,
-                     ..
-                 }| {
+                |(
+                    i,
+                    BindableMeshData {
+                        vertex_buffer,
+                        index_buffer,
+                        instance_buffer,
+                        textures_bind_group,
+                        instances,
+                        ..
+                    },
+                )| {
                     let mut encoder =
                         self.device
                             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -3069,7 +3082,40 @@ impl RendererState {
                             });
 
                     {
-                        let mut render_pass = encoder.begin_render_pass(render_pass_descriptor);
+                        let modified_color_attachments;
+                        let mut modified_color_attachment;
+                        let render_pass_descriptor = if i == 0 {
+                            render_pass_descriptor.clone()
+                        } else {
+                            let mut render_pass_descriptor = render_pass_descriptor.clone();
+
+                            if let Some(color_attachment) =
+                                render_pass_descriptor.color_attachments.get(0)
+                            {
+                                modified_color_attachment = color_attachment.clone();
+                                modified_color_attachment.ops.load = wgpu::LoadOp::Load;
+                                modified_color_attachments = [modified_color_attachment];
+                                render_pass_descriptor.color_attachments =
+                                    &modified_color_attachments;
+                            }
+
+                            render_pass_descriptor.depth_stencil_attachment =
+                                render_pass_descriptor.depth_stencil_attachment.map(
+                                    |mut depth_stencil_attachment| {
+                                        depth_stencil_attachment.depth_ops =
+                                            depth_stencil_attachment.depth_ops.map(
+                                                |mut depth_ops| {
+                                                    depth_ops.load = wgpu::LoadOp::Load;
+                                                    depth_ops
+                                                },
+                                            );
+                                        depth_stencil_attachment
+                                    },
+                                );
+                            render_pass_descriptor
+                        };
+
+                        let mut render_pass = encoder.begin_render_pass(&render_pass_descriptor);
 
                         render_pass.set_pipeline(pipeline);
                         render_pass.set_bind_group(0, bind_group_0, &[]);
@@ -3077,7 +3123,7 @@ impl RendererState {
                             render_pass.set_bind_group(2, bind_group_2, &[]);
                         }
 
-                        // write bones into uniform queue
+                        // write bones into uniform buffer
                         let model_root_node_index = instances
                             .iter()
                             .find(|instance| {

@@ -127,12 +127,12 @@ fn do_vertex_shade(
 
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
     let camera_view_proj = camera_proj * camera_view;
-    let model_view_matrix = camera_view_proj * model_transform;
-    let world_position = model_transform * skin_transform * object_position;
-    let clip_position = model_view_matrix * skin_transform * object_position;
-    let world_normal = normalize((model_transform * vec4<f32>(vshader_input.object_normal, 0.0)).xyz);
-    let world_tangent = normalize((model_transform * vec4<f32>(vshader_input.object_tangent, 0.0)).xyz);
-    let world_bitangent = normalize((model_transform * vec4<f32>(vshader_input.object_bitangent, 0.0)).xyz);
+    let skinned_model_transform = model_transform * skin_transform;
+    let world_position = skinned_model_transform * object_position;
+    let clip_position = camera_view_proj * skinned_model_transform * object_position;
+    let world_normal = normalize((skinned_model_transform * vec4<f32>(vshader_input.object_normal, 0.0)).xyz);
+    let world_tangent = normalize((skinned_model_transform * vec4<f32>(vshader_input.object_tangent, 0.0)).xyz);
+    let world_bitangent = normalize((skinned_model_transform * vec4<f32>(vshader_input.object_bitangent, 0.0)).xyz);
 
     out.clip_position = clip_position;
     out.world_position = world_position.xyz;
@@ -212,9 +212,9 @@ fn shadow_map_vs_main(
 
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
     let camera_view_proj = camera.proj * camera.view;
-    let model_view_matrix = camera_view_proj * model_transform;
-    let world_position = model_transform * skin_transform * object_position;
-    let clip_position = model_view_matrix * skin_transform * object_position;
+    let skinned_model_transform = model_transform * skin_transform;
+    let world_position = skinned_model_transform * object_position;
+    let clip_position = camera_view_proj * skinned_model_transform * object_position;
 
 
     var out: ShadowMappingVertexOutput;
