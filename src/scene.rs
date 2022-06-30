@@ -146,8 +146,6 @@ pub fn build_scene(
                 .any(|texture_info| texture_info.texture().index() == texture.index())
             });
 
-            dbg!(texture.name());
-
             let (image_pixels, texture_format) = get_image_pixels(image_data, srgb)?;
 
             let gltf_sampler = texture.sampler();
@@ -275,22 +273,6 @@ pub fn build_scene(
             .ok_or_else(|| anyhow::anyhow!("Expected scene with index: {:?}", scene_index))?,
     );
 
-    println!("scene_nodes len: {:?}", scene_nodes.len());
-    println!(
-        "scene_nodes info: {:?}",
-        scene_nodes
-            .iter()
-            .map(|node| (
-                node.name(),
-                node.children()
-                    .map(|child| child.index())
-                    .collect::<Vec<_>>(),
-                node.transform(),
-                node.mesh().map(|mesh| mesh.index())
-            ))
-            .collect::<Vec<_>>(),
-    );
-
     let meshes: Vec<_> = document.meshes().collect();
 
     let drawable_primitive_groups: Vec<_> = meshes
@@ -341,12 +323,6 @@ pub fn build_scene(
                 .map(GpuMeshInstance::from)
                 .collect();
 
-            println!(
-                "{:?}: mesh_transforms len: {:?}",
-                mesh.name(),
-                instances.len()
-            );
-
             let instance_buffer = BufferAndLength {
                 buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("InstancedMeshComponent instance_buffer"),
@@ -386,7 +362,6 @@ fn get_image_pixels(
     srgb: bool,
 ) -> Result<(Vec<u8>, wgpu::TextureFormat)> {
     let image_pixels = &image_data.pixels;
-    dbg!(image_data.format, srgb);
     match (image_data.format, srgb) {
         (gltf::image::Format::R8G8B8, srgb) => {
             let image = image::RgbImage::from_raw(
@@ -501,8 +476,6 @@ fn build_textures_bind_group(
     five_texture_bind_group_layout: &wgpu::BindGroupLayout,
 ) -> Result<(wgpu::BindGroup, BaseMaterial)> {
     let material = triangles_prim.material();
-
-    // println!("alpha mode: {:?}", material.alpha_mode());
 
     let pbr_info = material.pbr_metallic_roughness();
 
@@ -698,8 +671,7 @@ pub fn build_geometry_buffers(
         )
     }?;
     let vertex_position_count = vertex_positions.len();
-    dbg!(vertex_position_count);
-    let bounding_box = {
+    let _bounding_box = {
         let max_x = vertex_positions
             .iter()
             .map(|pos| pos.x)
@@ -729,7 +701,6 @@ pub fn build_geometry_buffers(
             Vector3::new(max_x, max_y, max_z),
         )
     };
-    dbg!(bounding_box);
 
     let indices: Option<Vec<u16>> = primitive_group
         .indices()
@@ -746,9 +717,10 @@ pub fn build_geometry_buffers(
                 }
                 gltf::accessor::DataType::U32 => {
                     let as_u32 = bytemuck::cast_slice::<_, u32>(&buffer_slice);
-                    let as_u16: Vec<_> = as_u32.iter().map(|&x| x as u16).collect();
-                    let as_u16_u32: Vec<_> = as_u16.iter().map(|&x| x as u32).collect();
-                    println!("as_u32 == as_u16: {}", as_u32.to_vec() == as_u16_u32);
+                    let as_u16: Vec<_> = as_u32
+                        .iter()
+                        .map(|&x| u16::try_from(x))
+                        .collect::<Result<Vec<_>, _>>()?;
                     anyhow::Ok(as_u16)
                 }
                 data_type => {
