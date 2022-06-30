@@ -1,8 +1,16 @@
-struct BloomDirectionUniform {
-    value: f32;
+struct BloomConfigUniform {
+    direction: f32; // 0,0 or 1.0
+    threshold: f32;
+    ramp_size: f32;
 };
 [[group(1), binding(0)]]
-var<uniform> bloom_direction: BloomDirectionUniform;
+var<uniform> bloom_config: BloomConfigUniform;
+
+struct ToneMappingConfigUniform {
+    exposure: f32;
+};
+[[group(1), binding(0)]]
+var<uniform> tone_mapping_config: ToneMappingConfigUniform;
 
 struct VertexOutput {
     [[builtin(position)]] position: vec4<f32>;
@@ -62,7 +70,7 @@ fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 
 [[stage(fragment)]]
 fn tone_mapping_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-    let exposure = 0.5;
+    let exposure = tone_mapping_config.exposure;
     let shaded_color = textureSample(texture_1, sampler_1, in.tex_coords).rgb;
     let bloom_color = textureSample(texture_2, sampler_2, in.tex_coords).rgb;
     let final_color_hdr = shaded_color + bloom_color;
@@ -73,8 +81,8 @@ fn tone_mapping_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 
 [[stage(fragment)]]
 fn bloom_threshold_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-    let threshold = 0.8;
-    let ramp_size = 0.2;
+    let threshold = bloom_config.threshold;
+    let ramp_size = bloom_config.ramp_size;
     let hdr_color = textureSample(texture_1, sampler_1, in.tex_coords);
     let brightness = dot(hdr_color.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
 
@@ -97,7 +105,7 @@ fn bloom_blur_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     let tex_dimension_f32 = vec2<f32>(f32(tex_dimensions.x), f32(tex_dimensions.y));
     let tex_offset = 1.0 / tex_dimension_f32;
     var result = textureSample(texture_1, sampler_1, in.tex_coords).rgb * gaussian_blur_weights[0];
-    if (bloom_direction.value == 0.0) {
+    if (bloom_config.direction == 0.0) {
         for (var i = 1; i < 5; i = i + 1) {
             result = result + textureSample(
                 texture_1,

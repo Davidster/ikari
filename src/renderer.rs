@@ -152,6 +152,9 @@ impl From<Vector3<f32>> for FlatColorUniform {
 }
 
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
+pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.5;
+pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
+pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
 pub const ARENA_SIDE_LENGTH: f32 = 50.0;
 pub const MAX_LIGHT_COUNT: u8 = 32;
 pub const MAX_BONES_BUFFER_SIZE_BYTES: u32 = 8192;
@@ -177,6 +180,10 @@ pub struct RendererState {
     config: wgpu::SurfaceConfiguration,
 
     limits: wgpu::Limits,
+
+    tone_mapping_exposure: f32,
+    bloom_threshold: f32,
+    bloom_ramp_size: f32,
 
     render_scale: f32,
     state_update_time_accumulator: f32,
@@ -223,8 +230,11 @@ pub struct RendererState {
     bloom_threshold_pipeline: wgpu::RenderPipeline,
     bloom_blur_pipeline: wgpu::RenderPipeline,
     bloom_pingpong_textures: [Texture; 2],
-    bloom_blur_direction_bind_group: wgpu::BindGroup,
-    bloom_blur_direction_buffer: wgpu::Buffer,
+    bloom_config_bind_group: wgpu::BindGroup,
+    bloom_config_buffer: wgpu::Buffer,
+
+    tone_mapping_config_bind_group: wgpu::BindGroup,
+    tone_mapping_config_buffer: wgpu::Buffer,
 
     environment_textures_bind_group: wgpu::BindGroup,
     shading_and_bloom_textures_bind_group: wgpu::BindGroup,
@@ -837,7 +847,10 @@ impl RendererState {
         let bloom_threshold_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&single_texture_bind_group_layout],
+                bind_group_layouts: &[
+                    &single_texture_bind_group_layout,
+                    &single_uniform_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
         let bloom_threshold_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -946,7 +959,10 @@ impl RendererState {
         let tone_mapping_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&two_texture_bind_group_layout],
+                bind_group_layouts: &[
+                    &two_texture_bind_group_layout,
+                    &single_uniform_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
         let tone_mapping_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -1382,22 +1398,36 @@ impl RendererState {
             }),
         ];
 
-        let bloom_blur_direction_buffer =
+        let bloom_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Bloom Config Buffer"),
+            contents: bytemuck::cast_slice(&[0f32, 0f32, 0f32]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let bloom_config_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &single_uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: bloom_config_buffer.as_entire_binding(),
+            }],
+            label: Some("bloom_config_bind_group"),
+        });
+
+        let tone_mapping_config_buffer =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Bloom Blur Direction Buffer"),
+                label: Some("Tone Mapping Config Buffer"),
                 contents: bytemuck::cast_slice(&[0f32]),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
-        let bloom_blur_direction_bind_group =
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &single_uniform_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: bloom_blur_direction_buffer.as_entire_binding(),
-                }],
-                label: Some("bloom_blur_direction_bind_group"),
-            });
+        let tone_mapping_config_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &single_uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: tone_mapping_config_buffer.as_entire_binding(),
+            }],
+            label: Some("tone_mapping_config_bind_group"),
+        });
 
         let depth_texture =
             Texture::create_depth_texture(&device, &config, initial_render_scale, "depth_texture");
@@ -1987,6 +2017,10 @@ impl RendererState {
 
             limits,
 
+            tone_mapping_exposure: INITIAL_TONE_MAPPING_EXPOSURE,
+            bloom_threshold: INITIAL_BLOOM_THRESHOLD,
+            bloom_ramp_size: INITIAL_BLOOM_RAMP_SIZE,
+
             render_scale: initial_render_scale,
             state_update_time_accumulator: 0.0,
             last_frame_instant: None,
@@ -2037,8 +2071,11 @@ impl RendererState {
             bloom_threshold_pipeline,
             bloom_blur_pipeline,
             bloom_pingpong_textures,
-            bloom_blur_direction_bind_group,
-            bloom_blur_direction_buffer,
+            bloom_config_bind_group,
+            bloom_config_buffer,
+
+            tone_mapping_config_bind_group,
+            tone_mapping_config_buffer,
 
             next_balls: balls.clone(),
             prev_balls: balls.clone(),
@@ -2083,11 +2120,11 @@ impl RendererState {
             ..
         } = event
         {
-            let mut increment_render_scale = |increase: bool| {
+            let mut increment_render_scale = |increase: bool, logger: &mut Logger| {
                 let delta = 0.1;
                 let change = if increase { delta } else { -delta };
                 self.render_scale = (self.render_scale + change).max(0.1).min(4.0);
-                self.logger.log(&format!(
+                logger.log(&format!(
                     "Render scale: {:?} ({:?}x{:?})",
                     self.render_scale,
                     (self.config.width as f32 * self.render_scale.sqrt()).round() as u32,
@@ -2233,13 +2270,38 @@ impl RendererState {
                     }),
                 ];
             };
+            let mut increment_exposure = |increase: bool, logger: &mut Logger| {
+                let delta = 0.05;
+                let change = if increase { delta } else { -delta };
+                self.tone_mapping_exposure =
+                    (self.tone_mapping_exposure + change).max(0.0).min(20.0);
+                logger.log(&format!("Exposure: {:?}", self.tone_mapping_exposure));
+            };
+            let mut increment_bloom_threshold = |increase: bool, logger: &mut Logger| {
+                let delta = 0.05;
+                let change = if increase { delta } else { -delta };
+                self.bloom_threshold = (self.bloom_threshold + change).max(0.0).min(20.0);
+                logger.log(&format!("Bloom Threshold: {:?}", self.bloom_threshold));
+            };
             if *state == ElementState::Released {
                 match keycode {
                     VirtualKeyCode::Z => {
-                        increment_render_scale(false);
+                        increment_render_scale(false, &mut self.logger);
                     }
                     VirtualKeyCode::X => {
-                        increment_render_scale(true);
+                        increment_render_scale(true, &mut self.logger);
+                    }
+                    VirtualKeyCode::E => {
+                        increment_exposure(false, &mut self.logger);
+                    }
+                    VirtualKeyCode::R => {
+                        increment_exposure(true, &mut self.logger);
+                    }
+                    VirtualKeyCode::T => {
+                        increment_bloom_threshold(false, &mut self.logger);
+                    }
+                    VirtualKeyCode::Y => {
+                        increment_bloom_threshold(true, &mut self.logger);
                     }
                     VirtualKeyCode::P => {
                         self.is_playing_animations = !self.is_playing_animations;
@@ -2590,7 +2652,6 @@ impl RendererState {
         }
 
         // send data to gpu
-
         let all_bone_transforms =
             get_all_bone_data(&self.scene, self.limits.min_storage_buffer_offset_alignment);
         self.queue
@@ -2712,6 +2773,11 @@ impl RendererState {
             bytemuck::cast_slice(&make_directional_light_uniform_buffer(
                 &self.directional_lights,
             )),
+        );
+        self.queue.write_buffer(
+            &self.tone_mapping_config_buffer,
+            0,
+            bytemuck::cast_slice(&[self.tone_mapping_exposure]),
         );
     }
 
@@ -2891,6 +2957,12 @@ impl RendererState {
         self.queue
             .submit(std::iter::once(lights_flat_shading_encoder.finish()));
 
+        self.queue.write_buffer(
+            &self.bloom_config_buffer,
+            0,
+            bytemuck::cast_slice(&[0.0f32, self.bloom_threshold, self.bloom_ramp_size]),
+        );
+
         let mut bloom_threshold_encoder =
             self.device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -2910,8 +2982,10 @@ impl RendererState {
                     }],
                     depth_stencil_attachment: None,
                 });
+
             bloom_threshold_render_pass.set_pipeline(&self.bloom_threshold_pipeline);
             bloom_threshold_render_pass.set_bind_group(0, &self.shading_texture_bind_group, &[]);
+            bloom_threshold_render_pass.set_bind_group(1, &self.bloom_config_bind_group, &[]);
             bloom_threshold_render_pass.draw(0..3, 0..1);
         }
 
@@ -2940,13 +3014,17 @@ impl RendererState {
                     });
 
                     self.queue.write_buffer(
-                        &self.bloom_blur_direction_buffer,
+                        &self.bloom_config_buffer,
                         0,
-                        bytemuck::cast_slice(&[if horizontal { 0.0f32 } else { 1.0f32 }]),
+                        bytemuck::cast_slice(&[
+                            if horizontal { 0.0f32 } else { 1.0f32 },
+                            self.bloom_threshold,
+                            self.bloom_ramp_size,
+                        ]),
                     );
                     render_pass.set_pipeline(&self.bloom_blur_pipeline);
                     render_pass.set_bind_group(0, src_texture, &[]);
-                    render_pass.set_bind_group(1, &self.bloom_blur_direction_bind_group, &[]);
+                    render_pass.set_bind_group(1, &self.bloom_config_bind_group, &[]);
                     render_pass.draw(0..3, 0..1);
                 }
 
@@ -3029,6 +3107,7 @@ impl RendererState {
                 &self.shading_and_bloom_textures_bind_group,
                 &[],
             );
+            tone_mapping_render_pass.set_bind_group(1, &self.tone_mapping_config_bind_group, &[]);
             tone_mapping_render_pass.draw(0..3, 0..1);
         }
 
