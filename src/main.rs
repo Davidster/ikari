@@ -81,7 +81,11 @@ async fn start() {
                 gameloop::run(window, event_loop, renderer_state).await;
             }
             Err(err) => {
-                eprintln!("Error creating renderer state: {:?}", err)
+                eprintln!(
+                    "Error creating renderer state: {}\n{}",
+                    err,
+                    err.backtrace()
+                )
             }
         }
     }

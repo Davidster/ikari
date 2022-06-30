@@ -777,10 +777,36 @@ pub fn build_geometry_buffers(
             if dimensions != gltf::accessor::Dimensions::Vec4 {
                 bail!("Expected vec4 data but found: {:?}", dimensions);
             }
-            if data_type != gltf::accessor::DataType::F32 {
-                bail!("Expected f32 data but found: {:?}", data_type);
+            let buffer_slice = match data_type {
+                gltf::accessor::DataType::F32 => {
+                    Some(get_buffer_slice_from_accessor(accessor, buffers))
+                }
+                gltf::accessor::DataType::U8 => Some(
+                    bytemuck::cast_slice::<_, u8>(
+                        &get_buffer_slice_from_accessor(accessor, buffers)
+                            .iter()
+                            .map(|res| *res as f32 / 255.0)
+                            .collect::<Vec<_>>(),
+                    )
+                    .to_vec(),
+                ),
+                gltf::accessor::DataType::U16 => Some(
+                    bytemuck::cast_slice::<_, u8>(
+                        &bytemuck::cast_slice::<_, u16>(&get_buffer_slice_from_accessor(
+                            accessor, buffers,
+                        ))
+                        .iter()
+                        .map(|res| *res as f32 / 255.0)
+                        .collect::<Vec<_>>(),
+                    )
+                    .to_vec(),
+                ),
+                _ => None,
             }
-            Ok(bytemuck::cast_slice(&get_buffer_slice_from_accessor(accessor, buffers)).to_vec())
+            .ok_or_else(|| {
+                anyhow::anyhow!("Expected f32, u8, or u16 data but found: {:?}", data_type)
+            })?;
+            Ok(bytemuck::cast_slice(&buffer_slice).to_vec())
         })
         .transpose()?
         .unwrap_or_else(|| {
@@ -856,13 +882,24 @@ pub fn build_geometry_buffers(
             if dimensions != gltf::accessor::Dimensions::Vec4 {
                 bail!("Expected vec4 data but found: {:?}", dimensions);
             }
-            // TODO: support more than just u16?
-            if data_type != gltf::accessor::DataType::U16 {
-                bail!("Expected u16 data but found: {:?}", data_type);
+            let bone_indices_u16 = match data_type {
+                gltf::accessor::DataType::U16 => Some(
+                    bytemuck::cast_slice::<_, u16>(&get_buffer_slice_from_accessor(
+                        accessor, buffers,
+                    ))
+                    .to_vec(),
+                ),
+                gltf::accessor::DataType::U8 => Some(
+                    get_buffer_slice_from_accessor(accessor, buffers)
+                        .iter()
+                        .map(|res| *res as u16)
+                        .collect::<Vec<_>>(),
+                ),
+                _ => None,
             }
-            let bone_indices_u8 = get_buffer_slice_from_accessor(accessor, buffers);
-            let bone_indices_u16 = bytemuck::cast_slice::<_, [u16; 4]>(&bone_indices_u8);
-            Ok(bone_indices_u16
+            .ok_or_else(|| anyhow::anyhow!("Expected u8 or u16 data but found: {:?}", data_type))?;
+            let bone_indices_u16_grouped = bytemuck::cast_slice::<_, [u16; 4]>(&bone_indices_u16);
+            Ok(bone_indices_u16_grouped
                 .to_vec()
                 .iter()
                 .map(|indices| {

@@ -45,7 +45,6 @@ pub fn get_all_bone_data(
                 .map(|model_root_node_index| (gltf_mesh_index, model_root_node_index))
         })
     {
-        // TODO: if the bones for the current skin index have already been added don't add again!
         let skin_index = scene.nodes[model_root_node_index].skin_index.unwrap();
         match skin_index_to_slice_map.entry(skin_index) {
             Entry::Occupied(entry) => {
