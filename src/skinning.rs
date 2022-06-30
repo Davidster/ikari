@@ -1,8 +1,95 @@
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 
 use cgmath::Matrix4;
 
 use super::*;
+
+pub struct AllBoneTransforms {
+    pub buffer: Vec<u8>,
+    pub animated_bone_transforms: Vec<AllBoneTransformsSlice>,
+    pub identity_slice: (usize, usize),
+}
+
+pub struct AllBoneTransformsSlice {
+    pub drawable_mesh_index: usize,
+    pub start_index: usize,
+    pub end_index: usize,
+}
+
+pub fn get_all_bone_data(scene: &Scene) -> AllBoneTransforms {
+    let matrix_size_bytes = std::mem::size_of::<GpuMatrix4>();
+    let identity_bone_count = 4;
+    let identity_slice = (0, identity_bone_count * matrix_size_bytes);
+
+    let mut buffer: Vec<u8> = bytemuck::cast_slice(
+        &((0..identity_bone_count)
+            .map(|_| GpuMatrix4(Matrix4::one()))
+            .collect::<Vec<_>>()),
+    )
+    .to_vec();
+
+    let mut animated_bone_transforms: Vec<AllBoneTransformsSlice> = Vec::new();
+    let mut skin_index_to_slice_map: HashMap<usize, (usize, usize)> = HashMap::new();
+
+    for (drawable_mesh_index, model_root_node_index) in scene
+        .get_drawable_mesh_iterator()
+        .enumerate()
+        .filter_map(|(gltf_mesh_index, gltf_mesh)| {
+            gltf_mesh
+                .instances
+                .iter()
+                .find_map(|instance| scene.get_model_root_if_in_skeleton(instance.node_index))
+                .map(|model_root_node_index| (gltf_mesh_index, model_root_node_index))
+        })
+    {
+        // TODO: if the bones for the current skin index have already been added don't add again!
+        let skin_index = scene.nodes[model_root_node_index].skin_index.unwrap();
+        match skin_index_to_slice_map.entry(skin_index) {
+            Entry::Occupied(entry) => {
+                let (start_index, end_index) = *entry.get();
+                animated_bone_transforms.push(AllBoneTransformsSlice {
+                    drawable_mesh_index,
+                    start_index,
+                    end_index,
+                });
+            }
+            Entry::Vacant(entry) => {
+                let bone_transforms: Vec<_> =
+                    get_bone_model_space_transforms(scene, model_root_node_index)
+                        .iter()
+                        .copied()
+                        .map(GpuMatrix4)
+                        .collect();
+
+                // add padding
+                // TODO: set this 256 to be equal to the min_storage_buffer_offset_alignment
+                //       AND, look into setting the limit on the device to make this value be lower?
+                let min_storage_buffer_offset_alignment = 256;
+                let mut padding: Vec<_> = (0..buffer.len() % min_storage_buffer_offset_alignment)
+                    .map(|_| 0u8)
+                    .collect();
+
+                let start_index = buffer.len();
+                let end_index = start_index + bone_transforms.len() * matrix_size_bytes;
+
+                buffer.append(&mut bytemuck::cast_slice(&bone_transforms).to_vec());
+                buffer.append(&mut padding);
+                animated_bone_transforms.push(AllBoneTransformsSlice {
+                    drawable_mesh_index,
+                    start_index,
+                    end_index,
+                });
+                entry.insert((start_index, end_index));
+            }
+        }
+    }
+
+    AllBoneTransforms {
+        buffer,
+        animated_bone_transforms,
+        identity_slice,
+    }
+}
 
 pub fn get_bone_model_space_transforms(
     scene: &Scene,

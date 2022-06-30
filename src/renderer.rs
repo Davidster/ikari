@@ -1,4 +1,7 @@
-use std::{collections::HashMap, num::NonZeroU32, time::Instant};
+use std::{
+    num::{NonZeroU32, NonZeroU64},
+    time::Instant,
+};
 
 use super::*;
 
@@ -134,21 +137,6 @@ fn make_directional_light_uniform_buffer(
     light_uniforms
 }
 
-fn make_bones_uniform_buffer(bones: &[Matrix4<f32>]) -> Vec<GpuMatrix4> {
-    let mut bone_uniforms = Vec::new();
-
-    let active_bone_count = bones.len();
-    let mut active_bones: Vec<GpuMatrix4> = bones.iter().cloned().map(GpuMatrix4).collect();
-    bone_uniforms.append(&mut active_bones);
-
-    let mut inactive_bones: Vec<GpuMatrix4> = (0..(MAX_BONE_COUNT as usize - active_bone_count))
-        .map(|_| GpuMatrix4(Matrix4::one()))
-        .collect();
-    bone_uniforms.append(&mut inactive_bones);
-
-    bone_uniforms
-}
-
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct FlatColorUniform {
@@ -166,7 +154,7 @@ impl From<Vector3<f32>> for FlatColorUniform {
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const ARENA_SIDE_LENGTH: f32 = 50.0;
 pub const MAX_LIGHT_COUNT: u8 = 32;
-pub const MAX_BONE_COUNT: u32 = 512;
+pub const MAX_BONES_BUFFER_SIZE_BYTES: u32 = 8192;
 pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
 pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 pub const Z_NEAR: f32 = 0.001;
@@ -203,8 +191,8 @@ pub struct RendererState {
     point_lights_buffer: wgpu::Buffer,
     directional_lights_buffer: wgpu::Buffer,
 
-    bone_transforms_buffer: wgpu::Buffer,
-    camera_lights_and_bones_bind_group: wgpu::BindGroup,
+    bones_buffer: wgpu::Buffer,
+    camera_and_lights_bind_group: wgpu::BindGroup,
 
     mesh_pipeline: wgpu::RenderPipeline,
     flat_color_mesh_pipeline: wgpu::RenderPipeline,
@@ -214,13 +202,16 @@ pub struct RendererState {
 
     point_shadow_map_pipeline: wgpu::RenderPipeline,
     directional_shadow_map_pipeline: wgpu::RenderPipeline,
-    shadow_camera_lights_and_bones_bind_group: wgpu::BindGroup,
+    shadow_camera_and_lights_bind_group: wgpu::BindGroup,
     shadow_camera_buffer: wgpu::Buffer,
     point_shadow_map_textures: Texture,
     directional_shadow_map_textures: Texture,
 
+    bones_bind_group: wgpu::BindGroup,
+
     single_texture_bind_group_layout: wgpu::BindGroupLayout,
     two_texture_bind_group_layout: wgpu::BindGroupLayout,
+    bones_bind_group_layout: wgpu::BindGroupLayout,
 
     shading_texture: Texture,
     tone_mapping_texture: Texture,
@@ -719,7 +710,7 @@ impl RendererState {
                 ],
                 label: Some("two_uniform_bind_group_layout"),
             });
-        let camera_lights_and_bones_bind_group_layout =
+        let camera_and_lights_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -752,18 +743,23 @@ impl RendererState {
                         },
                         count: None,
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
                 ],
                 label: Some("camera_and_lights_uniform_bind_group_layout"),
+            });
+
+        let bones_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: true,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("bones_bind_group_layout"),
             });
 
         let fragment_shader_color_targets = &[wgpu::ColorTargetState {
@@ -775,9 +771,10 @@ impl RendererState {
         let mesh_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Mesh Pipeline Layout"),
             bind_group_layouts: &[
-                &camera_lights_and_bones_bind_group_layout,
+                &camera_and_lights_bind_group_layout,
                 &five_texture_bind_group_layout,
                 &environment_textures_bind_group_layout,
+                &bones_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -822,7 +819,7 @@ impl RendererState {
         let flat_color_mesh_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Flat Color Mesh Pipeline Layout"),
-                bind_group_layouts: &[&camera_lights_and_bones_bind_group_layout],
+                bind_group_layouts: &[&camera_and_lights_bind_group_layout],
                 push_constant_ranges: &[],
             });
         let mut flat_color_mesh_pipeline_descriptor = mesh_pipeline_descriptor.clone();
@@ -998,7 +995,7 @@ impl RendererState {
                 label: Some("Skybox Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &environment_textures_bind_group_layout, // TODO: only using 1 texture here, don't put a bgl with so 8 of them? lol
-                    &camera_lights_and_bones_bind_group_layout,
+                    &camera_and_lights_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -1169,7 +1166,10 @@ impl RendererState {
         let shadow_map_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Shadow Map Pipeline Layout"),
-                bind_group_layouts: &[&camera_lights_and_bones_bind_group_layout],
+                bind_group_layouts: &[
+                    &camera_and_lights_bind_group_layout,
+                    &bones_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
         let point_shadow_map_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -1798,45 +1798,57 @@ impl RendererState {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
-        let bone_transforms_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let initial_bone_transforms_data = (0..MAX_BONES_BUFFER_SIZE_BYTES)
+            .map(|_| 0u8)
+            .collect::<Vec<_>>();
+        let bones_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Bones Buffer"),
-            contents: bytemuck::cast_slice(&make_bones_uniform_buffer(&[])),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            contents: &initial_bone_transforms_data,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
-        let camera_lights_and_bones_bind_group =
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &camera_lights_and_bones_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: camera_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: point_lights_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: directional_lights_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: bone_transforms_buffer.as_entire_binding(),
-                    },
-                ],
-                label: Some("camera_lights_and_bones_bind_group"),
-            });
+        let camera_and_lights_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &camera_and_lights_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: point_lights_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: directional_lights_buffer.as_entire_binding(),
+                },
+            ],
+            label: Some("camera_and_lights_bind_group"),
+        });
 
+        let bones_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &bones_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &bones_buffer,
+                    offset: 0,
+                    size: NonZeroU64::new(initial_bone_transforms_data.len().try_into().unwrap()),
+                }),
+            }],
+            label: Some("bones_bind_group"),
+        });
+
+        // TODO: does there need to be a separate buffer / bind group here for shadows?
         let shadow_camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Point Shadow Camera Buffer"),
             contents: bytemuck::cast_slice(&[CameraUniform::new()]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let shadow_camera_lights_and_bones_bind_group =
+        let shadow_camera_and_lights_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &camera_lights_and_bones_bind_group_layout,
+                layout: &camera_and_lights_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -1849,10 +1861,6 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 2,
                         resource: directional_lights_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: bone_transforms_buffer.as_entire_binding(),
                     },
                 ],
                 label: Some("point_shadow_camera_bind_group"),
@@ -1992,11 +2000,14 @@ impl RendererState {
             camera_controller,
             camera_uniform,
             camera_buffer,
-            camera_lights_and_bones_bind_group,
+            camera_and_lights_bind_group,
 
             point_lights_buffer,
             directional_lights_buffer,
-            bone_transforms_buffer,
+            bones_buffer,
+
+            bones_bind_group,
+            bones_bind_group_layout,
 
             mesh_pipeline,
             flat_color_mesh_pipeline,
@@ -2006,7 +2017,7 @@ impl RendererState {
 
             point_shadow_map_pipeline,
             directional_shadow_map_pipeline,
-            shadow_camera_lights_and_bones_bind_group,
+            shadow_camera_and_lights_bind_group,
             shadow_camera_buffer,
             point_shadow_map_textures,
             directional_shadow_map_textures,
@@ -2580,6 +2591,22 @@ impl RendererState {
         }
 
         // send data to gpu
+
+        let all_bone_transforms = get_all_bone_data(&self.scene);
+        self.queue
+            .write_buffer(&self.bones_buffer, 0, &all_bone_transforms.buffer);
+        self.bones_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.bones_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &self.bones_buffer,
+                    offset: 0,
+                    size: NonZeroU64::new(all_bone_transforms.buffer.len().try_into().unwrap()),
+                }),
+            }],
+            label: Some("bones_bind_group"),
+        });
         self.scene.get_drawable_mesh_iterator().for_each(
             |BindableMeshData {
                  instance_buffer,
@@ -2724,8 +2751,7 @@ impl RendererState {
                     self.render_scene(
                         &shadow_render_pass_desc,
                         &self.directional_shadow_map_pipeline,
-                        &self.shadow_camera_lights_and_bones_bind_group,
-                        None,
+                        true,
                     );
                 });
             (0..self.point_lights.len()).for_each(|light_index| {
@@ -2772,8 +2798,7 @@ impl RendererState {
                     self.render_scene(
                         &shadow_render_pass_desc,
                         &self.point_shadow_map_pipeline,
-                        &self.shadow_camera_lights_and_bones_bind_group,
-                        None,
+                        true,
                     );
                 });
             });
@@ -2811,12 +2836,7 @@ impl RendererState {
             }),
         };
 
-        self.render_scene(
-            &shading_render_pass_desc,
-            &self.mesh_pipeline,
-            &self.camera_lights_and_bones_bind_group,
-            Some(&self.environment_textures_bind_group),
-        );
+        self.render_scene(&shading_render_pass_desc, &self.mesh_pipeline, false);
 
         let mut lights_flat_shading_encoder =
             self.device
@@ -2850,7 +2870,7 @@ impl RendererState {
             lights_flat_shading_render_pass.set_pipeline(&self.flat_color_mesh_pipeline);
             lights_flat_shading_render_pass.set_bind_group(
                 0,
-                &self.camera_lights_and_bones_bind_group,
+                &self.camera_and_lights_bind_group,
                 &[],
             );
             lights_flat_shading_render_pass
@@ -2973,7 +2993,7 @@ impl RendererState {
                 });
             skybox_render_pass.set_pipeline(&self.skybox_pipeline);
             skybox_render_pass.set_bind_group(0, &self.environment_textures_bind_group, &[]);
-            skybox_render_pass.set_bind_group(1, &self.camera_lights_and_bones_bind_group, &[]);
+            skybox_render_pass.set_bind_group(1, &self.camera_and_lights_bind_group, &[]);
             skybox_render_pass.set_vertex_buffer(0, self.skybox_mesh.vertex_buffer.slice(..));
             skybox_render_pass.set_index_buffer(
                 self.skybox_mesh.index_buffer.slice(..),
@@ -3052,208 +3072,94 @@ impl RendererState {
         &'a self,
         render_pass_descriptor: &wgpu::RenderPassDescriptor<'a, 'a>,
         pipeline: &'a wgpu::RenderPipeline,
-        bind_group_0: &'a wgpu::BindGroup,
-        bind_group_2: Option<&'a wgpu::BindGroup>,
+        is_shadow: bool,
     ) {
-        self.scene
-            .get_drawable_mesh_iterator()
-            .filter(|BindableMeshData { instances, .. }| {
-                instances
-                    .iter()
-                    .any(|instance| self.scene.node_is_part_of_skeleton(instance.node_index))
-            })
-            .enumerate()
-            .for_each(
-                |(
-                    i,
-                    BindableMeshData {
-                        vertex_buffer,
-                        index_buffer,
-                        instance_buffer,
-                        textures_bind_group,
-                        instances,
-                        ..
-                    },
-                )| {
-                    let mut encoder =
-                        self.device
-                            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                                label: Some("render_scene skinned Encoder"),
-                            });
-
-                    {
-                        let modified_color_attachments;
-                        let mut modified_color_attachment;
-                        let render_pass_descriptor = if i == 0 {
-                            render_pass_descriptor.clone()
-                        } else {
-                            let mut render_pass_descriptor = render_pass_descriptor.clone();
-
-                            if let Some(color_attachment) =
-                                render_pass_descriptor.color_attachments.get(0)
-                            {
-                                modified_color_attachment = color_attachment.clone();
-                                modified_color_attachment.ops.load = wgpu::LoadOp::Load;
-                                modified_color_attachments = [modified_color_attachment];
-                                render_pass_descriptor.color_attachments =
-                                    &modified_color_attachments;
-                            }
-
-                            render_pass_descriptor.depth_stencil_attachment =
-                                render_pass_descriptor.depth_stencil_attachment.map(
-                                    |mut depth_stencil_attachment| {
-                                        depth_stencil_attachment.depth_ops =
-                                            depth_stencil_attachment.depth_ops.map(
-                                                |mut depth_ops| {
-                                                    depth_ops.load = wgpu::LoadOp::Load;
-                                                    depth_ops
-                                                },
-                                            );
-                                        depth_stencil_attachment
-                                    },
-                                );
-                            render_pass_descriptor
-                        };
-
-                        let mut render_pass = encoder.begin_render_pass(&render_pass_descriptor);
-
-                        render_pass.set_pipeline(pipeline);
-                        render_pass.set_bind_group(0, bind_group_0, &[]);
-                        if let Some(bind_group_2) = bind_group_2 {
-                            render_pass.set_bind_group(2, bind_group_2, &[]);
-                        }
-
-                        // write bones into uniform buffer
-                        let model_root_node_index = instances
-                            .iter()
-                            .find(|instance| {
-                                self.scene.nodes[instance.node_index].skin_index.is_some()
-                            })
-                            .unwrap()
-                            .node_index;
-
-                        self.queue.write_buffer(
-                            &self.bone_transforms_buffer,
-                            0,
-                            bytemuck::cast_slice(&make_bones_uniform_buffer(
-                                &get_bone_model_space_transforms(
-                                    &self.scene,
-                                    model_root_node_index,
-                                ),
-                            )),
-                        );
-                        render_pass.set_bind_group(1, textures_bind_group, &[]);
-                        render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
-                        render_pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
-                        match index_buffer {
-                            Some(index_buffer) => {
-                                // println!("Calling draw draw_indexed for mesh: {:?}", mesh.name());
-                                render_pass.set_index_buffer(
-                                    index_buffer.buffer.slice(..),
-                                    wgpu::IndexFormat::Uint16,
-                                );
-                                render_pass.draw_indexed(
-                                    0..index_buffer.length as u32,
-                                    0,
-                                    0..instance_buffer.length as u32,
-                                );
-                            }
-                            None => {
-                                render_pass.draw(
-                                    0..vertex_buffer.length as u32,
-                                    0..instance_buffer.length as u32,
-                                );
-                            }
-                        };
-                    }
-                    self.queue.submit(std::iter::once(encoder.finish()));
-                },
-            );
-
-        self.queue.write_buffer(
-            &self.bone_transforms_buffer,
-            0,
-            bytemuck::cast_slice(&make_bones_uniform_buffer(&[])),
-        );
-
+        let all_bone_transforms = get_all_bone_data(&self.scene);
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("render_scene non-skinned Encoder"),
+                label: Some("render_scene Encoder"),
             });
-
         {
-            let mut render_pass_descriptor = render_pass_descriptor.clone();
-            let mut modified_color_attachment;
-            let modified_color_attachments;
-            if let Some(color_attachment) = render_pass_descriptor.color_attachments.get(0) {
-                modified_color_attachment = color_attachment.clone();
-                modified_color_attachment.ops.load = wgpu::LoadOp::Load;
-                modified_color_attachments = [modified_color_attachment];
-                render_pass_descriptor.color_attachments = &modified_color_attachments;
-            }
-
-            render_pass_descriptor.depth_stencil_attachment = render_pass_descriptor
-                .depth_stencil_attachment
-                .map(|mut depth_stencil_attachment| {
-                    depth_stencil_attachment.depth_ops =
-                        depth_stencil_attachment.depth_ops.map(|mut depth_ops| {
-                            depth_ops.load = wgpu::LoadOp::Load;
-                            depth_ops
-                        });
-                    depth_stencil_attachment
-                });
-            let mut render_pass = encoder.begin_render_pass(&render_pass_descriptor);
-
-            render_pass.set_pipeline(pipeline);
-            render_pass.set_bind_group(0, bind_group_0, &[]);
-            if let Some(bind_group_2) = bind_group_2 {
-                render_pass.set_bind_group(2, bind_group_2, &[]);
-            }
-
+            let mut render_pass = encoder.begin_render_pass(render_pass_descriptor);
             self.scene
                 .get_drawable_mesh_iterator()
-                .filter(|BindableMeshData { instances, .. }| {
-                    instances
-                        .iter()
-                        .any(|instance| !self.scene.node_is_part_of_skeleton(instance.node_index))
-                })
+                .enumerate()
                 .for_each(
-                    |BindableMeshData {
-                         vertex_buffer,
-                         index_buffer,
-                         instance_buffer,
-                         textures_bind_group,
-                         ..
-                     }| {
-                        render_pass.set_bind_group(1, textures_bind_group, &[]);
-                        render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
-                        render_pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
-                        match index_buffer {
-                            Some(index_buffer) => {
-                                // println!("Calling draw draw_indexed for mesh: {:?}", mesh.name());
-                                render_pass.set_index_buffer(
-                                    index_buffer.buffer.slice(..),
-                                    wgpu::IndexFormat::Uint16,
-                                );
-                                render_pass.draw_indexed(
-                                    0..index_buffer.length as u32,
-                                    0,
-                                    0..instance_buffer.length as u32,
+                    |(
+                        drawable_mesh_index,
+                        BindableMeshData {
+                            vertex_buffer,
+                            index_buffer,
+                            instance_buffer,
+                            textures_bind_group,
+                            ..
+                        },
+                    )| {
+                        {
+                            render_pass.set_pipeline(pipeline);
+                            render_pass.set_bind_group(
+                                0,
+                                if is_shadow {
+                                    &self.shadow_camera_and_lights_bind_group
+                                } else {
+                                    &self.camera_and_lights_bind_group
+                                },
+                                &[],
+                            );
+                            let bone_transforms_buffer_start_index = all_bone_transforms
+                                .animated_bone_transforms
+                                .iter()
+                                .find(|bone_slice| {
+                                    bone_slice.drawable_mesh_index == drawable_mesh_index
+                                })
+                                .map(|bone_slice| bone_slice.start_index.try_into().unwrap())
+                                .unwrap_or(0);
+                            render_pass.set_bind_group(
+                                if is_shadow { 1 } else { 3 },
+                                &self.bones_bind_group,
+                                &[bone_transforms_buffer_start_index],
+                            );
+                            if !is_shadow {
+                                render_pass.set_bind_group(1, textures_bind_group, &[]);
+                                render_pass.set_bind_group(
+                                    2,
+                                    &self.environment_textures_bind_group,
+                                    &[],
                                 );
                             }
-                            None => {
-                                render_pass.draw(
-                                    0..vertex_buffer.length as u32,
-                                    0..instance_buffer.length as u32,
-                                );
-                            }
-                        };
+
+                            render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
+                            render_pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
+                            match index_buffer {
+                                Some(index_buffer) => {
+                                    render_pass.set_index_buffer(
+                                        index_buffer.buffer.slice(..),
+                                        wgpu::IndexFormat::Uint16,
+                                    );
+                                    render_pass.draw_indexed(
+                                        0..index_buffer.length as u32,
+                                        0,
+                                        0..instance_buffer.length as u32,
+                                    );
+                                }
+                                None => {
+                                    render_pass.draw(
+                                        0..vertex_buffer.length as u32,
+                                        0..instance_buffer.length as u32,
+                                    );
+                                }
+                            };
+                        }
                     },
                 );
 
+            render_pass.set_bind_group(if is_shadow { 1 } else { 3 }, &self.bones_bind_group, &[0]);
+
             // render test object
-            render_pass.set_bind_group(1, &self.test_object_mesh.textures_bind_group, &[]);
+            if !is_shadow {
+                render_pass.set_bind_group(1, &self.test_object_mesh.textures_bind_group, &[]);
+            }
             render_pass.set_vertex_buffer(0, self.test_object_mesh.vertex_buffer.slice(..));
             render_pass.set_vertex_buffer(1, self.test_object_mesh.instance_buffer.slice(..));
             render_pass.set_index_buffer(
@@ -3267,7 +3173,9 @@ impl RendererState {
             );
 
             // render floor
-            render_pass.set_bind_group(1, &self.plane_mesh.textures_bind_group, &[]);
+            if !is_shadow {
+                render_pass.set_bind_group(1, &self.plane_mesh.textures_bind_group, &[]);
+            }
             render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
             render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
             render_pass.set_index_buffer(
@@ -3281,19 +3189,22 @@ impl RendererState {
             );
 
             // render balls
-            // render_pass.set_bind_group(1, &self.sphere_mesh.textures_bind_group, &[]);
-            // render_pass.set_vertex_buffer(0, self.sphere_mesh.vertex_buffer.slice(..));
-            // render_pass.set_vertex_buffer(1, self.sphere_mesh.instance_buffer.slice(..));
-            // render_pass.set_index_buffer(
-            //     self.sphere_mesh.index_buffer.slice(..),
-            //     wgpu::IndexFormat::Uint16,
-            // );
-            // render_pass.draw_indexed(
-            //     0..self.sphere_mesh.num_indices,
-            //     0,
-            //     0..self.actual_balls.len() as u32,
-            // );
+            if !is_shadow {
+                render_pass.set_bind_group(1, &self.sphere_mesh.textures_bind_group, &[]);
+            }
+            render_pass.set_vertex_buffer(0, self.sphere_mesh.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.sphere_mesh.instance_buffer.slice(..));
+            render_pass.set_index_buffer(
+                self.sphere_mesh.index_buffer.slice(..),
+                wgpu::IndexFormat::Uint16,
+            );
+            render_pass.draw_indexed(
+                0..self.sphere_mesh.num_indices,
+                0,
+                0..self.actual_balls.len() as u32,
+            );
         }
+
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 }

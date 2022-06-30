@@ -96,7 +96,14 @@ impl Scene {
             .map(move |i| &self.buffers.bindable_mesh_data[drawable_prim_indices[i]])
     }
 
-    pub fn node_is_part_of_skeleton(&self, node_index: usize) -> bool {
+    pub fn get_model_root_if_in_skeleton(&self, node_index: usize) -> Option<usize> {
+        get_node_ancestry_list(node_index, &self.parent_index_map)
+            .iter()
+            .find_map(|node_index| self.nodes[*node_index].skin_index.map(|_| *node_index))
+    }
+
+    // TODO: remove
+    pub fn _node_is_part_of_skeleton(&self, node_index: usize) -> bool {
         let ancestry_list = get_node_ancestry_list(node_index, &self.parent_index_map);
         ancestry_list
             .iter()
@@ -438,16 +445,6 @@ fn sampler_wrapping_mode_to_wgpu(wrapping_mode: gltf::texture::WrappingMode) -> 
         gltf::texture::WrappingMode::MirroredRepeat => wgpu::AddressMode::MirrorRepeat,
         gltf::texture::WrappingMode::Repeat => wgpu::AddressMode::Repeat,
     }
-}
-
-pub fn get_skeleton_ancestry_list(
-    bone_node_index: usize,
-    root_node_index: usize,
-    parent_index_map: &HashMap<usize, usize>,
-) -> Vec<usize> {
-    let mut new_parent_index_map = parent_index_map.clone();
-    new_parent_index_map.remove(&root_node_index);
-    get_node_ancestry_list(bone_node_index, &new_parent_index_map)
 }
 
 pub fn get_node_ancestry_list(

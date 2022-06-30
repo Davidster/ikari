@@ -30,15 +30,17 @@ struct DirectionalLightsUniform {
     values: array<DirectionalLight, MAX_LIGHTS>;
 };
 struct BonesUniform {
-    value: array<mat4x4<f32>, MAX_BONES>;
+    value: array<mat4x4<f32>>;
 };
 
 [[group(0), binding(1)]]
 var<uniform> point_lights: PointLightsUniform;
 [[group(0), binding(2)]]
 var<uniform> directional_lights: DirectionalLightsUniform;
-[[group(0), binding(3)]]
-var<uniform> bones_uniform: BonesUniform;
+[[group(3), binding(0)]]
+var<storage, read> bones_uniform: BonesUniform;
+[[group(1), binding(0)]]
+var<storage, read> shadow_bones_uniform: BonesUniform;
 
 /// HACK: This works around naga not supporting matrix addition in SPIR-V
 // translations. See https://github.com/gfx-rs/naga/issues/1527
@@ -204,10 +206,10 @@ fn shadow_map_vs_main(
 
     let bone_indices = vshader_input.bone_indices;
     let bone_weights = vshader_input.bone_weights; // one f32 per weight
-    let skin_transform_0 = bone_weights.x * bones_uniform.value[bone_indices.x];
-    let skin_transform_1 = bone_weights.y * bones_uniform.value[bone_indices.y];
-    let skin_transform_2 = bone_weights.z * bones_uniform.value[bone_indices.z];
-    let skin_transform_3 = bone_weights.w * bones_uniform.value[bone_indices.w];
+    let skin_transform_0 = bone_weights.x * shadow_bones_uniform.value[bone_indices.x];
+    let skin_transform_1 = bone_weights.y * shadow_bones_uniform.value[bone_indices.y];
+    let skin_transform_2 = bone_weights.z * shadow_bones_uniform.value[bone_indices.z];
+    let skin_transform_3 = bone_weights.w * shadow_bones_uniform.value[bone_indices.w];
     let skin_transform = add_matrix(skin_transform_0, add_matrix(skin_transform_1, add_matrix(skin_transform_2, skin_transform_3)));
 
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
