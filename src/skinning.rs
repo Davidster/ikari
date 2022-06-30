@@ -16,7 +16,10 @@ pub struct AllBoneTransformsSlice {
     pub end_index: usize,
 }
 
-pub fn get_all_bone_data(scene: &Scene) -> AllBoneTransforms {
+pub fn get_all_bone_data(
+    scene: &Scene,
+    min_storage_buffer_offset_alignment: u32,
+) -> AllBoneTransforms {
     let matrix_size_bytes = std::mem::size_of::<GpuMatrix4>();
     let identity_bone_count = 4;
     let identity_slice = (0, identity_bone_count * matrix_size_bytes);
@@ -62,10 +65,10 @@ pub fn get_all_bone_data(scene: &Scene) -> AllBoneTransforms {
                         .collect();
 
                 // add padding
-                // TODO: set this 256 to be equal to the min_storage_buffer_offset_alignment
-                //       AND, look into setting the limit on the device to make this value be lower?
-                let min_storage_buffer_offset_alignment = 256;
-                let mut padding: Vec<_> = (0..buffer.len() % min_storage_buffer_offset_alignment)
+                // TODO: use limit constraints at device creation time to try to lower the min_storage_buffer_offset_alignment number
+                //       cuz smaller buffer = more cache hits
+                let mut padding: Vec<_> = (0..buffer.len()
+                    % min_storage_buffer_offset_alignment as usize)
                     .map(|_| 0u8)
                     .collect();
 

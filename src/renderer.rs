@@ -175,6 +175,9 @@ pub struct RendererState {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
+
+    limits: wgpu::Limits,
+
     render_scale: f32,
     state_update_time_accumulator: f32,
     last_frame_instant: Option<Instant>,
@@ -343,15 +346,6 @@ impl RendererState {
             )
             .await
             .expect("Failed to create device");
-
-        // logger.log(&format!(
-        //     "min_uniform_buffer_offset_alignment={:?}",
-        //     device.limits().min_uniform_buffer_offset_alignment
-        // ));
-        // logger.log(&format!(
-        //     "min_storage_buffer_offset_alignment={:?}",
-        //     device.limits().min_storage_buffer_offset_alignment
-        // ));
 
         let swapchain_format = surface
             .get_preferred_format(&adapter)
@@ -1983,11 +1977,16 @@ impl RendererState {
                 label: Some("skybox_texture_bind_group"),
             });
 
+        let limits = device.limits();
+
         Ok(Self {
             surface,
             device,
             queue,
             config,
+
+            limits,
+
             render_scale: initial_render_scale,
             state_update_time_accumulator: 0.0,
             last_frame_instant: None,
@@ -2592,7 +2591,8 @@ impl RendererState {
 
         // send data to gpu
 
-        let all_bone_transforms = get_all_bone_data(&self.scene);
+        let all_bone_transforms =
+            get_all_bone_data(&self.scene, self.limits.min_storage_buffer_offset_alignment);
         self.queue
             .write_buffer(&self.bones_buffer, 0, &all_bone_transforms.buffer);
         self.bones_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -3074,7 +3074,8 @@ impl RendererState {
         pipeline: &'a wgpu::RenderPipeline,
         is_shadow: bool,
     ) {
-        let all_bone_transforms = get_all_bone_data(&self.scene);
+        let all_bone_transforms =
+            get_all_bone_data(&self.scene, self.limits.min_storage_buffer_offset_alignment);
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
