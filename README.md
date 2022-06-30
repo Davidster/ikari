@@ -52,7 +52,7 @@ https://user-images.githubusercontent.com/2389735/176325053-18c47d31-71b3-4aa4-a
   - [x] move tone mapping to later pass
   - [x] support light intensity value
 - [x] directional lights + shadows
-- [ ] Improve performance of BrainStem model
+- [x] Improve performance of BrainStem model
 - [ ] Fix bloom pop-in on the blue light
 
 ## Low priority
