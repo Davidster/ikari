@@ -74,16 +74,14 @@ fn tone_mapping_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
 [[stage(fragment)]]
 fn bloom_threshold_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     let threshold = 0.8;
+    let ramp_size = 0.2;
     let hdr_color = textureSample(texture_1, sampler_1, in.tex_coords);
     let brightness = dot(hdr_color.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
 
-    var out: vec4<f32>;
-    if (brightness > threshold) {
-        out = vec4<f32>(hdr_color.rgb, 1.0);
-    } else {
-        out = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-    }
-    return out;
+    let ramp_start = threshold - ramp_size;
+    let t = clamp((brightness - ramp_start) / ramp_size, 0.0, 1.0);
+
+    return vec4<f32>(t * hdr_color.rgb, 1.0);
 }
 
 [[stage(fragment)]]

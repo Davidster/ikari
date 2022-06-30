@@ -53,7 +53,7 @@ https://user-images.githubusercontent.com/2389735/176325053-18c47d31-71b3-4aa4-a
   - [x] support light intensity value
 - [x] directional lights + shadows
 - [x] Improve performance of BrainStem model
-- [ ] Fix bloom pop-in on the blue light
+- [x] Fix bloom pop-in on the blue light
 
 ## Low priority
 - [ ] Asset loading
