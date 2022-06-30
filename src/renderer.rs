@@ -340,10 +340,23 @@ impl RendererState {
             .await
             .expect("Failed to find an appropriate adapter");
         let adapter_info = adapter.get_info();
-        logger.log(&format!(
-            "Using {} ({:?})",
-            adapter_info.name, adapter_info.backend
-        ));
+        let adapter_name = adapter_info.name;
+        let adapter_backend = adapter_info.backend;
+        logger.log(&format!("Using {adapter_name} ({adapter_backend:?})"));
+        logger.log("Controls:");
+        vec![
+            "Move Around: WASD, Space Bar, Ctrl",
+            "Look Around: Mouse",
+            "Adjust Speed: Scroll",
+            "Adjust Render Scale: Z / X",
+            "Adjust Exposure: E / R",
+            "Adjust Bloom Threshold: T / Y",
+            "Exit: Escape",
+        ]
+        .iter()
+        .for_each(|line| {
+            logger.log(&format!("  {line}"));
+        });
 
         let (device, queue) = adapter
             .request_device(
