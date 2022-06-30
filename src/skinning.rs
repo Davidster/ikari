@@ -103,11 +103,11 @@ pub fn get_bone_model_space_transforms(
     let skeleton_parent_index_map: HashMap<usize, usize> = skin
         .bone_node_indices
         .iter()
-        .map(|bone_node_index| {
-            (
-                *bone_node_index,
-                *scene.parent_index_map.get(bone_node_index).unwrap(),
-            )
+        .filter_map(|bone_node_index| {
+            scene
+                .parent_index_map
+                .get(bone_node_index)
+                .map(|parent_index| (*bone_node_index, *parent_index))
         })
         .collect();
     // goes from world space into the model's space
