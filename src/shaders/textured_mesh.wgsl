@@ -1,45 +1,45 @@
 struct CameraUniform {
-    proj: mat4x4<f32>;
-    view: mat4x4<f32>;
-    rotation_only_view: mat4x4<f32>;
-    position: vec4<f32>;
-    near_plane_distance: f32;
-    far_plane_distance: f32;
-};
-[[group(0), binding(0)]]
+    proj: mat4x4<f32>,
+    view: mat4x4<f32>,
+    rotation_only_view: mat4x4<f32>,
+    position: vec4<f32>,
+    near_plane_distance: f32,
+    far_plane_distance: f32,
+}
+@group(0) @binding(0)
 var<uniform> camera: CameraUniform;
 
 let MAX_LIGHTS = 32u;
 let MAX_BONES = 512u;
 
 struct PointLight {
-    position: vec4<f32>;
-    color: vec4<f32>;
-};
+    position: vec4<f32>,
+    color: vec4<f32>,
+}
 struct DirectionalLight {
-    world_space_to_light_space: mat4x4<f32>;
-    position: vec4<f32>;
-    direction: vec4<f32>;
-    color: vec4<f32>;
-};
+    world_space_to_light_space: mat4x4<f32>,
+    position: vec4<f32>,
+    direction: vec4<f32>,
+    color: vec4<f32>,
+}
 
 struct PointLightsUniform {
-    values: array<PointLight, MAX_LIGHTS>;
-};
+    values: array<PointLight, MAX_LIGHTS>,
+}
 struct DirectionalLightsUniform {
-    values: array<DirectionalLight, MAX_LIGHTS>;
-};
+    values: array<DirectionalLight, MAX_LIGHTS>,
+}
 struct BonesUniform {
-    value: array<mat4x4<f32>>;
-};
+    value: array<mat4x4<f32>>,
+}
 
-[[group(0), binding(1)]]
+@group(0) @binding(1)
 var<uniform> point_lights: PointLightsUniform;
-[[group(0), binding(2)]]
+@group(0) @binding(2)
 var<uniform> directional_lights: DirectionalLightsUniform;
-[[group(3), binding(0)]]
+@group(3) @binding(0)
 var<storage, read> bones_uniform: BonesUniform;
-[[group(1), binding(0)]]
+@group(1) @binding(0)
 var<storage, read> shadow_bones_uniform: BonesUniform;
 
 /// HACK: This works around naga not supporting matrix addition in SPIR-V
@@ -58,57 +58,57 @@ fn add_matrix(
 
 
 struct VertexInput {
-    [[location(0)]] object_position: vec3<f32>;
-    [[location(1)]] object_normal: vec3<f32>;
-    [[location(2)]] object_tex_coords: vec2<f32>;
-    [[location(3)]] object_tangent: vec3<f32>;
-    [[location(4)]] object_bitangent: vec3<f32>;
-    [[location(5)]] object_color: vec4<f32>;
-    [[location(6)]] bone_indices: vec4<u32>;
-    [[location(7)]] bone_weights: vec4<f32>;
-};
+    @location(0) object_position: vec3<f32>,
+    @location(1) object_normal: vec3<f32>,
+    @location(2) object_tex_coords: vec2<f32>,
+    @location(3) object_tangent: vec3<f32>,
+    @location(4) object_bitangent: vec3<f32>,
+    @location(5) object_color: vec4<f32>,
+    @location(6) bone_indices: vec4<u32>,
+    @location(7) bone_weights: vec4<f32>,
+}
 
 struct Instance {
-    [[location(8)]]  model_transform_0: vec4<f32>;
-    [[location(9)]]  model_transform_1: vec4<f32>;
-    [[location(10)]]  model_transform_2: vec4<f32>;
-    [[location(11)]]  model_transform_3: vec4<f32>;
-    [[location(12)]] base_color_factor: vec4<f32>;
-    [[location(13)]] emissive_factor: vec4<f32>;
-    [[location(14)]] mrno: vec4<f32>; // metallicness_factor, roughness_factor, normal scale, occlusion strength
-    [[location(15)]] alpha_cutoff: f32;
-};
+    @location(8)  model_transform_0: vec4<f32>,
+    @location(9)  model_transform_1: vec4<f32>,
+    @location(10)  model_transform_2: vec4<f32>,
+    @location(11)  model_transform_3: vec4<f32>,
+    @location(12) base_color_factor: vec4<f32>,
+    @location(13) emissive_factor: vec4<f32>,
+    @location(14) mrno: vec4<f32>, // metallicness_factor, roughness_factor, normal scale, occlusion strength
+    @location(15) alpha_cutoff: f32,
+}
 
 struct VertexOutput {
-    [[builtin(position)]] clip_position: vec4<f32>;
-    [[location(0)]] world_position: vec3<f32>;
-    [[location(1)]] world_normal: vec3<f32>;
-    [[location(2)]] world_tangent: vec3<f32>;
-    [[location(3)]] world_bitangent: vec3<f32>;
-    [[location(4)]] tex_coords: vec2<f32>;
-    [[location(5)]] vertex_color: vec4<f32>;
-    [[location(6)]] base_color_factor: vec4<f32>;
-    [[location(7)]] emissive_factor: vec4<f32>;
-    [[location(8)]] metallicness_factor: f32;
-    [[location(9)]] roughness_factor: f32;
-    [[location(10)]] normal_scale: f32;
-    [[location(11)]] occlusion_strength: f32;
-    [[location(12)]] alpha_cutoff: f32;
-    [[location(13)]] object_tangent: vec3<f32>;
-};
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) world_position: vec3<f32>,
+    @location(1) world_normal: vec3<f32>,
+    @location(2) world_tangent: vec3<f32>,
+    @location(3) world_bitangent: vec3<f32>,
+    @location(4) tex_coords: vec2<f32>,
+    @location(5) vertex_color: vec4<f32>,
+    @location(6) base_color_factor: vec4<f32>,
+    @location(7) emissive_factor: vec4<f32>,
+    @location(8) metallicness_factor: f32,
+    @location(9) roughness_factor: f32,
+    @location(10) normal_scale: f32,
+    @location(11) occlusion_strength: f32,
+    @location(12) alpha_cutoff: f32,
+    @location(13) object_tangent: vec3<f32>,
+}
 
 struct FragmentOutput {
-    [[location(0)]] color: vec4<f32>;
-};
+    @location(0) color: vec4<f32>,
+}
 
 struct ShadowMappingVertexOutput {
-    [[builtin(position)]] clip_position: vec4<f32>;
-    [[location(0)]] world_position: vec3<f32>;
-};
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) world_position: vec3<f32>,
+}
 
 struct ShadowMappingFragmentOutput {
-    [[builtin(frag_depth)]] depth: f32;
-};
+    @builtin(frag_depth) depth: f32,
+}
 
 fn do_vertex_shade(
     vshader_input: VertexInput,
@@ -155,7 +155,7 @@ fn do_vertex_shade(
     return out;
 }
 
-[[stage(vertex)]]
+@vertex
 fn vs_main(
     vshader_input: VertexInput,
     instance: Instance,
@@ -192,7 +192,7 @@ fn vs_main(
     );
 }
 
-[[stage(vertex)]]
+@vertex
 fn shadow_map_vs_main(
     vshader_input: VertexInput,
     instance: Instance,
@@ -225,7 +225,7 @@ fn shadow_map_vs_main(
     return out;
 }
 
-[[stage(fragment)]]
+@fragment
 fn point_shadow_map_fs_main(
     in: ShadowMappingVertexOutput
 ) -> ShadowMappingFragmentOutput {
@@ -235,50 +235,50 @@ fn point_shadow_map_fs_main(
     return out;
 }
 
-[[group(1), binding(0)]]
+@group(1) @binding(0)
 var diffuse_texture: texture_2d<f32>;
-[[group(1), binding(1)]]
+@group(1) @binding(1)
 var diffuse_sampler: sampler;
-[[group(1), binding(2)]]
+@group(1) @binding(2)
 var normal_map_texture: texture_2d<f32>;
-[[group(1), binding(3)]]
+@group(1) @binding(3)
 var normal_map_sampler: sampler;
-[[group(1), binding(4)]]
+@group(1) @binding(4)
 var metallic_roughness_map_texture: texture_2d<f32>;
-[[group(1), binding(5)]]
+@group(1) @binding(5)
 var metallic_roughness_map_sampler: sampler;
-[[group(1), binding(6)]]
+@group(1) @binding(6)
 var emissive_map_texture: texture_2d<f32>;
-[[group(1), binding(7)]]
+@group(1) @binding(7)
 var emissive_map_sampler: sampler;
-[[group(1), binding(8)]]
+@group(1) @binding(8)
 var ambient_occlusion_map_texture: texture_2d<f32>;
-[[group(1), binding(9)]]
+@group(1) @binding(9)
 var ambient_occlusion_map_sampler: sampler;
 
-[[group(2), binding(0)]]
+@group(2) @binding(0)
 var skybox_texture: texture_cube<f32>;
-[[group(2), binding(1)]]
+@group(2) @binding(1)
 var skybox_sampler: sampler;
-[[group(2), binding(2)]]
+@group(2) @binding(2)
 var diffuse_env_map_texture: texture_cube<f32>;
-[[group(2), binding(3)]]
+@group(2) @binding(3)
 var diffuse_env_map_sampler: sampler;
-[[group(2), binding(4)]]
+@group(2) @binding(4)
 var specular_env_map_texture: texture_cube<f32>;
-[[group(2), binding(5)]]
+@group(2) @binding(5)
 var specular_env_map_sampler: sampler;
-[[group(2), binding(6)]]
+@group(2) @binding(6)
 var brdf_lut_texture: texture_2d<f32>;
-[[group(2), binding(7)]]
+@group(2) @binding(7)
 var brdf_lut_sampler: sampler;
-[[group(2), binding(8)]]
+@group(2) @binding(8)
 var point_shadow_map_textures: texture_cube_array<f32>;
-[[group(2), binding(9)]]
+@group(2) @binding(9)
 var point_shadow_map_sampler: sampler;
-[[group(2), binding(10)]]
+@group(2) @binding(10)
 var directional_shadow_map_textures: texture_2d_array<f32>;
-[[group(2), binding(11)]]
+@group(2) @binding(11)
 var directional_shadow_map_sampler: sampler;
 
 
@@ -713,7 +713,7 @@ fn do_fragment_shade(
     return out;
 }
 
-[[stage(fragment)]]
+@fragment
 fn fs_main(in: VertexOutput) -> FragmentOutput {
     let tbn = (mat3x3<f32>(
         in.world_tangent,

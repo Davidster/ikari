@@ -89,7 +89,11 @@ impl Texture {
             height: dimensions.1 as u32,
             depth_or_array_layers: 1,
         };
-        let mip_level_count = if generate_mipmaps { size.max_mips() } else { 1 };
+        let mip_level_count = if generate_mipmaps {
+            size.max_mips(wgpu::TextureDimension::D2)
+        } else {
+            1
+        };
         let format = format.unwrap_or(wgpu::TextureFormat::Rgba8UnormSrgb);
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label,
@@ -440,13 +444,8 @@ impl Texture {
             depth_or_array_layers: 6,
         };
 
-        let layer_size = wgpu::Extent3d {
-            depth_or_array_layers: 1,
-            ..size
-        };
-
         let mip_level_count = if generate_mipmaps {
-            layer_size.max_mips()
+            size.max_mips(wgpu::TextureDimension::D2)
         } else {
             1
         };
@@ -561,14 +560,14 @@ impl Texture {
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: None,
-                    color_attachments: &[wgpu::RenderPassColorAttachment {
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &face_texture_view,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                             store: true,
                         },
-                    }],
+                    })],
                     depth_stencil_attachment: None,
                 });
                 rpass.set_pipeline(er_to_cubemap_pipeline);
@@ -627,13 +626,8 @@ impl Texture {
             depth_or_array_layers: 6,
         };
 
-        let layer_size = wgpu::Extent3d {
-            depth_or_array_layers: 1,
-            ..size
-        };
-
         let mip_level_count = if generate_mipmaps {
-            layer_size.max_mips()
+            size.max_mips(wgpu::TextureDimension::D2)
         } else {
             1
         };
@@ -747,14 +741,14 @@ impl Texture {
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: None,
-                    color_attachments: &[wgpu::RenderPassColorAttachment {
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &face_texture_view,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                             store: true,
                         },
-                    }],
+                    })],
                     depth_stencil_attachment: None,
                 });
                 rpass.set_pipeline(env_map_gen_pipeline);
@@ -964,14 +958,14 @@ impl Texture {
                             let mut rpass =
                                 encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                                     label: None,
-                                    color_attachments: &[wgpu::RenderPassColorAttachment {
+                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                                         view: &face_texture_view,
                                         resolve_target: None,
                                         ops: wgpu::Operations {
                                             load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                                             store: true,
                                         },
-                                    }],
+                                    })],
                                     depth_stencil_attachment: None,
                                 });
                             rpass.set_pipeline(env_map_gen_pipeline);
@@ -1040,13 +1034,8 @@ impl Texture {
             depth_or_array_layers: 6,
         };
 
-        let layer_size = wgpu::Extent3d {
-            depth_or_array_layers: 1,
-            ..size
-        };
-
         let mip_level_count = if generate_mipmaps {
-            layer_size.max_mips()
+            size.max_mips(wgpu::TextureDimension::D2)
         } else {
             1
         };
@@ -1137,14 +1126,14 @@ impl Texture {
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
-                color_attachments: &[wgpu::RenderPassColorAttachment {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::RED),
                         store: true,
                     },
-                }],
+                })],
                 depth_stencil_attachment: None,
             });
             rpass.set_pipeline(brdf_lut_gen_pipeline);
@@ -1169,7 +1158,7 @@ fn generate_mipmaps_for_texture(
     mip_level_count: u32,
     format: wgpu::TextureFormat,
 ) -> Result<()> {
-    let blit_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+    let blit_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
         source: wgpu::ShaderSource::Wgsl(
             std::fs::read_to_string("./src/shaders/blit.wgsl")?.into(),
@@ -1186,7 +1175,7 @@ fn generate_mipmaps_for_texture(
         fragment: Some(wgpu::FragmentState {
             module: &blit_shader,
             entry_point: "fs_main",
-            targets: &[format.into()],
+            targets: &[Some(format.into())],
         }),
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
@@ -1262,14 +1251,14 @@ fn generate_mipmaps_for_texture(
 
         let mut rpass = mip_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,
-            color_attachments: &[wgpu::RenderPassColorAttachment {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &mip_texure_views[target_mip],
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                     store: true,
                 },
-            }],
+            })],
             depth_stencil_attachment: None,
         });
         rpass.set_pipeline(&mip_render_pipeline);

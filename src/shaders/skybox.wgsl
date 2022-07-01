@@ -1,30 +1,30 @@
 struct CameraUniform {
-    proj: mat4x4<f32>;
-    view: mat4x4<f32>;
-    rotation_only_view: mat4x4<f32>;
-    position: vec4<f32>;
-    near_plane_distance: f32;
-    far_plane_distance: f32;
-};
-[[group(1), binding(0)]]
+    proj: mat4x4<f32>,
+    view: mat4x4<f32>,
+    rotation_only_view: mat4x4<f32>,
+    position: vec4<f32>,
+    near_plane_distance: f32,
+    far_plane_distance: f32,
+}
+@group(1) @binding(0)
 var<uniform> camera: CameraUniform;
 
 struct RougnessInput {
-    value: f32;
-};
-[[group(1), binding(1)]]
+    value: f32,
+}
+@group(1) @binding(1)
 var<uniform> roughness_input: RougnessInput;
 
 struct VertexInput {
-    [[location(0)]] object_position: vec3<f32>;
-};
+    @location(0) object_position: vec3<f32>,
+}
 
 struct VertexOutput {
-    [[builtin(position)]] clip_position: vec4<f32>;
-    [[location(0)]] world_position: vec3<f32>;
-};
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) world_position: vec3<f32>,
+}
 
-[[stage(vertex)]]
+@vertex
 fn vs_main(
     vshader_input: VertexInput,
 ) -> VertexOutput {
@@ -41,14 +41,14 @@ fn world_normal_to_cubemap_vec(world_pos: vec3<f32>) -> vec3<f32> {
     return vec3<f32>(-world_pos.x, world_pos.y, world_pos.z);
 }
 
-[[group(0), binding(0)]]
+@group(0) @binding(0)
 var cubemap_texture: texture_cube<f32>;
 
-[[group(0), binding(1)]]
+@group(0) @binding(1)
 var cubemap_sampler: sampler;
 
-[[stage(fragment)]]
-fn cubemap_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+@fragment
+fn cubemap_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // let col = textureSampleLevel(cubemap_texture, cubemap_sampler, world_normal_to_cubemap_vec(in.world_position), 0.0);
     let col = textureSample(cubemap_texture, cubemap_sampler, world_normal_to_cubemap_vec(in.world_position));
     return vec4<f32>(col.x % 1.01, col.y % 1.01, col.z % 1.01, 1.0);
@@ -181,14 +181,14 @@ fn latlng_to_uv(latitude: f32, longitude: f32) -> vec2<f32> {
     );
 }
 
-[[group(0), binding(0)]]
+@group(0) @binding(0)
 var equirectangular_texture: texture_2d<f32>;
 
-[[group(0), binding(1)]]
+@group(0) @binding(1)
 var equirectangular_sampler: sampler;
 
-[[stage(fragment)]]
-fn equirectangular_to_cubemap_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+@fragment
+fn equirectangular_to_cubemap_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let latitude = atan2(
         in.world_position.y,
         sqrt(in.world_position.x * in.world_position.x + in.world_position.z * in.world_position.z)
@@ -201,8 +201,8 @@ fn equirectangular_to_cubemap_fs_main(in: VertexOutput) -> [[location(0)]] vec4<
     // return vec4<f32>(col.x % 1.01, col.y % 1.01, col.z % 1.01, 1.0);
 }
 
-[[stage(fragment)]]
-fn diffuse_env_map_gen_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+@fragment
+fn diffuse_env_map_gen_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let normal = normalize(in.world_position);
     var irradiance = vec3<f32>(0.0, 0.0, 0.0);
 
@@ -222,9 +222,7 @@ fn diffuse_env_map_gen_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
                 cubemap_texture,
                 cubemap_sampler,
                 world_normal_to_cubemap_vec(sample_dir)
-                    // vec3<f32>(-sample_dir.x, sample_dir.y, sample_dir.z)
-            ).rgb * cos(theta) * // cos(theta);
-                sin(theta);
+            ).rgb * cos(theta) * sin(theta);
         }
     }
 
@@ -234,8 +232,8 @@ fn diffuse_env_map_gen_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     return vec4<f32>(irradiance, 1.0);
 }
 
-[[stage(fragment)]]
-fn specular_env_map_gen_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+@fragment
+fn specular_env_map_gen_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let normal = normalize(in.world_position);
     let reflect_dir = normal;
     let view_dir = reflect_dir;

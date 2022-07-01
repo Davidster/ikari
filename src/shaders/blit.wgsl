@@ -1,21 +1,21 @@
 struct BloomConfigUniform {
-    direction: f32; // 0,0 or 1.0
-    threshold: f32;
-    ramp_size: f32;
-};
-[[group(1), binding(0)]]
+    direction: f32, // 0,0 or 1.0
+    threshold: f32,
+    ramp_size: f32,
+}
+@group(1) @binding(0)
 var<uniform> bloom_config: BloomConfigUniform;
 
 struct ToneMappingConfigUniform {
-    exposure: f32;
-};
-[[group(1), binding(0)]]
+    exposure: f32,
+}
+@group(1) @binding(0)
 var<uniform> tone_mapping_config: ToneMappingConfigUniform;
 
 struct VertexOutput {
-    [[builtin(position)]] position: vec4<f32>;
-    [[location(2)]] tex_coords: vec2<f32>;
-};
+    @builtin(position) position: vec4<f32>,
+    @location(2) tex_coords: vec2<f32>,
+}
 
 // should be called with 3 vertex indices: 0, 1, 2
 // draws one large triangle over the clip space like this:
@@ -35,8 +35,8 @@ struct VertexOutput {
 // |     .
 // |   .
 // |.
-[[stage(vertex)]]
-fn vs_main([[builtin(vertex_index)]] vertex_index: u32) -> VertexOutput {
+@vertex
+fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     var out: VertexOutput;
     let x = i32(vertex_index) / 2;
     let y = i32(vertex_index) & 1;
@@ -54,22 +54,22 @@ fn vs_main([[builtin(vertex_index)]] vertex_index: u32) -> VertexOutput {
     return out;
 }
 
-[[group(0), binding(0)]]
+@group(0) @binding(0)
 var texture_1: texture_2d<f32>;
-[[group(0), binding(1)]]
+@group(0) @binding(1)
 var sampler_1: sampler;
-[[group(0), binding(2)]]
+@group(0) @binding(2)
 var texture_2: texture_2d<f32>;
-[[group(0), binding(3)]]
+@group(0) @binding(3)
 var sampler_2: sampler;
 
-[[stage(fragment)]]
-fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     return textureSample(texture_1, sampler_1, in.tex_coords);
 }
 
-[[stage(fragment)]]
-fn tone_mapping_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+@fragment
+fn tone_mapping_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let exposure = tone_mapping_config.exposure;
     let shaded_color = textureSample(texture_1, sampler_1, in.tex_coords).rgb;
     let bloom_color = textureSample(texture_2, sampler_2, in.tex_coords).rgb;
@@ -79,8 +79,8 @@ fn tone_mapping_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     // return vec4<f32>(final_color_hdr, 1.0);
 }
 
-[[stage(fragment)]]
-fn bloom_threshold_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+@fragment
+fn bloom_threshold_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let threshold = bloom_config.threshold;
     let ramp_size = bloom_config.ramp_size;
     let hdr_color = textureSample(texture_1, sampler_1, in.tex_coords);
@@ -92,8 +92,8 @@ fn bloom_threshold_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
     return vec4<f32>(t * hdr_color.rgb, 1.0);
 }
 
-[[stage(fragment)]]
-fn bloom_blur_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+@fragment
+fn bloom_blur_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var gaussian_blur_weights: array<f32, 5>;
     gaussian_blur_weights[0] = 0.227027;
     gaussian_blur_weights[1] = 0.1945946;
@@ -275,7 +275,7 @@ fn integrate_brdf(n_dot_v: f32, roughness: f32) -> vec2<f32> {
     return vec2<f32>(a, b);
 }
 
-[[stage(fragment)]]
-fn brdf_lut_gen_fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
+@fragment
+fn brdf_lut_gen_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(integrate_brdf(in.tex_coords.x, in.tex_coords.y), 0.0, 1.0);
 }

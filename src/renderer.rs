@@ -343,6 +343,7 @@ impl RendererState {
         let adapter_name = adapter_info.name;
         let adapter_backend = adapter_info.backend;
         logger.log(&format!("Using {adapter_name} ({adapter_backend:?})"));
+        logger.log(&format!("Using {adapter_name} ({adapter_backend:?})"));
         logger.log("Controls:");
         vec![
             "Move Around: WASD, Space Bar, Ctrl",
@@ -370,8 +371,9 @@ impl RendererState {
             .await
             .expect("Failed to create device");
 
-        let swapchain_format = surface
-            .get_preferred_format(&adapter)
+        let swapchain_format = *surface
+            .get_supported_formats(&adapter)
+            .get(0)
             .expect("Window surface is incompatible with the graphics adapter");
 
         let config = wgpu::SurfaceConfiguration {
@@ -385,28 +387,28 @@ impl RendererState {
 
         surface.configure(&device, &config);
 
-        let flat_color_mesh_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        let flat_color_mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Flat Color Mesh Shader"),
             source: wgpu::ShaderSource::Wgsl(
                 std::fs::read_to_string("./src/shaders/flat_color_mesh.wgsl")?.into(),
             ),
         });
 
-        let blit_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        let blit_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Blit Shader"),
             source: wgpu::ShaderSource::Wgsl(
                 std::fs::read_to_string("./src/shaders/blit.wgsl")?.into(),
             ),
         });
 
-        let textured_mesh_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        let textured_mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Textured Mesh Shader"),
             source: wgpu::ShaderSource::Wgsl(
                 std::fs::read_to_string("./src/shaders/textured_mesh.wgsl")?.into(),
             ),
         });
 
-        let skybox_shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        let skybox_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Skybox Shader"),
             source: wgpu::ShaderSource::Wgsl(
                 std::fs::read_to_string("./src/shaders/skybox.wgsl")?.into(),
@@ -779,17 +781,17 @@ impl RendererState {
                 label: Some("bones_bind_group_layout"),
             });
 
-        let fragment_shader_color_targets = &[wgpu::ColorTargetState {
+        let fragment_shader_color_targets = &[Some(wgpu::ColorTargetState {
             format: wgpu::TextureFormat::Rgba16Float,
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
-        }];
+        })];
 
         let mesh_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Mesh Pipeline Layout"),
             bind_group_layouts: &[
                 &camera_and_lights_bind_group_layout,
-                &five_texture_bind_group_layout,
+                &five_texture_bind_group_layout, // TODO: skybox texture actually isn't used here
                 &environment_textures_bind_group_layout,
                 &bones_bind_group_layout,
             ],
@@ -922,11 +924,11 @@ impl RendererState {
         };
         let bloom_blur_pipeline = device.create_render_pipeline(&bloom_blur_pipeline_descriptor);
 
-        let surface_blit_color_targets = &[wgpu::ColorTargetState {
+        let surface_blit_color_targets = &[Some(wgpu::ColorTargetState {
             format: config.format,
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
-        }];
+        })];
         let surface_blit_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
@@ -957,7 +959,7 @@ impl RendererState {
         let surface_blit_pipeline =
             device.create_render_pipeline(&surface_blit_pipeline_descriptor);
 
-        let tone_mapping_colors_targets = &[wgpu::ColorTargetState {
+        let tone_mapping_colors_targets = &[Some(wgpu::ColorTargetState {
             format: wgpu::TextureFormat::Rgba16Float,
             blend: Some(wgpu::BlendState {
                 color: wgpu::BlendComponent {
@@ -968,7 +970,7 @@ impl RendererState {
                 alpha: wgpu::BlendComponent::REPLACE,
             }),
             write_mask: wgpu::ColorWrites::ALL,
-        }];
+        })];
         let tone_mapping_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
@@ -1043,11 +1045,11 @@ impl RendererState {
         };
         let skybox_pipeline = device.create_render_pipeline(&skybox_pipeline_descriptor);
 
-        let equirectangular_to_cubemap_color_targets = &[wgpu::ColorTargetState {
+        let equirectangular_to_cubemap_color_targets = &[Some(wgpu::ColorTargetState {
             format: wgpu::TextureFormat::Rgba16Float,
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
-        }];
+        })];
         let equirectangular_to_cubemap_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Equirectangular To Cubemap Render Pipeline Layout"),
@@ -1079,11 +1081,11 @@ impl RendererState {
         let equirectangular_to_cubemap_pipeline =
             device.create_render_pipeline(&equirectangular_to_cubemap_pipeline_descriptor);
 
-        let diffuse_env_map_color_targets = &[wgpu::ColorTargetState {
+        let diffuse_env_map_color_targets = &[Some(wgpu::ColorTargetState {
             format: wgpu::TextureFormat::Rgba16Float,
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
-        }];
+        })];
         let diffuse_env_map_gen_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("diffuse env map Gen Pipeline Layout"),
@@ -1114,11 +1116,11 @@ impl RendererState {
         let diffuse_env_map_gen_pipeline =
             device.create_render_pipeline(&diffuse_env_map_gen_pipeline_descriptor);
 
-        let specular_env_map_color_targets = &[wgpu::ColorTargetState {
+        let specular_env_map_color_targets = &[Some(wgpu::ColorTargetState {
             format: wgpu::TextureFormat::Rgba16Float,
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
-        }];
+        })];
         let specular_env_map_gen_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("specular env map Gen Pipeline Layout"),
@@ -1150,11 +1152,11 @@ impl RendererState {
         let specular_env_map_gen_pipeline =
             device.create_render_pipeline(&specular_env_map_gen_pipeline_descriptor);
 
-        let brdf_lut_gen_color_targets = &[wgpu::ColorTargetState {
+        let brdf_lut_gen_color_targets = &[Some(wgpu::ColorTargetState {
             format: wgpu::TextureFormat::Rg16Float,
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
-        }];
+        })];
         let brdf_lut_gen_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Brdf Lut Gen Pipeline Layout"),
@@ -2897,14 +2899,14 @@ impl RendererState {
 
         let shading_render_pass_desc = wgpu::RenderPassDescriptor {
             label: Some("Shading Render Pass"),
-            color_attachments: &[wgpu::RenderPassColorAttachment {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &self.shading_texture.view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(black),
                     store: true,
                 },
-            }],
+            })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &self.depth_texture.view,
                 depth_ops: Some(wgpu::Operations {
@@ -2927,14 +2929,14 @@ impl RendererState {
             let mut lights_flat_shading_render_pass = lights_flat_shading_encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Lights Flat Shading Render Pass"),
-                    color_attachments: &[wgpu::RenderPassColorAttachment {
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &self.shading_texture.view,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
                             store: true,
                         },
-                    }],
+                    })],
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                         view: &self.depth_texture.view,
                         depth_ops: Some(wgpu::Operations {
@@ -2985,14 +2987,14 @@ impl RendererState {
             let mut bloom_threshold_render_pass =
                 bloom_threshold_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: None,
-                    color_attachments: &[wgpu::RenderPassColorAttachment {
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &self.bloom_pingpong_textures[0].view,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(black),
                             store: true,
                         },
-                    }],
+                    })],
                     depth_stencil_attachment: None,
                 });
 
@@ -3015,14 +3017,14 @@ impl RendererState {
                 {
                     let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: None,
-                        color_attachments: &[wgpu::RenderPassColorAttachment {
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: dst_texture,
                             resolve_target: None,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(black),
                                 store: true,
                             },
-                        }],
+                        })],
                         depth_stencil_attachment: None,
                     });
 
@@ -3064,14 +3066,14 @@ impl RendererState {
             let mut skybox_render_pass =
                 skybox_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: None,
-                    color_attachments: &[wgpu::RenderPassColorAttachment {
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &self.tone_mapping_texture.view,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(black),
                             store: true,
                         },
-                    }],
+                    })],
                     // depth_stencil_attachment: None,
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                         view: &self.depth_texture.view,
@@ -3104,14 +3106,14 @@ impl RendererState {
             let mut tone_mapping_render_pass =
                 tone_mapping_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: None,
-                    color_attachments: &[wgpu::RenderPassColorAttachment {
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &self.tone_mapping_texture.view,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
                             store: true,
                         },
-                    }],
+                    })],
                     depth_stencil_attachment: None,
                 });
             tone_mapping_render_pass.set_pipeline(&self.tone_mapping_pipeline);
@@ -3137,14 +3139,14 @@ impl RendererState {
             let mut surface_blit_render_pass =
                 surface_blit_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: None,
-                    color_attachments: &[wgpu::RenderPassColorAttachment {
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &surface_texture_view,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(black),
                             store: true,
                         },
-                    }],
+                    })],
                     depth_stencil_attachment: None,
                 });
 
