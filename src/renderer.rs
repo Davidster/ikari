@@ -253,7 +253,7 @@ pub struct RendererState {
     plane_instances: Vec<MeshInstance>,
 
     point_light_mesh: InstancedMeshComponent,
-    sphere_mesh: InstancedMeshComponent,
+    sphere_mesh: Option<InstancedMeshComponent>,
     test_object_mesh: InstancedMeshComponent,
     plane_mesh: InstancedMeshComponent,
     skybox_mesh: MeshComponent, // TODO: always use InstancedMeshComponent?
@@ -1272,6 +1272,7 @@ impl RendererState {
             device.create_render_pipeline(&directional_shadow_map_pipeline_descriptor);
 
         let (document, buffers, images) = gltf::import(gltf_path)?;
+        validate_animation_property_counts(&document, &mut logger);
         let scene = build_scene(
             &device,
             &queue,
@@ -1282,7 +1283,6 @@ impl RendererState {
                 images,
             },
         )?;
-        validate_animation_property_counts(&scene, &mut logger);
         let initial_render_scale = INITIAL_RENDER_SCALE;
 
         let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
@@ -2102,7 +2102,7 @@ impl RendererState {
             plane_instances,
 
             point_light_mesh,
-            sphere_mesh,
+            sphere_mesh: Some(sphere_mesh),
             test_object_mesh,
             plane_mesh,
             skybox_mesh,
@@ -2581,70 +2581,55 @@ impl RendererState {
         //     self.state_update_time_accumulator
         // ));
 
-        // to move the boom box with axes around:
-        // let meshes: Vec<_> = self.scene.source_asset.document.meshes().collect();
-        // let drawable_primitive_groups: Vec<_> = meshes
-        //     .iter()
-        //     .flat_map(|mesh| mesh.primitives().map(|prim| (&meshes[mesh.index()], prim)))
-        //     .filter(|(_, prim)| prim.mode() == gltf::mesh::Mode::Triangles)
-        //     .collect();
-        // let prim_groups: Vec<_> = drawable_primitive_groups
-        //     .iter()
-        //     .enumerate()
-        //     .filter(|(_, (_, prim))| {
-        //         prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
-        //             || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask
-        //     })
-        //     .collect();
-        // let transform_him = |prim_index: usize| {
-        //     let BindableMeshData {
-        //         instance_buffer,
-        //         instances,
-        //         ..
-        //     } = &self.scene.buffers.bindable_mesh_data[prim_index];
-        //     let first_directional_light = &self.directional_lights[0];
-        //     let rotation_matrix = look_at_dir(
-        //         first_directional_light.position * 0.9,
-        //         first_directional_light.direction,
-        //         // Vector3::new(10.0, 5.0, 0.0) * 9.0,
-        //         // Vector3::new(-1.0, -1.0, 0.0).normalize(),
-        //     );
-        //     let scale_matrix = make_scale_matrix(Vector3::new(100.0, 100.0, 100.0));
-        //     let new_transform =
-        //         (rotation_matrix * scale_matrix * instances[0].transform.matrix()).into();
-        //     let transformed_instance = GpuMeshInstance::from(MeshInstance {
-        //         transform: new_transform,
-        //         base_material: instances[0].base_material,
+        // if time_seconds > 5.0 && !self.actual_balls.is_empty() {
+        //     let first_ball = self.actual_balls[0].clone();
+        //     let first_ball_transform = first_ball.instance.transform;
+
+        //     self.scene.nodes.push(Node {
+        //         transform: first_ball_transform,
+        //         skin_index: None,
         //     });
-        //     self.queue.write_buffer(
-        //         &instance_buffer.buffer,
-        //         0,
-        //         bytemuck::cast_slice(&[transformed_instance]),
-        //     );
-        // };
-        // transform_him(prim_groups[0].0);
-        // transform_him(prim_groups[1].0);
-        // transform_him(prim_groups[2].0);
-        // transform_him(prim_groups[3].0);
-        // transform_him(prim_groups[4].0);
+        //     let node_index = self.scene.nodes.len() - 1;
 
-        // let scene_meshes: Vec<_> = self.scene.source_asset.document.meshes().collect();
-        // let scene_drawable_primitive_groups: Vec<_> = scene_meshes
-        //     .iter()
-        //     .flat_map(|mesh| mesh.primitives().map(|prim| (&scene_meshes[mesh.index()], prim)))
-        //     .filter(|(_, prim)| prim.mode() == gltf::mesh::Mode::Triangles)
-        //     .collect();
-        // let scene_prim_groups: Vec<_> = scene_drawable_primitive_groups
-        //     .iter()
-        //     .enumerate()
-        //     .filter(|(_, (_, prim))| {
-        //         prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
-        //             || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask
-        //     })
-        //     .collect();
-        //     self.scene.buffers.bindable_mesh_data.find(|BindableMeshData {}|)
+        //     let sphere_mesh = self.sphere_mesh.take().unwrap();
 
-        // if time_seconds > 5.0 {
+        //     self.scene
+        //         .buffers
+        //         .bindable_mesh_data
+        //         .push(BindableMeshData {
+        //             vertex_buffer: BufferAndLength {
+        //                 buffer: sphere_mesh.vertex_buffer,
+        //                 length: sphere_mesh._num_vertices.try_into().unwrap(),
+        //             },
+        //             index_buffer: Some(BufferAndLength {
+        //                 buffer: sphere_mesh.index_buffer,
+        //                 length: sphere_mesh.num_indices.try_into().unwrap(),
+        //             }),
+        //             instance_buffer: BufferAndLength {
+        //                 buffer: sphere_mesh.instance_buffer,
+        //                 length: 1,
+        //             },
+        //             instances: vec![SceneMeshInstance {
+        //                 node_index,
+        //                 transform: first_ball_transform,
+        //                 base_material: first_ball.instance.base_material,
+        //             }],
+        //             textures_bind_group: sphere_mesh.textures_bind_group,
+        //             alpha_mode: AlphaMode::Opaque,
+        //             primitive_mode: PrimitiveMode::Triangles,
+        //         });
+
+        //     self.actual_balls = vec![];
+        //     self.prev_balls = vec![];
+        //     self.next_balls = vec![];
+        // } else {
+        //     let ball_node_index = self.scene.nodes.len() - 1;
+        //     let ball_node = &mut self.scene.nodes[ball_node_index];
+        //     ball_node.transform.set_position(Vector3::new(
+        //         ball_node.transform.position().x,
+        //         ball_node.transform.position().y + 0.5 * frame_time_seconds,
+        //         ball_node.transform.position().z,
+        //     ));
         // }
 
         // do animatons
@@ -2728,11 +2713,13 @@ impl RendererState {
             .iter()
             .map(|ball| GpuMeshInstance::from(ball.instance.clone()))
             .collect();
-        self.queue.write_buffer(
-            &self.sphere_mesh.instance_buffer,
-            0,
-            bytemuck::cast_slice(&balls_transforms),
-        );
+        if let Some(sphere_mesh) = &self.sphere_mesh {
+            self.queue.write_buffer(
+                &sphere_mesh.instance_buffer,
+                0,
+                bytemuck::cast_slice(&balls_transforms),
+            );
+        }
         let test_object_transforms_gpu: Vec<_> = self
             .test_object_instances
             .iter()

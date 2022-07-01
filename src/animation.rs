@@ -373,10 +373,8 @@ impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
     }
 }
 
-pub fn validate_animation_property_counts(scene: &Scene, logger: &mut Logger) {
-    let property_counts: HashMap<(usize, ChannelPropertyStr), usize> = scene
-        .source_asset
-        .document
+pub fn validate_animation_property_counts(gltf_document: &gltf::Document, logger: &mut Logger) {
+    let property_counts: HashMap<(usize, ChannelPropertyStr), usize> = gltf_document
         .animations()
         .flat_map(|animation| animation.channels())
         .fold(HashMap::new(), |mut acc, channel| {
@@ -395,9 +393,7 @@ pub fn validate_animation_property_counts(scene: &Scene, logger: &mut Logger) {
                 "Warning: expected no more than 1 animated property but found {:?} (node_index={:?}, node_name={:?}, property={:?})",
                 count,
                 node_index,
-                scene
-                    .source_asset
-                    .document
+                gltf_document
                     .nodes()
                     .find(|node| node.index() == node_index)
                     .and_then(|node| node.name()),
