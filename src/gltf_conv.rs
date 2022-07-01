@@ -10,14 +10,12 @@ pub fn build_scene(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     five_texture_bind_group_layout: &wgpu::BindGroupLayout,
-    gltf_asset: GltfAsset,
+    (document, buffers, images): (
+        &gltf::Document,
+        &Vec<gltf::buffer::Data>,
+        &Vec<gltf::image::Data>,
+    ),
 ) -> Result<Scene> {
-    let GltfAsset {
-        document,
-        buffers,
-        images,
-    } = &gltf_asset;
-
     let scene_index = document
         .default_scene()
         .map(|scene| scene.index())
@@ -253,10 +251,9 @@ pub fn build_scene(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let animations = get_animations(&gltf_asset.document, &gltf_asset.buffers)?;
+    let animations = get_animations(document, buffers)?;
 
     Ok(Scene {
-        source_asset: gltf_asset,
         buffers: SceneBuffers {
             bindable_mesh_data,
             textures,

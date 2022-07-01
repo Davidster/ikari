@@ -1277,11 +1277,7 @@ impl RendererState {
             &device,
             &queue,
             &five_texture_bind_group_layout,
-            GltfAsset {
-                document,
-                buffers,
-                images,
-            },
+            (&document, &buffers, &images),
         )?;
         let initial_render_scale = INITIAL_RENDER_SCALE;
 

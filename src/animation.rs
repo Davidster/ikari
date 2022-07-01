@@ -9,23 +9,6 @@ use cgmath::{Quaternion, Vector3};
 
 use super::*;
 
-#[derive(Debug)]
-pub struct Animation {
-    // source_animation: gltf::animation::Animation<'a>,
-    length_seconds: f32,
-    channels: Vec<Channel>,
-}
-
-#[derive(Debug)]
-pub struct Channel {
-    // source_channel: gltf::animation::Channel<'a>,
-    node_index: usize,
-    property: gltf::animation::Property,
-    interpolation_type: gltf::animation::Interpolation,
-    keyframe_timings: Vec<f32>,
-    keyframe_values_u8: Vec<u8>,
-}
-
 #[derive(Copy, Clone, Debug)]
 struct KeyframeTime {
     index: usize,

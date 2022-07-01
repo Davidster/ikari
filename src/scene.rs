@@ -4,17 +4,9 @@ use cgmath::Matrix4;
 
 use super::*;
 
-#[derive(Debug)]
-pub struct GltfAsset {
-    pub document: gltf::Document,
-    pub buffers: Vec<gltf::buffer::Data>,
-    pub images: Vec<gltf::image::Data>,
-}
-
 // TODO: clean up this structure if needed
 #[derive(Debug)]
 pub struct Scene {
-    pub source_asset: GltfAsset,
     pub buffers: SceneBuffers,
     // same order as the nodes list
     pub nodes: Vec<Node>,
@@ -82,6 +74,21 @@ pub enum AlphaMode {
 #[derive(Debug)]
 pub enum PrimitiveMode {
     Triangles,
+}
+
+#[derive(Debug)]
+pub struct Animation {
+    pub length_seconds: f32,
+    pub channels: Vec<Channel>,
+}
+
+#[derive(Debug)]
+pub struct Channel {
+    pub node_index: usize,
+    pub property: gltf::animation::Property,
+    pub interpolation_type: gltf::animation::Interpolation,
+    pub keyframe_timings: Vec<f32>,
+    pub keyframe_values_u8: Vec<u8>,
 }
 
 impl Scene {
