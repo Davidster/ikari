@@ -43,6 +43,9 @@ pub struct BindableMeshData {
     pub instances: Vec<SceneMeshInstance>,
 
     pub textures_bind_group: wgpu::BindGroup,
+
+    pub alpha_mode: AlphaMode,
+    pub primitive_mode: PrimitiveMode,
 }
 
 #[derive(Debug)]
@@ -70,23 +73,20 @@ pub struct Skin {
     pub bone_node_indices: Vec<usize>,
 }
 
+#[derive(Debug)]
+pub enum AlphaMode {
+    Opaque,
+    Mask,
+}
+
+#[derive(Debug)]
+pub enum PrimitiveMode {
+    Triangles,
+}
+
 impl Scene {
     pub fn get_drawable_mesh_iterator(&self) -> impl Iterator<Item = &BindableMeshData> {
-        let drawable_prim_indices: Vec<_> = self
-            .source_asset
-            .document
-            .meshes()
-            .flat_map(|mesh| mesh.primitives())
-            .filter(|prim| prim.mode() == gltf::mesh::Mode::Triangles)
-            .enumerate()
-            .filter(|(_, prim)| {
-                prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
-                    || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask
-            })
-            .map(|(prim_index, _)| prim_index)
-            .collect();
-        (0..drawable_prim_indices.len())
-            .map(move |i| &self.buffers.bindable_mesh_data[drawable_prim_indices[i]])
+        self.buffers.bindable_mesh_data.iter()
     }
 
     pub fn get_model_root_if_in_skeleton(&self, node_index: usize) -> Option<usize> {

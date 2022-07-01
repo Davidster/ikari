@@ -173,7 +173,11 @@ pub fn build_scene(
     let drawable_primitive_groups: Vec<_> = meshes
         .iter()
         .flat_map(|mesh| mesh.primitives().map(|prim| (&meshes[mesh.index()], prim)))
-        .filter(|(_, prim)| prim.mode() == gltf::mesh::Mode::Triangles)
+        .filter(|(_, prim)| {
+            prim.mode() == gltf::mesh::Mode::Triangles
+                && (prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
+                    || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask)
+        })
         .collect();
 
     let bindable_mesh_data = drawable_primitive_groups
@@ -227,12 +231,24 @@ pub fn build_scene(
                 length: instances.len(),
             };
 
+            let primitive_mode = crate::scene::PrimitiveMode::Triangles;
+
+            let alpha_mode = match primitive_group.material().alpha_mode() {
+                gltf::material::AlphaMode::Opaque => crate::scene::AlphaMode::Opaque,
+                gltf::material::AlphaMode::Mask => crate::scene::AlphaMode::Mask,
+                gltf::material::AlphaMode::Blend => {
+                    todo!("Alpha blending isn't yet supported")
+                }
+            };
+
             anyhow::Ok(BindableMeshData {
                 vertex_buffer,
                 index_buffer,
                 instance_buffer,
                 instances,
                 textures_bind_group,
+                primitive_mode,
+                alpha_mode,
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
