@@ -2644,6 +2644,9 @@ impl RendererState {
         //     .collect();
         //     self.scene.buffers.bindable_mesh_data.find(|BindableMeshData {}|)
 
+        // if time_seconds > 5.0 {
+        // }
+
         // do animatons
         if self.is_playing_animations {
             self.animation_time_acc += frame_time_seconds;
@@ -2698,8 +2701,7 @@ impl RendererState {
                              base_material,
                              ..
                          }| {
-                            let node_ancestry_list =
-                                get_node_ancestry_list(node_index, &self.scene.parent_index_map);
+                            let node_ancestry_list = self.scene.get_node_ancestry_list(node_index);
                             let transform = node_ancestry_list
                                 .iter()
                                 .rev()
@@ -3284,20 +3286,20 @@ impl RendererState {
             );
 
             // render balls
-            if !is_shadow {
-                render_pass.set_bind_group(1, &self.sphere_mesh.textures_bind_group, &[]);
-            }
-            render_pass.set_vertex_buffer(0, self.sphere_mesh.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.sphere_mesh.instance_buffer.slice(..));
-            render_pass.set_index_buffer(
-                self.sphere_mesh.index_buffer.slice(..),
-                wgpu::IndexFormat::Uint16,
-            );
-            render_pass.draw_indexed(
-                0..self.sphere_mesh.num_indices,
-                0,
-                0..self.actual_balls.len() as u32,
-            );
+            // if !is_shadow {
+            //     render_pass.set_bind_group(1, &self.sphere_mesh.textures_bind_group, &[]);
+            // }
+            // render_pass.set_vertex_buffer(0, self.sphere_mesh.vertex_buffer.slice(..));
+            // render_pass.set_vertex_buffer(1, self.sphere_mesh.instance_buffer.slice(..));
+            // render_pass.set_index_buffer(
+            //     self.sphere_mesh.index_buffer.slice(..),
+            //     wgpu::IndexFormat::Uint16,
+            // );
+            // render_pass.draw_indexed(
+            //     0..self.sphere_mesh.num_indices,
+            //     0,
+            //     0..self.actual_balls.len() as u32,
+            // );
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
