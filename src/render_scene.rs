@@ -6,7 +6,7 @@ use super::*;
 
 // TODO: clean up this structure if needed
 #[derive(Debug)]
-pub struct Scene {
+pub struct RenderScene {
     pub buffers: SceneBuffers,
     // same order as the nodes list
     pub nodes: Vec<Node>,
@@ -49,12 +49,12 @@ pub struct BufferAndLength {
 #[derive(Debug, Clone)]
 pub struct SceneMeshInstance {
     pub node_index: usize,
-    pub transform: crate::transform::Transform,
     pub base_material: BaseMaterial,
 }
 
 #[derive(Debug, Clone)]
 pub struct Node {
+    // TODO: put this transform into the game scene and stop storing it here?
     pub transform: crate::transform::Transform,
     pub skin_index: Option<usize>,
 }
@@ -91,7 +91,7 @@ pub struct Channel {
     pub keyframe_values_u8: Vec<u8>,
 }
 
-impl Scene {
+impl RenderScene {
     pub fn get_drawable_mesh_iterator(&self) -> impl Iterator<Item = &BindableMeshData> {
         self.buffers.bindable_mesh_data.iter()
     }

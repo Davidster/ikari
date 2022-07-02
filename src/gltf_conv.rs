@@ -15,7 +15,7 @@ pub fn build_scene(
         &Vec<gltf::buffer::Data>,
         &Vec<gltf::image::Data>,
     ),
-) -> Result<Scene> {
+) -> Result<RenderScene> {
     let scene_index = document
         .default_scene()
         .map(|scene| scene.index())
@@ -197,43 +197,30 @@ pub fn build_scene(
                 .filter(|node| {
                     node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index()
                 })
-                .map(|node| {
-                    let node_ancestry_list =
-                        get_node_ancestry_list(node.index(), &parent_index_map);
-                    let transform = node_ancestry_list
-                        .iter()
-                        .rev()
-                        .fold(crate::transform::Transform::new(), |acc, node_index| {
-                            acc * nodes[*node_index].transform
-                        });
-                    SceneMeshInstance {
-                        node_index: node.index(),
-                        transform,
-                        base_material,
-                    }
+                .map(|node| SceneMeshInstance {
+                    node_index: node.index(),
+                    base_material,
                 })
                 .collect();
-            let gpu_instances: Vec<_> = instances
-                .iter()
-                .cloned()
-                .map(MeshInstance::from)
-                .map(GpuMeshInstance::from)
+            let initial_instance_buffer: Vec<u8> = (0..(instances.len()
+                * std::mem::size_of::<GpuMeshInstance>()))
+                .map(|_| 0u8)
                 .collect();
 
             let instance_buffer = BufferAndLength {
                 buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("InstancedMeshComponent instance_buffer"),
-                    contents: bytemuck::cast_slice(&gpu_instances),
+                    contents: bytemuck::cast_slice(&initial_instance_buffer),
                     usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 }),
                 length: instances.len(),
             };
 
-            let primitive_mode = crate::scene::PrimitiveMode::Triangles;
+            let primitive_mode = crate::render_scene::PrimitiveMode::Triangles;
 
             let alpha_mode = match primitive_group.material().alpha_mode() {
-                gltf::material::AlphaMode::Opaque => crate::scene::AlphaMode::Opaque,
-                gltf::material::AlphaMode::Mask => crate::scene::AlphaMode::Mask,
+                gltf::material::AlphaMode::Opaque => crate::render_scene::AlphaMode::Opaque,
+                gltf::material::AlphaMode::Mask => crate::render_scene::AlphaMode::Mask,
                 gltf::material::AlphaMode::Blend => {
                     todo!("Alpha blending isn't yet supported")
                 }
@@ -253,7 +240,7 @@ pub fn build_scene(
 
     let animations = get_animations(document, buffers)?;
 
-    Ok(Scene {
+    Ok(RenderScene {
         buffers: SceneBuffers {
             bindable_mesh_data,
             textures,

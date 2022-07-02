@@ -155,21 +155,6 @@ impl MeshInstance {
     }
 }
 
-impl From<SceneMeshInstance> for MeshInstance {
-    fn from(
-        SceneMeshInstance {
-            transform,
-            base_material,
-            ..
-        }: SceneMeshInstance,
-    ) -> Self {
-        Self {
-            transform,
-            base_material,
-        }
-    }
-}
-
 #[derive(Copy, Clone, Debug)]
 pub struct BaseMaterial {
     pub base_color_factor: Vector4<f32>,

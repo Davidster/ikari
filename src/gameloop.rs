@@ -22,7 +22,7 @@ pub fn run(
         match event {
             Event::RedrawRequested(_) => {
                 game_state.on_frame_started();
-                update_game_state(&mut game_state);
+                update_game_state(&mut game_state, &renderer_state);
                 renderer_state.update(&window, game_state.time());
                 renderer_state.logger.on_frame_completed();
 

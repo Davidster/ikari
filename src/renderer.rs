@@ -258,7 +258,7 @@ pub struct RendererState {
     plane_mesh: InstancedMeshComponent,
     skybox_mesh: MeshComponent, // TODO: always use InstancedMeshComponent?
 
-    scene: Scene,
+    scene: RenderScene,
 }
 
 impl RendererState {
@@ -2576,7 +2576,7 @@ impl RendererState {
         //     self.state_update_time_accumulator
         // ));
 
-        // if time_seconds > 5.0 && !self.actual_balls.is_empty() {
+        // if global_time_seconds > 5.0 && !self.actual_balls.is_empty() {
         //     let first_ball = self.actual_balls[0].clone();
         //     let first_ball_transform = first_ball.instance.transform;
 
