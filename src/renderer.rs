@@ -187,8 +187,8 @@ pub struct RendererState {
 
     render_scale: f32,
     state_update_time_accumulator: f32,
-    last_frame_instant: Option<Instant>,
-    first_frame_instant: Option<Instant>,
+    // last_frame_instant: Option<Instant>,
+    // first_frame_instant: Option<Instant>,
     animation_time_acc: f32,
     is_playing_animations: bool,
     pub current_window_size: winit::dpi::PhysicalSize<u32>,
@@ -352,6 +352,7 @@ impl RendererState {
             "Adjust Render Scale: Z / X",
             "Adjust Exposure: E / R",
             "Adjust Bloom Threshold: T / Y",
+            "Pause/Resume Animations: P",
             "Exit: Escape",
         ]
         .iter()
@@ -2034,8 +2035,8 @@ impl RendererState {
 
             render_scale: initial_render_scale,
             state_update_time_accumulator: 0.0,
-            last_frame_instant: None,
-            first_frame_instant: None,
+            // last_frame_instant: None,
+            // first_frame_instant: None,
             animation_time_acc: 0.0,
             is_playing_animations: true,
             logger,
@@ -2464,28 +2465,18 @@ impl RendererState {
         ];
     }
 
-    pub fn update(&mut self, window: &winit::window::Window) {
-        let first_frame_instant = self.first_frame_instant.unwrap_or_else(Instant::now);
-        let time_seconds = first_frame_instant.elapsed().as_secs_f32();
-        self.first_frame_instant = Some(first_frame_instant);
+    pub fn update(&mut self, window: &winit::window::Window, time_tracker: TimeTracker) {
+        let global_time_seconds = time_tracker.global_time_seconds();
 
         // results in ~60 state changes per second
         let min_update_timestep_seconds = 1.0 / 60.0;
         // if frametime takes longer than this, we give up on trying to catch up completely
         // prevents the game from getting stuck in a spiral of death
         let max_delay_catchup_seconds = 0.25;
-        let frame_instant = Instant::now();
-        let mut frame_time_seconds = if let Some(last_frame_instant) = self.last_frame_instant {
-            frame_instant
-                .duration_since(last_frame_instant)
-                .as_secs_f32()
-        } else {
-            0.0
-        };
+        let mut frame_time_seconds = time_tracker.last_frame_time_seconds();
         if frame_time_seconds > max_delay_catchup_seconds {
             frame_time_seconds = max_delay_catchup_seconds;
         }
-        self.last_frame_instant = Some(frame_instant);
         self.state_update_time_accumulator += frame_time_seconds;
 
         // update ball positions
@@ -2511,12 +2502,16 @@ impl RendererState {
             let mut transform = point_light_0.transform;
             transform.set_position(Vector3::new(
                 // light_1.transform.position.get().x,
-                1.5 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
+                1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).cos(),
                 point_light_0.transform.position().y - frame_time_seconds * 0.25,
-                1.5 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
+                1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).sin(),
                 // light_1.transform.position.get().z,
             ));
-            let color = lerp_vec(LIGHT_COLOR_A, LIGHT_COLOR_B, (time_seconds * 2.0).sin());
+            let color = lerp_vec(
+                LIGHT_COLOR_A,
+                LIGHT_COLOR_B,
+                (global_time_seconds * 2.0).sin(),
+            );
 
             PointLightComponent {
                 transform,
@@ -2535,7 +2530,11 @@ impl RendererState {
             //     transform.position.get().y,
             //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
             // ));
-            let color = lerp_vec(LIGHT_COLOR_B, LIGHT_COLOR_A, (time_seconds * 2.0).sin());
+            let color = lerp_vec(
+                LIGHT_COLOR_B,
+                LIGHT_COLOR_A,
+                (global_time_seconds * 2.0).sin(),
+            );
 
             PointLightComponent {
                 transform,

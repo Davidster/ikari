@@ -10,9 +10,10 @@ use super::*;
 
 const MAX_LOG_RATE: i64 = 24; // 24 logs per second
 
-pub async fn run<'a>(
+pub fn run(
     mut window: Window,
     event_loop: EventLoop<()>,
+    mut game_state: GameState,
     mut renderer_state: RendererState,
 ) {
     let mut last_log_time: Option<Instant> = None;
@@ -20,7 +21,9 @@ pub async fn run<'a>(
         *control_flow = ControlFlow::Poll;
         match event {
             Event::RedrawRequested(_) => {
-                renderer_state.update(&window);
+                game_state.on_frame_started();
+                update_game_state(&mut game_state);
+                renderer_state.update(&window, game_state.time());
                 renderer_state.logger.on_frame_completed();
 
                 let last_log_time_clone = last_log_time;

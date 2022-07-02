@@ -2,6 +2,8 @@ mod animation;
 mod ball;
 mod camera;
 mod camera_controller;
+mod game;
+mod game_state;
 mod gameloop;
 mod gltf_conv;
 mod helpers;
@@ -12,12 +14,15 @@ mod renderer;
 mod scene;
 mod skinning;
 mod texture;
+mod time_tracker;
 mod transform;
 
 use animation::*;
 use ball::*;
 use camera::*;
 use camera_controller::*;
+use game::*;
+use game_state::*;
 use gltf_conv::*;
 use helpers::*;
 use light::*;
@@ -27,6 +32,7 @@ use renderer::*;
 use scene::*;
 use skinning::*;
 use texture::*;
+use time_tracker::*;
 use transform::*;
 
 use cgmath::prelude::*;
@@ -80,7 +86,8 @@ async fn start() {
         let renderer_state_result = RendererState::new(&window).await;
         match renderer_state_result {
             Ok(renderer_state) => {
-                gameloop::run(window, event_loop, renderer_state).await;
+                let game_state = GameState::init();
+                gameloop::run(window, event_loop, game_state, renderer_state);
             }
             Err(err) => {
                 eprintln!(
