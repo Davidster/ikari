@@ -42,21 +42,6 @@ var<storage, read> bones_uniform: BonesUniform;
 @group(1) @binding(0)
 var<storage, read> shadow_bones_uniform: BonesUniform;
 
-/// HACK: This works around naga not supporting matrix addition in SPIR-V
-// translations. See https://github.com/gfx-rs/naga/issues/1527
-fn add_matrix(
-    a: mat4x4<f32>,
-    b: mat4x4<f32>,
-) -> mat4x4<f32> {
-    return mat4x4<f32>(
-        a[0] + b[0],
-        a[1] + b[1],
-        a[2] + b[2],
-        a[3] + b[3],
-    );
-}
-
-
 struct VertexInput {
     @location(0) object_position: vec3<f32>,
     @location(1) object_normal: vec3<f32>,
@@ -174,7 +159,7 @@ fn vs_main(
     let skin_transform_1 = bone_weights.y * bones_uniform.value[bone_indices.y];
     let skin_transform_2 = bone_weights.z * bones_uniform.value[bone_indices.z];
     let skin_transform_3 = bone_weights.w * bones_uniform.value[bone_indices.w];
-    let skin_transform = add_matrix(skin_transform_0, add_matrix(skin_transform_1, add_matrix(skin_transform_2, skin_transform_3)));
+    let skin_transform = skin_transform_0 + skin_transform_1 + skin_transform_2 + skin_transform_3;
 
     return do_vertex_shade(
         vshader_input,
@@ -210,7 +195,7 @@ fn shadow_map_vs_main(
     let skin_transform_1 = bone_weights.y * shadow_bones_uniform.value[bone_indices.y];
     let skin_transform_2 = bone_weights.z * shadow_bones_uniform.value[bone_indices.z];
     let skin_transform_3 = bone_weights.w * shadow_bones_uniform.value[bone_indices.w];
-    let skin_transform = add_matrix(skin_transform_0, add_matrix(skin_transform_1, add_matrix(skin_transform_2, skin_transform_3)));
+    let skin_transform = skin_transform_0 + skin_transform_1 + skin_transform_2 + skin_transform_3;
 
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
     let camera_view_proj = camera.proj * camera.view;

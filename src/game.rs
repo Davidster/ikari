@@ -271,9 +271,9 @@ pub fn update_game_state(
         game_state.scene.nodes.push(
             GameNodeBuilder::new()
                 .transform(first_ball_transform)
-                // .binded_mesh_indices(Some(vec![
-                //     renderer_state.scene.buffers.binded_mesh_data.len() - 1,
-                // ]))
+                .binded_mesh_indices(Some(vec![
+                    renderer_state.scene.buffers.binded_mesh_data.len() - 1,
+                ]))
                 .build(),
         );
 
