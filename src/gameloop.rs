@@ -23,9 +23,10 @@ pub fn run(
         match event {
             Event::RedrawRequested(_) => {
                 game_state.on_frame_started();
-                update_game_state(&mut game_state, &renderer_state);
-                renderer_state.update(&window, &mut game_state, &mut logger);
                 logger.on_frame_completed();
+
+                update_game_state(&mut game_state, &mut renderer_state, &mut logger);
+                renderer_state.update(&window, &mut game_state, &mut logger);
 
                 let last_log_time_clone = last_log_time;
                 let mut write_logs = || {
@@ -46,7 +47,7 @@ pub fn run(
                     _ => {}
                 }
 
-                match renderer_state.render(&game_state.scene) {
+                match renderer_state.render(&game_state) {
                     Ok(_) => {}
                     // Reconfigure the surface if lost
                     Err(wgpu::SurfaceError::Lost) => {

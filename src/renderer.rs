@@ -182,7 +182,6 @@ pub struct BaseRendererState {
     pub two_texture_bind_group_layout: wgpu::BindGroupLayout,
     pub bones_bind_group_layout: wgpu::BindGroupLayout,
     pub pbr_textures_bind_group_layout: wgpu::BindGroupLayout,
-    // TODO: to be continued
 }
 
 impl BaseRendererState {
@@ -419,9 +418,6 @@ pub struct RendererState {
     bloom_ramp_size: f32,
 
     render_scale: f32,
-    state_update_time_accumulator: f32,
-    // last_frame_instant: Option<Instant>,
-    // first_frame_instant: Option<Instant>,
     animation_time_acc: f32,
     is_playing_animations: bool,
 
@@ -469,23 +465,13 @@ pub struct RendererState {
     shading_texture_bind_group: wgpu::BindGroup,
     bloom_pingpong_texture_bind_groups: [wgpu::BindGroup; 2],
 
-    // store the previous state and next state and interpolate between them
-    next_balls: Vec<BallComponent>,
-    prev_balls: Vec<BallComponent>,
-    actual_balls: Vec<BallComponent>,
-
-    point_lights: Vec<PointLightComponent>,
-    directional_lights: Vec<DirectionalLightComponent>,
-    test_object_instances: Vec<MeshInstance>,
-    plane_instances: Vec<MeshInstance>,
-
     point_light_mesh: InstancedMeshComponent,
-    sphere_mesh: Option<InstancedMeshComponent>,
+    pub sphere_mesh: Option<InstancedMeshComponent>,
     test_object_mesh: InstancedMeshComponent,
     plane_mesh: InstancedMeshComponent,
     skybox_mesh: MeshComponent, // TODO: always use InstancedMeshComponent?
 
-    scene: RenderScene,
+    pub scene: RenderScene,
 }
 
 impl RendererState {
@@ -493,6 +479,7 @@ impl RendererState {
         window: &winit::window::Window,
         scene: RenderScene,
         base: BaseRendererState,
+        game_state: &GameState,
         logger: &mut Logger,
     ) -> Result<Self> {
         // Mountains
@@ -1658,45 +1645,8 @@ impl RendererState {
             }),
         )?;
 
-        let directional_lights = vec![DirectionalLightComponent {
-            position: Vector3::new(10.0, 5.0, 0.0) * 10.0,
-            direction: Vector3::new(-1.0, -0.7, 0.0).normalize(),
-            color: LIGHT_COLOR_A,
-            intensity: 1.0,
-        }];
-        // let directional_lights: Vec<DirectionalLightComponent> = vec![];
-
-        let mut point_lights = vec![
-            PointLightComponent {
-                transform: crate::transform::Transform::new(),
-                color: LIGHT_COLOR_A,
-                intensity: 1.0,
-            },
-            PointLightComponent {
-                transform: crate::transform::Transform::new(),
-                color: LIGHT_COLOR_B,
-                intensity: 1.0,
-            },
-        ];
-        // let mut point_lights: Vec<PointLightComponent> = vec![];
-        if let Some(point_light_0) = point_lights.get_mut(0) {
-            point_light_0
-                .transform
-                .set_scale(Vector3::new(0.05, 0.05, 0.05));
-            point_light_0
-                .transform
-                .set_position(Vector3::new(0.0, 12.0, 0.0));
-        }
-        if let Some(point_light_1) = point_lights.get_mut(1) {
-            point_light_1
-                .transform
-                .set_scale(Vector3::new(0.1, 0.1, 0.1));
-            point_light_1
-                .transform
-                .set_position(Vector3::new(0.0, 15.0, 0.0));
-        }
-
-        let light_flat_color_instances: Vec<_> = point_lights
+        let light_flat_color_instances: Vec<_> = game_state
+            .point_lights
             .iter()
             .map(|light| GpuFlatColorMeshInstance::from(light.clone()))
             .collect();
@@ -1731,12 +1681,8 @@ impl RendererState {
             bytemuck::cast_slice(&light_flat_color_instances),
         )?;
 
-        let mut test_object_instances = vec![MeshInstance::new()];
-        test_object_instances[0]
-            .transform
-            .set_position(Vector3::new(4.0, 10.0, 4.0));
-
-        let test_object_transforms_gpu: Vec<_> = test_object_instances
+        let test_object_transforms_gpu: Vec<_> = game_state
+            .test_object_instances
             .iter()
             .cloned()
             .map(GpuMeshInstance::from)
@@ -1768,14 +1714,8 @@ impl RendererState {
             bytemuck::cast_slice(&test_object_transforms_gpu),
         )?;
 
-        let mut plane_instances = vec![MeshInstance::new()];
-        plane_instances[0].transform.set_scale(Vector3::new(
-            ARENA_SIDE_LENGTH,
-            1.0,
-            ARENA_SIDE_LENGTH,
-        ));
-
-        let plane_transforms_gpu: Vec<_> = plane_instances
+        let plane_transforms_gpu: Vec<_> = game_state
+            .plane_instances
             .iter()
             .cloned()
             .map(GpuMeshInstance::from)
@@ -1821,7 +1761,9 @@ impl RendererState {
 
         let point_lights_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Point Lights Buffer"),
-            contents: bytemuck::cast_slice(&make_point_light_uniform_buffer(&point_lights)),
+            contents: bytemuck::cast_slice(&make_point_light_uniform_buffer(
+                &game_state.point_lights,
+            )),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -1829,7 +1771,7 @@ impl RendererState {
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Directional Lights Buffer"),
                 contents: bytemuck::cast_slice(&make_directional_light_uniform_buffer(
-                    &directional_lights,
+                    &game_state.directional_lights,
                 )),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
@@ -1902,25 +1844,8 @@ impl RendererState {
                 label: Some("point_shadow_camera_bind_group"),
             });
 
-        let balls: Vec<_> = (0..500)
-            .into_iter()
-            .map(|_| {
-                BallComponent::new(
-                    Vector2::new(
-                        -10.0 + rand::random::<f32>() * 20.0,
-                        -10.0 + rand::random::<f32>() * 20.0,
-                    ),
-                    Vector2::new(
-                        -1.0 + rand::random::<f32>() * 2.0,
-                        -1.0 + rand::random::<f32>() * 2.0,
-                    ),
-                    0.5 + (rand::random::<f32>() * 0.75),
-                    1.0 + (rand::random::<f32>() * 15.0),
-                )
-            })
-            .collect();
-
-        let balls_transforms: Vec<_> = balls
+        let balls_transforms: Vec<_> = game_state
+            .actual_balls
             .iter()
             .map(|ball| GpuMeshInstance::from(ball.instance.clone()))
             .collect();
@@ -1937,7 +1862,7 @@ impl RendererState {
             bytemuck::cast_slice(&balls_transforms),
         )?;
 
-        let point_light_count: u32 = point_lights.len().try_into().unwrap();
+        let point_light_count: u32 = game_state.point_lights.len().try_into().unwrap();
         let point_shadow_map_textures = Texture::create_cube_depth_texture_array(
             device,
             1024,
@@ -1945,7 +1870,7 @@ impl RendererState {
             point_light_count.max(1),
         );
 
-        let directional_light_count: u32 = directional_lights.len().try_into().unwrap();
+        let directional_light_count: u32 = game_state.directional_lights.len().try_into().unwrap();
         let directional_shadow_map_textures = Texture::create_depth_texture_array(
             device,
             1024,
@@ -2029,7 +1954,6 @@ impl RendererState {
             bloom_ramp_size: INITIAL_BLOOM_RAMP_SIZE,
 
             render_scale: initial_render_scale,
-            state_update_time_accumulator: 0.0,
             // last_frame_instant: None,
             // first_frame_instant: None,
             animation_time_acc: 0.0,
@@ -2077,15 +2001,6 @@ impl RendererState {
 
             tone_mapping_config_bind_group,
             tone_mapping_config_buffer,
-
-            next_balls: balls.clone(),
-            prev_balls: balls.clone(),
-            actual_balls: balls,
-
-            point_lights,
-            directional_lights,
-            test_object_instances,
-            plane_instances,
 
             point_light_mesh,
             sphere_mesh: Some(sphere_mesh),
@@ -2336,165 +2251,7 @@ impl RendererState {
     ) {
         let time_tracker = game_state.time();
         let global_time_seconds = time_tracker.global_time_seconds();
-
-        // results in ~60 state changes per second
-        let min_update_timestep_seconds = 1.0 / 60.0;
-        // if frametime takes longer than this, we give up on trying to catch up completely
-        // prevents the game from getting stuck in a spiral of death
-        let max_delay_catchup_seconds = 0.25;
-        let mut frame_time_seconds = time_tracker.last_frame_time_seconds();
-        if frame_time_seconds > max_delay_catchup_seconds {
-            frame_time_seconds = max_delay_catchup_seconds;
-        }
-        self.state_update_time_accumulator += frame_time_seconds;
-
-        // update ball positions
-        while self.state_update_time_accumulator >= min_update_timestep_seconds {
-            if self.state_update_time_accumulator < min_update_timestep_seconds * 2.0 {
-                self.prev_balls = self.next_balls.clone();
-            }
-            self.prev_balls = self.next_balls.clone();
-            self.next_balls
-                .iter_mut()
-                .for_each(|ball| ball.update(min_update_timestep_seconds, logger));
-            self.state_update_time_accumulator -= min_update_timestep_seconds;
-        }
-        let alpha = self.state_update_time_accumulator / min_update_timestep_seconds;
-        self.actual_balls = self
-            .prev_balls
-            .iter()
-            .zip(self.next_balls.iter())
-            .map(|(prev_ball, next_ball)| prev_ball.lerp(next_ball, alpha))
-            .collect();
-
-        let new_point_light_0 = self.point_lights.get(0).map(|point_light_0| {
-            let mut transform = point_light_0.transform;
-            transform.set_position(Vector3::new(
-                // light_1.transform.position.get().x,
-                1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).cos(),
-                point_light_0.transform.position().y - frame_time_seconds * 0.25,
-                1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).sin(),
-                // light_1.transform.position.get().z,
-            ));
-            let color = lerp_vec(
-                LIGHT_COLOR_A,
-                LIGHT_COLOR_B,
-                (global_time_seconds * 2.0).sin(),
-            );
-
-            PointLightComponent {
-                transform,
-                color,
-                intensity: point_light_0.intensity,
-            }
-        });
-        if let Some(new_point_light_0) = new_point_light_0 {
-            self.point_lights[0] = new_point_light_0;
-        }
-
-        let new_point_light_1 = self.point_lights.get(1).map(|point_light_1| {
-            let transform = point_light_1.transform;
-            // transform.set_position(Vector3::new(
-            //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
-            //     transform.position.get().y,
-            //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
-            // ));
-            let color = lerp_vec(
-                LIGHT_COLOR_B,
-                LIGHT_COLOR_A,
-                (global_time_seconds * 2.0).sin(),
-            );
-
-            PointLightComponent {
-                transform,
-                color,
-                intensity: point_light_1.intensity,
-            }
-        });
-        if let Some(new_point_light_1) = new_point_light_1 {
-            self.point_lights[1] = new_point_light_1;
-        }
-
-        let directional_light_0 = self.directional_lights.get(0).map(|directional_light_0| {
-            let direction = directional_light_0.direction;
-            // transform.set_position(Vector3::new(
-            //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
-            //     transform.position.get().y,
-            //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
-            // ));
-            // let color = lerp_vec(LIGHT_COLOR_B, LIGHT_COLOR_A, (time_seconds * 2.0).sin());
-
-            DirectionalLightComponent {
-                direction: Vector3::new(direction.x, direction.y + 0.0001, direction.z),
-                ..*directional_light_0
-            }
-        });
-        if let Some(directional_light_0) = directional_light_0 {
-            self.directional_lights[0] = directional_light_0;
-        }
-
-        // let rotational_displacement =
-        //     make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(frame_time_seconds / 5.0));
-        // self.test_object_transforms[0]
-        //     .set_rotation(rotational_displacement * self.test_object_transforms[0].rotation.get());
-
-        // self.logger
-        //     .log(&format!("Frame time: {:?}", frame_time_seconds));
-        // self.logger.log(&format!(
-        //     "state_update_time_accumulator: {:?}",
-        //     self.state_update_time_accumulator
-        // ));
-
-        // if global_time_seconds > 5.0 && !self.actual_balls.is_empty() {
-        //     let first_ball = self.actual_balls[0].clone();
-        //     let first_ball_transform = first_ball.instance.transform;
-
-        //     self.scene.nodes.push(Node {
-        //         transform: first_ball_transform,
-        //         skin_index: None,
-        //     });
-        //     let node_index = self.scene.nodes.len() - 1;
-
-        //     let sphere_mesh = self.sphere_mesh.take().unwrap();
-
-        //     self.scene
-        //         .buffers
-        //         .bindable_mesh_data
-        //         .push(BindableMeshData {
-        //             vertex_buffer: BufferAndLength {
-        //                 buffer: sphere_mesh.vertex_buffer,
-        //                 length: sphere_mesh._num_vertices.try_into().unwrap(),
-        //             },
-        //             index_buffer: Some(BufferAndLength {
-        //                 buffer: sphere_mesh.index_buffer,
-        //                 length: sphere_mesh.num_indices.try_into().unwrap(),
-        //             }),
-        //             instance_buffer: BufferAndLength {
-        //                 buffer: sphere_mesh.instance_buffer,
-        //                 length: 1,
-        //             },
-        //             instances: vec![SceneMeshInstance {
-        //                 node_index,
-        //                 transform: first_ball_transform,
-        //                 base_material: first_ball.instance.base_material,
-        //             }],
-        //             textures_bind_group: sphere_mesh.textures_bind_group,
-        //             alpha_mode: AlphaMode::Opaque,
-        //             primitive_mode: PrimitiveMode::Triangles,
-        //         });
-
-        //     self.actual_balls = vec![];
-        //     self.prev_balls = vec![];
-        //     self.next_balls = vec![];
-        // } else {
-        //     let ball_node_index = self.scene.nodes.len() - 1;
-        //     let ball_node = &mut self.scene.nodes[ball_node_index];
-        //     ball_node.transform.set_position(Vector3::new(
-        //         ball_node.transform.position().x,
-        //         ball_node.transform.position().y + 0.5 * frame_time_seconds,
-        //         ball_node.transform.position().z,
-        //     ));
-        // }
+        let frame_time_seconds = time_tracker.last_frame_time_seconds();
 
         // do animatons
         let game_scene = &mut game_state.scene;
@@ -2581,7 +2338,7 @@ impl RendererState {
                 );
             },
         );
-        let balls_transforms: Vec<_> = self
+        let balls_transforms: Vec<_> = game_state
             .actual_balls
             .iter()
             .map(|ball| GpuMeshInstance::from(ball.instance.clone()))
@@ -2593,7 +2350,7 @@ impl RendererState {
                 bytemuck::cast_slice(&balls_transforms),
             );
         }
-        let test_object_transforms_gpu: Vec<_> = self
+        let test_object_transforms_gpu: Vec<_> = game_state
             .test_object_instances
             .iter()
             .cloned()
@@ -2617,7 +2374,7 @@ impl RendererState {
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
-        let point_light_flat_color_instances: Vec<_> = self
+        let point_light_flat_color_instances: Vec<_> = game_state
             .point_lights
             .iter()
             .map(|light| GpuFlatColorMeshInstance::from(light.clone()))
@@ -2642,13 +2399,13 @@ impl RendererState {
         queue.write_buffer(
             &self.point_lights_buffer,
             0,
-            bytemuck::cast_slice(&make_point_light_uniform_buffer(&self.point_lights)),
+            bytemuck::cast_slice(&make_point_light_uniform_buffer(&game_state.point_lights)),
         );
         queue.write_buffer(
             &self.directional_lights_buffer,
             0,
             bytemuck::cast_slice(&make_directional_light_uniform_buffer(
-                &self.directional_lights,
+                &game_state.directional_lights,
             )),
         );
         queue.write_buffer(
@@ -2658,8 +2415,10 @@ impl RendererState {
         );
     }
 
-    pub fn render(&mut self, game_scene: &GameScene) -> Result<(), wgpu::SurfaceError> {
-        self.directional_lights
+    pub fn render(&mut self, game_state: &GameState) -> Result<(), wgpu::SurfaceError> {
+        let game_scene = &game_state.scene;
+        game_state
+            .directional_lights
             .iter()
             .enumerate()
             .for_each(|(light_index, light)| {
@@ -2691,15 +2450,15 @@ impl RendererState {
                     bytemuck::cast_slice(&[CameraUniform::from(view_proj_matrices)]),
                 );
                 self.render_scene(
-                    game_scene,
+                    game_state,
                     &shadow_render_pass_desc,
                     &self.directional_shadow_map_pipeline,
                     true,
                 );
             });
-        (0..self.point_lights.len()).for_each(|light_index| {
+        (0..game_state.point_lights.len()).for_each(|light_index| {
             build_cubemap_face_camera_views(
-                self.point_lights[light_index].transform.position(),
+                game_state.point_lights[light_index].transform.position(),
                 0.1,
                 1000.0,
                 false,
@@ -2739,7 +2498,7 @@ impl RendererState {
                     bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
                 );
                 self.render_scene(
-                    game_scene,
+                    game_state,
                     &shadow_render_pass_desc,
                     &self.point_shadow_map_pipeline,
                     true,
@@ -2780,7 +2539,7 @@ impl RendererState {
         };
 
         self.render_scene(
-            game_scene,
+            game_state,
             &shading_render_pass_desc,
             &self.mesh_pipeline,
             false,
@@ -2833,7 +2592,7 @@ impl RendererState {
             lights_flat_shading_render_pass.draw_indexed(
                 0..self.point_light_mesh.num_indices,
                 0,
-                0..self.point_lights.len() as u32,
+                0..game_state.point_lights.len() as u32,
             );
         }
 
@@ -3043,7 +2802,7 @@ impl RendererState {
 
     fn render_scene<'a>(
         &'a self,
-        game_scene: &GameScene,
+        game_state: &GameState,
         render_pass_descriptor: &wgpu::RenderPassDescriptor<'a, 'a>,
         pipeline: &'a wgpu::RenderPipeline,
         is_shadow: bool,
@@ -3053,7 +2812,7 @@ impl RendererState {
         let limits = &self.base.limits;
         let render_scene = &self.scene;
         let all_bone_transforms = get_all_bone_data(
-            game_scene,
+            &game_state.scene,
             render_scene,
             limits.min_storage_buffer_offset_alignment,
         );
@@ -3149,7 +2908,7 @@ impl RendererState {
             render_pass.draw_indexed(
                 0..self.test_object_mesh.num_indices,
                 0,
-                0..self.test_object_instances.len() as u32,
+                0..game_state.test_object_instances.len() as u32,
             );
 
             // render floor
@@ -3165,7 +2924,7 @@ impl RendererState {
             render_pass.draw_indexed(
                 0..self.plane_mesh.num_indices,
                 0,
-                0..self.plane_instances.len() as u32,
+                0..game_state.plane_instances.len() as u32,
             );
 
             // render balls
@@ -3181,7 +2940,7 @@ impl RendererState {
             // render_pass.draw_indexed(
             //     0..self.sphere_mesh.num_indices,
             //     0,
-            //     0..self.actual_balls.len() as u32,
+            //     0..game_state.actual_balls.len() as u32,
             // );
         }
 
