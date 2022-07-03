@@ -4,7 +4,7 @@ use super::*;
 
 use anyhow::Result;
 
-use cgmath::{Deg, Matrix4, One, Vector2, Vector3};
+use cgmath::{Deg, Matrix4, One, Vector3};
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -1944,8 +1944,6 @@ impl RendererState {
                 label: Some("skybox_texture_bind_group"),
             });
 
-        let _limits = device.limits();
-
         Ok(Self {
             base,
 
@@ -2055,10 +2053,6 @@ impl RendererState {
         window: &mut winit::window::Window,
         logger: &mut Logger,
     ) {
-        let _surface_config = &self.base.surface_config;
-        let _device = &self.base.device;
-        let _single_texture_bind_group_layout = &self.base.single_texture_bind_group_layout;
-        let _two_texture_bind_group_layout = &self.base.two_texture_bind_group_layout;
         if let WindowEvent::KeyboardInput {
             input:
                 KeyboardInput {
@@ -2250,7 +2244,6 @@ impl RendererState {
         logger: &mut Logger,
     ) {
         let time_tracker = game_state.time();
-        let global_time_seconds = time_tracker.global_time_seconds();
         let frame_time_seconds = time_tracker.last_frame_time_seconds();
 
         // do animatons
@@ -2277,10 +2270,8 @@ impl RendererState {
         }
 
         // send data to gpu
-        let _surface = &mut self.base.surface;
         let limits = &mut self.base.limits;
         let queue = &mut self.base.queue;
-        let _surface_config = &mut self.base.surface_config;
         let device = &self.base.device;
         let bones_bind_group_layout = &self.base.bones_bind_group_layout;
         let all_bone_transforms = get_all_bone_data(
@@ -2301,21 +2292,35 @@ impl RendererState {
             }],
             label: Some("bones_bind_group"),
         });
-        self.scene.get_drawable_mesh_iterator().for_each(
-            |BindableMeshData {
-                 instance_buffer,
-                 instances,
-                 ..
-             }| {
-                let gpu_instances: Vec<_> = instances
-                    .iter()
-                    .cloned()
-                    .map(
-                        |SceneMeshInstance {
-                             node_index,
-                             base_material,
-                             ..
-                         }| {
+        render_scene
+            .buffers
+            .binded_mesh_data
+            .iter()
+            .enumerate()
+            .for_each(
+                |(
+                    binded_mesh_index,
+                    BindedMeshData {
+                        instance_buffer,
+                        dynamic_material_params,
+                        ..
+                    },
+                )| {
+                    let gpu_instances: Vec<_> = game_scene
+                        .nodes
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, node)| {
+                            node.binded_mesh_indices
+                                .as_ref()
+                                .map(|binded_mesh_indices| {
+                                    binded_mesh_indices.iter().any(|node_binded_mesh_index| {
+                                        *node_binded_mesh_index == binded_mesh_index
+                                    })
+                                })
+                                .unwrap_or(false)
+                        })
+                        .map(|(node_index, node, ..)| {
                             let node_ancestry_list = game_scene.get_node_ancestry_list(node_index);
                             let transform = node_ancestry_list
                                 .iter()
@@ -2324,20 +2329,21 @@ impl RendererState {
                                     acc * game_scene.nodes[*node_index].transform
                                 });
                             MeshInstance {
-                                base_material,
+                                dynamic_material_params: node
+                                    .dynamic_material_params
+                                    .unwrap_or(*dynamic_material_params),
                                 transform,
                             }
-                        },
-                    )
-                    .map(GpuMeshInstance::from)
-                    .collect();
-                queue.write_buffer(
-                    &instance_buffer.buffer,
-                    0,
-                    bytemuck::cast_slice(&gpu_instances),
-                );
-            },
-        );
+                        })
+                        .map(GpuMeshInstance::from)
+                        .collect();
+                    queue.write_buffer(
+                        &instance_buffer.buffer,
+                        0,
+                        bytemuck::cast_slice(&gpu_instances),
+                    );
+                },
+            );
         let balls_transforms: Vec<_> = game_state
             .actual_balls
             .iter()
@@ -2416,7 +2422,6 @@ impl RendererState {
     }
 
     pub fn render(&mut self, game_state: &GameState) -> Result<(), wgpu::SurfaceError> {
-        let game_scene = &game_state.scene;
         game_state
             .directional_lights
             .iter()
@@ -2821,13 +2826,27 @@ impl RendererState {
         });
         {
             let mut render_pass = encoder.begin_render_pass(render_pass_descriptor);
-            self.scene
-                .get_drawable_mesh_iterator()
+            render_scene
+                .buffers
+                .binded_mesh_data
+                .iter()
                 .enumerate()
+                .filter(|(binded_mesh_index, _)| {
+                    game_state.scene.nodes.iter().enumerate().any(|(_, node)| {
+                        node.binded_mesh_indices
+                            .as_ref()
+                            .map(|binded_mesh_indices| {
+                                binded_mesh_indices.iter().any(|node_binded_mesh_index| {
+                                    node_binded_mesh_index == binded_mesh_index
+                                })
+                            })
+                            .unwrap_or(false)
+                    })
+                })
                 .for_each(
                     |(
-                        drawable_mesh_index,
-                        BindableMeshData {
+                        binded_mesh_index,
+                        BindedMeshData {
                             vertex_buffer,
                             index_buffer,
                             instance_buffer,
@@ -2850,7 +2869,7 @@ impl RendererState {
                                 .animated_bone_transforms
                                 .iter()
                                 .find(|bone_slice| {
-                                    bone_slice.drawable_mesh_index == drawable_mesh_index
+                                    bone_slice.binded_mesh_index == binded_mesh_index
                                 })
                                 .map(|bone_slice| bone_slice.start_index.try_into().unwrap())
                                 .unwrap_or(0);
@@ -2928,20 +2947,22 @@ impl RendererState {
             );
 
             // render balls
-            // if !is_shadow {
-            //     render_pass.set_bind_group(1, &self.sphere_mesh.textures_bind_group, &[]);
-            // }
-            // render_pass.set_vertex_buffer(0, self.sphere_mesh.vertex_buffer.slice(..));
-            // render_pass.set_vertex_buffer(1, self.sphere_mesh.instance_buffer.slice(..));
-            // render_pass.set_index_buffer(
-            //     self.sphere_mesh.index_buffer.slice(..),
-            //     wgpu::IndexFormat::Uint16,
-            // );
-            // render_pass.draw_indexed(
-            //     0..self.sphere_mesh.num_indices,
-            //     0,
-            //     0..game_state.actual_balls.len() as u32,
-            // );
+            if let Some(sphere_mesh) = &self.sphere_mesh {
+                if !is_shadow {
+                    render_pass.set_bind_group(1, &sphere_mesh.textures_bind_group, &[]);
+                }
+                render_pass.set_vertex_buffer(0, sphere_mesh.vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, sphere_mesh.instance_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    sphere_mesh.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint16,
+                );
+                render_pass.draw_indexed(
+                    0..sphere_mesh.num_indices,
+                    0,
+                    0..game_state.actual_balls.len() as u32,
+                );
+            }
         }
 
         queue.submit(std::iter::once(encoder.finish()));

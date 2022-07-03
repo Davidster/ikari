@@ -164,19 +164,13 @@ pub fn update_game_state(
         let first_ball = game_state.actual_balls[0].clone();
         let first_ball_transform = first_ball.instance.transform;
 
-        game_state.scene.nodes.push(GameNode {
-            transform: first_ball_transform,
-            renderer_scene_skin_index: None,
-        });
-        let node_index = game_state.scene.nodes.len() - 1;
-
         let sphere_mesh = renderer_state.sphere_mesh.take().unwrap();
 
         renderer_state
             .scene
             .buffers
-            .bindable_mesh_data
-            .push(BindableMeshData {
+            .binded_mesh_data
+            .push(BindedMeshData {
                 vertex_buffer: BufferAndLength {
                     buffer: sphere_mesh.vertex_buffer,
                     length: sphere_mesh._num_vertices.try_into().unwrap(),
@@ -189,14 +183,27 @@ pub fn update_game_state(
                     buffer: sphere_mesh.instance_buffer,
                     length: 1,
                 },
-                instances: vec![SceneMeshInstance {
-                    node_index,
-                    base_material: first_ball.instance.base_material,
-                }],
+                dynamic_material_params: Default::default(),
                 textures_bind_group: sphere_mesh.textures_bind_group,
                 alpha_mode: AlphaMode::Opaque,
                 primitive_mode: PrimitiveMode::Triangles,
             });
+
+        game_state.scene.nodes.push(
+            GameNodeBuilder::new()
+                .transform(first_ball_transform)
+                // .binded_mesh_indices(Some(vec![
+                //     renderer_state.scene.buffers.binded_mesh_data.len() - 1,
+                // ]))
+                .build(),
+        );
+
+        // creates a binded mesh data
+        // let binded_mesh_index = renderer_state.bind_basic_mesh(basic_mesh, pbr_textures);
+        // registers a game node
+        // game_state.scene.nodes.push(GameNode::default());
+        // let new_node_index = game_state.scene.nodes.len() - 1;
+        // let mut new_node = game_state.scene.nodes[new_node_index]
 
         game_state.actual_balls = vec![];
         game_state.prev_balls = vec![];

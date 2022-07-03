@@ -73,9 +73,9 @@ impl From<MeshInstance> for GpuMeshInstance {
     fn from(instance: MeshInstance) -> Self {
         let MeshInstance {
             transform,
-            base_material,
+            dynamic_material_params,
         } = instance;
-        let BaseMaterial {
+        let DynamicMaterialParams {
             base_color_factor,
             emissive_factor,
             metallic_factor,
@@ -83,7 +83,7 @@ impl From<MeshInstance> for GpuMeshInstance {
             normal_scale,
             occlusion_strength,
             alpha_cutoff,
-        } = base_material;
+        } = dynamic_material_params;
         Self {
             model_transform: GpuMatrix4(transform.matrix()),
             base_color_factor: base_color_factor.into(),
@@ -143,20 +143,20 @@ impl From<PointLightComponent> for GpuFlatColorMeshInstance {
 #[derive(Clone, Debug)]
 pub struct MeshInstance {
     pub transform: crate::transform::Transform,
-    pub base_material: BaseMaterial,
+    pub dynamic_material_params: DynamicMaterialParams,
 }
 
 impl MeshInstance {
     pub fn new() -> MeshInstance {
         MeshInstance {
             transform: crate::transform::Transform::new(),
-            base_material: Default::default(),
+            dynamic_material_params: Default::default(),
         }
     }
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct BaseMaterial {
+pub struct DynamicMaterialParams {
     pub base_color_factor: Vector4<f32>,
     pub emissive_factor: Vector3<f32>,
     pub metallic_factor: f32,
@@ -166,9 +166,9 @@ pub struct BaseMaterial {
     pub alpha_cutoff: f32,
 }
 
-impl Default for BaseMaterial {
+impl Default for DynamicMaterialParams {
     fn default() -> Self {
-        BaseMaterial {
+        DynamicMaterialParams {
             base_color_factor: Vector4::new(1.0, 1.0, 1.0, 1.0),
             emissive_factor: Vector3::new(0.0, 0.0, 0.0),
             metallic_factor: 1.0,

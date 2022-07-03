@@ -118,14 +118,6 @@ pub fn build_scene(
         })
         .collect();
 
-    let nodes: Vec<_> = document
-        .nodes()
-        .map(|node| GameNode {
-            transform: crate::transform::Transform::from(node.transform()),
-            renderer_scene_skin_index: node.skin().map(|skin| skin.index()),
-        })
-        .collect();
-
     let skins: Vec<_> = document
         .skins()
         .map(|skin| {
@@ -170,7 +162,11 @@ pub fn build_scene(
 
     let meshes: Vec<_> = document.meshes().collect();
 
-    let drawable_primitive_groups: Vec<_> = meshes
+    let mut binded_mesh_data: Vec<BindedMeshData> = Vec::new();
+    // gltf node index -> game node
+    let mut node_mesh_links: HashMap<usize, Vec<usize>> = HashMap::new();
+
+    for (binded_mesh_index, (mesh, primitive_group)) in meshes
         .iter()
         .flat_map(|mesh| mesh.primitives().map(|prim| (&meshes[mesh.index()], prim)))
         .filter(|(_, prim)| {
@@ -178,67 +174,73 @@ pub fn build_scene(
                 && (prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
                     || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask)
         })
-        .collect();
-
-    let bindable_mesh_data = drawable_primitive_groups
-        .iter()
         .enumerate()
-        .map(|(_, (mesh, primitive_group))| {
-            let (textures_bind_group, base_material) = build_textures_bind_group(
-                device,
-                queue,
-                &primitive_group.material(),
-                &textures,
-                pbr_textures_bind_group_layout,
-            )?;
+    {
+        let (textures_bind_group, dynamic_material_params) = build_textures_bind_group(
+            device,
+            queue,
+            &primitive_group.material(),
+            &textures,
+            pbr_textures_bind_group_layout,
+        )?;
 
-            let (vertex_buffer, index_buffer) =
-                build_geometry_buffers(device, primitive_group, buffers)?;
-            let instances: Vec<_> = scene_nodes
-                .iter()
-                .filter(|node| {
-                    node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index()
-                })
-                .map(|node| SceneMeshInstance {
-                    node_index: node.index(),
-                    base_material,
-                })
-                .collect();
-            let initial_instance_buffer: Vec<u8> = (0..(instances.len()
-                * std::mem::size_of::<GpuMeshInstance>()))
-                .map(|_| 0u8)
-                .collect();
+        let (vertex_buffer, index_buffer) =
+            build_geometry_buffers(device, &primitive_group, buffers)?;
+        let initial_instances: Vec<_> = scene_nodes
+            .iter()
+            .filter(|node| node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index())
+            .collect();
+        let initial_instance_buffer: Vec<u8> = (0..(initial_instances.len()
+            * std::mem::size_of::<GpuMeshInstance>()))
+            .map(|_| 0u8)
+            .collect();
 
-            let instance_buffer = BufferAndLength {
-                buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("InstancedMeshComponent instance_buffer"),
-                    contents: bytemuck::cast_slice(&initial_instance_buffer),
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                }),
-                length: instances.len(),
-            };
+        let instance_buffer = BufferAndLength {
+            buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("InstancedMeshComponent instance_buffer"),
+                contents: bytemuck::cast_slice(&initial_instance_buffer),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            }),
+            length: initial_instances.len(),
+        };
 
-            let primitive_mode = crate::render_scene::PrimitiveMode::Triangles;
+        let primitive_mode = crate::render_scene::PrimitiveMode::Triangles;
 
-            let alpha_mode = match primitive_group.material().alpha_mode() {
-                gltf::material::AlphaMode::Opaque => crate::render_scene::AlphaMode::Opaque,
-                gltf::material::AlphaMode::Mask => crate::render_scene::AlphaMode::Mask,
-                gltf::material::AlphaMode::Blend => {
-                    todo!("Alpha blending isn't yet supported")
-                }
-            };
+        let alpha_mode = match primitive_group.material().alpha_mode() {
+            gltf::material::AlphaMode::Opaque => crate::render_scene::AlphaMode::Opaque,
+            gltf::material::AlphaMode::Mask => crate::render_scene::AlphaMode::Mask,
+            gltf::material::AlphaMode::Blend => {
+                todo!("Alpha blending isn't yet supported")
+            }
+        };
 
-            anyhow::Ok(BindableMeshData {
-                vertex_buffer,
-                index_buffer,
-                instance_buffer,
-                instances,
-                textures_bind_group,
-                primitive_mode,
-                alpha_mode,
-            })
+        for gltf_node in initial_instances.iter() {
+            let binded_mesh_indices = node_mesh_links.entry(gltf_node.index()).or_insert(vec![]);
+            binded_mesh_indices.push(binded_mesh_index);
+        }
+
+        binded_mesh_data.push(BindedMeshData {
+            vertex_buffer,
+            index_buffer,
+            dynamic_material_params,
+            instance_buffer,
+            textures_bind_group,
+            primitive_mode,
+            alpha_mode,
+        });
+    }
+
+    // it is important that the node indices from the gltf document are preserved
+    // for any of the other stuff that refers to the nodes by index such as the animations
+    let nodes: Vec<_> = document
+        .nodes()
+        .map(|node| GameNode {
+            transform: crate::transform::Transform::from(node.transform()),
+            renderer_skin_index: node.skin().map(|skin| skin.index()),
+            binded_mesh_indices: node_mesh_links.get(&node.index()).cloned(),
+            dynamic_material_params: None,
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect();
 
     let animations = get_animations(document, buffers)?;
 
@@ -249,7 +251,7 @@ pub fn build_scene(
         },
         RenderScene {
             buffers: SceneBuffers {
-                bindable_mesh_data,
+                binded_mesh_data,
                 textures,
             },
 
@@ -355,7 +357,7 @@ fn build_textures_bind_group(
     material: &gltf::material::Material,
     textures: &[Texture],
     five_texture_bind_group_layout: &wgpu::BindGroupLayout,
-) -> Result<(wgpu::BindGroup, BaseMaterial)> {
+) -> Result<(wgpu::BindGroup, DynamicMaterialParams)> {
     let pbr_info = material.pbr_metallic_roughness();
 
     let material_diffuse_texture = pbr_info.base_color_texture().map(|info| info.texture());
@@ -465,7 +467,7 @@ fn build_textures_bind_group(
         label: Some("InstancedMeshComponent textures_bind_group"),
     });
 
-    let base_material = BaseMaterial {
+    let dynamic_material_params = DynamicMaterialParams {
         base_color_factor: Vector4::from(pbr_info.base_color_factor()),
         emissive_factor: Vector3::from(material.emissive_factor()),
         metallic_factor: pbr_info.metallic_factor(),
@@ -473,18 +475,18 @@ fn build_textures_bind_group(
         normal_scale: material
             .normal_texture()
             .map(|info| info.scale())
-            .unwrap_or(BaseMaterial::default().normal_scale),
+            .unwrap_or(DynamicMaterialParams::default().normal_scale),
         occlusion_strength: material
             .occlusion_texture()
             .map(|info| info.strength())
-            .unwrap_or(BaseMaterial::default().occlusion_strength),
+            .unwrap_or(DynamicMaterialParams::default().occlusion_strength),
         alpha_cutoff: match material.alpha_mode() {
             gltf::material::AlphaMode::Mask => material.alpha_cutoff().unwrap_or(0.5),
-            _ => BaseMaterial::default().alpha_cutoff,
+            _ => DynamicMaterialParams::default().alpha_cutoff,
         },
     };
 
-    Ok((textures_bind_group, base_material))
+    Ok((textures_bind_group, dynamic_material_params))
 }
 
 pub fn get_buffer_slice_from_accessor(

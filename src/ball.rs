@@ -23,7 +23,7 @@ impl BallComponent {
         BallComponent {
             instance: MeshInstance {
                 transform,
-                base_material: Default::default(),
+                dynamic_material_params: Default::default(),
             },
             direction: Vector3::new(direction_x, 0.0, direction_z).normalize(),
             speed,
@@ -107,7 +107,7 @@ impl BallComponent {
         BallComponent {
             instance: MeshInstance {
                 transform,
-                base_material: self.instance.base_material,
+                dynamic_material_params: self.instance.dynamic_material_params,
             },
             direction: lerp_vec(self.direction, other.direction, alpha),
             speed: lerp(self.speed, other.speed, alpha),

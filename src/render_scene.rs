@@ -13,23 +13,20 @@ pub struct RenderScene {
 
 #[derive(Debug)]
 pub struct SceneBuffers {
-    // same order as the drawable_primitive_groups vec
-    pub bindable_mesh_data: Vec<BindableMeshData>,
+    pub binded_mesh_data: Vec<BindedMeshData>,
     // same order as the textures in src
     pub textures: Vec<Texture>,
 }
 
 #[derive(Debug)]
-pub struct BindableMeshData {
+pub struct BindedMeshData {
     pub vertex_buffer: BufferAndLength,
-
     pub index_buffer: Option<BufferAndLength>,
-
     pub instance_buffer: BufferAndLength,
-    pub instances: Vec<SceneMeshInstance>,
-
     pub textures_bind_group: wgpu::BindGroup,
+    pub dynamic_material_params: DynamicMaterialParams,
 
+    // TODO: do we need these?
     pub alpha_mode: AlphaMode,
     pub primitive_mode: PrimitiveMode,
 }
@@ -38,12 +35,6 @@ pub struct BindableMeshData {
 pub struct BufferAndLength {
     pub buffer: wgpu::Buffer,
     pub length: usize,
-}
-
-#[derive(Debug, Clone)]
-pub struct SceneMeshInstance {
-    pub node_index: usize,
-    pub base_material: BaseMaterial,
 }
 
 #[derive(Debug, Clone)]
@@ -76,11 +67,4 @@ pub struct Channel {
     pub interpolation_type: gltf::animation::Interpolation,
     pub keyframe_timings: Vec<f32>,
     pub keyframe_values_u8: Vec<u8>,
-}
-
-impl RenderScene {
-    // TODO: remove?
-    pub fn get_drawable_mesh_iterator(&self) -> impl Iterator<Item = &BindableMeshData> {
-        self.buffers.bindable_mesh_data.iter()
-    }
 }
