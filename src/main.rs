@@ -95,7 +95,7 @@ async fn start() {
 
         let run_result = async {
             let (game_scene, render_scene) = init_scene(&mut base_render_state, &mut logger)?;
-            let game_state = GameState::new(game_scene);
+            let game_state = init_game_state(game_scene);
 
             let renderer_state = RendererState::new(
                 &window,
