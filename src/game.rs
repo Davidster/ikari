@@ -3,10 +3,8 @@ use super::*;
 use anyhow::Result;
 use cgmath::{Rad, Vector3};
 
-pub fn init_scene(
-    base_renderer_state: &mut BaseRendererState,
-    logger: &mut Logger,
-) -> Result<(GameScene, RenderScene)> {
+#[allow(clippy::let_and_return)]
+fn get_gltf_path() -> &'static str {
     // let gltf_path = "/home/david/Downloads/adamHead/adamHead.gltf";
     // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/VC/glTF/VC.gltf";
     // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
@@ -33,10 +31,7 @@ pub fn init_scene(
     // let gltf_path = "./src/models/gltf/VC/VC.gltf";
     // let gltf_path =
     //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
-
-    let (document, buffers, images) = gltf::import(gltf_path)?;
-    validate_animation_property_counts(&document, logger);
-    build_scene(base_renderer_state, (&document, &buffers, &images))
+    gltf_path
 }
 
 pub fn update_game_state(
@@ -217,4 +212,13 @@ pub fn update_game_state(
             ball_node.transform.position().z,
         ));
     }
+}
+
+pub fn init_scene(
+    base_renderer_state: &mut BaseRendererState,
+    logger: &mut Logger,
+) -> Result<(GameScene, RenderScene)> {
+    let (document, buffers, images) = gltf::import(get_gltf_path())?;
+    validate_animation_property_counts(&document, logger);
+    build_scene(base_renderer_state, (&document, &buffers, &images))
 }
