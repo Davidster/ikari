@@ -1,7 +1,4 @@
-use std::{
-    num::{NonZeroU32, NonZeroU64},
-    time::Instant,
-};
+use std::num::{NonZeroU32, NonZeroU64};
 
 use super::*;
 
@@ -173,163 +170,30 @@ enum SkyboxHDREnvironment<'a> {
     Equirectangular { image_path: &'a str },
 }
 
-pub struct RendererState {
-    surface: wgpu::Surface,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    config: wgpu::SurfaceConfiguration,
-
-    limits: wgpu::Limits,
-
-    tone_mapping_exposure: f32,
-    bloom_threshold: f32,
-    bloom_ramp_size: f32,
-
-    render_scale: f32,
-    state_update_time_accumulator: f32,
-    // last_frame_instant: Option<Instant>,
-    // first_frame_instant: Option<Instant>,
-    animation_time_acc: f32,
-    is_playing_animations: bool,
-    pub current_window_size: winit::dpi::PhysicalSize<u32>,
-    pub logger: Logger,
-
-    camera_controller: CameraController,
-    camera_uniform: CameraUniform,
-    camera_buffer: wgpu::Buffer,
-
-    point_lights_buffer: wgpu::Buffer,
-    directional_lights_buffer: wgpu::Buffer,
-
-    bones_buffer: wgpu::Buffer,
-    camera_and_lights_bind_group: wgpu::BindGroup,
-
-    mesh_pipeline: wgpu::RenderPipeline,
-    flat_color_mesh_pipeline: wgpu::RenderPipeline,
-    skybox_pipeline: wgpu::RenderPipeline,
-    tone_mapping_pipeline: wgpu::RenderPipeline,
-    surface_blit_pipeline: wgpu::RenderPipeline,
-
-    point_shadow_map_pipeline: wgpu::RenderPipeline,
-    directional_shadow_map_pipeline: wgpu::RenderPipeline,
-    shadow_camera_and_lights_bind_group: wgpu::BindGroup,
-    shadow_camera_buffer: wgpu::Buffer,
-    point_shadow_map_textures: Texture,
-    directional_shadow_map_textures: Texture,
-
-    bones_bind_group: wgpu::BindGroup,
-
-    single_texture_bind_group_layout: wgpu::BindGroupLayout,
-    two_texture_bind_group_layout: wgpu::BindGroupLayout,
-    bones_bind_group_layout: wgpu::BindGroupLayout,
-
-    shading_texture: Texture,
-    tone_mapping_texture: Texture,
-    depth_texture: Texture,
-
-    bloom_threshold_pipeline: wgpu::RenderPipeline,
-    bloom_blur_pipeline: wgpu::RenderPipeline,
-    bloom_pingpong_textures: [Texture; 2],
-    bloom_config_bind_group: wgpu::BindGroup,
-    bloom_config_buffer: wgpu::Buffer,
-
-    tone_mapping_config_bind_group: wgpu::BindGroup,
-    tone_mapping_config_buffer: wgpu::Buffer,
-
-    environment_textures_bind_group: wgpu::BindGroup,
-    shading_and_bloom_textures_bind_group: wgpu::BindGroup,
-    tone_mapping_texture_bind_group: wgpu::BindGroup,
-    shading_texture_bind_group: wgpu::BindGroup,
-    bloom_pingpong_texture_bind_groups: [wgpu::BindGroup; 2],
-
-    // store the previous state and next state and interpolate between them
-    next_balls: Vec<BallComponent>,
-    prev_balls: Vec<BallComponent>,
-    actual_balls: Vec<BallComponent>,
-
-    point_lights: Vec<PointLightComponent>,
-    directional_lights: Vec<DirectionalLightComponent>,
-    test_object_instances: Vec<MeshInstance>,
-    plane_instances: Vec<MeshInstance>,
-
-    point_light_mesh: InstancedMeshComponent,
-    sphere_mesh: Option<InstancedMeshComponent>,
-    test_object_mesh: InstancedMeshComponent,
-    plane_mesh: InstancedMeshComponent,
-    skybox_mesh: MeshComponent, // TODO: always use InstancedMeshComponent?
-
-    scene: RenderScene,
+pub struct BaseRendererState {
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+    pub adapter: wgpu::Adapter,
+    pub surface: wgpu::Surface,
+    pub surface_config: wgpu::SurfaceConfiguration,
+    pub limits: wgpu::Limits,
+    pub window_size: winit::dpi::PhysicalSize<u32>,
+    pub single_texture_bind_group_layout: wgpu::BindGroupLayout,
+    pub two_texture_bind_group_layout: wgpu::BindGroupLayout,
+    pub bones_bind_group_layout: wgpu::BindGroupLayout,
+    pub pbr_textures_bind_group_layout: wgpu::BindGroupLayout,
+    // TODO: to be continued
 }
 
-impl RendererState {
-    pub async fn new(window: &winit::window::Window) -> Result<Self> {
-        // Mountains
-        let _skybox_background = SkyboxBackground::Cube {
-            face_image_paths: [
-                "./src/textures/skybox/right.jpg",
-                "./src/textures/skybox/left.jpg",
-                "./src/textures/skybox/top.jpg",
-                "./src/textures/skybox/bottom.jpg",
-                "./src/textures/skybox/front.jpg",
-                "./src/textures/skybox/back.jpg",
-            ],
-        };
-        let _skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
-
-        // Newport Loft
-        let skybox_background = SkyboxBackground::Equirectangular {
-            image_path: "./src/textures/newport_loft/background.jpg",
-        };
-        let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-            Some(SkyboxHDREnvironment::Equirectangular {
-                image_path: "./src/textures/newport_loft/radiance.hdr",
-            });
-
-        // My photosphere pic
-        let _skybox_background = SkyboxBackground::Equirectangular {
-            image_path: "./src/textures/photosphere_skybox.jpg",
-        };
-        let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-            Some(SkyboxHDREnvironment::Equirectangular {
-                image_path: "./src/textures/photosphere_skybox_small.jpg",
-            });
-
-        // let gltf_path = "/home/david/Downloads/adamHead/adamHead.gltf";
-        // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/VC/glTF/VC.gltf";
-        // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
-        // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf";
-        // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
-        // let gltf_path = "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf";
-        // let gltf_path = "./src/models/gltf/Sponza/Sponza.gltf";
-        // let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
-        // let gltf_path = "./src/models/gltf/Arrow/Arrow.gltf";
-        // let gltf_path = "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf";
-        // let gltf_path = "./src/models/gltf/VertexColorTest/VertexColorTest.gltf";
-        // let gltf_path =
-        //     "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf";
-        // let gltf_path =
-        //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb";
-        // let gltf_path = "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.gltf";
-        // let gltf_path = "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
-        // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
-        // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
-        let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
-        // let gltf_path =
-        //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
-        // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
-        // let gltf_path = "./src/models/gltf/VC/VC.gltf";
-        // let gltf_path =
-        //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
-
-        let mut logger = Logger::new();
-        // force it to vulkan to get renderdoc to work:
+impl BaseRendererState {
+    pub async fn new(window: &winit::window::Window) -> Self {
         let backends = if cfg!(target_os = "linux") {
             wgpu::Backends::from(wgpu::Backend::Vulkan)
         } else {
             wgpu::Backends::all()
         };
         let instance = wgpu::Instance::new(backends);
-        let size = window.inner_size();
+        let window_size = window.inner_size();
         let surface = unsafe { instance.create_surface(&window) };
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -339,26 +203,6 @@ impl RendererState {
             })
             .await
             .expect("Failed to find an appropriate adapter");
-        let adapter_info = adapter.get_info();
-        let adapter_name = adapter_info.name;
-        let adapter_backend = adapter_info.backend;
-        logger.log(&format!("Using {adapter_name} ({adapter_backend:?})"));
-        logger.log(&format!("Using {adapter_name} ({adapter_backend:?})"));
-        logger.log("Controls:");
-        vec![
-            "Move Around: WASD, Space Bar, Ctrl",
-            "Look Around: Mouse",
-            "Adjust Speed: Scroll",
-            "Adjust Render Scale: Z / X",
-            "Adjust Exposure: E / R",
-            "Adjust Bloom Threshold: T / Y",
-            "Pause/Resume Animations: P",
-            "Exit: Escape",
-        ]
-        .iter()
-        .for_each(|line| {
-            logger.log(&format!("  {line}"));
-        });
 
         let (device, queue) = adapter
             .request_device(
@@ -377,44 +221,16 @@ impl RendererState {
             .get(0)
             .expect("Window surface is incompatible with the graphics adapter");
 
-        let config = wgpu::SurfaceConfiguration {
+        let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: swapchain_format,
-            width: size.width,
-            height: size.height,
+            width: window_size.width,
+            height: window_size.height,
             present_mode: wgpu::PresentMode::Fifo,
             // present_mode: wgpu::PresentMode::Immediate,
         };
 
-        surface.configure(&device, &config);
-
-        let flat_color_mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Flat Color Mesh Shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                std::fs::read_to_string("./src/shaders/flat_color_mesh.wgsl")?.into(),
-            ),
-        });
-
-        let blit_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Blit Shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                std::fs::read_to_string("./src/shaders/blit.wgsl")?.into(),
-            ),
-        });
-
-        let textured_mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Textured Mesh Shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                std::fs::read_to_string("./src/shaders/textured_mesh.wgsl")?.into(),
-            ),
-        });
-
-        let skybox_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Skybox Shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                std::fs::read_to_string("./src/shaders/skybox.wgsl")?.into(),
-            ),
-        });
+        surface.configure(&device, &surface_config);
 
         let single_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -476,7 +292,7 @@ impl RendererState {
                 ],
                 label: Some("two_texture_bind_group_layout"),
             });
-        let five_texture_bind_group_layout =
+        let pbr_textures_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
@@ -562,6 +378,212 @@ impl RendererState {
                 ],
                 label: Some("four_texture_bind_group_layout"),
             });
+
+        let bones_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: true,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("bones_bind_group_layout"),
+            });
+
+        let limits = device.limits();
+
+        Self {
+            device,
+            adapter,
+            queue,
+            surface,
+            surface_config,
+            limits,
+            window_size,
+            single_texture_bind_group_layout,
+            two_texture_bind_group_layout,
+            bones_bind_group_layout,
+            pbr_textures_bind_group_layout,
+        }
+    }
+}
+
+pub struct RendererState {
+    pub base: BaseRendererState,
+    tone_mapping_exposure: f32,
+    bloom_threshold: f32,
+    bloom_ramp_size: f32,
+
+    render_scale: f32,
+    state_update_time_accumulator: f32,
+    // last_frame_instant: Option<Instant>,
+    // first_frame_instant: Option<Instant>,
+    animation_time_acc: f32,
+    is_playing_animations: bool,
+
+    camera_controller: CameraController,
+    camera_uniform: CameraUniform,
+    camera_buffer: wgpu::Buffer,
+
+    point_lights_buffer: wgpu::Buffer,
+    directional_lights_buffer: wgpu::Buffer,
+
+    bones_buffer: wgpu::Buffer,
+    camera_and_lights_bind_group: wgpu::BindGroup,
+
+    mesh_pipeline: wgpu::RenderPipeline,
+    flat_color_mesh_pipeline: wgpu::RenderPipeline,
+    skybox_pipeline: wgpu::RenderPipeline,
+    tone_mapping_pipeline: wgpu::RenderPipeline,
+    surface_blit_pipeline: wgpu::RenderPipeline,
+
+    point_shadow_map_pipeline: wgpu::RenderPipeline,
+    directional_shadow_map_pipeline: wgpu::RenderPipeline,
+    shadow_camera_and_lights_bind_group: wgpu::BindGroup,
+    shadow_camera_buffer: wgpu::Buffer,
+    point_shadow_map_textures: Texture,
+    directional_shadow_map_textures: Texture,
+
+    bones_bind_group: wgpu::BindGroup,
+
+    shading_texture: Texture,
+    tone_mapping_texture: Texture,
+    depth_texture: Texture,
+
+    bloom_threshold_pipeline: wgpu::RenderPipeline,
+    bloom_blur_pipeline: wgpu::RenderPipeline,
+    bloom_pingpong_textures: [Texture; 2],
+    bloom_config_bind_group: wgpu::BindGroup,
+    bloom_config_buffer: wgpu::Buffer,
+
+    tone_mapping_config_bind_group: wgpu::BindGroup,
+    tone_mapping_config_buffer: wgpu::Buffer,
+
+    environment_textures_bind_group: wgpu::BindGroup,
+    shading_and_bloom_textures_bind_group: wgpu::BindGroup,
+    tone_mapping_texture_bind_group: wgpu::BindGroup,
+    shading_texture_bind_group: wgpu::BindGroup,
+    bloom_pingpong_texture_bind_groups: [wgpu::BindGroup; 2],
+
+    // store the previous state and next state and interpolate between them
+    next_balls: Vec<BallComponent>,
+    prev_balls: Vec<BallComponent>,
+    actual_balls: Vec<BallComponent>,
+
+    point_lights: Vec<PointLightComponent>,
+    directional_lights: Vec<DirectionalLightComponent>,
+    test_object_instances: Vec<MeshInstance>,
+    plane_instances: Vec<MeshInstance>,
+
+    point_light_mesh: InstancedMeshComponent,
+    sphere_mesh: Option<InstancedMeshComponent>,
+    test_object_mesh: InstancedMeshComponent,
+    plane_mesh: InstancedMeshComponent,
+    skybox_mesh: MeshComponent, // TODO: always use InstancedMeshComponent?
+
+    scene: RenderScene,
+}
+
+impl RendererState {
+    pub async fn new(
+        window: &winit::window::Window,
+        scene: RenderScene,
+        base: BaseRendererState,
+        logger: &mut Logger,
+    ) -> Result<Self> {
+        // Mountains
+        let _skybox_background = SkyboxBackground::Cube {
+            face_image_paths: [
+                "./src/textures/skybox/right.jpg",
+                "./src/textures/skybox/left.jpg",
+                "./src/textures/skybox/top.jpg",
+                "./src/textures/skybox/bottom.jpg",
+                "./src/textures/skybox/front.jpg",
+                "./src/textures/skybox/back.jpg",
+            ],
+        };
+        let _skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
+
+        // Newport Loft
+        let skybox_background = SkyboxBackground::Equirectangular {
+            image_path: "./src/textures/newport_loft/background.jpg",
+        };
+        let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+            Some(SkyboxHDREnvironment::Equirectangular {
+                image_path: "./src/textures/newport_loft/radiance.hdr",
+            });
+
+        // My photosphere pic
+        let _skybox_background = SkyboxBackground::Equirectangular {
+            image_path: "./src/textures/photosphere_skybox.jpg",
+        };
+        let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+            Some(SkyboxHDREnvironment::Equirectangular {
+                image_path: "./src/textures/photosphere_skybox_small.jpg",
+            });
+
+        let adapter = &base.adapter;
+        let device = &base.device;
+        let queue = &base.queue;
+        let surface_config = &base.surface_config;
+
+        let single_texture_bind_group_layout = &base.single_texture_bind_group_layout;
+        let two_texture_bind_group_layout = &base.two_texture_bind_group_layout;
+        let pbr_textures_bind_group_layout = &base.pbr_textures_bind_group_layout;
+        let bones_bind_group_layout = &base.bones_bind_group_layout;
+
+        let adapter_info = adapter.get_info();
+        let adapter_name = adapter_info.name;
+        let adapter_backend = adapter_info.backend;
+        logger.log(&format!("Using {adapter_name} ({adapter_backend:?})"));
+        logger.log(&format!("Using {adapter_name} ({adapter_backend:?})"));
+        logger.log("Controls:");
+        vec![
+            "Move Around: WASD, Space Bar, Ctrl",
+            "Look Around: Mouse",
+            "Adjust Speed: Scroll",
+            "Adjust Render Scale: Z / X",
+            "Adjust Exposure: E / R",
+            "Adjust Bloom Threshold: T / Y",
+            "Pause/Resume Animations: P",
+            "Exit: Escape",
+        ]
+        .iter()
+        .for_each(|line| {
+            logger.log(&format!("  {line}"));
+        });
+
+        let flat_color_mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Flat Color Mesh Shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                std::fs::read_to_string("./src/shaders/flat_color_mesh.wgsl")?.into(),
+            ),
+        });
+
+        let blit_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Blit Shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                std::fs::read_to_string("./src/shaders/blit.wgsl")?.into(),
+            ),
+        });
+
+        let textured_mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Textured Mesh Shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                std::fs::read_to_string("./src/shaders/textured_mesh.wgsl")?.into(),
+            ),
+        });
+
+        let skybox_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Skybox Shader"),
+            source: wgpu::ShaderSource::Wgsl(
+                std::fs::read_to_string("./src/shaders/skybox.wgsl")?.into(),
+            ),
+        });
 
         let single_cube_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -767,21 +789,6 @@ impl RendererState {
                 label: Some("camera_and_lights_uniform_bind_group_layout"),
             });
 
-        let bones_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: true,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some("bones_bind_group_layout"),
-            });
-
         let fragment_shader_color_targets = &[Some(wgpu::ColorTargetState {
             format: wgpu::TextureFormat::Rgba16Float,
             blend: Some(wgpu::BlendState::REPLACE),
@@ -792,9 +799,9 @@ impl RendererState {
             label: Some("Mesh Pipeline Layout"),
             bind_group_layouts: &[
                 &camera_and_lights_bind_group_layout,
-                &five_texture_bind_group_layout, // TODO: skybox texture actually isn't used here
+                pbr_textures_bind_group_layout, // TODO: skybox texture actually isn't used here
                 &environment_textures_bind_group_layout,
-                &bones_bind_group_layout,
+                bones_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -864,7 +871,7 @@ impl RendererState {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
                 bind_group_layouts: &[
-                    &single_texture_bind_group_layout,
+                    single_texture_bind_group_layout,
                     &single_uniform_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
@@ -897,7 +904,7 @@ impl RendererState {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
                 bind_group_layouts: &[
-                    &single_texture_bind_group_layout,
+                    single_texture_bind_group_layout,
                     &single_uniform_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
@@ -926,14 +933,14 @@ impl RendererState {
         let bloom_blur_pipeline = device.create_render_pipeline(&bloom_blur_pipeline_descriptor);
 
         let surface_blit_color_targets = &[Some(wgpu::ColorTargetState {
-            format: config.format,
+            format: surface_config.format,
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
         })];
         let surface_blit_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
-                bind_group_layouts: &[&single_texture_bind_group_layout],
+                bind_group_layouts: &[single_texture_bind_group_layout],
                 push_constant_ranges: &[],
             });
         let surface_blit_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -976,7 +983,7 @@ impl RendererState {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: None,
                 bind_group_layouts: &[
-                    &two_texture_bind_group_layout,
+                    two_texture_bind_group_layout,
                     &single_uniform_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
@@ -1055,7 +1062,7 @@ impl RendererState {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Equirectangular To Cubemap Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &single_texture_bind_group_layout,
+                    single_texture_bind_group_layout,
                     &single_uniform_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
@@ -1194,7 +1201,7 @@ impl RendererState {
                 label: Some("Shadow Map Pipeline Layout"),
                 bind_group_layouts: &[
                     &camera_and_lights_bind_group_layout,
-                    &bones_bind_group_layout,
+                    bones_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -1272,14 +1279,6 @@ impl RendererState {
         let directional_shadow_map_pipeline =
             device.create_render_pipeline(&directional_shadow_map_pipeline_descriptor);
 
-        let (document, buffers, images) = gltf::import(gltf_path)?;
-        validate_animation_property_counts(&document, &mut logger);
-        let scene = build_scene(
-            &device,
-            &queue,
-            &five_texture_bind_group_layout,
-            (&document, &buffers, &images),
-        )?;
         let initial_render_scale = INITIAL_RENDER_SCALE;
 
         let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
@@ -1287,36 +1286,36 @@ impl RendererState {
         let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
 
         let skybox_mesh =
-            MeshComponent::new(&cube_mesh, None, &single_uniform_bind_group_layout, &device)?;
+            MeshComponent::new(&cube_mesh, None, &single_uniform_bind_group_layout, device)?;
 
         let shading_texture = Texture::create_scaled_surface_texture(
-            &device,
-            &config,
+            device,
+            surface_config,
             initial_render_scale,
             "shading_texture",
         );
         let bloom_pingpong_textures = [
             Texture::create_scaled_surface_texture(
-                &device,
-                &config,
+                device,
+                surface_config,
                 initial_render_scale,
                 "bloom_texture_1",
             ),
             Texture::create_scaled_surface_texture(
-                &device,
-                &config,
+                device,
+                surface_config,
                 initial_render_scale,
                 "bloom_texture_2",
             ),
         ];
         let tone_mapping_texture = Texture::create_scaled_surface_texture(
-            &device,
-            &config,
+            device,
+            surface_config,
             initial_render_scale,
             "tone_mapping_texture",
         );
         let shading_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &single_texture_bind_group_layout,
+            layout: single_texture_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -1331,7 +1330,7 @@ impl RendererState {
         });
         let tone_mapping_texture_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &single_texture_bind_group_layout,
+                layout: single_texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -1346,7 +1345,7 @@ impl RendererState {
             });
         let shading_and_bloom_textures_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &two_texture_bind_group_layout,
+                layout: two_texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -1373,7 +1372,7 @@ impl RendererState {
             });
         let bloom_pingpong_texture_bind_groups = [
             device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &single_texture_bind_group_layout,
+                layout: single_texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -1391,7 +1390,7 @@ impl RendererState {
                 label: Some("bloom_texture_bind_group_1"),
             }),
             device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &single_texture_bind_group_layout,
+                layout: single_texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -1441,15 +1440,19 @@ impl RendererState {
             label: Some("tone_mapping_config_bind_group"),
         });
 
-        let depth_texture =
-            Texture::create_depth_texture(&device, &config, initial_render_scale, "depth_texture");
+        let depth_texture = Texture::create_depth_texture(
+            device,
+            surface_config,
+            initial_render_scale,
+            "depth_texture",
+        );
 
         // source: https://www.solarsystemscope.com/textures/
         let mars_texture_path = "./src/textures/8k_mars.jpg";
         let mars_texture_bytes = std::fs::read(mars_texture_path)?;
         let mars_texture = Texture::from_encoded_image(
-            &device,
-            &queue,
+            device,
+            queue,
             &mars_texture_bytes,
             mars_texture_path,
             None,
@@ -1460,8 +1463,8 @@ impl RendererState {
         let earth_texture_path = "./src/textures/8k_earth.jpg";
         let earth_texture_bytes = std::fs::read(earth_texture_path)?;
         let earth_texture = Texture::from_encoded_image(
-            &device,
-            &queue,
+            device,
+            queue,
             &earth_texture_bytes,
             earth_texture_path,
             None,
@@ -1472,8 +1475,8 @@ impl RendererState {
         let earth_normal_map_path = "./src/textures/8k_earth_normal_map.jpg";
         let earth_normal_map_bytes = std::fs::read(earth_normal_map_path)?;
         let earth_normal_map = Texture::from_encoded_image(
-            &device,
-            &queue,
+            device,
+            queue,
             &earth_normal_map_bytes,
             earth_normal_map_path,
             wgpu::TextureFormat::Rgba8Unorm.into(),
@@ -1509,8 +1512,8 @@ impl RendererState {
             SkyboxBackground::Equirectangular { image_path } => {
                 let er_skybox_texture_bytes = std::fs::read(image_path)?;
                 let er_skybox_texture = Texture::from_encoded_image(
-                    &device,
-                    &queue,
+                    device,
+                    queue,
                     &er_skybox_texture_bytes,
                     image_path,
                     None,
@@ -1519,8 +1522,8 @@ impl RendererState {
                 )?;
 
                 Texture::create_cubemap_from_equirectangular(
-                    &device,
-                    &queue,
+                    device,
+                    queue,
                     Some(image_path),
                     &skybox_mesh,
                     &equirectangular_to_cubemap_pipeline,
@@ -1536,8 +1539,8 @@ impl RendererState {
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Texture::create_cubemap(
-                    &device,
-                    &queue,
+                    device,
+                    queue,
                     CreateCubeMapImagesParam {
                         pos_x: &cubemap_skybox_images[0],
                         neg_x: &cubemap_skybox_images[1],
@@ -1570,8 +1573,8 @@ impl RendererState {
                     .collect();
 
                 let skybox_rad_texture_er = Texture::from_decoded_image(
-                    &device,
-                    &queue,
+                    device,
+                    queue,
                     bytemuck::cast_slice(&skybox_rad_texture_decoded_vec),
                     (
                         skybox_rad_texture_decoded.0.width as u32,
@@ -1584,8 +1587,8 @@ impl RendererState {
                 )?;
 
                 er_to_cube_texture = Texture::create_cubemap_from_equirectangular(
-                    &device,
-                    &queue,
+                    device,
+                    queue,
                     Some(image_path),
                     &skybox_mesh,
                     &equirectangular_to_cubemap_pipeline,
@@ -1600,8 +1603,8 @@ impl RendererState {
         };
 
         let diffuse_env_map = Texture::create_diffuse_env_map(
-            &device,
-            &queue,
+            device,
+            queue,
             Some("diffuse env map"),
             &skybox_mesh,
             &diffuse_env_map_gen_pipeline,
@@ -1611,15 +1614,15 @@ impl RendererState {
         );
 
         let specular_env_map = Texture::create_specular_env_map(
-            &device,
-            &queue,
+            device,
+            queue,
             Some("specular env map"),
             &skybox_mesh,
             &specular_env_map_gen_pipeline,
             skybox_rad_texture,
         );
 
-        let brdf_lut = Texture::create_brdf_lut(&device, &queue, &brdf_lut_gen_pipeline);
+        let brdf_lut = Texture::create_brdf_lut(device, queue, &brdf_lut_gen_pipeline);
 
         let checkerboard_texture_img = {
             let mut img = image::RgbaImage::new(4096, 4096);
@@ -1642,8 +1645,8 @@ impl RendererState {
             img
         };
         let checkerboard_texture = Texture::from_decoded_image(
-            &device,
-            &queue,
+            device,
+            queue,
             &checkerboard_texture_img,
             checkerboard_texture_img.dimensions(),
             Some("checkerboard_texture"),
@@ -1699,8 +1702,8 @@ impl RendererState {
             .collect();
 
         let point_light_emissive_map = Texture::from_color(
-            &device,
-            &queue,
+            device,
+            queue,
             [
                 (LIGHT_COLOR_A.x * 255.0).round() as u8,
                 (LIGHT_COLOR_A.y * 255.0).round() as u8,
@@ -1709,16 +1712,13 @@ impl RendererState {
             ],
             // [255, 0, 0, 255],
         )?;
-        let point_light_metallic_roughness_map = Texture::from_color(
-            &device,
-            &queue,
-            [255, (0.1 * 255.0f32).round() as u8, 0, 255],
-        )?;
-        let point_light_ambient_occlusion_map = Texture::from_gray(&device, &queue, 0)?;
+        let point_light_metallic_roughness_map =
+            Texture::from_color(device, queue, [255, (0.1 * 255.0f32).round() as u8, 0, 255])?;
+        let point_light_ambient_occlusion_map = Texture::from_gray(device, queue, 0)?;
 
         let point_light_mesh = InstancedMeshComponent::new(
-            &device,
-            &queue,
+            device,
+            queue,
             &sphere_mesh,
             // TODO: InstancedMeshMaterialParams is tied to the mesh pipeline, not the flat color pipeline... so these values are ultimately ignored
             &InstancedMeshMaterialParams {
@@ -1727,7 +1727,7 @@ impl RendererState {
                 ambient_occlusion: Some(&point_light_ambient_occlusion_map),
                 ..Default::default()
             },
-            &five_texture_bind_group_layout,
+            pbr_textures_bind_group_layout,
             bytemuck::cast_slice(&light_flat_color_instances),
         )?;
 
@@ -1745,8 +1745,8 @@ impl RendererState {
         // let test_object_diffuse_texture =
         //     Texture::from_color(&device, &queue, [255, 255, 255, 255])?;
         let test_object_metallic_roughness_map = Texture::from_color(
-            &device,
-            &queue,
+            device,
+            queue,
             [
                 255,
                 (0.12 * 255.0f32).round() as u8,
@@ -1755,8 +1755,8 @@ impl RendererState {
             ],
         )?;
         let test_object_mesh = InstancedMeshComponent::new(
-            &device,
-            &queue,
+            device,
+            queue,
             &sphere_mesh,
             &InstancedMeshMaterialParams {
                 diffuse: Some(&earth_texture),
@@ -1764,7 +1764,7 @@ impl RendererState {
                 metallic_roughness: Some(&test_object_metallic_roughness_map),
                 ..Default::default()
             },
-            &five_texture_bind_group_layout,
+            pbr_textures_bind_group_layout,
             bytemuck::cast_slice(&test_object_transforms_gpu),
         )?;
 
@@ -1782,14 +1782,14 @@ impl RendererState {
             .collect();
 
         let plane_mesh = InstancedMeshComponent::new(
-            &device,
-            &queue,
+            device,
+            queue,
             &plane_mesh,
             &InstancedMeshMaterialParams {
                 diffuse: Some(&checkerboard_texture),
                 ..Default::default()
             },
-            &five_texture_bind_group_layout,
+            pbr_textures_bind_group_layout,
             bytemuck::cast_slice(&plane_transforms_gpu),
         )?;
 
@@ -1863,7 +1863,7 @@ impl RendererState {
         });
 
         let bones_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &bones_bind_group_layout,
+            layout: bones_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
@@ -1926,20 +1926,20 @@ impl RendererState {
             .collect();
 
         let sphere_mesh = InstancedMeshComponent::new(
-            &device,
-            &queue,
+            device,
+            queue,
             &sphere_mesh,
             &InstancedMeshMaterialParams {
                 diffuse: Some(&mars_texture),
                 ..Default::default()
             },
-            &five_texture_bind_group_layout,
+            pbr_textures_bind_group_layout,
             bytemuck::cast_slice(&balls_transforms),
         )?;
 
         let point_light_count: u32 = point_lights.len().try_into().unwrap();
         let point_shadow_map_textures = Texture::create_cube_depth_texture_array(
-            &device,
+            device,
             1024,
             Some("point_shadow_map_texture"),
             point_light_count.max(1),
@@ -1947,7 +1947,7 @@ impl RendererState {
 
         let directional_light_count: u32 = directional_lights.len().try_into().unwrap();
         let directional_shadow_map_textures = Texture::create_depth_texture_array(
-            &device,
+            device,
             1024,
             Some("directional_shadow_map_texture"),
             directional_light_count.max(1),
@@ -2019,15 +2019,10 @@ impl RendererState {
                 label: Some("skybox_texture_bind_group"),
             });
 
-        let limits = device.limits();
+        let _limits = device.limits();
 
         Ok(Self {
-            surface,
-            device,
-            queue,
-            config,
-
-            limits,
+            base,
 
             tone_mapping_exposure: INITIAL_TONE_MAPPING_EXPOSURE,
             bloom_threshold: INITIAL_BLOOM_THRESHOLD,
@@ -2039,8 +2034,6 @@ impl RendererState {
             // first_frame_instant: None,
             animation_time_acc: 0.0,
             is_playing_animations: true,
-            logger,
-            current_window_size: size,
 
             camera_controller,
             camera_uniform,
@@ -2052,7 +2045,6 @@ impl RendererState {
             bones_buffer,
 
             bones_bind_group,
-            bones_bind_group_layout,
 
             mesh_pipeline,
             flat_color_mesh_pipeline,
@@ -2066,9 +2058,6 @@ impl RendererState {
             shadow_camera_buffer,
             point_shadow_map_textures,
             directional_shadow_map_textures,
-
-            single_texture_bind_group_layout,
-            two_texture_bind_group_layout,
 
             shading_texture,
             tone_mapping_texture,
@@ -2112,16 +2101,49 @@ impl RendererState {
         &mut self,
         event: &winit::event::DeviceEvent,
         window: &mut winit::window::Window,
+        logger: &mut Logger,
     ) {
         self.camera_controller
-            .process_device_events(event, window, &mut self.logger);
+            .process_device_events(event, window, logger);
+    }
+
+    fn increment_render_scale(&mut self, increase: bool, logger: &mut Logger) {
+        let delta = 0.1;
+        let change = if increase { delta } else { -delta };
+        self.render_scale = (self.render_scale + change).max(0.1).min(4.0);
+        logger.log(&format!(
+            "Render scale: {:?} ({:?}x{:?})",
+            self.render_scale,
+            (self.base.surface_config.width as f32 * self.render_scale.sqrt()).round() as u32,
+            (self.base.surface_config.height as f32 * self.render_scale.sqrt()).round() as u32,
+        ));
+        self.resize(self.base.window_size);
+    }
+
+    fn increment_exposure(&mut self, increase: bool, logger: &mut Logger) {
+        let delta = 0.05;
+        let change = if increase { delta } else { -delta };
+        self.tone_mapping_exposure = (self.tone_mapping_exposure + change).max(0.0).min(20.0);
+        logger.log(&format!("Exposure: {:?}", self.tone_mapping_exposure));
+    }
+
+    fn increment_bloom_threshold(&mut self, increase: bool, logger: &mut Logger) {
+        let delta = 0.05;
+        let change = if increase { delta } else { -delta };
+        self.bloom_threshold = (self.bloom_threshold + change).max(0.0).min(20.0);
+        logger.log(&format!("Bloom Threshold: {:?}", self.bloom_threshold));
     }
 
     pub fn process_window_input(
         &mut self,
         event: &winit::event::WindowEvent,
         window: &mut winit::window::Window,
+        logger: &mut Logger,
     ) {
+        let _surface_config = &self.base.surface_config;
+        let _device = &self.base.device;
+        let _single_texture_bind_group_layout = &self.base.single_texture_bind_group_layout;
+        let _two_texture_bind_group_layout = &self.base.two_texture_bind_group_layout;
         if let WindowEvent::KeyboardInput {
             input:
                 KeyboardInput {
@@ -2132,188 +2154,25 @@ impl RendererState {
             ..
         } = event
         {
-            let mut increment_render_scale = |increase: bool, logger: &mut Logger| {
-                let delta = 0.1;
-                let change = if increase { delta } else { -delta };
-                self.render_scale = (self.render_scale + change).max(0.1).min(4.0);
-                logger.log(&format!(
-                    "Render scale: {:?} ({:?}x{:?})",
-                    self.render_scale,
-                    (self.config.width as f32 * self.render_scale.sqrt()).round() as u32,
-                    (self.config.height as f32 * self.render_scale.sqrt()).round() as u32,
-                ));
-                self.shading_texture = Texture::create_scaled_surface_texture(
-                    &self.device,
-                    &self.config,
-                    self.render_scale,
-                    "shading_texture",
-                );
-                self.bloom_pingpong_textures = [
-                    Texture::create_scaled_surface_texture(
-                        &self.device,
-                        &self.config,
-                        self.render_scale,
-                        "bloom_texture_1",
-                    ),
-                    Texture::create_scaled_surface_texture(
-                        &self.device,
-                        &self.config,
-                        self.render_scale,
-                        "bloom_texture_2",
-                    ),
-                ];
-                self.tone_mapping_texture = Texture::create_scaled_surface_texture(
-                    &self.device,
-                    &self.config,
-                    self.render_scale,
-                    "tone_mapping_texture",
-                );
-                self.depth_texture = Texture::create_depth_texture(
-                    &self.device,
-                    &self.config,
-                    self.render_scale,
-                    "depth_texture",
-                );
-                self.shading_texture_bind_group =
-                    self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        layout: &self.single_texture_bind_group_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: wgpu::BindingResource::TextureView(
-                                    &self.shading_texture.view,
-                                ),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::Sampler(
-                                    &self.shading_texture.sampler,
-                                ),
-                            },
-                        ],
-                        label: Some("shading_texture_bind_group"),
-                    });
-                self.tone_mapping_texture_bind_group =
-                    self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        layout: &self.single_texture_bind_group_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: wgpu::BindingResource::TextureView(
-                                    &self.tone_mapping_texture.view,
-                                ),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::Sampler(
-                                    &self.tone_mapping_texture.sampler,
-                                ),
-                            },
-                        ],
-                        label: Some("tone_mapping_texture_bind_group"),
-                    });
-                self.shading_and_bloom_textures_bind_group =
-                    self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        layout: &self.two_texture_bind_group_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: wgpu::BindingResource::TextureView(
-                                    &self.shading_texture.view,
-                                ),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::Sampler(
-                                    &self.shading_texture.sampler,
-                                ),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 2,
-                                resource: wgpu::BindingResource::TextureView(
-                                    &self.bloom_pingpong_textures[0].view,
-                                ),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 3,
-                                resource: wgpu::BindingResource::Sampler(
-                                    &self.bloom_pingpong_textures[0].sampler,
-                                ),
-                            },
-                        ],
-                        label: Some("surface_blit_textures_bind_group"),
-                    });
-                self.bloom_pingpong_texture_bind_groups = [
-                    self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        layout: &self.single_texture_bind_group_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: wgpu::BindingResource::TextureView(
-                                    &self.bloom_pingpong_textures[0].view,
-                                ),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::Sampler(
-                                    &self.bloom_pingpong_textures[0].sampler,
-                                ),
-                            },
-                        ],
-                        label: Some("bloom_texture_bind_group_1"),
-                    }),
-                    self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        layout: &self.single_texture_bind_group_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: wgpu::BindingResource::TextureView(
-                                    &self.bloom_pingpong_textures[1].view,
-                                ),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::Sampler(
-                                    &self.bloom_pingpong_textures[1].sampler,
-                                ),
-                            },
-                        ],
-                        label: Some("bloom_texture_bind_group_2"),
-                    }),
-                ];
-            };
-            let mut increment_exposure = |increase: bool, logger: &mut Logger| {
-                let delta = 0.05;
-                let change = if increase { delta } else { -delta };
-                self.tone_mapping_exposure =
-                    (self.tone_mapping_exposure + change).max(0.0).min(20.0);
-                logger.log(&format!("Exposure: {:?}", self.tone_mapping_exposure));
-            };
-            let mut increment_bloom_threshold = |increase: bool, logger: &mut Logger| {
-                let delta = 0.05;
-                let change = if increase { delta } else { -delta };
-                self.bloom_threshold = (self.bloom_threshold + change).max(0.0).min(20.0);
-                logger.log(&format!("Bloom Threshold: {:?}", self.bloom_threshold));
-            };
             if *state == ElementState::Released {
                 match keycode {
                     VirtualKeyCode::Z => {
-                        increment_render_scale(false, &mut self.logger);
+                        self.increment_render_scale(false, logger);
                     }
                     VirtualKeyCode::X => {
-                        increment_render_scale(true, &mut self.logger);
+                        self.increment_render_scale(true, logger);
                     }
                     VirtualKeyCode::E => {
-                        increment_exposure(false, &mut self.logger);
+                        self.increment_exposure(false, logger);
                     }
                     VirtualKeyCode::R => {
-                        increment_exposure(true, &mut self.logger);
+                        self.increment_exposure(true, logger);
                     }
                     VirtualKeyCode::T => {
-                        increment_bloom_threshold(false, &mut self.logger);
+                        self.increment_bloom_threshold(false, logger);
                     }
                     VirtualKeyCode::Y => {
-                        increment_bloom_threshold(true, &mut self.logger);
+                        self.increment_bloom_threshold(true, logger);
                     }
                     VirtualKeyCode::P => {
                         self.is_playing_animations = !self.is_playing_animations;
@@ -2323,65 +2182,69 @@ impl RendererState {
             }
         }
         self.camera_controller
-            .process_window_events(event, window, &mut self.logger);
+            .process_window_events(event, window, logger);
     }
 
     pub fn resize(&mut self, new_window_size: winit::dpi::PhysicalSize<u32>) {
-        self.current_window_size = new_window_size;
-        self.config.width = new_window_size.width;
-        self.config.height = new_window_size.height;
-        self.surface.configure(&self.device, &self.config);
+        let surface = &mut self.base.surface;
+        let surface_config = &mut self.base.surface_config;
+        let device = &self.base.device;
+        let single_texture_bind_group_layout = &self.base.single_texture_bind_group_layout;
+        let two_texture_bind_group_layout = &self.base.two_texture_bind_group_layout;
+        self.base.window_size = new_window_size;
+        surface_config.width = new_window_size.width;
+        surface_config.height = new_window_size.height;
+        surface.configure(device, surface_config);
         self.shading_texture = Texture::create_scaled_surface_texture(
-            &self.device,
-            &self.config,
+            device,
+            surface_config,
             self.render_scale,
             "shading_texture",
         );
         self.bloom_pingpong_textures = [
             Texture::create_scaled_surface_texture(
-                &self.device,
-                &self.config,
+                device,
+                surface_config,
                 self.render_scale,
                 "bloom_texture_1",
             ),
             Texture::create_scaled_surface_texture(
-                &self.device,
-                &self.config,
+                device,
+                surface_config,
                 self.render_scale,
                 "bloom_texture_2",
             ),
         ];
         self.tone_mapping_texture = Texture::create_scaled_surface_texture(
-            &self.device,
-            &self.config,
+            device,
+            surface_config,
             self.render_scale,
             "tone_mapping_texture",
         );
         self.depth_texture = Texture::create_depth_texture(
-            &self.device,
-            &self.config,
+            device,
+            surface_config,
             self.render_scale,
             "depth_texture",
         );
         // TODO: dry this up? it's repeated three times in this file
-        self.shading_texture_bind_group =
-            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.single_texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&self.shading_texture.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.shading_texture.sampler),
-                    },
-                ],
-                label: Some("shading_texture_bind_group"),
-            });
+        self.shading_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: single_texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.shading_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.shading_texture.sampler),
+                },
+            ],
+            label: Some("shading_texture_bind_group"),
+        });
         self.tone_mapping_texture_bind_group =
-            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.single_texture_bind_group_layout,
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: single_texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -2399,8 +2262,8 @@ impl RendererState {
                 label: Some("tone_mapping_texture_bind_group"),
             });
         self.shading_and_bloom_textures_bind_group =
-            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.two_texture_bind_group_layout,
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: two_texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -2426,8 +2289,8 @@ impl RendererState {
                 label: Some("surface_blit_textures_bind_group"),
             });
         self.bloom_pingpong_texture_bind_groups = [
-            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.single_texture_bind_group_layout,
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: single_texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -2444,8 +2307,8 @@ impl RendererState {
                 ],
                 label: Some("bloom_texture_bind_group_1"),
             }),
-            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.single_texture_bind_group_layout,
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: single_texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -2465,7 +2328,13 @@ impl RendererState {
         ];
     }
 
-    pub fn update(&mut self, window: &winit::window::Window, time_tracker: TimeTracker) {
+    pub fn update(
+        &mut self,
+        window: &winit::window::Window,
+        game_state: &mut GameState,
+        logger: &mut Logger,
+    ) {
+        let time_tracker = game_state.time();
         let global_time_seconds = time_tracker.global_time_seconds();
 
         // results in ~60 state changes per second
@@ -2487,7 +2356,7 @@ impl RendererState {
             self.prev_balls = self.next_balls.clone();
             self.next_balls
                 .iter_mut()
-                .for_each(|ball| ball.update(min_update_timestep_seconds, &mut self.logger));
+                .for_each(|ball| ball.update(min_update_timestep_seconds, logger));
             self.state_update_time_accumulator -= min_update_timestep_seconds;
         }
         let alpha = self.state_update_time_accumulator / min_update_timestep_seconds;
@@ -2628,16 +2497,17 @@ impl RendererState {
         // }
 
         // do animatons
+        let game_scene = &mut game_state.scene;
+        let render_scene = &self.scene;
         if self.is_playing_animations {
             self.animation_time_acc += frame_time_seconds;
             if let Err(err) =
-                update_node_transforms_at_moment(&mut self.scene, self.animation_time_acc)
+                update_node_transforms_at_moment(game_scene, render_scene, self.animation_time_acc)
             {
-                self.logger
-                    .log(&format!("Error: animation computation failed: {:?}", err));
+                logger.log(&format!("Error: animation computation failed: {:?}", err));
             }
         }
-        if let Some(node_0) = self.scene.nodes.get_mut(0) {
+        if let Some(node_0) = game_scene.nodes.get_mut(0) {
             // node_0.transform.set_position(Vector3::new(
             //     node_0.transform.position().x - 0.75 * frame_time_seconds,
             //     0.0,
@@ -2650,12 +2520,20 @@ impl RendererState {
         }
 
         // send data to gpu
-        let all_bone_transforms =
-            get_all_bone_data(&self.scene, self.limits.min_storage_buffer_offset_alignment);
-        self.queue
-            .write_buffer(&self.bones_buffer, 0, &all_bone_transforms.buffer);
-        self.bones_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &self.bones_bind_group_layout,
+        let _surface = &mut self.base.surface;
+        let limits = &mut self.base.limits;
+        let queue = &mut self.base.queue;
+        let _surface_config = &mut self.base.surface_config;
+        let device = &self.base.device;
+        let bones_bind_group_layout = &self.base.bones_bind_group_layout;
+        let all_bone_transforms = get_all_bone_data(
+            game_scene,
+            render_scene,
+            limits.min_storage_buffer_offset_alignment,
+        );
+        queue.write_buffer(&self.bones_buffer, 0, &all_bone_transforms.buffer);
+        self.bones_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: bones_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
@@ -2681,12 +2559,12 @@ impl RendererState {
                              base_material,
                              ..
                          }| {
-                            let node_ancestry_list = self.scene.get_node_ancestry_list(node_index);
+                            let node_ancestry_list = game_scene.get_node_ancestry_list(node_index);
                             let transform = node_ancestry_list
                                 .iter()
                                 .rev()
                                 .fold(crate::transform::Transform::new(), |acc, node_index| {
-                                    acc * self.scene.nodes[*node_index].transform
+                                    acc * game_scene.nodes[*node_index].transform
                                 });
                             MeshInstance {
                                 base_material,
@@ -2696,7 +2574,7 @@ impl RendererState {
                     )
                     .map(GpuMeshInstance::from)
                     .collect();
-                self.queue.write_buffer(
+                queue.write_buffer(
                     &instance_buffer.buffer,
                     0,
                     bytemuck::cast_slice(&gpu_instances),
@@ -2709,7 +2587,7 @@ impl RendererState {
             .map(|ball| GpuMeshInstance::from(ball.instance.clone()))
             .collect();
         if let Some(sphere_mesh) = &self.sphere_mesh {
-            self.queue.write_buffer(
+            queue.write_buffer(
                 &sphere_mesh.instance_buffer,
                 0,
                 bytemuck::cast_slice(&balls_transforms),
@@ -2721,7 +2599,7 @@ impl RendererState {
             .cloned()
             .map(GpuMeshInstance::from)
             .collect();
-        self.queue.write_buffer(
+        queue.write_buffer(
             &self.test_object_mesh.instance_buffer,
             0,
             bytemuck::cast_slice(&test_object_transforms_gpu),
@@ -2734,7 +2612,7 @@ impl RendererState {
             Z_FAR,
             FOV_Y.into(),
         );
-        self.queue.write_buffer(
+        queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
@@ -2744,7 +2622,7 @@ impl RendererState {
             .iter()
             .map(|light| GpuFlatColorMeshInstance::from(light.clone()))
             .collect();
-        self.queue.write_buffer(
+        queue.write_buffer(
             &self.point_light_mesh.instance_buffer,
             0,
             bytemuck::cast_slice(&point_light_flat_color_instances),
@@ -2761,115 +2639,115 @@ impl RendererState {
         //     .copied()
         //     .collect();
         // self.logger.log(&format!("{:?}", &self.point_lights));
-        self.queue.write_buffer(
+        queue.write_buffer(
             &self.point_lights_buffer,
             0,
             bytemuck::cast_slice(&make_point_light_uniform_buffer(&self.point_lights)),
         );
-        self.queue.write_buffer(
+        queue.write_buffer(
             &self.directional_lights_buffer,
             0,
             bytemuck::cast_slice(&make_directional_light_uniform_buffer(
                 &self.directional_lights,
             )),
         );
-        self.queue.write_buffer(
+        queue.write_buffer(
             &self.tone_mapping_config_buffer,
             0,
             bytemuck::cast_slice(&[self.tone_mapping_exposure]),
         );
     }
 
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        {
-            self.directional_lights
-                .iter()
-                .enumerate()
-                .for_each(|(light_index, light)| {
-                    let view_proj_matrices =
-                        build_directional_light_camera_view(-light.direction, 100.0, 100.0, 1000.0);
-                    let texture_view = self.directional_shadow_map_textures.texture.create_view(
+    pub fn render(&mut self, game_scene: &GameScene) -> Result<(), wgpu::SurfaceError> {
+        self.directional_lights
+            .iter()
+            .enumerate()
+            .for_each(|(light_index, light)| {
+                let view_proj_matrices =
+                    build_directional_light_camera_view(-light.direction, 100.0, 100.0, 1000.0);
+                let texture_view = self.directional_shadow_map_textures.texture.create_view(
+                    &wgpu::TextureViewDescriptor {
+                        dimension: Some(wgpu::TextureViewDimension::D2),
+                        base_array_layer: light_index.try_into().unwrap(),
+                        array_layer_count: NonZeroU32::new(1),
+                        ..Default::default()
+                    },
+                );
+                let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
+                    label: Some("Shadow Render Pass"),
+                    color_attachments: &[],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &texture_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: true,
+                        }),
+                        stencil_ops: None,
+                    }),
+                };
+                self.base.queue.write_buffer(
+                    &self.shadow_camera_buffer,
+                    0,
+                    bytemuck::cast_slice(&[CameraUniform::from(view_proj_matrices)]),
+                );
+                self.render_scene(
+                    game_scene,
+                    &shadow_render_pass_desc,
+                    &self.directional_shadow_map_pipeline,
+                    true,
+                );
+            });
+        (0..self.point_lights.len()).for_each(|light_index| {
+            build_cubemap_face_camera_views(
+                self.point_lights[light_index].transform.position(),
+                0.1,
+                1000.0,
+                false,
+            )
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(i, view_proj_matrices)| {
+                (
+                    view_proj_matrices,
+                    self.point_shadow_map_textures.texture.create_view(
                         &wgpu::TextureViewDescriptor {
                             dimension: Some(wgpu::TextureViewDimension::D2),
-                            base_array_layer: light_index.try_into().unwrap(),
+                            base_array_layer: (6 * light_index + i).try_into().unwrap(),
                             array_layer_count: NonZeroU32::new(1),
                             ..Default::default()
                         },
-                    );
-                    let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
-                        label: Some("Shadow Render Pass"),
-                        color_attachments: &[],
-                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                            view: &texture_view,
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(1.0),
-                                store: true,
-                            }),
-                            stencil_ops: None,
-                        }),
-                    };
-                    self.queue.write_buffer(
-                        &self.shadow_camera_buffer,
-                        0,
-                        bytemuck::cast_slice(&[CameraUniform::from(view_proj_matrices)]),
-                    );
-                    self.render_scene(
-                        &shadow_render_pass_desc,
-                        &self.directional_shadow_map_pipeline,
-                        true,
-                    );
-                });
-            (0..self.point_lights.len()).for_each(|light_index| {
-                build_cubemap_face_camera_views(
-                    self.point_lights[light_index].transform.position(),
-                    0.1,
-                    1000.0,
-                    false,
+                    ),
                 )
-                .iter()
-                .copied()
-                .enumerate()
-                .map(|(i, view_proj_matrices)| {
-                    (
-                        view_proj_matrices,
-                        self.point_shadow_map_textures.texture.create_view(
-                            &wgpu::TextureViewDescriptor {
-                                dimension: Some(wgpu::TextureViewDimension::D2),
-                                base_array_layer: (6 * light_index + i).try_into().unwrap(),
-                                array_layer_count: NonZeroU32::new(1),
-                                ..Default::default()
-                            },
-                        ),
-                    )
-                })
-                .for_each(|(face_view_proj_matrices, face_texture_view)| {
-                    let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
-                        label: Some("Shadow Render Pass"),
-                        color_attachments: &[],
-                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                            view: &face_texture_view,
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(1.0),
-                                store: true,
-                            }),
-                            stencil_ops: None,
+            })
+            .for_each(|(face_view_proj_matrices, face_texture_view)| {
+                let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
+                    label: Some("Shadow Render Pass"),
+                    color_attachments: &[],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &face_texture_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: true,
                         }),
-                    };
-                    self.queue.write_buffer(
-                        &self.shadow_camera_buffer,
-                        0,
-                        bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
-                    );
-                    self.render_scene(
-                        &shadow_render_pass_desc,
-                        &self.point_shadow_map_pipeline,
-                        true,
-                    );
-                });
+                        stencil_ops: None,
+                    }),
+                };
+                self.base.queue.write_buffer(
+                    &self.shadow_camera_buffer,
+                    0,
+                    bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
+                );
+                self.render_scene(
+                    game_scene,
+                    &shadow_render_pass_desc,
+                    &self.point_shadow_map_pipeline,
+                    true,
+                );
             });
-        }
+        });
 
-        let surface_texture = self.surface.get_current_texture()?;
+        let surface_texture = self.base.surface.get_current_texture()?;
         let surface_texture_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -2901,10 +2779,16 @@ impl RendererState {
             }),
         };
 
-        self.render_scene(&shading_render_pass_desc, &self.mesh_pipeline, false);
+        self.render_scene(
+            game_scene,
+            &shading_render_pass_desc,
+            &self.mesh_pipeline,
+            false,
+        );
 
         let mut lights_flat_shading_encoder =
-            self.device
+            self.base
+                .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("Lights Flat Shading Encoder"),
                 });
@@ -2953,17 +2837,19 @@ impl RendererState {
             );
         }
 
-        self.queue
+        self.base
+            .queue
             .submit(std::iter::once(lights_flat_shading_encoder.finish()));
 
-        self.queue.write_buffer(
+        self.base.queue.write_buffer(
             &self.bloom_config_buffer,
             0,
             bytemuck::cast_slice(&[0.0f32, self.bloom_threshold, self.bloom_ramp_size]),
         );
 
         let mut bloom_threshold_encoder =
-            self.device
+            self.base
+                .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("Bloom Threshold Encoder"),
                 });
@@ -2988,13 +2874,15 @@ impl RendererState {
             bloom_threshold_render_pass.draw(0..3, 0..1);
         }
 
-        self.queue
+        self.base
+            .queue
             .submit(std::iter::once(bloom_threshold_encoder.finish()));
 
         let do_bloom_blur_pass =
             |src_texture: &wgpu::BindGroup, dst_texture: &wgpu::TextureView, horizontal: bool| {
                 let mut encoder =
-                    self.device
+                    self.base
+                        .device
                         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                             label: Some("Bloom Blur Encoder"),
                         });
@@ -3012,7 +2900,7 @@ impl RendererState {
                         depth_stencil_attachment: None,
                     });
 
-                    self.queue.write_buffer(
+                    self.base.queue.write_buffer(
                         &self.bloom_config_buffer,
                         0,
                         bytemuck::cast_slice(&[
@@ -3027,7 +2915,7 @@ impl RendererState {
                     render_pass.draw(0..3, 0..1);
                 }
 
-                self.queue.submit(std::iter::once(encoder.finish()));
+                self.base.queue.submit(std::iter::once(encoder.finish()));
             };
 
         // do 10 gaussian blur passes, switching between horizontal and vertical and ping ponging between
@@ -3042,7 +2930,8 @@ impl RendererState {
         });
 
         let mut skybox_encoder =
-            self.device
+            self.base
+                .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("Skybox Encoder"),
                 });
@@ -3079,10 +2968,13 @@ impl RendererState {
             skybox_render_pass.draw_indexed(0..self.skybox_mesh.num_indices, 0, 0..1);
         }
 
-        self.queue.submit(std::iter::once(skybox_encoder.finish()));
+        self.base
+            .queue
+            .submit(std::iter::once(skybox_encoder.finish()));
 
         let mut tone_mapping_encoder =
-            self.device
+            self.base
+                .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("Tone Mapping Encoder"),
                 });
@@ -3110,11 +3002,13 @@ impl RendererState {
             tone_mapping_render_pass.draw(0..3, 0..1);
         }
 
-        self.queue
+        self.base
+            .queue
             .submit(std::iter::once(tone_mapping_encoder.finish()));
 
         let mut surface_blit_encoder =
-            self.device
+            self.base
+                .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("Surface Blit Encoder"),
                 });
@@ -3139,7 +3033,8 @@ impl RendererState {
             surface_blit_render_pass.draw(0..3, 0..1);
         }
 
-        self.queue
+        self.base
+            .queue
             .submit(std::iter::once(surface_blit_encoder.finish()));
 
         surface_texture.present();
@@ -3148,17 +3043,23 @@ impl RendererState {
 
     fn render_scene<'a>(
         &'a self,
+        game_scene: &GameScene,
         render_pass_descriptor: &wgpu::RenderPassDescriptor<'a, 'a>,
         pipeline: &'a wgpu::RenderPipeline,
         is_shadow: bool,
     ) {
-        let all_bone_transforms =
-            get_all_bone_data(&self.scene, self.limits.min_storage_buffer_offset_alignment);
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("render_scene Encoder"),
-            });
+        let device = &self.base.device;
+        let queue = &self.base.queue;
+        let limits = &self.base.limits;
+        let render_scene = &self.scene;
+        let all_bone_transforms = get_all_bone_data(
+            game_scene,
+            render_scene,
+            limits.min_storage_buffer_offset_alignment,
+        );
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("render_scene Encoder"),
+        });
         {
             let mut render_pass = encoder.begin_render_pass(render_pass_descriptor);
             self.scene
@@ -3284,6 +3185,6 @@ impl RendererState {
             // );
         }
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        queue.submit(std::iter::once(encoder.finish()));
     }
 }

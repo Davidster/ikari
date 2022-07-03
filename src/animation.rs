@@ -16,12 +16,13 @@ struct KeyframeTime {
 }
 
 pub fn update_node_transforms_at_moment(
-    render_scene: &mut RenderScene,
+    game_scene: &mut GameScene,
+    render_scene: &RenderScene,
     global_time_seconds: f32,
 ) -> Result<()> {
     for animation in render_scene.animations.iter() {
         for channel in animation.channels.iter() {
-            let transform = &mut render_scene.nodes[channel.node_index].transform;
+            let transform = &mut game_scene.nodes[channel.node_index].transform;
             let animation_time_seconds = global_time_seconds % animation.length_seconds;
             let (previous_key_frame, next_key_frame) =
                 get_nearby_keyframes(&channel.keyframe_timings, animation_time_seconds);

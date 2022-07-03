@@ -7,9 +7,9 @@ pub struct GameState {
 }
 
 impl GameState {
-    pub fn init() -> Self {
+    pub fn new(scene: GameScene) -> Self {
         Self {
-            scene: GameScene { nodes: vec![] },
+            scene,
             time_tracker: None,
         }
     }
@@ -21,7 +21,7 @@ impl GameState {
         }
     }
 
-    pub fn time(&mut self) -> TimeTracker {
+    pub fn time(&self) -> TimeTracker {
         self.time_tracker.unwrap_or_else(|| {
             panic!("Must call GameState::on_frame_started at least once before getting the time")
         })

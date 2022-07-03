@@ -7,15 +7,17 @@ use wgpu::util::DeviceExt;
 use super::*;
 
 pub fn build_scene(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    five_texture_bind_group_layout: &wgpu::BindGroupLayout,
+    base_renderer_state: &BaseRendererState,
     (document, buffers, images): (
         &gltf::Document,
         &Vec<gltf::buffer::Data>,
         &Vec<gltf::image::Data>,
     ),
-) -> Result<RenderScene> {
+) -> Result<(GameScene, RenderScene)> {
+    let device = &base_renderer_state.device;
+    let queue = &base_renderer_state.queue;
+    let pbr_textures_bind_group_layout = &base_renderer_state.pbr_textures_bind_group_layout;
+
     let scene_index = document
         .default_scene()
         .map(|scene| scene.index())
@@ -118,9 +120,9 @@ pub fn build_scene(
 
     let nodes: Vec<_> = document
         .nodes()
-        .map(|node| Node {
+        .map(|node| GameNode {
             transform: crate::transform::Transform::from(node.transform()),
-            skin_index: node.skin().map(|skin| skin.index()),
+            renderer_scene_skin_index: node.skin().map(|skin| skin.index()),
         })
         .collect();
 
@@ -187,7 +189,7 @@ pub fn build_scene(
                 queue,
                 &primitive_group.material(),
                 &textures,
-                five_texture_bind_group_layout,
+                pbr_textures_bind_group_layout,
             )?;
 
             let (vertex_buffer, index_buffer) =
@@ -240,16 +242,21 @@ pub fn build_scene(
 
     let animations = get_animations(document, buffers)?;
 
-    Ok(RenderScene {
-        buffers: SceneBuffers {
-            bindable_mesh_data,
-            textures,
+    Ok((
+        GameScene {
+            parent_index_map,
+            nodes,
         },
-        parent_index_map,
-        nodes,
-        skins,
-        animations,
-    })
+        RenderScene {
+            buffers: SceneBuffers {
+                bindable_mesh_data,
+                textures,
+            },
+
+            skins,
+            animations,
+        },
+    ))
 }
 
 fn get_image_pixels(

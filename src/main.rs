@@ -85,19 +85,26 @@ async fn start() {
         // }
     };
     if let Some(window) = window {
-        let renderer_state_result = RendererState::new(&window).await;
-        match renderer_state_result {
-            Ok(renderer_state) => {
-                let game_state = GameState::init();
-                gameloop::run(window, event_loop, game_state, renderer_state);
-            }
-            Err(err) => {
-                eprintln!(
-                    "Error creating renderer state: {}\n{}",
-                    err,
-                    err.backtrace()
-                )
-            }
+        let mut logger = Logger::new();
+        let mut base_render_state = BaseRendererState::new(&window).await;
+
+        let run_result = async {
+            let (game_scene, render_scene) = init_scene(&mut base_render_state, &mut logger)?;
+            let game_state = GameState::new(game_scene);
+
+            let renderer_state =
+                RendererState::new(&window, render_scene, base_render_state, &mut logger).await?;
+            gameloop::run(window, event_loop, game_state, renderer_state, logger); // this will block while the game is running
+            anyhow::Ok(())
+        }
+        .await;
+
+        if let Err(err) = run_result {
+            eprintln!(
+                "Error setting up game / render state: {}\n{}",
+                err,
+                err.backtrace()
+            )
         }
     }
 }

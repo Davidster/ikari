@@ -17,6 +17,7 @@ pub struct AllBoneTransformsSlice {
 }
 
 pub fn get_all_bone_data(
+    game_scene: &GameScene,
     render_scene: &RenderScene,
     min_storage_buffer_offset_alignment: u32,
 ) -> AllBoneTransforms {
@@ -41,14 +42,12 @@ pub fn get_all_bone_data(
             gltf_mesh
                 .instances
                 .iter()
-                .find_map(|instance| {
-                    render_scene.get_model_root_if_in_skeleton(instance.node_index)
-                })
+                .find_map(|instance| game_scene.get_model_root_if_in_skeleton(instance.node_index))
                 .map(|model_root_node_index| (gltf_mesh_index, model_root_node_index))
         })
     {
-        let skin_index = render_scene.nodes[model_root_node_index]
-            .skin_index
+        let skin_index = game_scene.nodes[model_root_node_index]
+            .renderer_scene_skin_index
             .unwrap();
         match skin_index_to_slice_map.entry(skin_index) {
             Entry::Occupied(entry) => {
@@ -60,12 +59,15 @@ pub fn get_all_bone_data(
                 });
             }
             Entry::Vacant(entry) => {
-                let bone_transforms: Vec<_> =
-                    get_bone_model_space_transforms(render_scene, model_root_node_index)
-                        .iter()
-                        .copied()
-                        .map(GpuMatrix4)
-                        .collect();
+                let bone_transforms: Vec<_> = get_bone_model_space_transforms(
+                    game_scene,
+                    render_scene,
+                    model_root_node_index,
+                )
+                .iter()
+                .copied()
+                .map(GpuMatrix4)
+                .collect();
 
                 // add padding
                 // TODO: use limit constraints at device creation time to try to lower the min_storage_buffer_offset_alignment number
@@ -98,16 +100,17 @@ pub fn get_all_bone_data(
 }
 
 pub fn get_bone_model_space_transforms(
+    game_scene: &GameScene,
     render_scene: &RenderScene,
     model_root_node_index: usize,
 ) -> Vec<Matrix4<f32>> {
-    let model_root_node = &render_scene.nodes[model_root_node_index];
-    let skin = &render_scene.skins[model_root_node.skin_index.unwrap()];
+    let model_root_node = &game_scene.nodes[model_root_node_index];
+    let skin = &render_scene.skins[model_root_node.renderer_scene_skin_index.unwrap()];
     let skeleton_parent_index_map: HashMap<usize, usize> = skin
         .bone_node_indices
         .iter()
         .filter_map(|bone_node_index| {
-            render_scene
+            game_scene
                 .parent_index_map
                 .get(bone_node_index)
                 .map(|parent_index| (*bone_node_index, *parent_index))
@@ -130,7 +133,7 @@ pub fn get_bone_model_space_transforms(
                 .iter()
                 .rev()
                 .fold(crate::transform::Transform::new(), |acc, node_index| {
-                    acc * render_scene.nodes[*node_index].transform
+                    acc * game_scene.nodes[*node_index].transform
                 });
             // goes from the model's space into the bone's space
             let model_space_to_bone_space = skin.bone_inverse_bind_matrices[bone_index];

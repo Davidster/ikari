@@ -1,7 +1,5 @@
 use std::time::Instant;
 
-use super::*;
-
 #[derive(Debug, Copy, Clone)]
 pub struct TimeTracker {
     first_frame_instant: Instant,

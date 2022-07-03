@@ -15,6 +15,7 @@ pub fn run(
     event_loop: EventLoop<()>,
     mut game_state: GameState,
     mut renderer_state: RendererState,
+    mut logger: Logger,
 ) {
     let mut last_log_time: Option<Instant> = None;
     event_loop.run(move |event, _, control_flow| {
@@ -23,12 +24,12 @@ pub fn run(
             Event::RedrawRequested(_) => {
                 game_state.on_frame_started();
                 update_game_state(&mut game_state, &renderer_state);
-                renderer_state.update(&window, game_state.time());
-                renderer_state.logger.on_frame_completed();
+                renderer_state.update(&window, &mut game_state, &mut logger);
+                logger.on_frame_completed();
 
                 let last_log_time_clone = last_log_time;
                 let mut write_logs = || {
-                    if let Err(err) = renderer_state.logger.write_to_term() {
+                    if let Err(err) = logger.write_to_term() {
                         eprintln!("Error writing to terminal: {}", err);
                     }
                     last_log_time = Some(Instant::now());
@@ -45,18 +46,18 @@ pub fn run(
                     _ => {}
                 }
 
-                match renderer_state.render() {
+                match renderer_state.render(&game_state.scene) {
                     Ok(_) => {}
                     // Reconfigure the surface if lost
                     Err(wgpu::SurfaceError::Lost) => {
-                        renderer_state.resize(renderer_state.current_window_size)
+                        renderer_state.resize(renderer_state.base.window_size)
                     }
                     // The system is out of memory, we should probably quit
                     Err(wgpu::SurfaceError::OutOfMemory) => {
                         *control_flow = winit::event_loop::ControlFlow::Exit
                     }
                     // All other errors (Outdated, Timeout) should be resolved by the next frame
-                    Err(e) => renderer_state.logger.log(&format!("{:?}", e)),
+                    Err(e) => logger.log(&format!("{:?}", e)),
                 }
             }
             Event::MainEventsCleared => {
@@ -65,12 +66,12 @@ pub fn run(
                 window.request_redraw();
             }
             Event::DeviceEvent { event, .. } => {
-                renderer_state.process_device_input(&event, &mut window);
+                renderer_state.process_device_input(&event, &mut window, &mut logger);
             }
             Event::WindowEvent {
                 event, window_id, ..
             } if window_id == window.id() => {
-                renderer_state.process_window_input(&event, &mut window);
+                renderer_state.process_window_input(&event, &mut window, &mut logger);
                 match event {
                     WindowEvent::Resized(size) => {
                         renderer_state.resize(size);
