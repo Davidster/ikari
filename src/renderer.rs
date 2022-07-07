@@ -1792,7 +1792,7 @@ impl RendererState {
             .binded_unlit_meshes
             .push(BindedUnlitMesh {
                 vertex_buffer,
-                index_buffer: Some(index_buffer),
+                index_buffer,
                 instance_buffer,
             });
         Ok(self.scene.buffers.binded_unlit_meshes.len() - 1)
@@ -1813,7 +1813,7 @@ impl RendererState {
 
         self.scene.buffers.binded_pbr_meshes.push(BindedPbrMesh {
             vertex_buffer,
-            index_buffer: Some(index_buffer),
+            index_buffer,
             instance_buffer,
             dynamic_pbr_params,
             textures_bind_group,
@@ -2564,25 +2564,15 @@ impl RendererState {
                             unlit_render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
                             unlit_render_pass
                                 .set_vertex_buffer(1, instance_buffer.buffer.slice(..));
-                            match index_buffer {
-                                Some(index_buffer) => {
-                                    unlit_render_pass.set_index_buffer(
-                                        index_buffer.buffer.slice(..),
-                                        wgpu::IndexFormat::Uint16,
-                                    );
-                                    unlit_render_pass.draw_indexed(
-                                        0..index_buffer.length as u32,
-                                        0,
-                                        0..instance_buffer.length as u32,
-                                    );
-                                }
-                                None => {
-                                    unlit_render_pass.draw(
-                                        0..vertex_buffer.length as u32,
-                                        0..instance_buffer.length as u32,
-                                    );
-                                }
-                            };
+                            unlit_render_pass.set_index_buffer(
+                                index_buffer.buffer.slice(..),
+                                wgpu::IndexFormat::Uint16,
+                            );
+                            unlit_render_pass.draw_indexed(
+                                0..index_buffer.length as u32,
+                                0,
+                                0..instance_buffer.length as u32,
+                            );
                         }
                     },
                 );
@@ -2877,25 +2867,15 @@ impl RendererState {
 
                             render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
                             render_pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
-                            match index_buffer {
-                                Some(index_buffer) => {
-                                    render_pass.set_index_buffer(
-                                        index_buffer.buffer.slice(..),
-                                        wgpu::IndexFormat::Uint16,
-                                    );
-                                    render_pass.draw_indexed(
-                                        0..index_buffer.length as u32,
-                                        0,
-                                        0..instance_buffer.length as u32,
-                                    );
-                                }
-                                None => {
-                                    render_pass.draw(
-                                        0..vertex_buffer.length as u32,
-                                        0..instance_buffer.length as u32,
-                                    );
-                                }
-                            };
+                            render_pass.set_index_buffer(
+                                index_buffer.buffer.slice(..),
+                                wgpu::IndexFormat::Uint16,
+                            );
+                            render_pass.draw_indexed(
+                                0..index_buffer.length as u32,
+                                0,
+                                0..instance_buffer.length as u32,
+                            );
                         }
                     },
                 );

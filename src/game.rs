@@ -101,12 +101,12 @@ pub fn init_game_state(
     }
 
     // rotate the animated character 90 deg
-    if let Some(node_0) = scene.nodes.get_mut(0) {
-        node_0.transform.set_rotation(make_quat_from_axis_angle(
-            Vector3::new(0.0, 1.0, 0.0),
-            Deg(90.0).into(),
-        ));
-    }
+    // if let Some(node_0) = scene.nodes.get_mut(0) {
+    //     node_0.transform.set_rotation(make_quat_from_axis_angle(
+    //         Vector3::new(0.0, 1.0, 0.0),
+    //         Deg(90.0).into(),
+    //     ));
+    // }
 
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
     // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
@@ -251,7 +251,6 @@ pub fn init_game_state(
             )
             .build(),
     );
-    let floor_node_index = scene.nodes.len() - 1;
 
     // add balls to scene
 
@@ -326,7 +325,6 @@ pub fn init_game_state(
         ball_node_indices,
 
         test_object_node_index,
-        floor_node_index,
     })
 }
 

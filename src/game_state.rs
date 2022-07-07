@@ -17,7 +17,6 @@ pub struct GameState {
     pub ball_node_indices: Vec<usize>,
 
     pub test_object_node_index: usize,
-    pub floor_node_index: usize,
 }
 
 impl GameState {

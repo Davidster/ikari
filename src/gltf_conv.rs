@@ -517,22 +517,7 @@ pub fn build_geometry_buffers(
     device: &wgpu::Device,
     primitive_group: &gltf::mesh::Primitive,
     buffers: &[gltf::buffer::Data],
-) -> Result<(BufferAndLength, Option<BufferAndLength>)> {
-    // let get_buffer_slice_from_accessor = |accessor: gltf::Accessor| {
-    //     let buffer_view = accessor.view().unwrap();
-    //     let buffer = &buffers[buffer_view.buffer().index()];
-    //     let first_byte_offset = buffer_view.offset() + accessor.offset();
-    //     let stride = buffer_view.stride().unwrap_or_else(|| accessor.size());
-    //     (0..accessor.count())
-    //         .flat_map(|i| {
-    //             let byte_range_start = first_byte_offset + i * stride;
-    //             let byte_range_end = byte_range_start + accessor.size();
-    //             let byte_range = byte_range_start..byte_range_end;
-    //             (&buffer[byte_range]).to_vec()
-    //         })
-    //         .collect::<Vec<_>>()
-    // };
-
+) -> Result<(BufferAndLength, BufferAndLength)> {
     let vertex_positions: Vec<Vector3<f32>> = {
         let (_, accessor) = primitive_group
             .attributes()
@@ -589,7 +574,7 @@ pub fn build_geometry_buffers(
         )
     };
 
-    let indices: Option<Vec<u16>> = primitive_group
+    let indices: Vec<u16> = primitive_group
         .indices()
         .map(|accessor| {
             let data_type = accessor.data_type();
@@ -616,24 +601,21 @@ pub fn build_geometry_buffers(
             }?;
             anyhow::Ok(indices)
         })
-        .transpose()?;
+        .unwrap_or_else(|| {
+            let vertex_position_count_u16 = u16::try_from(vertex_position_count)?;
+            Ok((0..vertex_position_count_u16).collect())
+        })?;
 
-    let triangle_count = indices
-        .as_ref()
-        .map(|indices| indices.len() / 3)
-        .unwrap_or(vertex_position_count / 3);
+    let triangle_count = indices.len() / 3;
 
     let triangles_as_index_tuples: Vec<_> = (0..triangle_count)
         .map(|triangle_index| {
             let i_left = triangle_index * 3;
-            match &indices {
-                Some(indices) => (
-                    indices[i_left] as usize,
-                    indices[i_left + 1] as usize,
-                    indices[i_left + 2] as usize,
-                ),
-                None => (i_left, i_left + 1, i_left + 2),
-            }
+            (
+                indices[i_left] as usize,
+                indices[i_left + 1] as usize,
+                indices[i_left + 2] as usize,
+            )
         })
         .collect();
 
@@ -978,14 +960,14 @@ pub fn build_geometry_buffers(
         length: vertices_with_all_data.len(),
     };
 
-    let index_buffer = indices.map(|indices| BufferAndLength {
+    let index_buffer = BufferAndLength {
         buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Scene Index Buffer"),
             contents: bytemuck::cast_slice(&indices),
             usage: wgpu::BufferUsages::INDEX,
         }),
         length: indices.len(),
-    });
+    };
 
     Ok((vertex_buffer, index_buffer))
 }

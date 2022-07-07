@@ -10,7 +10,7 @@ pub struct PointLightComponent {
 #[derive(Clone, Debug)]
 pub struct DirectionalLightComponent {
     pub position: Vector3<f32>,
-    pub direction: Vector3<f32>, // TODO: use a regular transform via node_index instead of direction vector
+    pub direction: Vector3<f32>,
     pub color: Vector3<f32>,
     pub intensity: f32,
 }
