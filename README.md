@@ -56,7 +56,7 @@ https://user-images.githubusercontent.com/2389735/176325053-18c47d31-71b3-4aa4-a
 - [x] Fix bloom pop-in on the blue light
 - [x] Migrate to wgpu 0.13.0
 - [x] Rename 'flat color' to 'unlit'
-- [ ] Bump up to wgpu 0.13.1
+- [x] Bump up to wgpu 0.13.1
 
 ## Low priority
 - [ ] Asset loading

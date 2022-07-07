@@ -37,11 +37,6 @@ use texture::*;
 use time_tracker::*;
 use transform::*;
 
-// TODO: replace builders with this:
-// https://docs.rs/derive_builder/latest/derive_builder/
-// #[macro_use]
-// extern crate derive_builder;
-
 use cgmath::prelude::*;
 
 async fn start() {
