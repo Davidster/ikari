@@ -11,7 +11,7 @@ pub struct AllBoneTransforms {
 }
 
 pub struct AllBoneTransformsSlice {
-    pub binded_mesh_index: usize,
+    pub binded_pbr_mesh_index: usize,
     pub start_index: usize,
     pub end_index: usize,
 }
@@ -35,21 +35,22 @@ pub fn get_all_bone_data(
     let mut animated_bone_transforms: Vec<AllBoneTransformsSlice> = Vec::new();
     let mut skin_index_to_slice_map: HashMap<usize, (usize, usize)> = HashMap::new();
 
-    for (binded_mesh_indices, model_root_node_index) in game_scene
+    for (binded_pbr_mesh_indices, model_root_node_index) in game_scene
         .nodes
         .iter()
         .enumerate()
         .filter_map(|(node_index, node)| {
             game_scene
                 .get_model_root_if_in_skeleton(node_index)
-                .and_then(|model_root_node_index| {
-                    node.binded_mesh_indices
-                        .as_ref()
-                        .map(|binded_mesh_indices| (binded_mesh_indices, model_root_node_index))
+                .and_then(|model_root_node_index| match &node.mesh {
+                    Some(GameNodeMesh::Pbr { mesh_indices, .. }) => {
+                        Some((mesh_indices, model_root_node_index))
+                    }
+                    _ => None,
                 })
         })
     {
-        for binded_mesh_index in binded_mesh_indices.iter().copied() {
+        for binded_pbr_mesh_index in binded_pbr_mesh_indices.iter().copied() {
             let skin_index = game_scene.nodes[model_root_node_index]
                 .renderer_skin_index
                 .unwrap();
@@ -57,7 +58,7 @@ pub fn get_all_bone_data(
                 Entry::Occupied(entry) => {
                     let (start_index, end_index) = *entry.get();
                     animated_bone_transforms.push(AllBoneTransformsSlice {
-                        binded_mesh_index,
+                        binded_pbr_mesh_index,
                         start_index,
                         end_index,
                     });
@@ -87,7 +88,7 @@ pub fn get_all_bone_data(
                     buffer.append(&mut bytemuck::cast_slice(&bone_transforms).to_vec());
                     buffer.append(&mut padding);
                     animated_bone_transforms.push(AllBoneTransformsSlice {
-                        binded_mesh_index,
+                        binded_pbr_mesh_index,
                         start_index,
                         end_index,
                     });

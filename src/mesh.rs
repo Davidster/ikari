@@ -73,9 +73,9 @@ impl From<MeshInstance> for GpuMeshInstance {
     fn from(instance: MeshInstance) -> Self {
         let MeshInstance {
             transform,
-            dynamic_material_params,
+            dynamic_pbr_params,
         } = instance;
-        let DynamicMaterialParams {
+        let DynamicPbrParams {
             base_color_factor,
             emissive_factor,
             metallic_factor,
@@ -83,7 +83,7 @@ impl From<MeshInstance> for GpuMeshInstance {
             normal_scale,
             occlusion_strength,
             alpha_cutoff,
-        } = dynamic_material_params;
+        } = dynamic_pbr_params;
         Self {
             model_transform: GpuMatrix4(transform.matrix()),
             base_color_factor: base_color_factor.into(),
@@ -107,12 +107,12 @@ impl From<MeshInstance> for GpuMeshInstance {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct GpuFlatColorMeshInstance {
-    model_transform: GpuMatrix4,
-    color: [f32; 4],
+pub struct GpuUnlitMeshInstance {
+    pub model_transform: GpuMatrix4,
+    pub color: [f32; 4],
 }
 
-impl GpuFlatColorMeshInstance {
+impl GpuUnlitMeshInstance {
     const ATTRIBS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
         8 => Float32x4,  9 => Float32x4,  10 => Float32x4,  11 => Float32x4,
         12 => Float32x4,
@@ -120,43 +120,43 @@ impl GpuFlatColorMeshInstance {
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<GpuFlatColorMeshInstance>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<GpuUnlitMeshInstance>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &Self::ATTRIBS,
         }
     }
 
-    pub fn new(model_transform: Matrix4<f32>, color: Vector3<f32>) -> GpuFlatColorMeshInstance {
-        GpuFlatColorMeshInstance {
+    pub fn new(model_transform: Matrix4<f32>, color: Vector3<f32>) -> GpuUnlitMeshInstance {
+        GpuUnlitMeshInstance {
             model_transform: GpuMatrix4(model_transform),
             color: [color.x, color.y, color.z, 1.0],
         }
     }
 }
 
-impl From<PointLightComponent> for GpuFlatColorMeshInstance {
+impl From<PointLightComponent> for GpuUnlitMeshInstance {
     fn from(light: PointLightComponent) -> Self {
-        GpuFlatColorMeshInstance::new(light.transform.matrix(), light.color * light.intensity)
+        GpuUnlitMeshInstance::new(light.transform.matrix(), light.color * light.intensity)
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct MeshInstance {
     pub transform: crate::transform::Transform,
-    pub dynamic_material_params: DynamicMaterialParams,
+    pub dynamic_pbr_params: DynamicPbrParams,
 }
 
 impl MeshInstance {
     pub fn new() -> MeshInstance {
         MeshInstance {
             transform: crate::transform::Transform::new(),
-            dynamic_material_params: Default::default(),
+            dynamic_pbr_params: Default::default(),
         }
     }
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct DynamicMaterialParams {
+pub struct DynamicPbrParams {
     pub base_color_factor: Vector4<f32>,
     pub emissive_factor: Vector3<f32>,
     pub metallic_factor: f32,
@@ -166,9 +166,9 @@ pub struct DynamicMaterialParams {
     pub alpha_cutoff: f32,
 }
 
-impl Default for DynamicMaterialParams {
+impl Default for DynamicPbrParams {
     fn default() -> Self {
-        DynamicMaterialParams {
+        DynamicPbrParams {
             base_color_factor: Vector4::new(1.0, 1.0, 1.0, 1.0),
             emissive_factor: Vector3::new(0.0, 0.0, 0.0),
             metallic_factor: 1.0,
@@ -317,7 +317,7 @@ pub struct InstancedMeshComponent {
 }
 
 #[derive(Default)]
-pub struct InstancedMeshMaterialParams<'a> {
+pub struct PbrMaterial<'a> {
     pub diffuse: Option<&'a Texture>,
     pub normal: Option<&'a Texture>,
     pub metallic_roughness: Option<&'a Texture>,
@@ -330,7 +330,7 @@ impl InstancedMeshComponent {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         mesh: &BasicMesh,
-        material: &InstancedMeshMaterialParams,
+        material: &PbrMaterial,
         textures_bind_group_layout: &wgpu::BindGroupLayout,
         initial_buffer_contents: &[u8],
     ) -> Result<InstancedMeshComponent> {
@@ -370,7 +370,7 @@ impl InstancedMeshComponent {
 }
 
 pub fn get_textures_bind_group(
-    material: &InstancedMeshMaterialParams,
+    material: &PbrMaterial,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     textures_bind_group_layout: &wgpu::BindGroupLayout,
@@ -468,8 +468,8 @@ pub fn get_textures_bind_group(
 }
 
 pub struct BasicMesh {
-    vertices: Vec<Vertex>,
-    indices: Vec<u16>,
+    pub vertices: Vec<Vertex>,
+    pub indices: Vec<u16>,
 }
 
 impl BasicMesh {

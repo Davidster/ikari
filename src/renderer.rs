@@ -4,7 +4,7 @@ use super::*;
 
 use anyhow::Result;
 
-use cgmath::{Deg, Matrix4, One, Vector3};
+use cgmath::{Deg, Matrix4, One, Vector3, Vector4};
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -136,11 +136,11 @@ fn make_directional_light_uniform_buffer(
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct FlatColorUniform {
+struct UnlitColorUniform {
     color: [f32; 4],
 }
 
-impl From<Vector3<f32>> for FlatColorUniform {
+impl From<Vector3<f32>> for UnlitColorUniform {
     fn from(color: Vector3<f32>) -> Self {
         Self {
             color: [color.x, color.y, color.z, 1.0],
@@ -148,15 +148,8 @@ impl From<Vector3<f32>> for FlatColorUniform {
     }
 }
 
-pub const INITIAL_RENDER_SCALE: f32 = 1.0;
-pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.5;
-pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
-pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
-pub const ARENA_SIDE_LENGTH: f32 = 50.0;
 pub const MAX_LIGHT_COUNT: u8 = 32;
 pub const MAX_BONES_BUFFER_SIZE_BYTES: u32 = 8192;
-pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
-pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 pub const Z_NEAR: f32 = 0.001;
 pub const Z_FAR: f32 = 100000.0;
 pub const FOV_Y: Deg<f32> = Deg(45.0);
@@ -432,7 +425,7 @@ pub struct RendererState {
     camera_and_lights_bind_group: wgpu::BindGroup,
 
     mesh_pipeline: wgpu::RenderPipeline,
-    flat_color_mesh_pipeline: wgpu::RenderPipeline,
+    unlit_mesh_pipeline: wgpu::RenderPipeline,
     skybox_pipeline: wgpu::RenderPipeline,
     tone_mapping_pipeline: wgpu::RenderPipeline,
     surface_blit_pipeline: wgpu::RenderPipeline,
@@ -465,10 +458,6 @@ pub struct RendererState {
     shading_texture_bind_group: wgpu::BindGroup,
     bloom_pingpong_texture_bind_groups: [wgpu::BindGroup; 2],
 
-    point_light_mesh: InstancedMeshComponent,
-    pub sphere_mesh: Option<InstancedMeshComponent>,
-    test_object_mesh: InstancedMeshComponent,
-    plane_mesh: InstancedMeshComponent,
     skybox_mesh: MeshComponent, // TODO: always use InstancedMeshComponent?
 
     pub scene: RenderScene,
@@ -479,7 +468,6 @@ impl RendererState {
         window: &winit::window::Window,
         scene: RenderScene,
         base: BaseRendererState,
-        game_state: &GameState,
         logger: &mut Logger,
     ) -> Result<Self> {
         // Mountains
@@ -530,24 +518,24 @@ impl RendererState {
         logger.log(&format!("Using {adapter_name} ({adapter_backend:?})"));
         logger.log("Controls:");
         vec![
-            "Move Around: WASD, Space Bar, Ctrl",
-            "Look Around: Mouse",
-            "Adjust Speed: Scroll",
-            "Adjust Render Scale: Z / X",
-            "Adjust Exposure: E / R",
-            "Adjust Bloom Threshold: T / Y",
+            "Move Around:             WASD, Space Bar, Ctrl",
+            "Look Around:             Mouse",
+            "Adjust Speed:            Scroll",
+            "Adjust Render Scale:     Z / X",
+            "Adjust Exposure:         E / R",
+            "Adjust Bloom Threshold:  T / Y",
             "Pause/Resume Animations: P",
-            "Exit: Escape",
+            "Exit:                    Escape",
         ]
         .iter()
         .for_each(|line| {
             logger.log(&format!("  {line}"));
         });
 
-        let flat_color_mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Flat Color Mesh Shader"),
+        let unlit_mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Unlit Mesh Shader"),
             source: wgpu::ShaderSource::Wgsl(
-                std::fs::read_to_string("./src/shaders/flat_color_mesh.wgsl")?.into(),
+                std::fs::read_to_string("./src/shaders/unlit_mesh.wgsl")?.into(),
             ),
         });
 
@@ -830,29 +818,27 @@ impl RendererState {
         };
         let mesh_pipeline = device.create_render_pipeline(&mesh_pipeline_descriptor);
 
-        let flat_color_mesh_pipeline_layout =
+        let unlit_mesh_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Flat Color Mesh Pipeline Layout"),
+                label: Some("Unlit Mesh Pipeline Layout"),
                 bind_group_layouts: &[&camera_and_lights_bind_group_layout],
                 push_constant_ranges: &[],
             });
-        let mut flat_color_mesh_pipeline_descriptor = mesh_pipeline_descriptor.clone();
-        flat_color_mesh_pipeline_descriptor.label = Some("Flat Color Mesh Render Pipeline");
-        flat_color_mesh_pipeline_descriptor.layout = Some(&flat_color_mesh_pipeline_layout);
-        let flat_color_mesh_pipeline_v_buffers =
-            &[Vertex::desc(), GpuFlatColorMeshInstance::desc()];
-        flat_color_mesh_pipeline_descriptor.vertex = wgpu::VertexState {
-            module: &flat_color_mesh_shader,
+        let mut unlit_mesh_pipeline_descriptor = mesh_pipeline_descriptor.clone();
+        unlit_mesh_pipeline_descriptor.label = Some("Unlit Mesh Render Pipeline");
+        unlit_mesh_pipeline_descriptor.layout = Some(&unlit_mesh_pipeline_layout);
+        let unlit_mesh_pipeline_v_buffers = &[Vertex::desc(), GpuUnlitMeshInstance::desc()];
+        unlit_mesh_pipeline_descriptor.vertex = wgpu::VertexState {
+            module: &unlit_mesh_shader,
             entry_point: "vs_main",
-            buffers: flat_color_mesh_pipeline_v_buffers,
+            buffers: unlit_mesh_pipeline_v_buffers,
         };
-        flat_color_mesh_pipeline_descriptor.fragment = Some(wgpu::FragmentState {
-            module: &flat_color_mesh_shader,
+        unlit_mesh_pipeline_descriptor.fragment = Some(wgpu::FragmentState {
+            module: &unlit_mesh_shader,
             entry_point: "fs_main",
             targets: fragment_shader_color_targets,
         });
-        let flat_color_mesh_pipeline =
-            device.create_render_pipeline(&flat_color_mesh_pipeline_descriptor);
+        let unlit_mesh_pipeline = device.create_render_pipeline(&unlit_mesh_pipeline_descriptor);
 
         let bloom_threshold_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1268,9 +1254,7 @@ impl RendererState {
 
         let initial_render_scale = INITIAL_RENDER_SCALE;
 
-        let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
         let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
-        let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
 
         let skybox_mesh =
             MeshComponent::new(&cube_mesh, None, &single_uniform_bind_group_layout, device)?;
@@ -1434,67 +1418,6 @@ impl RendererState {
             "depth_texture",
         );
 
-        // source: https://www.solarsystemscope.com/textures/
-        let mars_texture_path = "./src/textures/8k_mars.jpg";
-        let mars_texture_bytes = std::fs::read(mars_texture_path)?;
-        let mars_texture = Texture::from_encoded_image(
-            device,
-            queue,
-            &mars_texture_bytes,
-            mars_texture_path,
-            None,
-            true,
-            &Default::default(),
-        )?;
-
-        let earth_texture_path = "./src/textures/8k_earth.jpg";
-        let earth_texture_bytes = std::fs::read(earth_texture_path)?;
-        let earth_texture = Texture::from_encoded_image(
-            device,
-            queue,
-            &earth_texture_bytes,
-            earth_texture_path,
-            None,
-            true,
-            &Default::default(),
-        )?;
-
-        let earth_normal_map_path = "./src/textures/8k_earth_normal_map.jpg";
-        let earth_normal_map_bytes = std::fs::read(earth_normal_map_path)?;
-        let earth_normal_map = Texture::from_encoded_image(
-            device,
-            queue,
-            &earth_normal_map_bytes,
-            earth_normal_map_path,
-            wgpu::TextureFormat::Rgba8Unorm.into(),
-            false,
-            &Default::default(),
-        )?;
-
-        // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
-        // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
-        // let simple_normal_map = Texture::from_bytes(
-        //     &device,
-        //     &queue,
-        //     &simple_normal_map_bytes,
-        //     simple_normal_map_path,
-        //     wgpu::TextureFormat::Rgba8Unorm.into(),
-        //     false,
-        //     &Default::default(),
-        // )?;
-
-        // let brick_normal_map_path = "./src/textures/brick_normal_map.jpg";
-        // let brick_normal_map_bytes = std::fs::read(brick_normal_map_path)?;
-        // let brick_normal_map = Texture::from_encoded_image(
-        //     &device,
-        //     &queue,
-        //     &brick_normal_map_bytes,
-        //     brick_normal_map_path,
-        //     wgpu::TextureFormat::Rgba8Unorm.into(),
-        //     false,
-        //     &Default::default(),
-        // )?;
-
         let skybox_texture = match skybox_background {
             SkyboxBackground::Equirectangular { image_path } => {
                 let er_skybox_texture_bytes = std::fs::read(image_path)?;
@@ -1611,128 +1534,6 @@ impl RendererState {
 
         let brdf_lut = Texture::create_brdf_lut(device, queue, &brdf_lut_gen_pipeline);
 
-        let checkerboard_texture_img = {
-            let mut img = image::RgbaImage::new(4096, 4096);
-            for x in 0..img.width() {
-                for y in 0..img.height() {
-                    let scale = 10;
-                    let x_scaled = x / scale;
-                    let y_scaled = y / scale;
-                    img.put_pixel(
-                        x,
-                        y,
-                        if (x_scaled + y_scaled) % 2 == 0 {
-                            [100, 100, 100, 100].into()
-                        } else {
-                            [150, 150, 150, 150].into()
-                        },
-                    );
-                }
-            }
-            img
-        };
-        let checkerboard_texture = Texture::from_decoded_image(
-            device,
-            queue,
-            &checkerboard_texture_img,
-            checkerboard_texture_img.dimensions(),
-            Some("checkerboard_texture"),
-            None,
-            true,
-            &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
-                mag_filter: wgpu::FilterMode::Nearest,
-                ..texture::SamplerDescriptor::default().0
-            }),
-        )?;
-
-        let light_flat_color_instances: Vec<_> = game_state
-            .point_lights
-            .iter()
-            .map(|light| GpuFlatColorMeshInstance::from(light.clone()))
-            .collect();
-
-        let point_light_emissive_map = Texture::from_color(
-            device,
-            queue,
-            [
-                (LIGHT_COLOR_A.x * 255.0).round() as u8,
-                (LIGHT_COLOR_A.y * 255.0).round() as u8,
-                (LIGHT_COLOR_A.z * 255.0).round() as u8,
-                255,
-            ],
-            // [255, 0, 0, 255],
-        )?;
-        let point_light_metallic_roughness_map =
-            Texture::from_color(device, queue, [255, (0.1 * 255.0f32).round() as u8, 0, 255])?;
-        let point_light_ambient_occlusion_map = Texture::from_gray(device, queue, 0)?;
-
-        let point_light_mesh = InstancedMeshComponent::new(
-            device,
-            queue,
-            &sphere_mesh,
-            // TODO: InstancedMeshMaterialParams is tied to the mesh pipeline, not the flat color pipeline... so these values are ultimately ignored
-            &InstancedMeshMaterialParams {
-                emissive: Some(&point_light_emissive_map),
-                metallic_roughness: Some(&point_light_metallic_roughness_map),
-                ambient_occlusion: Some(&point_light_ambient_occlusion_map),
-                ..Default::default()
-            },
-            pbr_textures_bind_group_layout,
-            bytemuck::cast_slice(&light_flat_color_instances),
-        )?;
-
-        let test_object_transforms_gpu: Vec<_> = game_state
-            .test_object_instances
-            .iter()
-            .cloned()
-            .map(GpuMeshInstance::from)
-            .collect();
-
-        // let test_object_diffuse_texture =
-        //     Texture::from_color(&device, &queue, [255, 255, 255, 255])?;
-        let test_object_metallic_roughness_map = Texture::from_color(
-            device,
-            queue,
-            [
-                255,
-                (0.12 * 255.0f32).round() as u8,
-                (0.8 * 255.0f32).round() as u8,
-                255,
-            ],
-        )?;
-        let test_object_mesh = InstancedMeshComponent::new(
-            device,
-            queue,
-            &sphere_mesh,
-            &InstancedMeshMaterialParams {
-                diffuse: Some(&earth_texture),
-                normal: Some(&earth_normal_map),
-                metallic_roughness: Some(&test_object_metallic_roughness_map),
-                ..Default::default()
-            },
-            pbr_textures_bind_group_layout,
-            bytemuck::cast_slice(&test_object_transforms_gpu),
-        )?;
-
-        let plane_transforms_gpu: Vec<_> = game_state
-            .plane_instances
-            .iter()
-            .cloned()
-            .map(GpuMeshInstance::from)
-            .collect();
-
-        let plane_mesh = InstancedMeshComponent::new(
-            device,
-            queue,
-            &plane_mesh,
-            &InstancedMeshMaterialParams {
-                diffuse: Some(&checkerboard_texture),
-                ..Default::default()
-            },
-            pbr_textures_bind_group_layout,
-            bytemuck::cast_slice(&plane_transforms_gpu),
-        )?;
-
         let camera_controller = CameraController::new(6.0, Camera::new((0.0, 3.0, 4.0).into()));
 
         let camera_uniform = CameraUniform::from_camera(
@@ -1749,30 +1550,16 @@ impl RendererState {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        // let point_lights_uniform = make_point_light_uniform_buffer(&point_lights);
-        // let point_lights_bytes: &[u8] = bytemuck::cast_slice(&point_lights_uniform);
-        // let directional_lights_uniform = make_directional_light_uniform_buffer(&directional_lights);
-        // let directional_lights_bytes: &[u8] = bytemuck::cast_slice(&directional_lights_uniform);
-        // let all_lights_bytes: Vec<u8> = point_lights_bytes
-        //     .iter()
-        //     .chain(directional_lights_bytes)
-        //     .copied()
-        //     .collect();
-
         let point_lights_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Point Lights Buffer"),
-            contents: bytemuck::cast_slice(&make_point_light_uniform_buffer(
-                &game_state.point_lights,
-            )),
+            contents: bytemuck::cast_slice(&make_point_light_uniform_buffer(&[])),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
         let directional_lights_buffer =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Directional Lights Buffer"),
-                contents: bytemuck::cast_slice(&make_directional_light_uniform_buffer(
-                    &game_state.directional_lights,
-                )),
+                contents: bytemuck::cast_slice(&make_directional_light_uniform_buffer(&[])),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
@@ -1844,41 +1631,19 @@ impl RendererState {
                 label: Some("point_shadow_camera_bind_group"),
             });
 
-        let balls_transforms: Vec<_> = game_state
-            .actual_balls
-            .iter()
-            .map(|ball| GpuMeshInstance::from(ball.instance.clone()))
-            .collect();
-
-        let sphere_mesh = InstancedMeshComponent::new(
-            device,
-            queue,
-            &sphere_mesh,
-            &InstancedMeshMaterialParams {
-                diffuse: Some(&mars_texture),
-                ..Default::default()
-            },
-            pbr_textures_bind_group_layout,
-            bytemuck::cast_slice(&balls_transforms),
-        )?;
-
-        let point_light_count: u32 = game_state.point_lights.len().try_into().unwrap();
         let point_shadow_map_textures = Texture::create_cube_depth_texture_array(
             device,
             1024,
             Some("point_shadow_map_texture"),
-            point_light_count.max(1),
+            2, // TODO: this currently puts on hard limit on number of point lights at a time
         );
 
-        let directional_light_count: u32 = game_state.directional_lights.len().try_into().unwrap();
         let directional_shadow_map_textures = Texture::create_depth_texture_array(
             device,
             1024,
             Some("directional_shadow_map_texture"),
-            directional_light_count.max(1),
+            1, // TODO: this currently puts on hard limit on number of directional lights at a time
         );
-
-        // dbg!(shadow_map_textures.len());
 
         let environment_textures_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1952,8 +1717,6 @@ impl RendererState {
             bloom_ramp_size: INITIAL_BLOOM_RAMP_SIZE,
 
             render_scale: initial_render_scale,
-            // last_frame_instant: None,
-            // first_frame_instant: None,
             animation_time_acc: 0.0,
             is_playing_animations: true,
 
@@ -1969,7 +1732,7 @@ impl RendererState {
             bones_bind_group,
 
             mesh_pipeline,
-            flat_color_mesh_pipeline,
+            unlit_mesh_pipeline,
             skybox_pipeline,
             tone_mapping_pipeline,
             surface_blit_pipeline,
@@ -2000,14 +1763,194 @@ impl RendererState {
             tone_mapping_config_bind_group,
             tone_mapping_config_buffer,
 
-            point_light_mesh,
-            sphere_mesh: Some(sphere_mesh),
-            test_object_mesh,
-            plane_mesh,
             skybox_mesh,
 
             scene,
         })
+    }
+
+    pub fn bind_basic_unlit_mesh(
+        &mut self,
+        mesh: &BasicMesh,
+        instance_count: usize, /* TODO: remove instance count or make it optional, allow dynamically resizable buffers */
+    ) -> Result<usize> {
+        let (vertex_buffer, index_buffer, instance_buffer) =
+            self.bind_geometry_buffers_for_basic_mesh(mesh, instance_count);
+
+        self.scene
+            .buffers
+            .binded_unlit_meshes
+            .push(BindedUnlitMesh {
+                vertex_buffer,
+                index_buffer: Some(index_buffer),
+                instance_buffer,
+            });
+        Ok(self.scene.buffers.binded_unlit_meshes.len() - 1)
+    }
+
+    // returns index of mesh in the RenderScene::binded_pbr_meshes list
+    pub fn bind_basic_pbr_mesh(
+        &mut self,
+        mesh: &BasicMesh,
+        material: &PbrMaterial,
+        dynamic_pbr_params: DynamicPbrParams,
+        instance_count: usize, /* TODO: remove instance count or make it optional, allow dynamically resizable buffers */
+    ) -> Result<usize> {
+        let (vertex_buffer, index_buffer, instance_buffer) =
+            self.bind_geometry_buffers_for_basic_mesh(mesh, instance_count);
+
+        let textures_bind_group = self.make_pbr_textures_bind_group(material)?;
+
+        self.scene.buffers.binded_pbr_meshes.push(BindedPbrMesh {
+            vertex_buffer,
+            index_buffer: Some(index_buffer),
+            instance_buffer,
+            dynamic_pbr_params,
+            textures_bind_group,
+            alpha_mode: AlphaMode::Opaque,
+            primitive_mode: PrimitiveMode::Triangles,
+        });
+        Ok(self.scene.buffers.binded_pbr_meshes.len() - 1)
+    }
+
+    fn bind_geometry_buffers_for_basic_mesh(
+        &self,
+        mesh: &BasicMesh,
+        instance_count: usize, /* TODO: remove instance count or make it optional, allow dynamically resizable buffers */
+    ) -> (BufferAndLength, BufferAndLength, BufferAndLength) {
+        let device = &self.base.device;
+        let vertex_buffer = BufferAndLength {
+            buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("bind_basic_pbr_mesh Vertex Buffer"),
+                contents: bytemuck::cast_slice(&mesh.vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            }),
+            length: mesh.vertices.len(),
+        };
+        let index_buffer = BufferAndLength {
+            buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("bind_basic_pbr_mesh Index Buffer"),
+                contents: bytemuck::cast_slice(&mesh.indices),
+                usage: wgpu::BufferUsages::INDEX,
+            }),
+            length: mesh.indices.len(),
+        };
+
+        let initial_buffer_contents: Vec<u8> = (0..(instance_count
+            * std::mem::size_of::<GpuMeshInstance>()))
+            .map(|_| 0u8)
+            .collect();
+        let instance_buffer = BufferAndLength {
+            buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("bind_basic_pbr_mesh instance_buffer"),
+                contents: &initial_buffer_contents,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            }),
+            length: instance_count,
+        };
+
+        (vertex_buffer, index_buffer, instance_buffer)
+    }
+
+    // TODO: create and cache the default 1x1 textures when the BaseRendererState is created
+    //       so that this doesn't have to return a result anymore
+    fn make_pbr_textures_bind_group(
+        &self,
+        material: &PbrMaterial,
+    ) -> Result<wgpu::BindGroup, anyhow::Error> {
+        let device = &self.base.device;
+        let queue = &self.base.queue;
+
+        let auto_generated_diffuse_texture;
+        let diffuse_texture = match material.diffuse {
+            Some(diffuse_texture) => diffuse_texture,
+            None => {
+                auto_generated_diffuse_texture =
+                    Texture::from_color(device, queue, [255, 255, 255, 255])?;
+                &auto_generated_diffuse_texture
+            }
+        };
+        let auto_generated_normal_map;
+        let normal_map = match material.normal {
+            Some(normal_map) => normal_map,
+            None => {
+                auto_generated_normal_map = Texture::flat_normal_map(device, queue)?;
+                &auto_generated_normal_map
+            }
+        };
+        let auto_generated_metallic_roughness_map;
+        let metallic_roughness_map = match material.metallic_roughness {
+            Some(metallic_roughness_map) => metallic_roughness_map,
+            None => {
+                auto_generated_metallic_roughness_map =
+                    Texture::from_color(device, queue, [255, 127, 0, 255])?;
+                &auto_generated_metallic_roughness_map
+            }
+        };
+        let auto_generated_emissive_map;
+        let emissive_map = match material.emissive {
+            Some(emissive_map) => emissive_map,
+            None => {
+                auto_generated_emissive_map = Texture::from_color(device, queue, [0, 0, 0, 255])?;
+                &auto_generated_emissive_map
+            }
+        };
+        let auto_generated_ambient_occlusion_map;
+        let ambient_occlusion_map = match material.ambient_occlusion {
+            Some(ambient_occlusion_map) => ambient_occlusion_map,
+            None => {
+                auto_generated_ambient_occlusion_map =
+                    Texture::from_color(device, queue, [255, 255, 255, 255])?;
+                &auto_generated_ambient_occlusion_map
+            }
+        };
+        let textures_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.base.pbr_textures_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&normal_map.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&normal_map.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&metallic_roughness_map.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&metallic_roughness_map.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&emissive_map.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::Sampler(&emissive_map.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: wgpu::BindingResource::TextureView(&ambient_occlusion_map.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 9,
+                    resource: wgpu::BindingResource::Sampler(&ambient_occlusion_map.sampler),
+                },
+            ],
+            label: Some("InstancedMeshComponent textures_bind_group"),
+        });
+        Ok(textures_bind_group)
     }
 
     pub fn process_device_input(
@@ -2136,7 +2079,6 @@ impl RendererState {
             self.render_scale,
             "depth_texture",
         );
-        // TODO: dry this up? it's repeated three times in this file
         self.shading_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: single_texture_bind_group_layout,
             entries: &[
@@ -2257,17 +2199,6 @@ impl RendererState {
                 logger.log(&format!("Error: animation computation failed: {:?}", err));
             }
         }
-        if let Some(node_0) = game_scene.nodes.get_mut(0) {
-            // node_0.transform.set_position(Vector3::new(
-            //     node_0.transform.position().x - 0.75 * frame_time_seconds,
-            //     0.0,
-            //     0.0,
-            // ));
-            node_0.transform.set_rotation(make_quat_from_axis_angle(
-                Vector3::new(0.0, 1.0, 0.0),
-                Deg(90.0).into(),
-            ));
-        }
 
         // send data to gpu
         let limits = &mut self.base.limits;
@@ -2294,15 +2225,15 @@ impl RendererState {
         });
         render_scene
             .buffers
-            .binded_mesh_data
+            .binded_pbr_meshes
             .iter()
             .enumerate()
             .for_each(
                 |(
-                    binded_mesh_index,
-                    BindedMeshData {
+                    binded_pbr_mesh_index,
+                    BindedPbrMesh {
                         instance_buffer,
-                        dynamic_material_params,
+                        dynamic_pbr_params,
                         ..
                     },
                 )| {
@@ -2310,17 +2241,17 @@ impl RendererState {
                         .nodes
                         .iter()
                         .enumerate()
-                        .filter(|(_, node)| {
-                            node.binded_mesh_indices
-                                .as_ref()
-                                .map(|binded_mesh_indices| {
-                                    binded_mesh_indices.iter().any(|node_binded_mesh_index| {
-                                        *node_binded_mesh_index == binded_mesh_index
-                                    })
-                                })
-                                .unwrap_or(false)
+                        .filter_map(|(node_index, node)| match &node.mesh {
+                            Some(GameNodeMesh::Pbr {
+                                mesh_indices,
+                                material_override,
+                            }) => mesh_indices
+                                .iter()
+                                .find(|node_mesh_index| **node_mesh_index == binded_pbr_mesh_index)
+                                .map(|_| (node_index, node, material_override)),
+                            _ => None,
                         })
-                        .map(|(node_index, node, ..)| {
+                        .map(|(node_index, node, material_override)| {
                             let node_ancestry_list = game_scene.get_node_ancestry_list(node_index);
                             let transform = node_ancestry_list
                                 .iter()
@@ -2329,9 +2260,8 @@ impl RendererState {
                                     acc * game_scene.nodes[*node_index].transform
                                 });
                             MeshInstance {
-                                dynamic_material_params: node
-                                    .dynamic_material_params
-                                    .unwrap_or(*dynamic_material_params),
+                                dynamic_pbr_params: material_override
+                                    .unwrap_or(*dynamic_pbr_params),
                                 transform,
                             }
                         })
@@ -2344,29 +2274,55 @@ impl RendererState {
                     );
                 },
             );
-        let balls_transforms: Vec<_> = game_state
-            .actual_balls
+        render_scene
+            .buffers
+            .binded_unlit_meshes
             .iter()
-            .map(|ball| GpuMeshInstance::from(ball.instance.clone()))
-            .collect();
-        if let Some(sphere_mesh) = &self.sphere_mesh {
-            queue.write_buffer(
-                &sphere_mesh.instance_buffer,
-                0,
-                bytemuck::cast_slice(&balls_transforms),
+            .enumerate()
+            .for_each(
+                |(
+                    binded_unlit_mesh_index,
+                    BindedUnlitMesh {
+                        instance_buffer, ..
+                    },
+                )| {
+                    let gpu_instances: Vec<_> = game_scene
+                        .nodes
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(node_index, node)| match &node.mesh {
+                            Some(GameNodeMesh::Unlit {
+                                mesh_indices,
+                                color,
+                            }) => mesh_indices
+                                .iter()
+                                .find(|node_mesh_index| {
+                                    **node_mesh_index == binded_unlit_mesh_index
+                                })
+                                .map(|_| (node_index, node, color)),
+                            _ => None,
+                        })
+                        .map(|(node_index, node, color)| {
+                            let node_ancestry_list = game_scene.get_node_ancestry_list(node_index);
+                            let transform = node_ancestry_list
+                                .iter()
+                                .rev()
+                                .fold(crate::transform::Transform::new(), |acc, node_index| {
+                                    acc * game_scene.nodes[*node_index].transform
+                                });
+                            GpuUnlitMeshInstance {
+                                color: [color.x, color.y, color.z, 1.0],
+                                model_transform: GpuMatrix4(transform.matrix()),
+                            }
+                        })
+                        .collect();
+                    queue.write_buffer(
+                        &instance_buffer.buffer,
+                        0,
+                        bytemuck::cast_slice(&gpu_instances),
+                    );
+                },
             );
-        }
-        let test_object_transforms_gpu: Vec<_> = game_state
-            .test_object_instances
-            .iter()
-            .cloned()
-            .map(GpuMeshInstance::from)
-            .collect();
-        queue.write_buffer(
-            &self.test_object_mesh.instance_buffer,
-            0,
-            bytemuck::cast_slice(&test_object_transforms_gpu),
-        );
         self.camera_controller.update(frame_time_seconds);
         self.camera_uniform = CameraUniform::from_camera(
             self.camera_controller.current_pose,
@@ -2380,28 +2336,17 @@ impl RendererState {
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
-        let point_light_flat_color_instances: Vec<_> = game_state
-            .point_lights
-            .iter()
-            .map(|light| GpuFlatColorMeshInstance::from(light.clone()))
-            .collect();
-        queue.write_buffer(
-            &self.point_light_mesh.instance_buffer,
-            0,
-            bytemuck::cast_slice(&point_light_flat_color_instances),
-        );
-
-        // let point_lights_uniform = make_point_light_uniform_buffer(&self.point_lights);
-        // let point_lights_bytes: &[u8] = bytemuck::cast_slice(&point_lights_uniform);
-        // let directional_lights_uniform =
-        //     make_directional_light_uniform_buffer(&self.directional_lights);
-        // let directional_lights_bytes: &[u8] = bytemuck::cast_slice(&directional_lights_uniform);
-        // let all_lights_bytes: Vec<u8> = point_lights_bytes
+        // let point_light_flat_color_instances: Vec<_> = game_state
+        //     .point_lights
         //     .iter()
-        //     .chain(directional_lights_bytes)
-        //     .copied()
+        //     .map(|light| GpuFlatColorMeshInstance::from(light.clone()))
         //     .collect();
-        // self.logger.log(&format!("{:?}", &self.point_lights));
+        // queue.write_buffer(
+        //     &self.point_light_mesh.instance_buffer,
+        //     0,
+        //     bytemuck::cast_slice(&point_light_flat_color_instances),
+        // );
+
         queue.write_buffer(
             &self.point_lights_buffer,
             0,
@@ -2550,17 +2495,17 @@ impl RendererState {
             false,
         );
 
-        let mut lights_flat_shading_encoder =
+        let mut unlit_encoder =
             self.base
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Lights Flat Shading Encoder"),
+                    label: Some("Unlit Encoder"),
                 });
 
         {
-            let mut lights_flat_shading_render_pass = lights_flat_shading_encoder
-                .begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Lights Flat Shading Render Pass"),
+            let mut unlit_render_pass =
+                unlit_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Unlit Render Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &self.shading_texture.view,
                         resolve_target: None,
@@ -2579,31 +2524,73 @@ impl RendererState {
                     }),
                 });
 
-            // render lights
-            lights_flat_shading_render_pass.set_pipeline(&self.flat_color_mesh_pipeline);
-            lights_flat_shading_render_pass.set_bind_group(
-                0,
-                &self.camera_and_lights_bind_group,
-                &[],
-            );
-            lights_flat_shading_render_pass
-                .set_vertex_buffer(0, self.point_light_mesh.vertex_buffer.slice(..));
-            lights_flat_shading_render_pass
-                .set_vertex_buffer(1, self.point_light_mesh.instance_buffer.slice(..));
-            lights_flat_shading_render_pass.set_index_buffer(
-                self.point_light_mesh.index_buffer.slice(..),
-                wgpu::IndexFormat::Uint16,
-            );
-            lights_flat_shading_render_pass.draw_indexed(
-                0..self.point_light_mesh.num_indices,
-                0,
-                0..game_state.point_lights.len() as u32,
-            );
+            unlit_render_pass.set_pipeline(&self.unlit_mesh_pipeline);
+
+            self.scene
+                .buffers
+                .binded_unlit_meshes
+                .iter()
+                .enumerate()
+                .filter(|(binded_unlit_mesh_index, _)| {
+                    game_state
+                        .scene
+                        .nodes
+                        .iter()
+                        .enumerate()
+                        .any(|(_, node)| match &node.mesh {
+                            Some(GameNodeMesh::Unlit { mesh_indices, .. }) => mesh_indices
+                                .iter()
+                                .any(|node_mesh_index| node_mesh_index == binded_unlit_mesh_index),
+                            _ => false,
+                        })
+                })
+                .for_each(
+                    |(
+                        _,
+                        BindedUnlitMesh {
+                            vertex_buffer,
+                            index_buffer,
+                            instance_buffer,
+                            ..
+                        },
+                    )| {
+                        {
+                            unlit_render_pass.set_bind_group(
+                                0,
+                                &self.camera_and_lights_bind_group,
+                                &[],
+                            );
+
+                            unlit_render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
+                            unlit_render_pass
+                                .set_vertex_buffer(1, instance_buffer.buffer.slice(..));
+                            match index_buffer {
+                                Some(index_buffer) => {
+                                    unlit_render_pass.set_index_buffer(
+                                        index_buffer.buffer.slice(..),
+                                        wgpu::IndexFormat::Uint16,
+                                    );
+                                    unlit_render_pass.draw_indexed(
+                                        0..index_buffer.length as u32,
+                                        0,
+                                        0..instance_buffer.length as u32,
+                                    );
+                                }
+                                None => {
+                                    unlit_render_pass.draw(
+                                        0..vertex_buffer.length as u32,
+                                        0..instance_buffer.length as u32,
+                                    );
+                                }
+                            };
+                        }
+                    },
+                );
         }
 
         self.base
             .queue
-            .submit(std::iter::once(lights_flat_shading_encoder.finish()));
+            .submit(std::iter::once(unlit_encoder.finish()));
 
         self.base.queue.write_buffer(
             &self.bloom_config_buffer,
@@ -2826,27 +2813,29 @@ impl RendererState {
         });
         {
             let mut render_pass = encoder.begin_render_pass(render_pass_descriptor);
+            render_pass.set_pipeline(pipeline);
             render_scene
                 .buffers
-                .binded_mesh_data
+                .binded_pbr_meshes
                 .iter()
                 .enumerate()
-                .filter(|(binded_mesh_index, _)| {
-                    game_state.scene.nodes.iter().enumerate().any(|(_, node)| {
-                        node.binded_mesh_indices
-                            .as_ref()
-                            .map(|binded_mesh_indices| {
-                                binded_mesh_indices.iter().any(|node_binded_mesh_index| {
-                                    node_binded_mesh_index == binded_mesh_index
-                                })
-                            })
-                            .unwrap_or(false)
-                    })
+                .filter(|(binded_pbr_mesh_index, _)| {
+                    game_state
+                        .scene
+                        .nodes
+                        .iter()
+                        .enumerate()
+                        .any(|(_, node)| match &node.mesh {
+                            Some(GameNodeMesh::Pbr { mesh_indices, .. }) => mesh_indices
+                                .iter()
+                                .any(|node_mesh_index| node_mesh_index == binded_pbr_mesh_index),
+                            _ => false,
+                        })
                 })
                 .for_each(
                     |(
-                        binded_mesh_index,
-                        BindedMeshData {
+                        binded_pbr_mesh_index,
+                        BindedPbrMesh {
                             vertex_buffer,
                             index_buffer,
                             instance_buffer,
@@ -2855,7 +2844,6 @@ impl RendererState {
                         },
                     )| {
                         {
-                            render_pass.set_pipeline(pipeline);
                             render_pass.set_bind_group(
                                 0,
                                 if is_shadow {
@@ -2869,7 +2857,7 @@ impl RendererState {
                                 .animated_bone_transforms
                                 .iter()
                                 .find(|bone_slice| {
-                                    bone_slice.binded_mesh_index == binded_mesh_index
+                                    bone_slice.binded_pbr_mesh_index == binded_pbr_mesh_index
                                 })
                                 .map(|bone_slice| bone_slice.start_index.try_into().unwrap())
                                 .unwrap_or(0);
@@ -2911,58 +2899,6 @@ impl RendererState {
                         }
                     },
                 );
-
-            render_pass.set_bind_group(if is_shadow { 1 } else { 3 }, &self.bones_bind_group, &[0]);
-
-            // render test object
-            if !is_shadow {
-                render_pass.set_bind_group(1, &self.test_object_mesh.textures_bind_group, &[]);
-            }
-            render_pass.set_vertex_buffer(0, self.test_object_mesh.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.test_object_mesh.instance_buffer.slice(..));
-            render_pass.set_index_buffer(
-                self.test_object_mesh.index_buffer.slice(..),
-                wgpu::IndexFormat::Uint16,
-            );
-            render_pass.draw_indexed(
-                0..self.test_object_mesh.num_indices,
-                0,
-                0..game_state.test_object_instances.len() as u32,
-            );
-
-            // render floor
-            if !is_shadow {
-                render_pass.set_bind_group(1, &self.plane_mesh.textures_bind_group, &[]);
-            }
-            render_pass.set_vertex_buffer(0, self.plane_mesh.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.plane_mesh.instance_buffer.slice(..));
-            render_pass.set_index_buffer(
-                self.plane_mesh.index_buffer.slice(..),
-                wgpu::IndexFormat::Uint16,
-            );
-            render_pass.draw_indexed(
-                0..self.plane_mesh.num_indices,
-                0,
-                0..game_state.plane_instances.len() as u32,
-            );
-
-            // render balls
-            if let Some(sphere_mesh) = &self.sphere_mesh {
-                if !is_shadow {
-                    render_pass.set_bind_group(1, &sphere_mesh.textures_bind_group, &[]);
-                }
-                render_pass.set_vertex_buffer(0, sphere_mesh.vertex_buffer.slice(..));
-                render_pass.set_vertex_buffer(1, sphere_mesh.instance_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    sphere_mesh.index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint16,
-                );
-                render_pass.draw_indexed(
-                    0..sphere_mesh.num_indices,
-                    0,
-                    0..game_state.actual_balls.len() as u32,
-                );
-            }
         }
 
         queue.submit(std::iter::once(encoder.finish()));

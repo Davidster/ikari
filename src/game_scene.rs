@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use cgmath::Vector3;
+
 use super::*;
 
 #[derive(Debug)]
@@ -13,9 +15,19 @@ pub struct GameScene {
 pub struct GameNode {
     pub transform: crate::transform::Transform,
     pub renderer_skin_index: Option<usize>,
-    // many meshes can share the same transform
-    pub binded_mesh_indices: Option<Vec<usize>>,
-    pub dynamic_material_params: Option<DynamicMaterialParams>,
+    pub mesh: Option<GameNodeMesh>,
+}
+
+#[derive(Debug, Clone)]
+pub enum GameNodeMesh {
+    Pbr {
+        mesh_indices: Vec<usize>,
+        material_override: Option<DynamicPbrParams>,
+    },
+    Unlit {
+        mesh_indices: Vec<usize>,
+        color: Vector3<f32>,
+    },
 }
 
 impl GameScene {
@@ -60,8 +72,7 @@ impl Default for GameNode {
         Self {
             transform: crate::transform::Transform::new(),
             renderer_skin_index: None,
-            binded_mesh_indices: None,
-            dynamic_material_params: None,
+            mesh: None,
         }
     }
 }
@@ -70,8 +81,7 @@ impl Default for GameNode {
 pub struct GameNodeBuilder {
     transform: crate::transform::Transform,
     renderer_skin_index: Option<usize>,
-    binded_mesh_indices: Option<Vec<usize>>,
-    dynamic_material_params: Option<DynamicMaterialParams>,
+    mesh: Option<GameNodeMesh>,
 }
 
 impl GameNodeBuilder {
@@ -79,14 +89,12 @@ impl GameNodeBuilder {
         let GameNode {
             transform,
             renderer_skin_index,
-            binded_mesh_indices,
-            dynamic_material_params,
+            mesh,
         } = GameNode::default();
         Self {
             transform,
             renderer_skin_index,
-            binded_mesh_indices,
-            dynamic_material_params,
+            mesh,
         }
     }
 
@@ -101,18 +109,8 @@ impl GameNodeBuilder {
         self
     }
 
-    #[allow(dead_code)]
-    pub fn binded_mesh_indices(mut self, binded_mesh_indices: Option<Vec<usize>>) -> Self {
-        self.binded_mesh_indices = binded_mesh_indices;
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn dynamic_material_params(
-        mut self,
-        dynamic_material_params: Option<DynamicMaterialParams>,
-    ) -> Self {
-        self.dynamic_material_params = dynamic_material_params;
+    pub fn mesh(mut self, mesh: Option<GameNodeMesh>) -> Self {
+        self.mesh = mesh;
         self
     }
 
@@ -120,8 +118,7 @@ impl GameNodeBuilder {
         GameNode {
             transform: self.transform,
             renderer_skin_index: self.renderer_skin_index,
-            binded_mesh_indices: self.binded_mesh_indices,
-            dynamic_material_params: self.dynamic_material_params,
+            mesh: self.mesh,
         }
     }
 }

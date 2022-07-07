@@ -3,6 +3,8 @@ use cgmath::Matrix4;
 use super::*;
 
 // TODO: clean up this structure if needed
+// TODO: should probably move some of the buffers out of the scene, like the materials and textures should probably be able
+//       to live outside the 'scene'? maybe 'scene' is the wrong name/abstraction? maybe it's fine
 #[derive(Debug)]
 pub struct RenderScene {
     pub buffers: SceneBuffers,
@@ -13,22 +15,31 @@ pub struct RenderScene {
 
 #[derive(Debug)]
 pub struct SceneBuffers {
-    pub binded_mesh_data: Vec<BindedMeshData>,
+    pub binded_pbr_meshes: Vec<BindedPbrMesh>,
+    pub binded_unlit_meshes: Vec<BindedUnlitMesh>,
     // same order as the textures in src
     pub textures: Vec<Texture>,
 }
 
 #[derive(Debug)]
-pub struct BindedMeshData {
+pub struct BindedPbrMesh {
     pub vertex_buffer: BufferAndLength,
+    // TODO: make this not be optional!
     pub index_buffer: Option<BufferAndLength>,
     pub instance_buffer: BufferAndLength,
     pub textures_bind_group: wgpu::BindGroup,
-    pub dynamic_material_params: DynamicMaterialParams,
+    pub dynamic_pbr_params: DynamicPbrParams,
 
     // TODO: do we need these?
     pub alpha_mode: AlphaMode,
     pub primitive_mode: PrimitiveMode,
+}
+
+#[derive(Debug)]
+pub struct BindedUnlitMesh {
+    pub vertex_buffer: BufferAndLength,
+    pub index_buffer: Option<BufferAndLength>,
+    pub instance_buffer: BufferAndLength,
 }
 
 #[derive(Debug)]

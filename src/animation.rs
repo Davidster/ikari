@@ -127,15 +127,13 @@ fn get_vec3_at_moment(
             .collect::<Vec<_>>()
     };
 
-    // TODO: inline
-    let t = animation_time_seconds;
-
     Ok(match previous_keyframe {
         Some(previous_keyframe) => {
             let (next_keyframe, interpolation_factor) = match next_keyframe {
                 Some(next_keyframe) => (
                     next_keyframe,
-                    (t - previous_keyframe.time) / (next_keyframe.time - previous_keyframe.time),
+                    (animation_time_seconds - previous_keyframe.time)
+                        / (next_keyframe.time - previous_keyframe.time),
                 ),
                 None => (previous_keyframe, 1.0),
             };

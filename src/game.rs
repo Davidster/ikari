@@ -1,7 +1,15 @@
 use super::*;
 
 use anyhow::Result;
-use cgmath::{Rad, Vector2, Vector3};
+use cgmath::{Deg, Rad, Vector2, Vector3};
+
+pub const INITIAL_RENDER_SCALE: f32 = 1.0;
+pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.5;
+pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
+pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
+pub const ARENA_SIDE_LENGTH: f32 = 50.0;
+pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
+pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 
 #[allow(clippy::let_and_return)]
 fn get_gltf_path() -> &'static str {
@@ -34,25 +42,10 @@ fn get_gltf_path() -> &'static str {
     gltf_path
 }
 
-pub fn init_game_state(scene: GameScene) -> GameState {
-    let balls: Vec<_> = (0..500)
-        .into_iter()
-        .map(|_| {
-            BallComponent::new(
-                Vector2::new(
-                    -10.0 + rand::random::<f32>() * 20.0,
-                    -10.0 + rand::random::<f32>() * 20.0,
-                ),
-                Vector2::new(
-                    -1.0 + rand::random::<f32>() * 2.0,
-                    -1.0 + rand::random::<f32>() * 2.0,
-                ),
-                0.5 + (rand::random::<f32>() * 0.75),
-                1.0 + (rand::random::<f32>() * 15.0),
-            )
-        })
-        .collect();
-
+pub fn init_game_state(
+    mut scene: GameScene,
+    renderer_state: &mut RendererState,
+) -> Result<GameState> {
     let directional_lights = vec![DirectionalLightComponent {
         position: Vector3::new(10.0, 5.0, 0.0) * 10.0,
         direction: Vector3::new(-1.0, -0.7, 0.0).normalize(),
@@ -91,31 +84,254 @@ pub fn init_game_state(scene: GameScene) -> GameState {
             .set_position(Vector3::new(0.0, 15.0, 0.0));
     }
 
-    let mut test_object_instances = vec![MeshInstance::new()];
-    test_object_instances[0]
-        .transform
-        .set_position(Vector3::new(4.0, 10.0, 4.0));
+    // rotate the animated character 90 deg
+    if let Some(node_0) = scene.nodes.get_mut(0) {
+        node_0.transform.set_rotation(make_quat_from_axis_angle(
+            Vector3::new(0.0, 1.0, 0.0),
+            Deg(90.0).into(),
+        ));
+    }
 
-    let mut plane_instances = vec![MeshInstance::new()];
-    plane_instances[0]
-        .transform
-        .set_scale(Vector3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH));
+    let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
+    let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
 
-    GameState {
+    // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
+    // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
+    // let simple_normal_map = Texture::from_encoded_image(
+    //     &renderer_state.base.device,
+    //     &renderer_state.base.queue,
+    //     &simple_normal_map_bytes,
+    //     simple_normal_map_path,
+    //     wgpu::TextureFormat::Rgba8Unorm.into(),
+    //     false,
+    //     &Default::default(),
+    // )?;
+
+    // let brick_normal_map_path = "./src/textures/brick_normal_map.jpg";
+    // let brick_normal_map_bytes = std::fs::read(brick_normal_map_path)?;
+    // let brick_normal_map = Texture::from_encoded_image(
+    //     &renderer_state.base.device,
+    //     &renderer_state.base.queue,
+    //     &brick_normal_map_bytes,
+    //     brick_normal_map_path,
+    //     wgpu::TextureFormat::Rgba8Unorm.into(),
+    //     false,
+    //     &Default::default(),
+    // )?;
+
+    // add 'unlit' lights to scene
+    let point_light_unlit_mesh_index =
+        renderer_state.bind_basic_unlit_mesh(&sphere_mesh, point_lights.len())?;
+    let point_light_node_indices: Vec<usize> =
+        (scene.nodes.len()..(scene.nodes.len() + point_lights.len())).collect();
+    for point_light in &point_lights {
+        scene.nodes.push(
+            GameNodeBuilder::new()
+                .mesh(Some(GameNodeMesh::Unlit {
+                    mesh_indices: vec![point_light_unlit_mesh_index],
+                    color: point_light.color,
+                }))
+                .transform(point_light.transform)
+                .build(),
+        );
+    }
+
+    // add test object to scene
+    let earth_texture_path = "./src/textures/8k_earth.jpg";
+    let earth_texture_bytes = std::fs::read(earth_texture_path)?;
+    let earth_texture = Texture::from_encoded_image(
+        &renderer_state.base.device,
+        &renderer_state.base.queue,
+        &earth_texture_bytes,
+        earth_texture_path,
+        None,
+        true,
+        &Default::default(),
+    )?;
+
+    let earth_normal_map_path = "./src/textures/8k_earth_normal_map.jpg";
+    let earth_normal_map_bytes = std::fs::read(earth_normal_map_path)?;
+    let earth_normal_map = Texture::from_encoded_image(
+        &renderer_state.base.device,
+        &renderer_state.base.queue,
+        &earth_normal_map_bytes,
+        earth_normal_map_path,
+        wgpu::TextureFormat::Rgba8Unorm.into(),
+        false,
+        &Default::default(),
+    )?;
+
+    let test_object_metallic_roughness_map = Texture::from_color(
+        &renderer_state.base.device,
+        &renderer_state.base.queue,
+        [
+            255,
+            (0.12 * 255.0f32).round() as u8,
+            (0.8 * 255.0f32).round() as u8,
+            255,
+        ],
+    )?;
+
+    let test_object_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
+        &sphere_mesh,
+        &PbrMaterial {
+            diffuse: Some(&earth_texture),
+            normal: Some(&earth_normal_map),
+            metallic_roughness: Some(&test_object_metallic_roughness_map),
+            ..Default::default()
+        },
+        Default::default(),
+        1,
+    )?;
+    scene.nodes.push(
+        GameNodeBuilder::new()
+            .mesh(Some(GameNodeMesh::Pbr {
+                mesh_indices: vec![test_object_pbr_mesh_index],
+                material_override: None,
+            }))
+            .transform(
+                TransformBuilder::new()
+                    .position(Vector3::new(4.0, 10.0, 4.0))
+                    .build(),
+            )
+            .build(),
+    );
+    let test_object_node_index = scene.nodes.len() - 1;
+
+    // add floor to scene
+    let checkerboard_texture_img = {
+        let mut img = image::RgbaImage::new(4096, 4096);
+        for x in 0..img.width() {
+            for y in 0..img.height() {
+                let scale = 10;
+                let x_scaled = x / scale;
+                let y_scaled = y / scale;
+                img.put_pixel(
+                    x,
+                    y,
+                    if (x_scaled + y_scaled) % 2 == 0 {
+                        [100, 100, 100, 100].into()
+                    } else {
+                        [150, 150, 150, 150].into()
+                    },
+                );
+            }
+        }
+        img
+    };
+    let checkerboard_texture = Texture::from_decoded_image(
+        &renderer_state.base.device,
+        &renderer_state.base.queue,
+        &checkerboard_texture_img,
+        checkerboard_texture_img.dimensions(),
+        Some("checkerboard_texture"),
+        None,
+        true,
+        &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
+            mag_filter: wgpu::FilterMode::Nearest,
+            ..texture::SamplerDescriptor::default().0
+        }),
+    )?;
+
+    let floor_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
+        &plane_mesh,
+        &PbrMaterial {
+            diffuse: Some(&checkerboard_texture),
+            ..Default::default()
+        },
+        Default::default(),
+        1,
+    )?;
+    scene.nodes.push(
+        GameNodeBuilder::new()
+            .mesh(Some(GameNodeMesh::Pbr {
+                mesh_indices: vec![floor_pbr_mesh_index],
+                material_override: None,
+            }))
+            .transform(
+                TransformBuilder::new()
+                    .scale(Vector3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH))
+                    .build(),
+            )
+            .build(),
+    );
+    let floor_node_index = scene.nodes.len() - 1;
+
+    // add balls to scene
+
+    // source: https://www.solarsystemscope.com/textures/
+    let mars_texture_path = "./src/textures/8k_mars.jpg";
+    let mars_texture_bytes = std::fs::read(mars_texture_path)?;
+    let mars_texture = Texture::from_encoded_image(
+        &renderer_state.base.device,
+        &renderer_state.base.queue,
+        &mars_texture_bytes,
+        mars_texture_path,
+        None,
+        true,
+        &Default::default(),
+    )?;
+
+    let ball_count = 500;
+    let balls: Vec<_> = (0..ball_count)
+        .into_iter()
+        .map(|_| {
+            BallComponent::new(
+                Vector2::new(
+                    -10.0 + rand::random::<f32>() * 20.0,
+                    -10.0 + rand::random::<f32>() * 20.0,
+                ),
+                Vector2::new(
+                    -1.0 + rand::random::<f32>() * 2.0,
+                    -1.0 + rand::random::<f32>() * 2.0,
+                ),
+                0.5 + (rand::random::<f32>() * 0.75),
+                1.0 + (rand::random::<f32>() * 15.0),
+            )
+        })
+        .collect();
+
+    let ball_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
+        &sphere_mesh,
+        &PbrMaterial {
+            diffuse: Some(&mars_texture),
+            ..Default::default()
+        },
+        Default::default(),
+        ball_count,
+    )?;
+
+    let ball_node_indices: Vec<usize> =
+        (scene.nodes.len()..(scene.nodes.len() + ball_count)).collect();
+    for ball in &balls {
+        scene.nodes.push(
+            GameNodeBuilder::new()
+                .mesh(Some(GameNodeMesh::Pbr {
+                    mesh_indices: vec![ball_pbr_mesh_index],
+                    material_override: None,
+                }))
+                .transform(ball.transform)
+                .build(),
+        );
+    }
+
+    Ok(GameState {
         scene,
         time_tracker: None,
         state_update_time_accumulator: 0.0,
 
         point_lights,
+        point_light_node_indices,
         directional_lights,
 
         next_balls: balls.clone(),
         prev_balls: balls.clone(),
         actual_balls: balls,
+        ball_node_indices,
 
-        test_object_instances,
-        plane_instances,
-    }
+        test_object_node_index,
+        floor_node_index,
+    })
 }
 
 pub fn update_game_state(
@@ -156,6 +372,13 @@ pub fn update_game_state(
         .zip(game_state.next_balls.iter())
         .map(|(prev_ball, next_ball)| prev_ball.lerp(next_ball, alpha))
         .collect();
+    game_state
+        .ball_node_indices
+        .iter()
+        .zip(game_state.actual_balls.iter())
+        .for_each(|(node_index, ball)| {
+            game_state.scene.nodes[*node_index].transform = ball.transform;
+        });
 
     let new_point_light_0 = game_state.point_lights.get(0).map(|point_light_0| {
         let mut transform = point_light_0.transform;
@@ -204,6 +427,18 @@ pub fn update_game_state(
     if let Some(new_point_light_1) = new_point_light_1 {
         game_state.point_lights[1] = new_point_light_1;
     }
+    game_state
+        .point_light_node_indices
+        .iter()
+        .zip(game_state.point_lights.iter())
+        .for_each(|(node_index, point_light)| {
+            game_state.scene.nodes[*node_index].transform = point_light.transform;
+            if let Some(GameNodeMesh::Unlit { ref mut color, .. }) =
+                game_state.scene.nodes[*node_index].mesh
+            {
+                *color = point_light.color;
+            }
+        });
 
     let directional_light_0 = game_state
         .directional_lights
@@ -226,76 +461,18 @@ pub fn update_game_state(
         game_state.directional_lights[0] = directional_light_0;
     }
 
+    // rotate the test object
     let rotational_displacement =
         make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(frame_time_seconds / 5.0));
-    let curr = game_state.test_object_instances[0].transform.rotation();
-    game_state.test_object_instances[0]
-        .transform
-        .set_rotation(rotational_displacement * curr);
+    let test_object_transform =
+        &mut game_state.scene.nodes[game_state.test_object_node_index].transform;
+    test_object_transform.set_rotation(rotational_displacement * test_object_transform.rotation());
 
     // logger.log(&format!("Frame time: {:?}", frame_time_seconds));
     // logger.log(&format!(
     //     "state_update_time_accumulator: {:?}",
     //     game_state.state_update_time_accumulator
     // ));
-
-    if global_time_seconds > 5.0 && !game_state.actual_balls.is_empty() {
-        let first_ball = game_state.actual_balls[0].clone();
-        let first_ball_transform = first_ball.instance.transform;
-
-        let sphere_mesh = renderer_state.sphere_mesh.take().unwrap();
-
-        renderer_state
-            .scene
-            .buffers
-            .binded_mesh_data
-            .push(BindedMeshData {
-                vertex_buffer: BufferAndLength {
-                    buffer: sphere_mesh.vertex_buffer,
-                    length: sphere_mesh._num_vertices.try_into().unwrap(),
-                },
-                index_buffer: Some(BufferAndLength {
-                    buffer: sphere_mesh.index_buffer,
-                    length: sphere_mesh.num_indices.try_into().unwrap(),
-                }),
-                instance_buffer: BufferAndLength {
-                    buffer: sphere_mesh.instance_buffer,
-                    length: 1,
-                },
-                dynamic_material_params: Default::default(),
-                textures_bind_group: sphere_mesh.textures_bind_group,
-                alpha_mode: AlphaMode::Opaque,
-                primitive_mode: PrimitiveMode::Triangles,
-            });
-
-        game_state.scene.nodes.push(
-            GameNodeBuilder::new()
-                .transform(first_ball_transform)
-                .binded_mesh_indices(Some(vec![
-                    renderer_state.scene.buffers.binded_mesh_data.len() - 1,
-                ]))
-                .build(),
-        );
-
-        // creates a binded mesh data
-        // let binded_mesh_index = renderer_state.bind_basic_mesh(basic_mesh, pbr_textures);
-        // registers a game node
-        // game_state.scene.nodes.push(GameNode::default());
-        // let new_node_index = game_state.scene.nodes.len() - 1;
-        // let mut new_node = game_state.scene.nodes[new_node_index]
-
-        game_state.actual_balls = vec![];
-        game_state.prev_balls = vec![];
-        game_state.next_balls = vec![];
-    } else {
-        let ball_node_index = game_state.scene.nodes.len() - 1;
-        let ball_node = &mut game_state.scene.nodes[ball_node_index];
-        ball_node.transform.set_position(Vector3::new(
-            ball_node.transform.position().x,
-            ball_node.transform.position().y + 0.5 * frame_time_seconds,
-            ball_node.transform.position().z,
-        ));
-    }
 }
 
 pub fn init_scene(

@@ -46,6 +46,7 @@ impl Default for SamplerDescriptor<'_> {
     }
 }
 
+// TODO: maybe implement some functions on the BaseRendererState so we have the device and queue for free?
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 

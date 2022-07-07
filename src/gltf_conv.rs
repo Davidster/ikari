@@ -162,11 +162,11 @@ pub fn build_scene(
 
     let meshes: Vec<_> = document.meshes().collect();
 
-    let mut binded_mesh_data: Vec<BindedMeshData> = Vec::new();
+    let mut binded_pbr_meshes: Vec<BindedPbrMesh> = Vec::new();
     // gltf node index -> game node
     let mut node_mesh_links: HashMap<usize, Vec<usize>> = HashMap::new();
 
-    for (binded_mesh_index, (mesh, primitive_group)) in meshes
+    for (binded_pbr_mesh_index, (mesh, primitive_group)) in meshes
         .iter()
         .flat_map(|mesh| mesh.primitives().map(|prim| (&meshes[mesh.index()], prim)))
         .filter(|(_, prim)| {
@@ -176,7 +176,7 @@ pub fn build_scene(
         })
         .enumerate()
     {
-        let (textures_bind_group, dynamic_material_params) = build_textures_bind_group(
+        let (textures_bind_group, dynamic_pbr_params) = build_textures_bind_group(
             device,
             queue,
             &primitive_group.material(),
@@ -215,14 +215,15 @@ pub fn build_scene(
         };
 
         for gltf_node in initial_instances.iter() {
-            let binded_mesh_indices = node_mesh_links.entry(gltf_node.index()).or_insert(vec![]);
-            binded_mesh_indices.push(binded_mesh_index);
+            let binded_pbr_mesh_indices =
+                node_mesh_links.entry(gltf_node.index()).or_insert(vec![]);
+            binded_pbr_mesh_indices.push(binded_pbr_mesh_index);
         }
 
-        binded_mesh_data.push(BindedMeshData {
+        binded_pbr_meshes.push(BindedPbrMesh {
             vertex_buffer,
             index_buffer,
-            dynamic_material_params,
+            dynamic_pbr_params,
             instance_buffer,
             textures_bind_group,
             primitive_mode,
@@ -237,8 +238,12 @@ pub fn build_scene(
         .map(|node| GameNode {
             transform: crate::transform::Transform::from(node.transform()),
             renderer_skin_index: node.skin().map(|skin| skin.index()),
-            binded_mesh_indices: node_mesh_links.get(&node.index()).cloned(),
-            dynamic_material_params: None,
+            mesh: node_mesh_links
+                .get(&node.index())
+                .map(|mesh_indices| GameNodeMesh::Pbr {
+                    mesh_indices: mesh_indices.clone(),
+                    material_override: None,
+                }),
         })
         .collect();
 
@@ -251,7 +256,8 @@ pub fn build_scene(
         },
         RenderScene {
             buffers: SceneBuffers {
-                binded_mesh_data,
+                binded_pbr_meshes,
+                binded_unlit_meshes: vec![],
                 textures,
             },
 
@@ -357,7 +363,7 @@ fn build_textures_bind_group(
     material: &gltf::material::Material,
     textures: &[Texture],
     five_texture_bind_group_layout: &wgpu::BindGroupLayout,
-) -> Result<(wgpu::BindGroup, DynamicMaterialParams)> {
+) -> Result<(wgpu::BindGroup, DynamicPbrParams)> {
     let pbr_info = material.pbr_metallic_roughness();
 
     let material_diffuse_texture = pbr_info.base_color_texture().map(|info| info.texture());
@@ -467,7 +473,7 @@ fn build_textures_bind_group(
         label: Some("InstancedMeshComponent textures_bind_group"),
     });
 
-    let dynamic_material_params = DynamicMaterialParams {
+    let dynamic_pbr_params = DynamicPbrParams {
         base_color_factor: Vector4::from(pbr_info.base_color_factor()),
         emissive_factor: Vector3::from(material.emissive_factor()),
         metallic_factor: pbr_info.metallic_factor(),
@@ -475,18 +481,18 @@ fn build_textures_bind_group(
         normal_scale: material
             .normal_texture()
             .map(|info| info.scale())
-            .unwrap_or(DynamicMaterialParams::default().normal_scale),
+            .unwrap_or(DynamicPbrParams::default().normal_scale),
         occlusion_strength: material
             .occlusion_texture()
             .map(|info| info.strength())
-            .unwrap_or(DynamicMaterialParams::default().occlusion_strength),
+            .unwrap_or(DynamicPbrParams::default().occlusion_strength),
         alpha_cutoff: match material.alpha_mode() {
             gltf::material::AlphaMode::Mask => material.alpha_cutoff().unwrap_or(0.5),
-            _ => DynamicMaterialParams::default().alpha_cutoff,
+            _ => DynamicPbrParams::default().alpha_cutoff,
         },
     };
 
-    Ok((textures_bind_group, dynamic_material_params))
+    Ok((textures_bind_group, dynamic_pbr_params))
 }
 
 pub fn get_buffer_slice_from_accessor(

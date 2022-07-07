@@ -7,15 +7,17 @@ pub struct GameState {
     pub state_update_time_accumulator: f32,
 
     pub point_lights: Vec<PointLightComponent>,
+    pub point_light_node_indices: Vec<usize>,
     pub directional_lights: Vec<DirectionalLightComponent>,
 
     // store the previous state and next state and interpolate between them
     pub next_balls: Vec<BallComponent>,
     pub prev_balls: Vec<BallComponent>,
     pub actual_balls: Vec<BallComponent>,
+    pub ball_node_indices: Vec<usize>,
 
-    pub test_object_instances: Vec<MeshInstance>,
-    pub plane_instances: Vec<MeshInstance>,
+    pub test_object_node_index: usize,
+    pub floor_node_index: usize,
 }
 
 impl GameState {

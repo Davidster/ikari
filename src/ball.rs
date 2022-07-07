@@ -4,7 +4,7 @@ use super::*;
 
 #[derive(Clone, Debug)]
 pub struct BallComponent {
-    pub instance: MeshInstance,
+    pub transform: crate::transform::Transform,
     direction: Vector3<f32>,
     speed: f32,
     radius: f32,
@@ -21,10 +21,7 @@ impl BallComponent {
             y: direction_z,
         } = direction;
         BallComponent {
-            instance: MeshInstance {
-                transform,
-                dynamic_material_params: Default::default(),
-            },
+            transform,
             direction: Vector3::new(direction_x, 0.0, direction_z).normalize(),
             speed,
             radius,
@@ -33,13 +30,13 @@ impl BallComponent {
 
     pub fn update(&mut self, dt: f32, _logger: &mut Logger) {
         // update position
-        let curr_position = self.instance.transform.position();
+        let curr_position = self.transform.position();
         let displacement = self.direction * self.speed * dt;
         let new_position = curr_position + (displacement / 1.0);
-        self.instance.transform.set_position(new_position);
+        self.transform.set_position(new_position);
 
         // update rotation
-        let curr_rotation = self.instance.transform.rotation();
+        let curr_rotation = self.transform.rotation();
         let up = Vector3::new(0.0, 1.0, 0.0);
         let axis_of_rotation = self.direction.cross(up);
         let circumference = 2.0 * std::f32::consts::PI * self.radius;
@@ -48,7 +45,7 @@ impl BallComponent {
         let rotational_displacement =
             make_quat_from_axis_angle(axis_of_rotation, Rad(-angle_of_rotation));
         let new_rotation = rotational_displacement * curr_rotation;
-        self.instance.transform.set_rotation(new_rotation);
+        self.transform.set_rotation(new_rotation);
 
         // nice log thingy
         // logger.log(&format!(
@@ -87,28 +84,24 @@ impl BallComponent {
     pub fn lerp(&self, other: &Self, alpha: f32) -> Self {
         let transform = TransformBuilder::new()
             .position(lerp_vec(
-                self.instance.transform.position(),
-                other.instance.transform.position(),
+                self.transform.position(),
+                other.transform.position(),
                 alpha,
             ))
             .scale(lerp_vec(
-                self.instance.transform.scale(),
-                other.instance.transform.scale(),
+                self.transform.scale(),
+                other.transform.scale(),
                 alpha,
             ))
             .rotation(
-                self.instance
-                    .transform
+                self.transform
                     .rotation()
-                    .nlerp(other.instance.transform.rotation(), alpha),
+                    .nlerp(other.transform.rotation(), alpha),
             )
             .build();
 
         BallComponent {
-            instance: MeshInstance {
-                transform,
-                dynamic_material_params: self.instance.dynamic_material_params,
-            },
+            transform,
             direction: lerp_vec(self.direction, other.direction, alpha),
             speed: lerp(self.speed, other.speed, alpha),
             radius: lerp(self.radius, other.radius, alpha),
