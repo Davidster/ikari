@@ -3,7 +3,7 @@ use std::collections::{hash_map, HashMap};
 use super::*;
 
 use anyhow::Result;
-use cgmath::{Matrix4, Vector2, Vector3, Vector4};
+use cgmath::{Vector2, Vector3, Vector4};
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -42,7 +42,7 @@ impl Vertex {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct GpuMeshInstance {
+pub struct GpuPbrMeshInstance {
     model_transform: GpuMatrix4,
     base_color_factor: [f32; 4],
     emissive_factor: [f32; 4],
@@ -51,7 +51,7 @@ pub struct GpuMeshInstance {
     padding: [f32; 3], // TODO: is this needed?
 }
 
-impl GpuMeshInstance {
+impl GpuPbrMeshInstance {
     const ATTRIBS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
         8 => Float32x4,  9 => Float32x4,  10 => Float32x4,  11 => Float32x4, // transform
         12 => Float32x4,
@@ -62,19 +62,13 @@ impl GpuMeshInstance {
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<GpuMeshInstance>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<GpuPbrMeshInstance>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &Self::ATTRIBS,
         }
     }
-}
 
-impl From<MeshInstance> for GpuMeshInstance {
-    fn from(instance: MeshInstance) -> Self {
-        let MeshInstance {
-            transform,
-            dynamic_pbr_params,
-        } = instance;
+    pub fn new(transform: crate::transform::Transform, pbr_params: DynamicPbrParams) -> Self {
         let DynamicPbrParams {
             base_color_factor,
             emissive_factor,
@@ -83,7 +77,7 @@ impl From<MeshInstance> for GpuMeshInstance {
             normal_scale,
             occlusion_strength,
             alpha_cutoff,
-        } = dynamic_pbr_params;
+        } = pbr_params;
         Self {
             model_transform: GpuMatrix4(transform.matrix()),
             base_color_factor: base_color_factor.into(),
@@ -123,21 +117,6 @@ impl GpuUnlitMeshInstance {
             array_stride: std::mem::size_of::<GpuUnlitMeshInstance>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &Self::ATTRIBS,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct MeshInstance {
-    pub transform: crate::transform::Transform,
-    pub dynamic_pbr_params: DynamicPbrParams,
-}
-
-impl MeshInstance {
-    pub fn new() -> MeshInstance {
-        MeshInstance {
-            transform: crate::transform::Transform::new(),
-            dynamic_pbr_params: Default::default(),
         }
     }
 }
@@ -294,15 +273,6 @@ impl MeshComponent {
     }
 }
 
-pub struct InstancedMeshComponent {
-    pub vertex_buffer: wgpu::Buffer,
-    pub index_buffer: wgpu::Buffer,
-    pub instance_buffer: wgpu::Buffer,
-    pub num_indices: u32,
-    pub _num_vertices: u32,
-    pub textures_bind_group: wgpu::BindGroup,
-}
-
 #[derive(Default)]
 pub struct PbrMaterial<'a> {
     pub diffuse: Option<&'a Texture>,
@@ -310,148 +280,6 @@ pub struct PbrMaterial<'a> {
     pub metallic_roughness: Option<&'a Texture>,
     pub emissive: Option<&'a Texture>,
     pub ambient_occlusion: Option<&'a Texture>,
-}
-
-impl InstancedMeshComponent {
-    pub fn new(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        mesh: &BasicMesh,
-        material: &PbrMaterial,
-        textures_bind_group_layout: &wgpu::BindGroupLayout,
-        initial_buffer_contents: &[u8],
-    ) -> Result<InstancedMeshComponent> {
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("InstancedMeshComponent Vertex Buffer"),
-            contents: bytemuck::cast_slice(&mesh.vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("InstancedMeshComponent Index Buffer"),
-            contents: bytemuck::cast_slice(&mesh.indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-
-        let vertex_count = mesh.vertices.len() as u32;
-        let index_count = mesh.indices.len() as u32;
-
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("InstancedMeshComponent instance_buffer"),
-            contents: initial_buffer_contents,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let textures_bind_group =
-            get_textures_bind_group(material, device, queue, textures_bind_group_layout)?;
-
-        Ok(InstancedMeshComponent {
-            vertex_buffer,
-            index_buffer,
-            num_indices: index_count,
-            _num_vertices: vertex_count,
-            textures_bind_group,
-            instance_buffer,
-        })
-    }
-}
-
-pub fn get_textures_bind_group(
-    material: &PbrMaterial,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    textures_bind_group_layout: &wgpu::BindGroupLayout,
-) -> Result<wgpu::BindGroup, anyhow::Error> {
-    let auto_generated_diffuse_texture;
-    let diffuse_texture = match material.diffuse {
-        Some(diffuse_texture) => diffuse_texture,
-        None => {
-            auto_generated_diffuse_texture =
-                Texture::from_color(device, queue, [255, 255, 255, 255])?;
-            &auto_generated_diffuse_texture
-        }
-    };
-    let auto_generated_normal_map;
-    let normal_map = match material.normal {
-        Some(normal_map) => normal_map,
-        None => {
-            auto_generated_normal_map = Texture::flat_normal_map(device, queue)?;
-            &auto_generated_normal_map
-        }
-    };
-    let auto_generated_metallic_roughness_map;
-    let metallic_roughness_map = match material.metallic_roughness {
-        Some(metallic_roughness_map) => metallic_roughness_map,
-        None => {
-            auto_generated_metallic_roughness_map =
-                Texture::from_color(device, queue, [255, 127, 0, 255])?;
-            &auto_generated_metallic_roughness_map
-        }
-    };
-    let auto_generated_emissive_map;
-    let emissive_map = match material.emissive {
-        Some(emissive_map) => emissive_map,
-        None => {
-            auto_generated_emissive_map = Texture::from_color(device, queue, [0, 0, 0, 255])?;
-            &auto_generated_emissive_map
-        }
-    };
-    let auto_generated_ambient_occlusion_map;
-    let ambient_occlusion_map = match material.ambient_occlusion {
-        Some(ambient_occlusion_map) => ambient_occlusion_map,
-        None => {
-            auto_generated_ambient_occlusion_map =
-                Texture::from_color(device, queue, [255, 255, 255, 255])?;
-            &auto_generated_ambient_occlusion_map
-        }
-    };
-    let textures_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        layout: textures_bind_group_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::TextureView(&normal_map.view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: wgpu::BindingResource::Sampler(&normal_map.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 4,
-                resource: wgpu::BindingResource::TextureView(&metallic_roughness_map.view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 5,
-                resource: wgpu::BindingResource::Sampler(&metallic_roughness_map.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 6,
-                resource: wgpu::BindingResource::TextureView(&emissive_map.view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 7,
-                resource: wgpu::BindingResource::Sampler(&emissive_map.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 8,
-                resource: wgpu::BindingResource::TextureView(&ambient_occlusion_map.view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 9,
-                resource: wgpu::BindingResource::Sampler(&ambient_occlusion_map.sampler),
-            },
-        ],
-        label: Some("InstancedMeshComponent textures_bind_group"),
-    });
-    Ok(textures_bind_group)
 }
 
 pub struct BasicMesh {

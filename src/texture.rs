@@ -207,7 +207,7 @@ impl Texture {
         )
     }
 
-    pub fn from_gray(device: &wgpu::Device, queue: &wgpu::Queue, gray_value: u8) -> Result<Self> {
+    pub fn _from_gray(device: &wgpu::Device, queue: &wgpu::Queue, gray_value: u8) -> Result<Self> {
         let one_pixel_gray_image = {
             let mut img = image::GrayImage::new(1, 1);
             img.put_pixel(0, 0, image::Luma([gray_value]));

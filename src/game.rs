@@ -330,11 +330,7 @@ pub fn init_game_state(
     })
 }
 
-pub fn update_game_state(
-    game_state: &mut GameState,
-    renderer_state: &mut RendererState,
-    logger: &mut Logger,
-) {
+pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
     let time_tracker = game_state.time();
     let global_time_seconds = time_tracker.global_time_seconds();
 

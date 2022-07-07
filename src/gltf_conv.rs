@@ -191,7 +191,7 @@ pub fn build_scene(
             .filter(|node| node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index())
             .collect();
         let initial_instance_buffer: Vec<u8> = (0..(initial_instances.len()
-            * std::mem::size_of::<GpuMeshInstance>()))
+            * std::mem::size_of::<GpuPbrMeshInstance>()))
             .map(|_| 0u8)
             .collect();
 

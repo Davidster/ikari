@@ -4,7 +4,7 @@ use super::*;
 
 use anyhow::Result;
 
-use cgmath::{Deg, Matrix4, One, Vector3, Vector4};
+use cgmath::{Deg, Matrix4, One, Vector3};
 use wgpu::util::DeviceExt;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -788,7 +788,7 @@ impl RendererState {
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc(), GpuMeshInstance::desc()],
+                buffers: &[Vertex::desc(), GpuPbrMeshInstance::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &textured_mesh_shader,
@@ -1186,7 +1186,7 @@ impl RendererState {
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
                 entry_point: "shadow_map_vs_main",
-                buffers: &[Vertex::desc(), GpuMeshInstance::desc()],
+                buffers: &[Vertex::desc(), GpuPbrMeshInstance::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &textured_mesh_shader,
@@ -1225,7 +1225,7 @@ impl RendererState {
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
                 entry_point: "shadow_map_vs_main",
-                buffers: &[Vertex::desc(), GpuMeshInstance::desc()],
+                buffers: &[Vertex::desc(), GpuPbrMeshInstance::desc()],
             },
             fragment: None,
             primitive: wgpu::PrimitiveState {
@@ -1847,7 +1847,7 @@ impl RendererState {
         };
 
         let initial_buffer_contents: Vec<u8> = (0..(instance_count
-            * std::mem::size_of::<GpuMeshInstance>()))
+            * std::mem::size_of::<GpuPbrMeshInstance>()))
             .map(|_| 0u8)
             .collect();
         let instance_buffer = BufferAndLength {
@@ -2258,10 +2258,10 @@ impl RendererState {
                             }) => mesh_indices
                                 .iter()
                                 .find(|node_mesh_index| **node_mesh_index == binded_pbr_mesh_index)
-                                .map(|_| (node_index, node, material_override)),
+                                .map(|_| (node_index, material_override)),
                             _ => None,
                         })
-                        .map(|(node_index, node, material_override)| {
+                        .map(|(node_index, material_override)| {
                             let node_ancestry_list = game_scene.get_node_ancestry_list(node_index);
                             let transform = node_ancestry_list
                                 .iter()
@@ -2269,13 +2269,11 @@ impl RendererState {
                                 .fold(crate::transform::Transform::new(), |acc, node_index| {
                                     acc * game_scene.nodes[*node_index].transform
                                 });
-                            MeshInstance {
-                                dynamic_pbr_params: material_override
-                                    .unwrap_or(*dynamic_pbr_params),
+                            GpuPbrMeshInstance::new(
                                 transform,
-                            }
+                                material_override.unwrap_or(*dynamic_pbr_params),
+                            )
                         })
-                        .map(GpuMeshInstance::from)
                         .collect();
                     queue.write_buffer(
                         &instance_buffer.buffer,
@@ -2309,10 +2307,10 @@ impl RendererState {
                                 .find(|node_mesh_index| {
                                     **node_mesh_index == binded_unlit_mesh_index
                                 })
-                                .map(|_| (node_index, node, color)),
+                                .map(|_| (node_index, color)),
                             _ => None,
                         })
-                        .map(|(node_index, node, color)| {
+                        .map(|(node_index, color)| {
                             let node_ancestry_list = game_scene.get_node_ancestry_list(node_index);
                             let transform = node_ancestry_list
                                 .iter()
@@ -2350,7 +2348,7 @@ impl RendererState {
         queue.write_buffer(
             &self.point_lights_buffer,
             0,
-            bytemuck::cast_slice(&make_point_light_uniform_buffer(&game_state)),
+            bytemuck::cast_slice(&make_point_light_uniform_buffer(game_state)),
         );
         queue.write_buffer(
             &self.directional_lights_buffer,
