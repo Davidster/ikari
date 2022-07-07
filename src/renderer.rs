@@ -36,18 +36,6 @@ struct PointLightUniform {
     color: [f32; 4],
 }
 
-impl From<&PointLightComponent> for PointLightUniform {
-    fn from(light: &PointLightComponent) -> Self {
-        let position = light.transform.position();
-        let color = light.color;
-        let intensity = light.intensity;
-        Self {
-            position: [position.x, position.y, position.z, 1.0],
-            color: [color.x, color.y, color.z, intensity],
-        }
-    }
-}
-
 impl Default for PointLightUniform {
     fn default() -> Self {
         Self {
@@ -57,13 +45,27 @@ impl Default for PointLightUniform {
     }
 }
 
-fn make_point_light_uniform_buffer(lights: &[PointLightComponent]) -> Vec<PointLightUniform> {
+fn make_point_light_uniform_buffer(game_state: &GameState) -> Vec<PointLightUniform> {
     let mut light_uniforms = Vec::new();
 
-    let active_light_count = lights.len();
-    let mut active_lights = lights
+    let active_light_count = game_state.point_lights.len();
+    let mut active_lights = game_state
+        .point_lights
         .iter()
-        .map(PointLightUniform::from)
+        .map(|point_light| {
+            let position = game_state.scene.nodes[point_light.node_index]
+                .transform
+                .position();
+            PointLightUniform {
+                position: [position.x, position.y, position.z, 1.0],
+                color: [
+                    point_light.color.x,
+                    point_light.color.y,
+                    point_light.color.z,
+                    point_light.intensity,
+                ],
+            }
+        })
         .collect::<Vec<_>>();
     light_uniforms.append(&mut active_lights);
 
@@ -148,7 +150,7 @@ impl From<Vector3<f32>> for UnlitColorUniform {
     }
 }
 
-pub const MAX_LIGHT_COUNT: u8 = 32;
+pub const MAX_LIGHT_COUNT: usize = 32;
 pub const MAX_BONES_BUFFER_SIZE_BYTES: u32 = 8192;
 pub const Z_NEAR: f32 = 0.001;
 pub const Z_FAR: f32 = 100000.0;
@@ -1550,16 +1552,24 @@ impl RendererState {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
+        let initial_point_lights_buffer: Vec<u8> = (0..(MAX_LIGHT_COUNT
+            * std::mem::size_of::<PointLightUniform>()))
+            .map(|_| 0u8)
+            .collect();
         let point_lights_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Point Lights Buffer"),
-            contents: bytemuck::cast_slice(&make_point_light_uniform_buffer(&[])),
+            contents: &initial_point_lights_buffer,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
+        let initial_directional_lights_buffer: Vec<u8> = (0..(MAX_LIGHT_COUNT
+            * std::mem::size_of::<DirectionalLightUniform>()))
+            .map(|_| 0u8)
+            .collect();
         let directional_lights_buffer =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Directional Lights Buffer"),
-                contents: bytemuck::cast_slice(&make_directional_light_uniform_buffer(&[])),
+                contents: &initial_directional_lights_buffer,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
@@ -2336,21 +2346,11 @@ impl RendererState {
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
         );
-        // let point_light_flat_color_instances: Vec<_> = game_state
-        //     .point_lights
-        //     .iter()
-        //     .map(|light| GpuFlatColorMeshInstance::from(light.clone()))
-        //     .collect();
-        // queue.write_buffer(
-        //     &self.point_light_mesh.instance_buffer,
-        //     0,
-        //     bytemuck::cast_slice(&point_light_flat_color_instances),
-        // );
 
         queue.write_buffer(
             &self.point_lights_buffer,
             0,
-            bytemuck::cast_slice(&make_point_light_uniform_buffer(&game_state.point_lights)),
+            bytemuck::cast_slice(&make_point_light_uniform_buffer(&game_state)),
         );
         queue.write_buffer(
             &self.directional_lights_buffer,
@@ -2408,7 +2408,9 @@ impl RendererState {
             });
         (0..game_state.point_lights.len()).for_each(|light_index| {
             build_cubemap_face_camera_views(
-                game_state.point_lights[light_index].transform.position(),
+                game_state.scene.nodes[game_state.point_lights[light_index].node_index]
+                    .transform
+                    .position(),
                 0.1,
                 1000.0,
                 false,

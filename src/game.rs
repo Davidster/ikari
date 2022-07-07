@@ -46,6 +46,10 @@ pub fn init_game_state(
     mut scene: GameScene,
     renderer_state: &mut RendererState,
 ) -> Result<GameState> {
+    let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
+    let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
+
+    // add lights to the scene
     let directional_lights = vec![DirectionalLightComponent {
         position: Vector3::new(10.0, 5.0, 0.0) * 10.0,
         direction: Vector3::new(-1.0, -0.7, 0.0).normalize(),
@@ -54,34 +58,46 @@ pub fn init_game_state(
     }];
     // let directional_lights: Vec<DirectionalLightComponent> = vec![];
 
-    let mut point_lights = vec![
-        PointLightComponent {
-            transform: crate::transform::Transform::new(),
-            color: LIGHT_COLOR_A,
-            intensity: 1.0,
-        },
-        PointLightComponent {
-            transform: crate::transform::Transform::new(),
-            color: LIGHT_COLOR_B,
-            intensity: 1.0,
-        },
+    let point_lights: Vec<(transform::Transform, Vector3<f32>, f32)> = vec![
+        (
+            TransformBuilder::new()
+                .scale(Vector3::new(0.05, 0.05, 0.05))
+                .position(Vector3::new(0.0, 12.0, 0.0))
+                .build(),
+            LIGHT_COLOR_A,
+            1.0,
+        ),
+        (
+            TransformBuilder::new()
+                .scale(Vector3::new(0.1, 0.1, 0.1))
+                .position(Vector3::new(0.0, 15.0, 0.0))
+                .build(),
+            LIGHT_COLOR_B,
+            1.0,
+        ),
     ];
-    // let mut point_lights: Vec<PointLightComponent> = vec![];
-    if let Some(point_light_0) = point_lights.get_mut(0) {
-        point_light_0
-            .transform
-            .set_scale(Vector3::new(0.05, 0.05, 0.05));
-        point_light_0
-            .transform
-            .set_position(Vector3::new(0.0, 12.0, 0.0));
-    }
-    if let Some(point_light_1) = point_lights.get_mut(1) {
-        point_light_1
-            .transform
-            .set_scale(Vector3::new(0.1, 0.1, 0.1));
-        point_light_1
-            .transform
-            .set_position(Vector3::new(0.0, 15.0, 0.0));
+    // let point_lights: Vec<(transform::Transform, Vector3<f32>)> = vec![];
+
+    let point_light_unlit_mesh_index =
+        renderer_state.bind_basic_unlit_mesh(&sphere_mesh, point_lights.len())?;
+    let point_light_node_indices: Vec<usize> =
+        (scene.nodes.len()..(scene.nodes.len() + point_lights.len())).collect();
+    let mut point_light_components: Vec<PointLightComponent> = Vec::new();
+    for (transform, color, intensity) in &point_lights {
+        scene.nodes.push(
+            GameNodeBuilder::new()
+                .mesh(Some(GameNodeMesh::Unlit {
+                    mesh_indices: vec![point_light_unlit_mesh_index],
+                    color: color * *intensity,
+                }))
+                .transform(*transform)
+                .build(),
+        );
+        point_light_components.push(PointLightComponent {
+            node_index: scene.nodes.len() - 1,
+            color: LIGHT_COLOR_A,
+            intensity: *intensity,
+        });
     }
 
     // rotate the animated character 90 deg
@@ -91,9 +107,6 @@ pub fn init_game_state(
             Deg(90.0).into(),
         ));
     }
-
-    let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
-    let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
 
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
     // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
@@ -118,23 +131,6 @@ pub fn init_game_state(
     //     false,
     //     &Default::default(),
     // )?;
-
-    // add 'unlit' lights to scene
-    let point_light_unlit_mesh_index =
-        renderer_state.bind_basic_unlit_mesh(&sphere_mesh, point_lights.len())?;
-    let point_light_node_indices: Vec<usize> =
-        (scene.nodes.len()..(scene.nodes.len() + point_lights.len())).collect();
-    for point_light in &point_lights {
-        scene.nodes.push(
-            GameNodeBuilder::new()
-                .mesh(Some(GameNodeMesh::Unlit {
-                    mesh_indices: vec![point_light_unlit_mesh_index],
-                    color: point_light.color,
-                }))
-                .transform(point_light.transform)
-                .build(),
-        );
-    }
 
     // add test object to scene
     let earth_texture_path = "./src/textures/8k_earth.jpg";
@@ -320,7 +316,7 @@ pub fn init_game_state(
         time_tracker: None,
         state_update_time_accumulator: 0.0,
 
-        point_lights,
+        point_lights: point_light_components,
         point_light_node_indices,
         directional_lights,
 
@@ -380,63 +376,44 @@ pub fn update_game_state(
             game_state.scene.nodes[*node_index].transform = ball.transform;
         });
 
-    let new_point_light_0 = game_state.point_lights.get(0).map(|point_light_0| {
-        let mut transform = point_light_0.transform;
+    if let Some(point_light_0) = game_state.point_lights.get_mut(0) {
+        point_light_0.color = lerp_vec(
+            LIGHT_COLOR_A,
+            LIGHT_COLOR_B,
+            (global_time_seconds * 2.0).sin(),
+        );
+        let transform = &mut game_state.scene.nodes[point_light_0.node_index].transform;
         transform.set_position(Vector3::new(
-            // light_1.transform.position.get().x,
             1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).cos(),
-            point_light_0.transform.position().y - frame_time_seconds * 0.25,
+            transform.position().y - frame_time_seconds * 0.25,
             1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).sin(),
-            // light_1.transform.position.get().z,
         ));
-        let color = lerp_vec(
-            LIGHT_COLOR_A,
-            LIGHT_COLOR_B,
-            (global_time_seconds * 2.0).sin(),
-        );
-
-        PointLightComponent {
-            transform,
-            color,
-            intensity: point_light_0.intensity,
-        }
-    });
-    if let Some(new_point_light_0) = new_point_light_0 {
-        game_state.point_lights[0] = new_point_light_0;
     }
 
-    let new_point_light_1 = game_state.point_lights.get(1).map(|point_light_1| {
-        let transform = point_light_1.transform;
+    if let Some(point_light_1) = game_state.point_lights.get_mut(1) {
+        point_light_1.color = lerp_vec(
+            LIGHT_COLOR_B,
+            LIGHT_COLOR_A,
+            (global_time_seconds * 2.0).sin(),
+        );
+        // let transform = &mut game_state.scene.nodes[point_light_1.node_index].transform;
         // transform.set_position(Vector3::new(
-        //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
-        //     transform.position.get().y,
-        //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
+        //     1.1 * (global_time_seconds * 0.25 + std::f32::consts::PI).cos(),
+        //     transform.position().y,
+        //     1.1 * (global_time_seconds * 0.25 + std::f32::consts::PI).sin(),
         // ));
-        let color = lerp_vec(
-            LIGHT_COLOR_B,
-            LIGHT_COLOR_A,
-            (global_time_seconds * 2.0).sin(),
-        );
-
-        PointLightComponent {
-            transform,
-            color,
-            intensity: point_light_1.intensity,
-        }
-    });
-    if let Some(new_point_light_1) = new_point_light_1 {
-        game_state.point_lights[1] = new_point_light_1;
     }
+
+    // sync unlit mesh config with point light component
     game_state
         .point_light_node_indices
         .iter()
         .zip(game_state.point_lights.iter())
         .for_each(|(node_index, point_light)| {
-            game_state.scene.nodes[*node_index].transform = point_light.transform;
             if let Some(GameNodeMesh::Unlit { ref mut color, .. }) =
                 game_state.scene.nodes[*node_index].mesh
             {
-                *color = point_light.color;
+                *color = point_light.color * point_light.intensity;
             }
         });
 

@@ -125,19 +125,6 @@ impl GpuUnlitMeshInstance {
             attributes: &Self::ATTRIBS,
         }
     }
-
-    pub fn new(model_transform: Matrix4<f32>, color: Vector3<f32>) -> GpuUnlitMeshInstance {
-        GpuUnlitMeshInstance {
-            model_transform: GpuMatrix4(model_transform),
-            color: [color.x, color.y, color.z, 1.0],
-        }
-    }
-}
-
-impl From<PointLightComponent> for GpuUnlitMeshInstance {
-    fn from(light: PointLightComponent) -> Self {
-        GpuUnlitMeshInstance::new(light.transform.matrix(), light.color * light.intensity)
-    }
 }
 
 #[derive(Clone, Debug)]

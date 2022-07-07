@@ -2,7 +2,7 @@ use cgmath::Vector3;
 
 #[derive(Clone, Debug)]
 pub struct PointLightComponent {
-    pub transform: crate::transform::Transform, // TODO: remove, use a node_index instead
+    pub node_index: usize,
     pub color: Vector3<f32>,
     pub intensity: f32,
 }
