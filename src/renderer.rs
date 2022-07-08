@@ -776,7 +776,7 @@ impl RendererState {
             label: Some("Mesh Pipeline Layout"),
             bind_group_layouts: &[
                 &camera_and_lights_bind_group_layout,
-                pbr_textures_bind_group_layout, // TODO: skybox texture actually isn't used here
+                pbr_textures_bind_group_layout,
                 &environment_textures_bind_group_layout,
                 bones_bind_group_layout,
             ],
