@@ -437,7 +437,6 @@ impl Texture {
         er_texture: &Texture,
         generate_mipmaps: bool,
     ) -> Self {
-        // let texture_size = texture.texture.
         let size = wgpu::Extent3d {
             // TODO: is divide by 3 the right move?
             width: er_texture.size.width / 3,

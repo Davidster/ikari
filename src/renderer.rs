@@ -434,8 +434,8 @@ pub struct RendererState {
 
     point_shadow_map_pipeline: wgpu::RenderPipeline,
     directional_shadow_map_pipeline: wgpu::RenderPipeline,
-    shadow_camera_and_lights_bind_group: wgpu::BindGroup,
-    shadow_camera_buffer: wgpu::Buffer,
+    // shadow_camera_and_lights_bind_group: wgpu::BindGroup,
+    // shadow_camera_buffer: wgpu::Buffer,
     point_shadow_map_textures: Texture,
     directional_shadow_map_textures: Texture,
 
@@ -1002,7 +1002,7 @@ impl RendererState {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Skybox Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &environment_textures_bind_group_layout, // TODO: only using 1 texture here, don't put a bgl with so 8 of them? lol
+                    &environment_textures_bind_group_layout,
                     &camera_and_lights_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
@@ -1429,7 +1429,7 @@ impl RendererState {
                     &er_skybox_texture_bytes,
                     image_path,
                     None,
-                    false, // an artifact occurs between the edges of the texture with mipmaps enabled
+                    false,
                     &Default::default(),
                 )?;
 
@@ -1440,8 +1440,7 @@ impl RendererState {
                     &skybox_mesh_buffers,
                     &equirectangular_to_cubemap_pipeline,
                     &er_skybox_texture,
-                    // TODO: set to true?
-                    false,
+                    false, // an artifact occurs between the edges of the texture with mipmaps enabled
                 )
             }
             SkyboxBackground::Cube { face_image_paths } => {
@@ -1462,7 +1461,6 @@ impl RendererState {
                         neg_z: &cubemap_skybox_images[5],
                     },
                     Some("cubemap_skybox_texture"),
-                    // TODO: set to true?
                     false,
                 )
             }
@@ -1505,7 +1503,6 @@ impl RendererState {
                     &skybox_mesh_buffers,
                     &equirectangular_to_cubemap_pipeline,
                     &skybox_rad_texture_er,
-                    // TODO: set to true?
                     false,
                 );
 
@@ -1521,7 +1518,6 @@ impl RendererState {
             &skybox_mesh_buffers,
             &diffuse_env_map_gen_pipeline,
             skybox_rad_texture,
-            // TODO: set to true?
             false,
         );
 
@@ -1573,15 +1569,6 @@ impl RendererState {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
-        let initial_bone_transforms_data = (0..MAX_BONES_BUFFER_SIZE_BYTES)
-            .map(|_| 0u8)
-            .collect::<Vec<_>>();
-        let bones_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Bones Buffer"),
-            contents: &initial_bone_transforms_data,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
-
         let camera_and_lights_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &camera_and_lights_bind_group_layout,
             entries: &[
@@ -1601,6 +1588,15 @@ impl RendererState {
             label: Some("camera_and_lights_bind_group"),
         });
 
+        let initial_bone_transforms_data = (0..MAX_BONES_BUFFER_SIZE_BYTES)
+            .map(|_| 0u8)
+            .collect::<Vec<_>>();
+        let bones_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Bones Buffer"),
+            contents: &initial_bone_transforms_data,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
         let bones_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: bones_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
@@ -1613,33 +1609,6 @@ impl RendererState {
             }],
             label: Some("bones_bind_group"),
         });
-
-        // TODO: does there need to be a separate buffer / bind group here for shadows?
-        let shadow_camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Point Shadow Camera Buffer"),
-            contents: bytemuck::cast_slice(&[CameraUniform::new()]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let shadow_camera_and_lights_bind_group =
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &camera_and_lights_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: shadow_camera_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: point_lights_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: directional_lights_buffer.as_entire_binding(),
-                    },
-                ],
-                label: Some("point_shadow_camera_bind_group"),
-            });
 
         let point_shadow_map_textures = Texture::create_cube_depth_texture_array(
             device,
@@ -1749,8 +1718,8 @@ impl RendererState {
 
             point_shadow_map_pipeline,
             directional_shadow_map_pipeline,
-            shadow_camera_and_lights_bind_group,
-            shadow_camera_buffer,
+            // shadow_camera_and_lights_bind_group,
+            // shadow_camera_buffer,
             point_shadow_map_textures,
             directional_shadow_map_textures,
 
@@ -2342,11 +2311,6 @@ impl RendererState {
             Z_FAR,
             FOV_Y.into(),
         );
-        queue.write_buffer(
-            &self.camera_buffer,
-            0,
-            bytemuck::cast_slice(&[self.camera_uniform]),
-        );
 
         queue.write_buffer(
             &self.point_lights_buffer,
@@ -2368,6 +2332,11 @@ impl RendererState {
     }
 
     pub fn render(&mut self, game_state: &GameState) -> Result<(), wgpu::SurfaceError> {
+        let surface_texture = self.base.surface.get_current_texture()?;
+        let surface_texture_view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
         game_state
             .directional_lights
             .iter()
@@ -2396,7 +2365,7 @@ impl RendererState {
                     }),
                 };
                 self.base.queue.write_buffer(
-                    &self.shadow_camera_buffer,
+                    &self.camera_buffer,
                     0,
                     bytemuck::cast_slice(&[CameraUniform::from(view_proj_matrices)]),
                 );
@@ -2446,7 +2415,7 @@ impl RendererState {
                     }),
                 };
                 self.base.queue.write_buffer(
-                    &self.shadow_camera_buffer,
+                    &self.camera_buffer,
                     0,
                     bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
                 );
@@ -2458,11 +2427,6 @@ impl RendererState {
                 );
             });
         });
-
-        let surface_texture = self.base.surface.get_current_texture()?;
-        let surface_texture_view = surface_texture
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
 
         let black = wgpu::Color {
             r: 0.0,
@@ -2490,6 +2454,12 @@ impl RendererState {
                 stencil_ops: None,
             }),
         };
+
+        self.base.queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(&[self.camera_uniform]),
+        );
 
         self.render_scene(
             game_state,
@@ -2840,15 +2810,7 @@ impl RendererState {
                         },
                     )| {
                         {
-                            render_pass.set_bind_group(
-                                0,
-                                if is_shadow {
-                                    &self.shadow_camera_and_lights_bind_group
-                                } else {
-                                    &self.camera_and_lights_bind_group
-                                },
-                                &[],
-                            );
+                            render_pass.set_bind_group(0, &self.camera_and_lights_bind_group, &[]);
                             let bone_transforms_buffer_start_index = all_bone_transforms
                                 .animated_bone_transforms
                                 .iter()
