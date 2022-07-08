@@ -407,10 +407,10 @@ impl BaseRendererState {
 
 pub struct RendererState {
     pub base: BaseRendererState,
+
     tone_mapping_exposure: f32,
     bloom_threshold: f32,
     bloom_ramp_size: f32,
-
     render_scale: f32,
     animation_time_acc: f32,
     is_playing_animations: bool,
@@ -1673,36 +1673,24 @@ impl RendererState {
             tone_mapping_exposure: INITIAL_TONE_MAPPING_EXPOSURE,
             bloom_threshold: INITIAL_BLOOM_THRESHOLD,
             bloom_ramp_size: INITIAL_BLOOM_RAMP_SIZE,
-
             render_scale: initial_render_scale,
             animation_time_acc: 0.0,
             is_playing_animations: true,
-
-            camera_buffer,
-            camera_and_lights_bind_group,
-
-            point_lights_buffer,
-            directional_lights_buffer,
-            bones_buffer,
-
-            bones_bind_group,
 
             mesh_pipeline,
             unlit_mesh_pipeline,
             skybox_pipeline,
             tone_mapping_pipeline,
             surface_blit_pipeline,
-
             point_shadow_map_pipeline,
             directional_shadow_map_pipeline,
-            // shadow_camera_and_lights_bind_group,
-            // shadow_camera_buffer,
-            point_shadow_map_textures,
-            directional_shadow_map_textures,
+            bloom_threshold_pipeline,
+            bloom_blur_pipeline,
 
-            shading_texture,
-            tone_mapping_texture,
-            depth_texture,
+            camera_and_lights_bind_group,
+            bones_bind_group,
+            bloom_config_bind_group,
+            tone_mapping_config_bind_group,
 
             environment_textures_bind_group,
             shading_and_bloom_textures_bind_group,
@@ -1710,14 +1698,19 @@ impl RendererState {
             shading_texture_bind_group,
             bloom_pingpong_texture_bind_groups,
 
-            bloom_threshold_pipeline,
-            bloom_blur_pipeline,
-            bloom_pingpong_textures,
-            bloom_config_bind_group,
+            camera_buffer,
+            point_lights_buffer,
+            directional_lights_buffer,
+            bones_buffer,
             bloom_config_buffer,
-
-            tone_mapping_config_bind_group,
             tone_mapping_config_buffer,
+
+            point_shadow_map_textures,
+            directional_shadow_map_textures,
+            shading_texture,
+            tone_mapping_texture,
+            depth_texture,
+            bloom_pingpong_textures,
 
             skybox_mesh_buffers,
 
