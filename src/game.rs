@@ -87,7 +87,7 @@ pub fn init_game_state(
 ) -> Result<GameState> {
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
     let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
-    let _cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
+    let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
 
     let camera_controller = CameraController::new(6.0, Camera::new((0.0, 3.0, 4.0).into()));
     scene.nodes.push(GameNode::default());
@@ -336,6 +336,29 @@ pub fn init_game_state(
                 .build(),
         );
     }
+
+    let box_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
+        &cube_mesh,
+        &PbrMaterial {
+            diffuse: Some(&checkerboard_texture),
+            ..Default::default()
+        },
+        Default::default(),
+    )?;
+    scene.nodes.push(
+        GameNodeBuilder::new()
+            .mesh(Some(GameNodeMesh::Pbr {
+                mesh_indices: vec![box_pbr_mesh_index],
+                material_override: None,
+            }))
+            .transform(
+                TransformBuilder::new()
+                    .scale(Vector3::new(0.5, 0.5, 0.5))
+                    .position(Vector3::new(0.0, 0.5, 0.0))
+                    .build(),
+            )
+            .build(),
+    );
 
     Ok(GameState {
         scene,
