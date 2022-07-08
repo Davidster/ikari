@@ -415,41 +415,20 @@ pub struct RendererState {
     animation_time_acc: f32,
     is_playing_animations: bool,
 
-    camera_buffer: wgpu::Buffer,
-
-    point_lights_buffer: wgpu::Buffer,
-    directional_lights_buffer: wgpu::Buffer,
-
-    bones_buffer: wgpu::Buffer,
-    camera_and_lights_bind_group: wgpu::BindGroup,
-
     mesh_pipeline: wgpu::RenderPipeline,
     unlit_mesh_pipeline: wgpu::RenderPipeline,
     skybox_pipeline: wgpu::RenderPipeline,
     tone_mapping_pipeline: wgpu::RenderPipeline,
     surface_blit_pipeline: wgpu::RenderPipeline,
-
     point_shadow_map_pipeline: wgpu::RenderPipeline,
     directional_shadow_map_pipeline: wgpu::RenderPipeline,
-    // shadow_camera_and_lights_bind_group: wgpu::BindGroup,
-    // shadow_camera_buffer: wgpu::Buffer,
-    point_shadow_map_textures: Texture,
-    directional_shadow_map_textures: Texture,
-
-    bones_bind_group: wgpu::BindGroup,
-
-    shading_texture: Texture,
-    tone_mapping_texture: Texture,
-    depth_texture: Texture,
-
     bloom_threshold_pipeline: wgpu::RenderPipeline,
     bloom_blur_pipeline: wgpu::RenderPipeline,
-    bloom_pingpong_textures: [Texture; 2],
-    bloom_config_bind_group: wgpu::BindGroup,
-    bloom_config_buffer: wgpu::Buffer,
 
+    camera_and_lights_bind_group: wgpu::BindGroup,
+    bones_bind_group: wgpu::BindGroup,
+    bloom_config_bind_group: wgpu::BindGroup,
     tone_mapping_config_bind_group: wgpu::BindGroup,
-    tone_mapping_config_buffer: wgpu::Buffer,
 
     environment_textures_bind_group: wgpu::BindGroup,
     shading_and_bloom_textures_bind_group: wgpu::BindGroup,
@@ -457,7 +436,21 @@ pub struct RendererState {
     shading_texture_bind_group: wgpu::BindGroup,
     bloom_pingpong_texture_bind_groups: [wgpu::BindGroup; 2],
 
-    skybox_mesh_buffers: GeometryBuffers,
+    camera_buffer: wgpu::Buffer,
+    point_lights_buffer: wgpu::Buffer,
+    directional_lights_buffer: wgpu::Buffer,
+    bones_buffer: wgpu::Buffer,
+    bloom_config_buffer: wgpu::Buffer,
+    tone_mapping_config_buffer: wgpu::Buffer,
+
+    point_shadow_map_textures: Texture,
+    directional_shadow_map_textures: Texture,
+    shading_texture: Texture,
+    tone_mapping_texture: Texture,
+    depth_texture: Texture,
+    bloom_pingpong_textures: [Texture; 2],
+
+    pub skybox_mesh_buffers: GeometryBuffers,
 
     pub scene: RenderScene,
 }
