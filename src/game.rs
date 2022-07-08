@@ -267,23 +267,10 @@ pub fn init_game_state(
         &Default::default(),
     )?;
 
-    let ball_count = 500;
+    let ball_count = 5;
     let balls: Vec<_> = (0..ball_count)
         .into_iter()
-        .map(|_| {
-            BallComponent::new(
-                Vector2::new(
-                    -10.0 + rand::random::<f32>() * 20.0,
-                    -10.0 + rand::random::<f32>() * 20.0,
-                ),
-                Vector2::new(
-                    -1.0 + rand::random::<f32>() * 2.0,
-                    -1.0 + rand::random::<f32>() * 2.0,
-                ),
-                0.5 + (rand::random::<f32>() * 0.75),
-                1.0 + (rand::random::<f32>() * 15.0),
-            )
-        })
+        .map(|_| BallComponent::rand())
         .collect();
 
     let ball_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
@@ -323,6 +310,9 @@ pub fn init_game_state(
         prev_balls: balls.clone(),
         actual_balls: balls,
         ball_node_indices,
+        ball_pbr_mesh_index,
+
+        ball_spawner_acc: 0.0,
 
         test_object_node_index,
     })
@@ -444,6 +434,26 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
     //     "state_update_time_accumulator: {:?}",
     //     game_state.state_update_time_accumulator
     // ));
+
+    game_state.ball_spawner_acc += frame_time_seconds;
+    if game_state.ball_spawner_acc > 0.1 {
+        let new_ball = BallComponent::rand();
+        let new_ball_transform = new_ball.transform;
+        game_state.next_balls.push(new_ball);
+        game_state.scene.nodes.push(
+            GameNodeBuilder::new()
+                .mesh(Some(GameNodeMesh::Pbr {
+                    mesh_indices: vec![game_state.ball_pbr_mesh_index],
+                    material_override: None,
+                }))
+                .transform(new_ball_transform)
+                .build(),
+        );
+        game_state
+            .ball_node_indices
+            .push(game_state.scene.nodes.len() - 1);
+        game_state.ball_spawner_acc = 0.0;
+    }
 }
 
 pub fn init_scene(

@@ -220,8 +220,8 @@ impl BaseRendererState {
             format: swapchain_format,
             width: window_size.width,
             height: window_size.height,
-            present_mode: wgpu::PresentMode::Fifo,
-            // present_mode: wgpu::PresentMode::Immediate,
+            // present_mode: wgpu::PresentMode::Fifo,
+            present_mode: wgpu::PresentMode::Immediate,
         };
 
         surface.configure(&device, &surface_config);
@@ -1803,7 +1803,7 @@ impl RendererState {
                 contents: bytemuck::cast_slice(&mesh.vertices),
                 usage: wgpu::BufferUsages::VERTEX,
             }),
-            length: mesh.vertices.len(),
+            capacity: mesh.vertices.len(),
         };
         let index_buffer = BufferAndLength {
             buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1811,21 +1811,15 @@ impl RendererState {
                 contents: bytemuck::cast_slice(&mesh.indices),
                 usage: wgpu::BufferUsages::INDEX,
             }),
-            length: mesh.indices.len(),
+            capacity: mesh.indices.len(),
         };
 
-        let initial_buffer_contents: Vec<u8> = (0..(instance_count
-            * std::mem::size_of::<GpuPbrMeshInstance>()))
-            .map(|_| 0u8)
-            .collect();
-        let instance_buffer = BufferAndLength {
-            buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("bind_basic_pbr_mesh instance_buffer"),
-                contents: &initial_buffer_contents,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            }),
-            length: instance_count,
-        };
+        let instance_buffer = GpuBuffer::empty(
+            device,
+            instance_count,
+            std::mem::size_of::<GpuPbrMeshInstance>(),
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        );
 
         GeometryBuffers {
             vertex_buffer,
@@ -2172,7 +2166,7 @@ impl RendererState {
 
         // do animatons
         let game_scene = &mut game_state.scene;
-        let render_scene = &self.scene;
+        let render_scene = &mut self.scene;
         if self.is_playing_animations {
             self.animation_time_acc += frame_time_seconds;
             if let Err(err) =
@@ -2208,7 +2202,7 @@ impl RendererState {
         render_scene
             .buffers
             .binded_pbr_meshes
-            .iter()
+            .iter_mut()
             .enumerate()
             .for_each(
                 |(
@@ -2247,17 +2241,26 @@ impl RendererState {
                             )
                         })
                         .collect();
-                    queue.write_buffer(
-                        &geometry_buffers.instance_buffer.buffer,
-                        0,
+                    let previous_buffer_capacity_bytes =
+                        geometry_buffers.instance_buffer.capacity_bytes();
+                    let resized = geometry_buffers.instance_buffer.write(
+                        device,
+                        queue,
                         bytemuck::cast_slice(&gpu_instances),
                     );
+                    if resized {
+                        logger.log(&format!(
+                            "Resized instance buffer capacity from {:?} bytes to {:?}",
+                            previous_buffer_capacity_bytes,
+                            geometry_buffers.instance_buffer.capacity_bytes()
+                        ));
+                    }
                 },
             );
         render_scene
             .buffers
             .binded_unlit_meshes
-            .iter()
+            .iter_mut()
             .enumerate()
             .for_each(
                 |(
@@ -2296,11 +2299,16 @@ impl RendererState {
                             }
                         })
                         .collect();
-                    queue.write_buffer(
-                        &instance_buffer.buffer,
-                        0,
-                        bytemuck::cast_slice(&gpu_instances),
-                    );
+                    let previous_buffer_capacity_bytes = instance_buffer.capacity_bytes();
+                    let resized =
+                        instance_buffer.write(device, queue, bytemuck::cast_slice(&gpu_instances));
+                    if resized {
+                        logger.log(&format!(
+                            "Resized instance buffer capacity from {:?} bytes to {:?}",
+                            previous_buffer_capacity_bytes,
+                            instance_buffer.capacity_bytes()
+                        ));
+                    }
                 },
             );
         self.camera_controller.update(frame_time_seconds);
@@ -2535,16 +2543,15 @@ impl RendererState {
                             );
 
                             unlit_render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
-                            unlit_render_pass
-                                .set_vertex_buffer(1, instance_buffer.buffer.slice(..));
+                            unlit_render_pass.set_vertex_buffer(1, instance_buffer.src().slice(..));
                             unlit_render_pass.set_index_buffer(
                                 index_buffer.buffer.slice(..),
                                 wgpu::IndexFormat::Uint16,
                             );
                             unlit_render_pass.draw_indexed(
-                                0..index_buffer.length as u32,
+                                0..index_buffer.capacity as u32,
                                 0,
-                                0..instance_buffer.length as u32,
+                                0..instance_buffer.length() as u32,
                             );
                         }
                     },
@@ -2681,7 +2688,7 @@ impl RendererState {
                 wgpu::IndexFormat::Uint16,
             );
             skybox_render_pass.draw_indexed(
-                0..(self.skybox_mesh_buffers.index_buffer.length as u32),
+                0..(self.skybox_mesh_buffers.index_buffer.capacity as u32),
                 0,
                 0..1,
             );
@@ -2839,16 +2846,16 @@ impl RendererState {
                             );
                             render_pass.set_vertex_buffer(
                                 1,
-                                geometry_buffers.instance_buffer.buffer.slice(..),
+                                geometry_buffers.instance_buffer.src().slice(..),
                             );
                             render_pass.set_index_buffer(
                                 geometry_buffers.index_buffer.buffer.slice(..),
                                 wgpu::IndexFormat::Uint16,
                             );
                             render_pass.draw_indexed(
-                                0..geometry_buffers.index_buffer.length as u32,
+                                0..geometry_buffers.index_buffer.capacity as u32,
                                 0,
-                                0..geometry_buffers.instance_buffer.length as u32,
+                                0..geometry_buffers.instance_buffer.length() as u32,
                             );
                         }
                     },

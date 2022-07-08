@@ -15,6 +15,9 @@ pub struct GameState {
     pub prev_balls: Vec<BallComponent>,
     pub actual_balls: Vec<BallComponent>,
     pub ball_node_indices: Vec<usize>,
+    pub ball_pbr_mesh_index: usize,
+
+    pub ball_spawner_acc: f32,
 
     pub test_object_node_index: usize,
 }

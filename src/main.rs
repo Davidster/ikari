@@ -1,5 +1,6 @@
 mod animation;
 mod ball;
+mod buffer;
 mod camera;
 mod camera_controller;
 mod game;
@@ -20,6 +21,7 @@ mod transform;
 
 use animation::*;
 use ball::*;
+use buffer::*;
 use camera::*;
 use camera_controller::*;
 use game::*;

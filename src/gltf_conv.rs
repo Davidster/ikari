@@ -190,19 +190,13 @@ pub fn build_scene(
             .iter()
             .filter(|node| node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index())
             .collect();
-        let initial_instance_buffer: Vec<u8> = (0..(initial_instances.len()
-            * std::mem::size_of::<GpuPbrMeshInstance>()))
-            .map(|_| 0u8)
-            .collect();
 
-        let instance_buffer = BufferAndLength {
-            buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("InstancedMeshComponent instance_buffer"),
-                contents: bytemuck::cast_slice(&initial_instance_buffer),
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            }),
-            length: initial_instances.len(),
-        };
+        let instance_buffer = GpuBuffer::empty(
+            device,
+            initial_instances.len(),
+            std::mem::size_of::<GpuPbrMeshInstance>(),
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        );
 
         let primitive_mode = crate::render_scene::PrimitiveMode::Triangles;
 
@@ -959,7 +953,7 @@ pub fn build_geometry_buffers(
             contents: bytemuck::cast_slice(&vertices_with_all_data),
             usage: wgpu::BufferUsages::VERTEX,
         }),
-        length: vertices_with_all_data.len(),
+        capacity: vertices_with_all_data.len(),
     };
 
     let index_buffer = BufferAndLength {
@@ -968,7 +962,7 @@ pub fn build_geometry_buffers(
             contents: bytemuck::cast_slice(&indices),
             usage: wgpu::BufferUsages::INDEX,
         }),
-        length: indices.len(),
+        capacity: indices.len(),
     };
 
     Ok((vertex_buffer, index_buffer))

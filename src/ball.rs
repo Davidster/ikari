@@ -20,12 +20,27 @@ impl BallComponent {
             x: direction_x,
             y: direction_z,
         } = direction;
-        BallComponent {
+        Self {
             transform,
             direction: Vector3::new(direction_x, 0.0, direction_z).normalize(),
             speed,
             radius,
         }
+    }
+
+    pub fn rand() -> Self {
+        BallComponent::new(
+            Vector2::new(
+                -10.0 + rand::random::<f32>() * 20.0,
+                -10.0 + rand::random::<f32>() * 20.0,
+            ),
+            Vector2::new(
+                -1.0 + rand::random::<f32>() * 2.0,
+                -1.0 + rand::random::<f32>() * 2.0,
+            ),
+            0.5 + (rand::random::<f32>() * 0.75),
+            1.0 + (rand::random::<f32>() * 15.0),
+        )
     }
 
     pub fn update(&mut self, dt: f32, _logger: &mut Logger) {

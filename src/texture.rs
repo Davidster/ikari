@@ -571,7 +571,7 @@ impl Texture {
                     skybox_buffers.index_buffer.buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
                 );
-                rpass.draw_indexed(0..(skybox_buffers.index_buffer.length as u32), 0, 0..1);
+                rpass.draw_indexed(0..(skybox_buffers.index_buffer.capacity as u32), 0, 0..1);
             }
             queue.submit(Some(encoder.finish()));
         }
@@ -752,7 +752,7 @@ impl Texture {
                     skybox_buffers.index_buffer.buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
                 );
-                rpass.draw_indexed(0..(skybox_buffers.index_buffer.length as u32), 0, 0..1);
+                rpass.draw_indexed(0..(skybox_buffers.index_buffer.capacity as u32), 0, 0..1);
             }
             queue.submit(Some(encoder.finish()));
         }
@@ -973,7 +973,7 @@ impl Texture {
                                 wgpu::IndexFormat::Uint16,
                             );
                             rpass.draw_indexed(
-                                0..(skybox_buffers.index_buffer.length as u32),
+                                0..(skybox_buffers.index_buffer.capacity as u32),
                                 0,
                                 0..1,
                             );
