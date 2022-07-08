@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use anyhow::{bail, Result};
 use cgmath::{abs_diff_eq, Matrix4, Vector2, Vector3, Vector4};
-use wgpu::util::DeviceExt;
 
 use super::*;
 
@@ -513,7 +512,7 @@ pub fn build_geometry_buffers(
     device: &wgpu::Device,
     primitive_group: &gltf::mesh::Primitive,
     buffers: &[gltf::buffer::Data],
-) -> Result<(BufferAndLength, BufferAndLength)> {
+) -> Result<(GpuBuffer, GpuBuffer)> {
     let vertex_positions: Vec<Vector3<f32>> = {
         let (_, accessor) = primitive_group
             .attributes()
@@ -947,23 +946,19 @@ pub fn build_geometry_buffers(
         })
         .collect();
 
-    let vertex_buffer = BufferAndLength {
-        buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Scene Vertex Buffer"),
-            contents: bytemuck::cast_slice(&vertices_with_all_data),
-            usage: wgpu::BufferUsages::VERTEX,
-        }),
-        capacity: vertices_with_all_data.len(),
-    };
+    let vertex_buffer = GpuBuffer::from_bytes(
+        device,
+        bytemuck::cast_slice(&vertices_with_all_data),
+        std::mem::size_of::<Vertex>(),
+        wgpu::BufferUsages::VERTEX,
+    );
 
-    let index_buffer = BufferAndLength {
-        buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Scene Index Buffer"),
-            contents: bytemuck::cast_slice(&indices),
-            usage: wgpu::BufferUsages::INDEX,
-        }),
-        capacity: indices.len(),
-    };
+    let index_buffer = GpuBuffer::from_bytes(
+        device,
+        bytemuck::cast_slice(&indices),
+        std::mem::size_of::<u16>(),
+        wgpu::BufferUsages::INDEX,
+    );
 
     Ok((vertex_buffer, index_buffer))
 }

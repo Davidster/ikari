@@ -30,18 +30,12 @@ pub struct BindedPbrMesh {
 
 #[derive(Debug)]
 pub struct GeometryBuffers {
-    pub vertex_buffer: BufferAndLength,
-    pub index_buffer: BufferAndLength,
+    pub vertex_buffer: GpuBuffer,
+    pub index_buffer: GpuBuffer,
     pub instance_buffer: GpuBuffer,
 }
 
 pub type BindedUnlitMesh = GeometryBuffers;
-
-#[derive(Debug)]
-pub struct BufferAndLength {
-    pub buffer: wgpu::Buffer,
-    pub capacity: usize, // capacity in bytes = capacity * stride
-}
 
 #[derive(Debug, Clone)]
 pub struct Skin {

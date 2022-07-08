@@ -1,7 +1,5 @@
 use wgpu::util::DeviceExt;
 
-use super::*;
-
 #[derive(Debug)]
 pub struct GpuBuffer {
     src: wgpu::Buffer,
@@ -82,7 +80,7 @@ impl GpuBuffer {
         &self.src
     }
 
-    pub fn stride(&self) -> usize {
+    pub fn _stride(&self) -> usize {
         self.stride
     }
 
@@ -90,11 +88,11 @@ impl GpuBuffer {
         self.length
     }
 
-    pub fn length_bytes(&self) -> usize {
+    pub fn _length_bytes(&self) -> usize {
         self.length * self.stride
     }
 
-    pub fn capacity(&self) -> usize {
+    pub fn _capacity(&self) -> usize {
         self.capacity
     }
 
@@ -113,7 +111,7 @@ impl GpuBuffer {
         } else {
             // make a new buffer with 2x the size
             self.src.destroy();
-            let new_buffer_capacity = self.capacity * 2;
+            let new_buffer_capacity = new_length * 2;
             *self = Self::from_bytes_and_capacity(
                 device,
                 data,

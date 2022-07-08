@@ -220,8 +220,8 @@ impl BaseRendererState {
             format: swapchain_format,
             width: window_size.width,
             height: window_size.height,
-            // present_mode: wgpu::PresentMode::Fifo,
-            present_mode: wgpu::PresentMode::Immediate,
+            present_mode: wgpu::PresentMode::Fifo,
+            // present_mode: wgpu::PresentMode::Immediate,
         };
 
         surface.configure(&device, &surface_config);
@@ -1259,7 +1259,7 @@ impl RendererState {
         let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
 
         let skybox_mesh_buffers =
-            Self::bind_geometry_buffers_for_basic_mesh_impl(device, &cube_mesh, 1);
+            Self::bind_geometry_buffers_for_basic_mesh_impl(device, &cube_mesh);
 
         let shading_texture = Texture::create_scaled_surface_texture(
             device,
@@ -1748,12 +1748,8 @@ impl RendererState {
         })
     }
 
-    pub fn bind_basic_unlit_mesh(
-        &mut self,
-        mesh: &BasicMesh,
-        instance_count: usize,
-    ) -> Result<usize> {
-        let geometry_buffers = self.bind_geometry_buffers_for_basic_mesh(mesh, instance_count);
+    pub fn bind_basic_unlit_mesh(&mut self, mesh: &BasicMesh) -> Result<usize> {
+        let geometry_buffers = self.bind_geometry_buffers_for_basic_mesh(mesh);
 
         self.scene
             .buffers
@@ -1768,9 +1764,8 @@ impl RendererState {
         mesh: &BasicMesh,
         material: &PbrMaterial,
         dynamic_pbr_params: DynamicPbrParams,
-        instance_count: usize,
     ) -> Result<usize> {
-        let geometry_buffers = self.bind_geometry_buffers_for_basic_mesh(mesh, instance_count);
+        let geometry_buffers = self.bind_geometry_buffers_for_basic_mesh(mesh);
 
         let textures_bind_group = self.make_pbr_textures_bind_group(material)?;
 
@@ -1784,39 +1779,33 @@ impl RendererState {
         Ok(self.scene.buffers.binded_pbr_meshes.len() - 1)
     }
 
-    fn bind_geometry_buffers_for_basic_mesh(
-        &self,
-        mesh: &BasicMesh,
-        instance_count: usize,
-    ) -> GeometryBuffers {
-        Self::bind_geometry_buffers_for_basic_mesh_impl(&self.base.device, mesh, instance_count)
+    fn bind_geometry_buffers_for_basic_mesh(&self, mesh: &BasicMesh) -> GeometryBuffers {
+        Self::bind_geometry_buffers_for_basic_mesh_impl(&self.base.device, mesh)
     }
 
     fn bind_geometry_buffers_for_basic_mesh_impl(
         device: &wgpu::Device,
         mesh: &BasicMesh,
-        instance_count: usize, /* TODO: remove instance count or make it optional, allow dynamically resizable buffers */
     ) -> GeometryBuffers {
-        let vertex_buffer = BufferAndLength {
-            buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("bind_basic_pbr_mesh Vertex Buffer"),
-                contents: bytemuck::cast_slice(&mesh.vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            }),
-            capacity: mesh.vertices.len(),
-        };
-        let index_buffer = BufferAndLength {
-            buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("bind_basic_pbr_mesh Index Buffer"),
-                contents: bytemuck::cast_slice(&mesh.indices),
-                usage: wgpu::BufferUsages::INDEX,
-            }),
-            capacity: mesh.indices.len(),
-        };
+        let vertex_buffer = GpuBuffer::from_bytes(
+            device,
+            bytemuck::cast_slice(&mesh.vertices),
+            std::mem::size_of::<Vertex>(),
+            wgpu::BufferUsages::VERTEX,
+        );
+
+        let index_buffer = GpuBuffer::from_bytes(
+            device,
+            bytemuck::cast_slice(&mesh.indices),
+            std::mem::size_of::<u16>(),
+            wgpu::BufferUsages::INDEX,
+        );
 
         let instance_buffer = GpuBuffer::empty(
             device,
-            instance_count,
+            // start with space for 1 instance.
+            // TODO: add optional instance_count_hint param to start the buffer with a larger size to avoid too many buffer re-creations?
+            1,
             std::mem::size_of::<GpuPbrMeshInstance>(),
             wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         );
@@ -2542,14 +2531,14 @@ impl RendererState {
                                 &[],
                             );
 
-                            unlit_render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
+                            unlit_render_pass.set_vertex_buffer(0, vertex_buffer.src().slice(..));
                             unlit_render_pass.set_vertex_buffer(1, instance_buffer.src().slice(..));
                             unlit_render_pass.set_index_buffer(
-                                index_buffer.buffer.slice(..),
+                                index_buffer.src().slice(..),
                                 wgpu::IndexFormat::Uint16,
                             );
                             unlit_render_pass.draw_indexed(
-                                0..index_buffer.capacity as u32,
+                                0..index_buffer.length() as u32,
                                 0,
                                 0..instance_buffer.length() as u32,
                             );
@@ -2682,13 +2671,13 @@ impl RendererState {
             skybox_render_pass.set_bind_group(0, &self.environment_textures_bind_group, &[]);
             skybox_render_pass.set_bind_group(1, &self.camera_and_lights_bind_group, &[]);
             skybox_render_pass
-                .set_vertex_buffer(0, self.skybox_mesh_buffers.vertex_buffer.buffer.slice(..));
+                .set_vertex_buffer(0, self.skybox_mesh_buffers.vertex_buffer.src().slice(..));
             skybox_render_pass.set_index_buffer(
-                self.skybox_mesh_buffers.index_buffer.buffer.slice(..),
+                self.skybox_mesh_buffers.index_buffer.src().slice(..),
                 wgpu::IndexFormat::Uint16,
             );
             skybox_render_pass.draw_indexed(
-                0..(self.skybox_mesh_buffers.index_buffer.capacity as u32),
+                0..(self.skybox_mesh_buffers.index_buffer.length() as u32),
                 0,
                 0..1,
             );
@@ -2842,18 +2831,18 @@ impl RendererState {
 
                             render_pass.set_vertex_buffer(
                                 0,
-                                geometry_buffers.vertex_buffer.buffer.slice(..),
+                                geometry_buffers.vertex_buffer.src().slice(..),
                             );
                             render_pass.set_vertex_buffer(
                                 1,
                                 geometry_buffers.instance_buffer.src().slice(..),
                             );
                             render_pass.set_index_buffer(
-                                geometry_buffers.index_buffer.buffer.slice(..),
+                                geometry_buffers.index_buffer.src().slice(..),
                                 wgpu::IndexFormat::Uint16,
                             );
                             render_pass.draw_indexed(
-                                0..geometry_buffers.index_buffer.capacity as u32,
+                                0..geometry_buffers.index_buffer.length() as u32,
                                 0,
                                 0..geometry_buffers.instance_buffer.length() as u32,
                             );

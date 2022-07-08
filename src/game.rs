@@ -1,7 +1,7 @@
 use super::*;
 
 use anyhow::Result;
-use cgmath::{Rad, Vector2, Vector3};
+use cgmath::{Rad, Vector3};
 
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.5;
@@ -48,6 +48,7 @@ pub fn init_game_state(
 ) -> Result<GameState> {
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
     let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
+    let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
 
     // add lights to the scene
     let directional_lights = vec![DirectionalLightComponent {
@@ -78,8 +79,7 @@ pub fn init_game_state(
     ];
     // let point_lights: Vec<(transform::Transform, Vector3<f32>)> = vec![];
 
-    let point_light_unlit_mesh_index =
-        renderer_state.bind_basic_unlit_mesh(&sphere_mesh, point_lights.len())?;
+    let point_light_unlit_mesh_index = renderer_state.bind_basic_unlit_mesh(&sphere_mesh)?;
     let point_light_node_indices: Vec<usize> =
         (scene.nodes.len()..(scene.nodes.len() + point_lights.len())).collect();
     let mut point_light_components: Vec<PointLightComponent> = Vec::new();
@@ -177,7 +177,6 @@ pub fn init_game_state(
             ..Default::default()
         },
         Default::default(),
-        1,
     )?;
     scene.nodes.push(
         GameNodeBuilder::new()
@@ -236,7 +235,6 @@ pub fn init_game_state(
             ..Default::default()
         },
         Default::default(),
-        1,
     )?;
     scene.nodes.push(
         GameNodeBuilder::new()
@@ -274,13 +272,12 @@ pub fn init_game_state(
         .collect();
 
     let ball_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
-        &sphere_mesh,
+        &cube_mesh,
         &PbrMaterial {
             diffuse: Some(&mars_texture),
             ..Default::default()
         },
         Default::default(),
-        ball_count,
     )?;
 
     let ball_node_indices: Vec<usize> =
@@ -436,7 +433,8 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
     // ));
 
     game_state.ball_spawner_acc += frame_time_seconds;
-    if game_state.ball_spawner_acc > 0.1 {
+    let rate = 0.01;
+    while game_state.ball_spawner_acc > rate {
         let new_ball = BallComponent::rand();
         let new_ball_transform = new_ball.transform;
         game_state.next_balls.push(new_ball);
@@ -452,8 +450,12 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
         game_state
             .ball_node_indices
             .push(game_state.scene.nodes.len() - 1);
-        game_state.ball_spawner_acc = 0.0;
+        game_state.ball_spawner_acc -= rate;
     }
+    logger.log(&format!(
+        "Ball count: {:?}",
+        game_state.ball_node_indices.len()
+    ));
 }
 
 pub fn init_scene(
