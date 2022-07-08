@@ -155,12 +155,12 @@ pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const FAR_PLANE_DISTANCE: f32 = 100000.0;
 pub const FOV_Y: Deg<f32> = Deg(45.0);
 
-enum SkyboxBackground<'a> {
+pub enum SkyboxBackground<'a> {
     Cube { face_image_paths: [&'a str; 6] },
     Equirectangular { image_path: &'a str },
 }
 
-enum SkyboxHDREnvironment<'a> {
+pub enum SkyboxHDREnvironment<'a> {
     Equirectangular { image_path: &'a str },
 }
 
@@ -461,37 +461,6 @@ impl RendererState {
         base: BaseRendererState,
         logger: &mut Logger,
     ) -> Result<Self> {
-        // Mountains
-        let _skybox_background = SkyboxBackground::Cube {
-            face_image_paths: [
-                "./src/textures/skybox/right.jpg",
-                "./src/textures/skybox/left.jpg",
-                "./src/textures/skybox/top.jpg",
-                "./src/textures/skybox/bottom.jpg",
-                "./src/textures/skybox/front.jpg",
-                "./src/textures/skybox/back.jpg",
-            ],
-        };
-        let _skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
-
-        // Newport Loft
-        let skybox_background = SkyboxBackground::Equirectangular {
-            image_path: "./src/textures/newport_loft/background.jpg",
-        };
-        let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-            Some(SkyboxHDREnvironment::Equirectangular {
-                image_path: "./src/textures/newport_loft/radiance.hdr",
-            });
-
-        // My photosphere pic
-        let _skybox_background = SkyboxBackground::Equirectangular {
-            image_path: "./src/textures/photosphere_skybox.jpg",
-        };
-        let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-            Some(SkyboxHDREnvironment::Equirectangular {
-                image_path: "./src/textures/photosphere_skybox_small.jpg",
-            });
-
         let adapter = &base.adapter;
         let device = &base.device;
         let queue = &base.queue;
@@ -1408,6 +1377,8 @@ impl RendererState {
             initial_render_scale,
             "depth_texture",
         );
+
+        let (skybox_background, skybox_hdr_environment) = get_skybox_path();
 
         let skybox_texture = match skybox_background {
             SkyboxBackground::Equirectangular { image_path } => {

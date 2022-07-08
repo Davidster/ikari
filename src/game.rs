@@ -43,6 +43,44 @@ fn get_gltf_path() -> &'static str {
     gltf_path
 }
 
+pub fn get_skybox_path() -> (
+    SkyboxBackground<'static>,
+    Option<SkyboxHDREnvironment<'static>>,
+) {
+    // Mountains
+    let _skybox_background = SkyboxBackground::Cube {
+        face_image_paths: [
+            "./src/textures/skybox/right.jpg",
+            "./src/textures/skybox/left.jpg",
+            "./src/textures/skybox/top.jpg",
+            "./src/textures/skybox/bottom.jpg",
+            "./src/textures/skybox/front.jpg",
+            "./src/textures/skybox/back.jpg",
+        ],
+    };
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
+
+    // Newport Loft
+    let skybox_background = SkyboxBackground::Equirectangular {
+        image_path: "./src/textures/newport_loft/background.jpg",
+    };
+    let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+        Some(SkyboxHDREnvironment::Equirectangular {
+            image_path: "./src/textures/newport_loft/radiance.hdr",
+        });
+
+    // My photosphere pic
+    let _skybox_background = SkyboxBackground::Equirectangular {
+        image_path: "./src/textures/photosphere_skybox.jpg",
+    };
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+        Some(SkyboxHDREnvironment::Equirectangular {
+            image_path: "./src/textures/photosphere_skybox_small.jpg",
+        });
+
+    (skybox_background, skybox_hdr_environment)
+}
+
 pub fn init_game_state(
     mut scene: GameScene,
     renderer_state: &mut RendererState,
