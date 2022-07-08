@@ -1751,7 +1751,7 @@ impl RendererState {
     pub fn bind_basic_unlit_mesh(
         &mut self,
         mesh: &BasicMesh,
-        instance_count: usize, /* TODO: remove instance count or make it optional, allow dynamically resizable buffers */
+        instance_count: usize,
     ) -> Result<usize> {
         let geometry_buffers = self.bind_geometry_buffers_for_basic_mesh(mesh, instance_count);
 
@@ -1768,7 +1768,7 @@ impl RendererState {
         mesh: &BasicMesh,
         material: &PbrMaterial,
         dynamic_pbr_params: DynamicPbrParams,
-        instance_count: usize, /* TODO: remove instance count or make it optional, allow dynamically resizable buffers */
+        instance_count: usize,
     ) -> Result<usize> {
         let geometry_buffers = self.bind_geometry_buffers_for_basic_mesh(mesh, instance_count);
 
@@ -1787,7 +1787,7 @@ impl RendererState {
     fn bind_geometry_buffers_for_basic_mesh(
         &self,
         mesh: &BasicMesh,
-        instance_count: usize, /* TODO: remove instance count or make it optional, allow dynamically resizable buffers */
+        instance_count: usize,
     ) -> GeometryBuffers {
         Self::bind_geometry_buffers_for_basic_mesh_impl(&self.base.device, mesh, instance_count)
     }
@@ -1835,7 +1835,7 @@ impl RendererState {
     }
 
     // TODO: create and cache the default 1x1 textures when the BaseRendererState is created
-    //       so that this doesn't have to return a result anymore
+    //       so that this doesn't have to return a result anymore.. and cuz efficiency
     fn make_pbr_textures_bind_group(
         &self,
         material: &PbrMaterial,
