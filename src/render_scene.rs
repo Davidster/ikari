@@ -20,9 +20,7 @@ pub struct SceneBuffers {
 
 #[derive(Debug)]
 pub struct BindedPbrMesh {
-    pub vertex_buffer: BufferAndLength,
-    pub index_buffer: BufferAndLength,
-    pub instance_buffer: BufferAndLength,
+    pub geometry_buffers: GeometryBuffers,
     pub textures_bind_group: wgpu::BindGroup,
     pub dynamic_pbr_params: DynamicPbrParams,
 
@@ -31,11 +29,13 @@ pub struct BindedPbrMesh {
 }
 
 #[derive(Debug)]
-pub struct BindedUnlitMesh {
+pub struct GeometryBuffers {
     pub vertex_buffer: BufferAndLength,
     pub index_buffer: BufferAndLength,
     pub instance_buffer: BufferAndLength,
 }
+
+pub type BindedUnlitMesh = GeometryBuffers;
 
 #[derive(Debug)]
 pub struct BufferAndLength {

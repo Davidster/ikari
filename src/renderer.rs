@@ -460,7 +460,7 @@ pub struct RendererState {
     shading_texture_bind_group: wgpu::BindGroup,
     bloom_pingpong_texture_bind_groups: [wgpu::BindGroup; 2],
 
-    skybox_mesh: MeshComponent, // TODO: always use InstancedMeshComponent?
+    skybox_mesh_buffers: GeometryBuffers,
 
     pub scene: RenderScene,
 }
@@ -1258,8 +1258,8 @@ impl RendererState {
 
         let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
 
-        let skybox_mesh =
-            MeshComponent::new(&cube_mesh, None, &single_uniform_bind_group_layout, device)?;
+        let skybox_mesh_buffers =
+            Self::bind_geometry_buffers_for_basic_mesh_impl(device, &cube_mesh, 1);
 
         let shading_texture = Texture::create_scaled_surface_texture(
             device,
@@ -1437,7 +1437,7 @@ impl RendererState {
                     device,
                     queue,
                     Some(image_path),
-                    &skybox_mesh,
+                    &skybox_mesh_buffers,
                     &equirectangular_to_cubemap_pipeline,
                     &er_skybox_texture,
                     // TODO: set to true?
@@ -1502,7 +1502,7 @@ impl RendererState {
                     device,
                     queue,
                     Some(image_path),
-                    &skybox_mesh,
+                    &skybox_mesh_buffers,
                     &equirectangular_to_cubemap_pipeline,
                     &skybox_rad_texture_er,
                     // TODO: set to true?
@@ -1518,7 +1518,7 @@ impl RendererState {
             device,
             queue,
             Some("diffuse env map"),
-            &skybox_mesh,
+            &skybox_mesh_buffers,
             &diffuse_env_map_gen_pipeline,
             skybox_rad_texture,
             // TODO: set to true?
@@ -1529,7 +1529,7 @@ impl RendererState {
             device,
             queue,
             Some("specular env map"),
-            &skybox_mesh,
+            &skybox_mesh_buffers,
             &specular_env_map_gen_pipeline,
             skybox_rad_texture,
         );
@@ -1773,7 +1773,7 @@ impl RendererState {
             tone_mapping_config_bind_group,
             tone_mapping_config_buffer,
 
-            skybox_mesh,
+            skybox_mesh_buffers,
 
             scene,
         })
@@ -1784,17 +1784,12 @@ impl RendererState {
         mesh: &BasicMesh,
         instance_count: usize, /* TODO: remove instance count or make it optional, allow dynamically resizable buffers */
     ) -> Result<usize> {
-        let (vertex_buffer, index_buffer, instance_buffer) =
-            self.bind_geometry_buffers_for_basic_mesh(mesh, instance_count);
+        let geometry_buffers = self.bind_geometry_buffers_for_basic_mesh(mesh, instance_count);
 
         self.scene
             .buffers
             .binded_unlit_meshes
-            .push(BindedUnlitMesh {
-                vertex_buffer,
-                index_buffer,
-                instance_buffer,
-            });
+            .push(geometry_buffers);
         Ok(self.scene.buffers.binded_unlit_meshes.len() - 1)
     }
 
@@ -1806,15 +1801,12 @@ impl RendererState {
         dynamic_pbr_params: DynamicPbrParams,
         instance_count: usize, /* TODO: remove instance count or make it optional, allow dynamically resizable buffers */
     ) -> Result<usize> {
-        let (vertex_buffer, index_buffer, instance_buffer) =
-            self.bind_geometry_buffers_for_basic_mesh(mesh, instance_count);
+        let geometry_buffers = self.bind_geometry_buffers_for_basic_mesh(mesh, instance_count);
 
         let textures_bind_group = self.make_pbr_textures_bind_group(material)?;
 
         self.scene.buffers.binded_pbr_meshes.push(BindedPbrMesh {
-            vertex_buffer,
-            index_buffer,
-            instance_buffer,
+            geometry_buffers,
             dynamic_pbr_params,
             textures_bind_group,
             alpha_mode: AlphaMode::Opaque,
@@ -1827,8 +1819,15 @@ impl RendererState {
         &self,
         mesh: &BasicMesh,
         instance_count: usize, /* TODO: remove instance count or make it optional, allow dynamically resizable buffers */
-    ) -> (BufferAndLength, BufferAndLength, BufferAndLength) {
-        let device = &self.base.device;
+    ) -> GeometryBuffers {
+        Self::bind_geometry_buffers_for_basic_mesh_impl(&self.base.device, mesh, instance_count)
+    }
+
+    fn bind_geometry_buffers_for_basic_mesh_impl(
+        device: &wgpu::Device,
+        mesh: &BasicMesh,
+        instance_count: usize, /* TODO: remove instance count or make it optional, allow dynamically resizable buffers */
+    ) -> GeometryBuffers {
         let vertex_buffer = BufferAndLength {
             buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("bind_basic_pbr_mesh Vertex Buffer"),
@@ -1859,7 +1858,11 @@ impl RendererState {
             length: instance_count,
         };
 
-        (vertex_buffer, index_buffer, instance_buffer)
+        GeometryBuffers {
+            vertex_buffer,
+            index_buffer,
+            instance_buffer,
+        }
     }
 
     // TODO: create and cache the default 1x1 textures when the BaseRendererState is created
@@ -2242,7 +2245,7 @@ impl RendererState {
                 |(
                     binded_pbr_mesh_index,
                     BindedPbrMesh {
-                        instance_buffer,
+                        geometry_buffers,
                         dynamic_pbr_params,
                         ..
                     },
@@ -2276,7 +2279,7 @@ impl RendererState {
                         })
                         .collect();
                     queue.write_buffer(
-                        &instance_buffer.buffer,
+                        &geometry_buffers.instance_buffer.buffer,
                         0,
                         bytemuck::cast_slice(&gpu_instances),
                     );
@@ -2701,12 +2704,17 @@ impl RendererState {
             skybox_render_pass.set_pipeline(&self.skybox_pipeline);
             skybox_render_pass.set_bind_group(0, &self.environment_textures_bind_group, &[]);
             skybox_render_pass.set_bind_group(1, &self.camera_and_lights_bind_group, &[]);
-            skybox_render_pass.set_vertex_buffer(0, self.skybox_mesh.vertex_buffer.slice(..));
+            skybox_render_pass
+                .set_vertex_buffer(0, self.skybox_mesh_buffers.vertex_buffer.buffer.slice(..));
             skybox_render_pass.set_index_buffer(
-                self.skybox_mesh.index_buffer.slice(..),
+                self.skybox_mesh_buffers.index_buffer.buffer.slice(..),
                 wgpu::IndexFormat::Uint16,
             );
-            skybox_render_pass.draw_indexed(0..self.skybox_mesh.num_indices, 0, 0..1);
+            skybox_render_pass.draw_indexed(
+                0..(self.skybox_mesh_buffers.index_buffer.length as u32),
+                0,
+                0..1,
+            );
         }
 
         self.base
@@ -2826,9 +2834,7 @@ impl RendererState {
                     |(
                         binded_pbr_mesh_index,
                         BindedPbrMesh {
-                            vertex_buffer,
-                            index_buffer,
-                            instance_buffer,
+                            geometry_buffers,
                             textures_bind_group,
                             ..
                         },
@@ -2865,16 +2871,22 @@ impl RendererState {
                                 );
                             }
 
-                            render_pass.set_vertex_buffer(0, vertex_buffer.buffer.slice(..));
-                            render_pass.set_vertex_buffer(1, instance_buffer.buffer.slice(..));
+                            render_pass.set_vertex_buffer(
+                                0,
+                                geometry_buffers.vertex_buffer.buffer.slice(..),
+                            );
+                            render_pass.set_vertex_buffer(
+                                1,
+                                geometry_buffers.instance_buffer.buffer.slice(..),
+                            );
                             render_pass.set_index_buffer(
-                                index_buffer.buffer.slice(..),
+                                geometry_buffers.index_buffer.buffer.slice(..),
                                 wgpu::IndexFormat::Uint16,
                             );
                             render_pass.draw_indexed(
-                                0..index_buffer.length as u32,
+                                0..geometry_buffers.index_buffer.length as u32,
                                 0,
-                                0..instance_buffer.length as u32,
+                                0..geometry_buffers.instance_buffer.length as u32,
                             );
                         }
                     },

@@ -432,7 +432,7 @@ impl Texture {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         label: Option<&str>,
-        skybox_mesh: &MeshComponent,
+        skybox_buffers: &GeometryBuffers,
         er_to_cubemap_pipeline: &wgpu::RenderPipeline,
         er_texture: &Texture,
         generate_mipmaps: bool,
@@ -574,12 +574,12 @@ impl Texture {
                 rpass.set_pipeline(er_to_cubemap_pipeline);
                 rpass.set_bind_group(0, &er_texture_bind_group, &[]);
                 rpass.set_bind_group(1, &camera_bind_group, &[]);
-                rpass.set_vertex_buffer(0, skybox_mesh.vertex_buffer.slice(..));
+                rpass.set_vertex_buffer(0, skybox_buffers.vertex_buffer.buffer.slice(..));
                 rpass.set_index_buffer(
-                    skybox_mesh.index_buffer.slice(..),
+                    skybox_buffers.index_buffer.buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
                 );
-                rpass.draw_indexed(0..skybox_mesh.num_indices, 0, 0..1);
+                rpass.draw_indexed(0..(skybox_buffers.index_buffer.length as u32), 0, 0..1);
             }
             queue.submit(Some(encoder.finish()));
         }
@@ -615,7 +615,7 @@ impl Texture {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         label: Option<&str>,
-        skybox_mesh: &MeshComponent,
+        skybox_buffers: &GeometryBuffers,
         env_map_gen_pipeline: &wgpu::RenderPipeline,
         skybox_rad_texture: &Texture,
         generate_mipmaps: bool,
@@ -755,12 +755,12 @@ impl Texture {
                 rpass.set_pipeline(env_map_gen_pipeline);
                 rpass.set_bind_group(0, &skybox_ir_texture_bind_group, &[]);
                 rpass.set_bind_group(1, &camera_bind_group, &[]);
-                rpass.set_vertex_buffer(0, skybox_mesh.vertex_buffer.slice(..));
+                rpass.set_vertex_buffer(0, skybox_buffers.vertex_buffer.buffer.slice(..));
                 rpass.set_index_buffer(
-                    skybox_mesh.index_buffer.slice(..),
+                    skybox_buffers.index_buffer.buffer.slice(..),
                     wgpu::IndexFormat::Uint16,
                 );
-                rpass.draw_indexed(0..skybox_mesh.num_indices, 0, 0..1);
+                rpass.draw_indexed(0..(skybox_buffers.index_buffer.length as u32), 0, 0..1);
             }
             queue.submit(Some(encoder.finish()));
         }
@@ -796,7 +796,7 @@ impl Texture {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         label: Option<&str>,
-        skybox_mesh: &MeshComponent,
+        skybox_buffers: &GeometryBuffers,
         env_map_gen_pipeline: &wgpu::RenderPipeline,
         skybox_rad_texture: &Texture,
     ) -> Self {
@@ -972,12 +972,19 @@ impl Texture {
                             rpass.set_pipeline(env_map_gen_pipeline);
                             rpass.set_bind_group(0, &skybox_ir_texture_bind_group, &[]);
                             rpass.set_bind_group(1, &camera_roughness_bind_group, &[]);
-                            rpass.set_vertex_buffer(0, skybox_mesh.vertex_buffer.slice(..));
+                            rpass.set_vertex_buffer(
+                                0,
+                                skybox_buffers.vertex_buffer.buffer.slice(..),
+                            );
                             rpass.set_index_buffer(
-                                skybox_mesh.index_buffer.slice(..),
+                                skybox_buffers.index_buffer.buffer.slice(..),
                                 wgpu::IndexFormat::Uint16,
                             );
-                            rpass.draw_indexed(0..skybox_mesh.num_indices, 0, 0..1);
+                            rpass.draw_indexed(
+                                0..(skybox_buffers.index_buffer.length as u32),
+                                0,
+                                0..1,
+                            );
                         }
                         queue.submit(Some(encoder.finish()));
                     });

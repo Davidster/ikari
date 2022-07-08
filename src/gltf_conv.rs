@@ -221,10 +221,12 @@ pub fn build_scene(
         }
 
         binded_pbr_meshes.push(BindedPbrMesh {
-            vertex_buffer,
-            index_buffer,
+            geometry_buffers: GeometryBuffers {
+                vertex_buffer,
+                index_buffer,
+                instance_buffer,
+            },
             dynamic_pbr_params,
-            instance_buffer,
             textures_bind_group,
             primitive_mode,
             alpha_mode,

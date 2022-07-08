@@ -1,7 +1,7 @@
 use super::*;
 
 use anyhow::Result;
-use cgmath::{Deg, Rad, Vector2, Vector3};
+use cgmath::{Rad, Vector2, Vector3};
 
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.5;
