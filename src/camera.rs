@@ -17,39 +17,18 @@ impl Camera {
         }
     }
 
-    pub fn to_shader_view(
-        self,
-        window: &winit::window::Window,
-        z_near: f32,
-        z_far: f32,
-        fov_y: Rad<f32>,
-    ) -> ShaderCameraView {
-        let proj = make_perspective_proj_matrix(
-            z_near,
-            z_far,
-            fov_y,
-            window.inner_size().width as f32 / window.inner_size().height as f32,
-            true,
-        );
-        let rotation_only_view = make_rotation_matrix(Quaternion::from(Euler::new(
-            -self.vertical_rotation,
-            Rad(0.0),
-            Rad(0.0),
-        ))) * make_rotation_matrix(Quaternion::from(Euler::new(
-            Rad(0.0),
-            -self.horizontal_rotation,
-            Rad(0.0),
-        )));
-        let view = rotation_only_view * make_translation_matrix(-self.position);
-        let position = self.position;
-        ShaderCameraView {
-            proj,
-            view,
-            rotation_only_view,
-            position,
-            z_near,
-            z_far,
-        }
+    pub fn to_transform(self) -> Matrix4<f32> {
+        make_translation_matrix(self.position)
+            * make_rotation_matrix(Quaternion::from(Euler::new(
+                Rad(0.0),
+                self.horizontal_rotation,
+                Rad(0.0),
+            )))
+            * make_rotation_matrix(Quaternion::from(Euler::new(
+                self.vertical_rotation,
+                Rad(0.0),
+                Rad(0.0),
+            )))
     }
 
     pub fn get_direction_vector(&self) -> Vector3<f32> {
@@ -69,8 +48,8 @@ pub struct ShaderCameraView {
     pub view: Matrix4<f32>,
     pub rotation_only_view: Matrix4<f32>,
     pub position: Vector3<f32>,
-    pub z_near: f32,
-    pub z_far: f32,
+    pub near_plane_distance: f32,
+    pub far_plane_distance: f32,
 }
 
 #[repr(C)]
@@ -82,7 +61,7 @@ pub struct CameraUniform {
     position: [f32; 4],
     near_plane_distance: f32,
     far_plane_distance: f32,
-    padding: [f32; 2],
+    padding: [f32; 2], // TODO: remove
 }
 
 impl CameraUniform {
@@ -97,16 +76,36 @@ impl CameraUniform {
             padding: [0.0; 2],
         }
     }
+}
 
-    pub fn from_camera(
-        camera: Camera,
-        window: &winit::window::Window,
-        z_near: f32,
-        z_far: f32,
+impl ShaderCameraView {
+    pub fn from_transform(
+        transform: crate::transform::Transform,
+        aspect_ratio: f32,
+        near_plane_distance: f32,
+        far_plane_distance: f32,
         fov_y: Rad<f32>,
+        reverse_z: bool,
     ) -> Self {
-        camera.to_shader_view(window, z_near, z_far, fov_y).into()
-
+        let proj = make_perspective_proj_matrix(
+            near_plane_distance,
+            far_plane_distance,
+            fov_y,
+            aspect_ratio,
+            reverse_z,
+        );
+        let rotation_only_matrix = clear_translation_from_matrix(transform.matrix());
+        let rotation_only_view = rotation_only_matrix.inverse_transform().unwrap();
+        let view = transform.matrix().inverse_transform().unwrap();
+        let position = get_translation_from_matrix(transform.matrix());
+        Self {
+            proj,
+            view,
+            rotation_only_view,
+            position,
+            near_plane_distance,
+            far_plane_distance,
+        }
         // orthographic instead of perspective:
         // build_directional_light_camera_view(
         //     Vector3::new(-0.5, -0.5, 0.1).normalize(),
@@ -125,8 +124,8 @@ impl From<ShaderCameraView> for CameraUniform {
             view,
             rotation_only_view,
             position,
-            z_near,
-            z_far,
+            near_plane_distance,
+            far_plane_distance,
         }: ShaderCameraView,
     ) -> CameraUniform {
         Self {
@@ -134,8 +133,8 @@ impl From<ShaderCameraView> for CameraUniform {
             view: view.into(),
             rotation_only_view: rotation_only_view.into(),
             position: [position.x, position.y, position.z, 1.0],
-            near_plane_distance: z_near,
-            far_plane_distance: z_far,
+            near_plane_distance,
+            far_plane_distance,
             padding: [0.0; 2],
         }
     }
@@ -143,11 +142,11 @@ impl From<ShaderCameraView> for CameraUniform {
 
 pub fn build_cubemap_face_camera_views(
     position: Vector3<f32>,
-    z_near: f32,
-    z_far: f32,
+    near_plane_distance: f32,
+    far_plane_distance: f32,
     reverse_z: bool,
 ) -> Vec<ShaderCameraView> {
-    return vec![
+    vec![
         (Deg(90.0), Deg(0.0)),    // right
         (Deg(-90.0), Deg(0.0)),   // left
         (Deg(180.0), Deg(90.0)),  // top
@@ -156,28 +155,24 @@ pub fn build_cubemap_face_camera_views(
         (Deg(0.0), Deg(0.0)),     // back
     ]
     .iter()
-    .map(|(horizontal_rotation, vertical_rotation)| {
-        let proj = make_perspective_proj_matrix(z_near, z_far, Deg(90.0).into(), 1.0, reverse_z);
-        let rotation_only_view = make_rotation_matrix(Quaternion::from(Euler::new(
-            -Rad::from(*vertical_rotation),
-            Rad(0.0),
-            Rad(0.0),
-        ))) * make_rotation_matrix(Quaternion::from(Euler::new(
-            Rad(0.0),
-            -Rad::from(*horizontal_rotation),
-            Rad(0.0),
-        )));
-        let view = rotation_only_view * make_translation_matrix(-position);
-        ShaderCameraView {
-            proj,
-            view,
-            rotation_only_view,
+    .map(
+        |(horizontal_rotation, vertical_rotation): &(Deg<f32>, Deg<f32>)| Camera {
+            horizontal_rotation: (*horizontal_rotation).into(),
+            vertical_rotation: (*vertical_rotation).into(),
             position,
-            z_near,
-            z_far,
-        }
+        },
+    )
+    .map(|camera| {
+        ShaderCameraView::from_transform(
+            camera.to_transform().into(),
+            1.0,
+            near_plane_distance,
+            far_plane_distance,
+            Deg(90.0).into(),
+            reverse_z,
+        )
     })
-    .collect();
+    .collect()
 }
 
 pub fn build_directional_light_camera_view(
@@ -196,8 +191,8 @@ pub fn build_directional_light_camera_view(
         view,
         rotation_only_view,
         position: Vector3::new(0.0, 0.0, 0.0),
-        z_near: -depth / 2.0,
-        z_far: depth / 2.0,
+        near_plane_distance: -depth / 2.0,
+        far_plane_distance: depth / 2.0,
     }
 }
 

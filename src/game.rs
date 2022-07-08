@@ -2,6 +2,7 @@ use super::*;
 
 use anyhow::Result;
 use cgmath::{Rad, Vector3};
+use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.5;
@@ -48,7 +49,11 @@ pub fn init_game_state(
 ) -> Result<GameState> {
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
     let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
-    let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
+    let _cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
+
+    let camera_controller = CameraController::new(6.0, Camera::new((0.0, 3.0, 4.0).into()));
+    scene.nodes.push(GameNode::default());
+    let camera_node_index = scene.nodes.len() - 1;
 
     // add lights to the scene
     let directional_lights = vec![DirectionalLightComponent {
@@ -272,7 +277,7 @@ pub fn init_game_state(
         .collect();
 
     let ball_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
-        &cube_mesh,
+        &sphere_mesh,
         &PbrMaterial {
             diffuse: Some(&mars_texture),
             ..Default::default()
@@ -299,6 +304,9 @@ pub fn init_game_state(
         time_tracker: None,
         state_update_time_accumulator: 0.0,
 
+        camera_controller,
+        camera_node_index,
+
         point_lights: point_light_components,
         point_light_node_indices,
         directional_lights,
@@ -315,6 +323,65 @@ pub fn init_game_state(
     })
 }
 
+pub fn process_device_input(
+    game_state: &mut GameState,
+    event: &winit::event::DeviceEvent,
+    logger: &mut Logger,
+) {
+    game_state
+        .camera_controller
+        .process_device_events(event, logger);
+}
+
+pub fn process_window_input(
+    game_state: &mut GameState,
+    renderer_state: &mut RendererState,
+    event: &winit::event::WindowEvent,
+    window: &mut winit::window::Window,
+    logger: &mut Logger,
+) {
+    if let WindowEvent::KeyboardInput {
+        input:
+            KeyboardInput {
+                state,
+                virtual_keycode: Some(keycode),
+                ..
+            },
+        ..
+    } = event
+    {
+        if *state == ElementState::Released {
+            match keycode {
+                VirtualKeyCode::Z => {
+                    renderer_state.increment_render_scale(false, logger);
+                }
+                VirtualKeyCode::X => {
+                    renderer_state.increment_render_scale(true, logger);
+                }
+                VirtualKeyCode::E => {
+                    renderer_state.increment_exposure(false, logger);
+                }
+                VirtualKeyCode::R => {
+                    renderer_state.increment_exposure(true, logger);
+                }
+                VirtualKeyCode::T => {
+                    renderer_state.increment_bloom_threshold(false, logger);
+                }
+                VirtualKeyCode::Y => {
+                    renderer_state.increment_bloom_threshold(true, logger);
+                }
+                VirtualKeyCode::P => {
+                    renderer_state.toggle_animations();
+                }
+                _ => {}
+            }
+        }
+    }
+    game_state
+        .camera_controller
+        .process_window_events(event, window, logger);
+}
+
 pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
     let time_tracker = game_state.time();
     let global_time_seconds = time_tracker.global_time_seconds();
@@ -329,6 +396,13 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
         frame_time_seconds = max_delay_catchup_seconds;
     }
     game_state.state_update_time_accumulator += frame_time_seconds;
+
+    game_state.camera_controller.update(frame_time_seconds);
+    game_state.scene.nodes[game_state.camera_node_index].transform = game_state
+        .camera_controller
+        .current_pose
+        .to_transform()
+        .into();
 
     // update ball positions
     while game_state.state_update_time_accumulator >= min_update_timestep_seconds {
@@ -433,7 +507,8 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
     // ));
 
     game_state.ball_spawner_acc += frame_time_seconds;
-    let rate = 0.01;
+    let rate = 0.1;
+    let prev_ball_count = game_state.ball_node_indices.len();
     while game_state.ball_spawner_acc > rate {
         let new_ball = BallComponent::rand();
         let new_ball_transform = new_ball.transform;
@@ -452,10 +527,10 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
             .push(game_state.scene.nodes.len() - 1);
         game_state.ball_spawner_acc -= rate;
     }
-    logger.log(&format!(
-        "Ball count: {:?}",
-        game_state.ball_node_indices.len()
-    ));
+    let new_ball_count = game_state.ball_node_indices.len();
+    if prev_ball_count != new_ball_count {
+        // logger.log(&format!("Ball count: {:?}", new_ball_count));
+    }
 }
 
 pub fn init_scene(

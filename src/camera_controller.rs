@@ -8,8 +8,8 @@ use winit::{
     window::Window,
 };
 
+#[derive(Debug)]
 pub struct CameraController {
-    // mouse_state: MouseState,
     unprocessed_delta: Option<(f64, f64)>,
     window_focused: bool,
 
@@ -45,12 +45,7 @@ impl CameraController {
         }
     }
 
-    pub fn process_device_events(
-        &mut self,
-        event: &DeviceEvent,
-        _window: &mut Window,
-        logger: &mut Logger,
-    ) {
+    pub fn process_device_events(&mut self, event: &DeviceEvent, logger: &mut Logger) {
         match event {
             DeviceEvent::MouseMotion { delta: (d_x, d_y) } if self.window_focused => {
                 self.unprocessed_delta = match self.unprocessed_delta {
@@ -115,13 +110,13 @@ impl CameraController {
             }
             WindowEvent::Focused(focused) => {
                 logger.log(&format!("Window focused: {:?}", focused));
-                window.set_cursor_grab(*focused).unwrap_or_else(|err| {
+                if let Err(err) = window.set_cursor_grab(*focused) {
                     logger.log(&format!(
                         "Couldn't {:?} cursor: {:?}",
                         if *focused { "grab" } else { "release" },
                         err
                     ))
-                });
+                }
                 window.set_cursor_visible(!*focused);
                 self.window_focused = *focused;
             }

@@ -26,7 +26,7 @@ pub fn run(
                 logger.on_frame_completed();
 
                 update_game_state(&mut game_state, &mut logger);
-                renderer_state.update(&window, &mut game_state, &mut logger);
+                renderer_state.update(&mut game_state, &mut logger);
 
                 let last_log_time_clone = last_log_time;
                 let mut write_logs = || {
@@ -67,12 +67,18 @@ pub fn run(
                 window.request_redraw();
             }
             Event::DeviceEvent { event, .. } => {
-                renderer_state.process_device_input(&event, &mut window, &mut logger);
+                process_device_input(&mut game_state, &event, &mut logger);
             }
             Event::WindowEvent {
                 event, window_id, ..
             } if window_id == window.id() => {
-                renderer_state.process_window_input(&event, &mut window, &mut logger);
+                process_window_input(
+                    &mut game_state,
+                    &mut renderer_state,
+                    &event,
+                    &mut window,
+                    &mut logger,
+                );
                 match event {
                     WindowEvent::Resized(size) => {
                         renderer_state.resize(size);

@@ -6,7 +6,6 @@ use anyhow::Result;
 
 use cgmath::{Deg, Matrix4, One, Vector3};
 use wgpu::util::DeviceExt;
-use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -152,8 +151,8 @@ impl From<Vector3<f32>> for UnlitColorUniform {
 
 pub const MAX_LIGHT_COUNT: usize = 32;
 pub const MAX_BONES_BUFFER_SIZE_BYTES: u32 = 8192;
-pub const Z_NEAR: f32 = 0.001;
-pub const Z_FAR: f32 = 100000.0;
+pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
+pub const FAR_PLANE_DISTANCE: f32 = 100000.0;
 pub const FOV_Y: Deg<f32> = Deg(45.0);
 
 enum SkyboxBackground<'a> {
@@ -416,8 +415,6 @@ pub struct RendererState {
     animation_time_acc: f32,
     is_playing_animations: bool,
 
-    camera_controller: CameraController,
-    camera_uniform: CameraUniform,
     camera_buffer: wgpu::Buffer,
 
     point_lights_buffer: wgpu::Buffer,
@@ -467,7 +464,6 @@ pub struct RendererState {
 
 impl RendererState {
     pub async fn new(
-        window: &winit::window::Window,
         scene: RenderScene,
         base: BaseRendererState,
         logger: &mut Logger,
@@ -1532,19 +1528,9 @@ impl RendererState {
 
         let brdf_lut = Texture::create_brdf_lut(device, queue, &brdf_lut_gen_pipeline);
 
-        let camera_controller = CameraController::new(6.0, Camera::new((0.0, 3.0, 4.0).into()));
-
-        let camera_uniform = CameraUniform::from_camera(
-            camera_controller.current_pose,
-            window,
-            Z_NEAR,
-            Z_FAR,
-            FOV_Y.into(),
-        );
-
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
-            contents: bytemuck::cast_slice(&[camera_uniform]),
+            contents: &vec![0u8; std::mem::size_of::<CameraUniform>()],
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -1699,8 +1685,6 @@ impl RendererState {
             animation_time_acc: 0.0,
             is_playing_animations: true,
 
-            camera_controller,
-            camera_uniform,
             camera_buffer,
             camera_and_lights_bind_group,
 
@@ -1918,17 +1902,7 @@ impl RendererState {
         Ok(textures_bind_group)
     }
 
-    pub fn process_device_input(
-        &mut self,
-        event: &winit::event::DeviceEvent,
-        window: &mut winit::window::Window,
-        logger: &mut Logger,
-    ) {
-        self.camera_controller
-            .process_device_events(event, window, logger);
-    }
-
-    fn increment_render_scale(&mut self, increase: bool, logger: &mut Logger) {
+    pub fn increment_render_scale(&mut self, increase: bool, logger: &mut Logger) {
         let delta = 0.1;
         let change = if increase { delta } else { -delta };
         self.render_scale = (self.render_scale + change).max(0.1).min(4.0);
@@ -1941,65 +1915,22 @@ impl RendererState {
         self.resize(self.base.window_size);
     }
 
-    fn increment_exposure(&mut self, increase: bool, logger: &mut Logger) {
+    pub fn increment_exposure(&mut self, increase: bool, logger: &mut Logger) {
         let delta = 0.05;
         let change = if increase { delta } else { -delta };
         self.tone_mapping_exposure = (self.tone_mapping_exposure + change).max(0.0).min(20.0);
         logger.log(&format!("Exposure: {:?}", self.tone_mapping_exposure));
     }
 
-    fn increment_bloom_threshold(&mut self, increase: bool, logger: &mut Logger) {
+    pub fn increment_bloom_threshold(&mut self, increase: bool, logger: &mut Logger) {
         let delta = 0.05;
         let change = if increase { delta } else { -delta };
         self.bloom_threshold = (self.bloom_threshold + change).max(0.0).min(20.0);
         logger.log(&format!("Bloom Threshold: {:?}", self.bloom_threshold));
     }
 
-    pub fn process_window_input(
-        &mut self,
-        event: &winit::event::WindowEvent,
-        window: &mut winit::window::Window,
-        logger: &mut Logger,
-    ) {
-        if let WindowEvent::KeyboardInput {
-            input:
-                KeyboardInput {
-                    state,
-                    virtual_keycode: Some(keycode),
-                    ..
-                },
-            ..
-        } = event
-        {
-            if *state == ElementState::Released {
-                match keycode {
-                    VirtualKeyCode::Z => {
-                        self.increment_render_scale(false, logger);
-                    }
-                    VirtualKeyCode::X => {
-                        self.increment_render_scale(true, logger);
-                    }
-                    VirtualKeyCode::E => {
-                        self.increment_exposure(false, logger);
-                    }
-                    VirtualKeyCode::R => {
-                        self.increment_exposure(true, logger);
-                    }
-                    VirtualKeyCode::T => {
-                        self.increment_bloom_threshold(false, logger);
-                    }
-                    VirtualKeyCode::Y => {
-                        self.increment_bloom_threshold(true, logger);
-                    }
-                    VirtualKeyCode::P => {
-                        self.is_playing_animations = !self.is_playing_animations;
-                    }
-                    _ => {}
-                }
-            }
-        }
-        self.camera_controller
-            .process_window_events(event, window, logger);
+    pub fn toggle_animations(&mut self) {
+        self.is_playing_animations = !self.is_playing_animations;
     }
 
     pub fn resize(&mut self, new_window_size: winit::dpi::PhysicalSize<u32>) {
@@ -2144,12 +2075,7 @@ impl RendererState {
         ];
     }
 
-    pub fn update(
-        &mut self,
-        window: &winit::window::Window,
-        game_state: &mut GameState,
-        logger: &mut Logger,
-    ) {
+    pub fn update(&mut self, game_state: &mut GameState, logger: &mut Logger) {
         let time_tracker = game_state.time();
         let frame_time_seconds = time_tracker.last_frame_time_seconds();
 
@@ -2300,14 +2226,6 @@ impl RendererState {
                     }
                 },
             );
-        self.camera_controller.update(frame_time_seconds);
-        self.camera_uniform = CameraUniform::from_camera(
-            self.camera_controller.current_pose,
-            window,
-            Z_NEAR,
-            Z_FAR,
-            FOV_Y.into(),
-        );
 
         queue.write_buffer(
             &self.point_lights_buffer,
@@ -2452,10 +2370,26 @@ impl RendererState {
             }),
         };
 
+        let camera_node_ancestry_list = game_state
+            .scene
+            .get_node_ancestry_list(game_state.camera_node_index);
+        let camera_transform = camera_node_ancestry_list
+            .iter()
+            .rev()
+            .fold(crate::transform::Transform::new(), |acc, node_index| {
+                acc * game_state.scene.nodes[*node_index].transform
+            });
         self.base.queue.write_buffer(
             &self.camera_buffer,
             0,
-            bytemuck::cast_slice(&[self.camera_uniform]),
+            bytemuck::cast_slice(&[CameraUniform::from(ShaderCameraView::from_transform(
+                camera_transform,
+                self.base.window_size.width as f32 / self.base.window_size.height as f32,
+                NEAR_PLANE_DISTANCE,
+                FAR_PLANE_DISTANCE,
+                FOV_Y.into(),
+                true,
+            ))]),
         );
 
         self.render_scene(

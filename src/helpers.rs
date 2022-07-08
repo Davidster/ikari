@@ -217,6 +217,16 @@ pub fn look_at_dir(eye_pos: Vector3<f32>, dir: Vector3<f32>) -> Matrix4<f32> {
     ).transpose();
     look_at_matrix
 }
+pub fn clear_translation_from_matrix(mut transform: Matrix4<f32>) -> Matrix4<f32> {
+    transform.w.x = 0.0;
+    transform.w.y = 0.0;
+    transform.w.z = 0.0;
+    transform
+}
+
+pub fn get_translation_from_matrix(transform: Matrix4<f32>) -> Vector3<f32> {
+    Vector3::new(transform.w.x, transform.w.y, transform.w.z)
+}
 
 #[cfg(test)]
 mod tests {

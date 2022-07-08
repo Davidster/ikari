@@ -6,6 +6,9 @@ pub struct GameState {
     pub time_tracker: Option<TimeTracker>,
     pub state_update_time_accumulator: f32,
 
+    pub camera_controller: CameraController,
+    pub camera_node_index: usize,
+
     pub point_lights: Vec<PointLightComponent>,
     pub point_light_node_indices: Vec<usize>,
     pub directional_lights: Vec<DirectionalLightComponent>,

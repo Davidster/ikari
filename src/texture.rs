@@ -509,23 +509,27 @@ impl Texture {
             label: Some("cubemap_gen_camera_bind_group"),
         });
 
-        let faces: Vec<_> =
-            build_cubemap_face_camera_views(Vector3::new(0.0, 0.0, 0.0), Z_NEAR, Z_FAR, true)
-                .iter()
-                .copied()
-                .enumerate()
-                .map(|(i, view_proj_matrices)| {
-                    (
-                        view_proj_matrices,
-                        cubemap_texture.create_view(&wgpu::TextureViewDescriptor {
-                            dimension: Some(wgpu::TextureViewDimension::D2),
-                            base_array_layer: i as u32,
-                            array_layer_count: NonZeroU32::new(1),
-                            ..Default::default()
-                        }),
-                    )
-                })
-                .collect();
+        let faces: Vec<_> = build_cubemap_face_camera_views(
+            Vector3::new(0.0, 0.0, 0.0),
+            NEAR_PLANE_DISTANCE,
+            FAR_PLANE_DISTANCE,
+            true,
+        )
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(i, view_proj_matrices)| {
+            (
+                view_proj_matrices,
+                cubemap_texture.create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    base_array_layer: i as u32,
+                    array_layer_count: NonZeroU32::new(1),
+                    ..Default::default()
+                }),
+            )
+        })
+        .collect();
 
         for (face_view_proj_matrices, face_texture_view) in faces {
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -689,23 +693,27 @@ impl Texture {
             label: Some("env_map_gen_camera_bind_group"),
         });
 
-        let faces: Vec<_> =
-            build_cubemap_face_camera_views(Vector3::new(0.0, 0.0, 0.0), Z_NEAR, Z_FAR, true)
-                .iter()
-                .copied()
-                .enumerate()
-                .map(|(i, view_proj_matrices)| {
-                    (
-                        view_proj_matrices,
-                        env_map.create_view(&wgpu::TextureViewDescriptor {
-                            dimension: Some(wgpu::TextureViewDimension::D2),
-                            base_array_layer: i as u32,
-                            array_layer_count: NonZeroU32::new(1),
-                            ..Default::default()
-                        }),
-                    )
-                })
-                .collect();
+        let faces: Vec<_> = build_cubemap_face_camera_views(
+            Vector3::new(0.0, 0.0, 0.0),
+            NEAR_PLANE_DISTANCE,
+            FAR_PLANE_DISTANCE,
+            true,
+        )
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(i, view_proj_matrices)| {
+            (
+                view_proj_matrices,
+                env_map.create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    base_array_layer: i as u32,
+                    array_layer_count: NonZeroU32::new(1),
+                    ..Default::default()
+                }),
+            )
+        })
+        .collect();
 
         for (face_view_proj_matrices, face_texture_view) in faces {
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -888,8 +896,12 @@ impl Texture {
             label: Some("env_map_gen_camera_bind_group"),
         });
 
-        let camera_projection_matrices =
-            build_cubemap_face_camera_views(Vector3::new(0.0, 0.0, 0.0), Z_NEAR, Z_FAR, true);
+        let camera_projection_matrices = build_cubemap_face_camera_views(
+            Vector3::new(0.0, 0.0, 0.0),
+            NEAR_PLANE_DISTANCE,
+            FAR_PLANE_DISTANCE,
+            true,
+        );
 
         // TODO: level 0 doesn't really need to be done since roughness = 0 basically copies the skybox plainly
         //       but we'll need to write the contents of skybox_rad_texture to the first mip level of the cubemap above
