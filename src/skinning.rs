@@ -75,8 +75,6 @@ pub fn get_all_bone_data(
                     .collect();
 
                     // add padding
-                    // TODO: use limit constraints at device creation time to try to lower the min_storage_buffer_offset_alignment number
-                    //       cuz smaller buffer = more cache hits
                     let mut padding: Vec<_> = (0..buffer.len()
                         % min_storage_buffer_offset_alignment as usize)
                         .map(|_| 0u8)

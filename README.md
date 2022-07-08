@@ -72,3 +72,4 @@ https://user-images.githubusercontent.com/2389735/176325053-18c47d31-71b3-4aa4-a
   - [ ] add shadow bias material property to instances
 - [ ] add adaptive exposure based on histogram
 - [ ] make sure the skybox rad texture resolution is capped at a sane level; it causes the renderer to break on my m1.
+- [ ] use limit constraints at device creation time to try to lower the min_storage_buffer_offset_alignment number cuz smaller buffer = more cache hits
