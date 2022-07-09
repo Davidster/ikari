@@ -1,6 +1,5 @@
 use super::*;
 
-#[derive(Debug)]
 pub struct GameState {
     pub scene: GameScene,
     pub time_tracker: Option<TimeTracker>,
@@ -23,6 +22,11 @@ pub struct GameState {
     pub ball_spawner_acc: f32,
 
     pub test_object_node_index: usize,
+
+    pub bouncing_ball_node_index: usize,
+    pub bouncing_ball_body_handle: RigidBodyHandle,
+
+    pub physics_state: PhysicsState,
 }
 
 impl GameState {

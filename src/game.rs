@@ -2,6 +2,7 @@ use super::*;
 
 use anyhow::Result;
 use cgmath::{Rad, Vector3};
+use rapier3d::prelude::*;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
@@ -88,6 +89,8 @@ pub fn init_game_state(
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
     let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
     let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
+
+    let mut physics_state = PhysicsState::new();
 
     let camera_controller = CameraController::new(6.0, Camera::new((0.0, 3.0, 4.0).into()));
     scene.nodes.push(GameNode::default());
@@ -237,7 +240,7 @@ pub fn init_game_state(
     let test_object_node_index = scene.nodes.len() - 1;
 
     // add floor to scene
-    let checkerboard_texture_img = {
+    let big_checkerboard_texture_img = {
         let mut img = image::RgbaImage::new(4096, 4096);
         for x in 0..img.width() {
             for y in 0..img.height() {
@@ -257,12 +260,46 @@ pub fn init_game_state(
         }
         img
     };
-    let checkerboard_texture = Texture::from_decoded_image(
+    let big_checkerboard_texture = Texture::from_decoded_image(
         &renderer_state.base.device,
         &renderer_state.base.queue,
-        &checkerboard_texture_img,
-        checkerboard_texture_img.dimensions(),
-        Some("checkerboard_texture"),
+        &big_checkerboard_texture_img,
+        big_checkerboard_texture_img.dimensions(),
+        Some("big_checkerboard_texture"),
+        None,
+        true,
+        &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
+            mag_filter: wgpu::FilterMode::Nearest,
+            ..texture::SamplerDescriptor::default().0
+        }),
+    )?;
+
+    let small_checkerboard_texture_img = {
+        let mut img = image::RgbaImage::new(1080, 1080);
+        for x in 0..img.width() {
+            for y in 0..img.height() {
+                let scale = 25;
+                let x_scaled = x / scale;
+                let y_scaled = y / scale;
+                img.put_pixel(
+                    x,
+                    y,
+                    if (x_scaled + y_scaled) % 2 == 0 {
+                        [100, 100, 100, 100].into()
+                    } else {
+                        [150, 150, 150, 150].into()
+                    },
+                );
+            }
+        }
+        img
+    };
+    let small_checkerboard_texture = Texture::from_decoded_image(
+        &renderer_state.base.device,
+        &renderer_state.base.queue,
+        &small_checkerboard_texture_img,
+        small_checkerboard_texture_img.dimensions(),
+        Some("small_checkerboard_texture"),
         None,
         true,
         &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
@@ -274,7 +311,7 @@ pub fn init_game_state(
     let floor_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
         &plane_mesh,
         &PbrMaterial {
-            diffuse: Some(&checkerboard_texture),
+            diffuse: Some(&big_checkerboard_texture),
             ..Default::default()
         },
         Default::default(),
@@ -292,6 +329,7 @@ pub fn init_game_state(
             )
             .build(),
     );
+    let floor_node_index = scene.nodes.len() - 1;
 
     // add balls to scene
 
@@ -337,27 +375,98 @@ pub fn init_game_state(
         );
     }
 
-    let box_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
-        &cube_mesh,
+    // let box_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
+    //     &cube_mesh,
+    //     &PbrMaterial {
+    //         diffuse: Some(&checkerboard_texture),
+    //         ..Default::default()
+    //     },
+    //     Default::default(),
+    // )?;
+    // scene.nodes.push(
+    //     GameNodeBuilder::new()
+    //         .mesh(Some(GameNodeMesh::Pbr {
+    //             mesh_indices: vec![box_pbr_mesh_index],
+    //             material_override: None,
+    //         }))
+    //         .transform(
+    //             TransformBuilder::new()
+    //                 .scale(Vector3::new(0.5, 0.5, 0.5))
+    //                 .position(Vector3::new(0.0, 0.5, 0.0))
+    //                 .build(),
+    //         )
+    //         .build(),
+    // );
+
+    let bouncing_ball_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
+        &sphere_mesh,
         &PbrMaterial {
-            diffuse: Some(&checkerboard_texture),
+            diffuse: Some(&small_checkerboard_texture),
             ..Default::default()
         },
         Default::default(),
     )?;
+    let bouncing_ball_radius = 0.5;
     scene.nodes.push(
         GameNodeBuilder::new()
             .mesh(Some(GameNodeMesh::Pbr {
-                mesh_indices: vec![box_pbr_mesh_index],
+                mesh_indices: vec![bouncing_ball_pbr_mesh_index],
                 material_override: None,
             }))
             .transform(
                 TransformBuilder::new()
-                    .scale(Vector3::new(0.5, 0.5, 0.5))
-                    .position(Vector3::new(0.0, 0.5, 0.0))
+                    .scale(Vector3::new(
+                        bouncing_ball_radius,
+                        bouncing_ball_radius,
+                        bouncing_ball_radius,
+                    ))
+                    .position(Vector3::new(-1.0, 3.0, 0.0))
                     .build(),
             )
             .build(),
+    );
+    let bouncing_ball_node_index = scene.nodes.len() - 1;
+
+    // initialize physics state
+    let floor_transform = scene.nodes[floor_node_index].transform;
+    let floor_thickness = 0.1;
+    let floor_rigid_body = RigidBodyBuilder::fixed()
+        .translation(vector![
+            floor_transform.position().x / 2.0,
+            floor_transform.position().y - floor_thickness / 2.0,
+            floor_transform.position().z / 2.0
+        ])
+        .build();
+    let floor_collider = ColliderBuilder::cuboid(
+        floor_transform.scale().x,
+        floor_thickness / 2.0,
+        floor_transform.scale().z,
+    );
+    let floor_body_handle = physics_state.rigid_body_set.insert(floor_rigid_body);
+    physics_state.collider_set.insert_with_parent(
+        floor_collider,
+        floor_body_handle,
+        &mut physics_state.rigid_body_set,
+    );
+
+    let bouncing_ball_transform = scene.nodes[bouncing_ball_node_index].transform;
+    let bouncing_ball_rigid_body = RigidBodyBuilder::dynamic()
+        .translation(vector![
+            bouncing_ball_transform.position().x,
+            bouncing_ball_transform.position().y,
+            bouncing_ball_transform.position().z
+        ])
+        .build();
+    let bouncing_ball_collider = ColliderBuilder::ball(bouncing_ball_radius)
+        .restitution(0.9)
+        .build();
+    let bouncing_ball_body_handle = physics_state
+        .rigid_body_set
+        .insert(bouncing_ball_rigid_body);
+    physics_state.collider_set.insert_with_parent(
+        bouncing_ball_collider,
+        bouncing_ball_body_handle,
+        &mut physics_state.rigid_body_set,
     );
 
     Ok(GameState {
@@ -381,6 +490,11 @@ pub fn init_game_state(
         ball_spawner_acc: 0.0,
 
         test_object_node_index,
+
+        bouncing_ball_node_index,
+        bouncing_ball_body_handle,
+
+        physics_state,
     })
 }
 
@@ -592,6 +706,27 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
     if prev_ball_count != new_ball_count {
         // logger.log(&format!("Ball count: {:?}", new_ball_count));
     }
+
+    let physics_state = &mut game_state.physics_state;
+    physics_state.physics_pipeline.step(
+        &physics_state.gravity,
+        &physics_state.integration_parameters,
+        &mut physics_state.island_manager,
+        &mut physics_state.broad_phase,
+        &mut physics_state.narrow_phase,
+        &mut physics_state.rigid_body_set,
+        &mut physics_state.collider_set,
+        &mut physics_state.impulse_joint_set,
+        &mut physics_state.multibody_joint_set,
+        &mut physics_state.ccd_solver,
+        &(),
+        &(),
+    );
+
+    let ball_body = &physics_state.rigid_body_set[game_state.bouncing_ball_body_handle];
+    game_state.scene.nodes[game_state.bouncing_ball_node_index]
+        .transform
+        .apply_isometry(*ball_body.position());
 }
 
 pub fn init_scene(

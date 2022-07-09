@@ -82,6 +82,20 @@ impl Transform {
         )
     }
 
+    pub fn apply_isometry(&mut self, isometry: Isometry<f32>) {
+        self.set_position(Vector3::new(
+            isometry.translation.x,
+            isometry.translation.y,
+            isometry.translation.z,
+        ));
+        self.set_rotation(Quaternion::new(
+            isometry.rotation.i,
+            isometry.rotation.j,
+            isometry.rotation.k,
+            isometry.rotation.w,
+        ));
+    }
+
     fn resync_matrix(&mut self) {
         self.matrix = make_translation_matrix(self.position)
             * make_rotation_matrix(self.rotation)
@@ -114,8 +128,25 @@ impl From<gltf::scene::Transform> for Transform {
     }
 }
 
+impl From<Isometry<f32>> for Transform {
+    fn from(isometry: Isometry<f32>) -> Self {
+        let mut transform = Transform::new();
+        transform.set_position(Vector3::new(
+            isometry.translation.x,
+            isometry.translation.y,
+            isometry.translation.z,
+        ));
+        transform.set_rotation(Quaternion::new(
+            isometry.rotation.i,
+            isometry.rotation.j,
+            isometry.rotation.k,
+            isometry.rotation.w,
+        ));
+        transform
+    }
+}
+
 impl Mul for Transform {
-    // The multiplication of rational numbers is a closed operation.
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self {
