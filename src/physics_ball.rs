@@ -6,7 +6,7 @@ const RESTITUTION: f32 = 0.9;
 
 #[derive(Clone, Debug)]
 pub struct PhysicsBall {
-    node_index: usize,
+    node_id: GameNodeId,
     rigid_body_handle: RigidBodyHandle,
 }
 
@@ -23,13 +23,12 @@ impl PhysicsBall {
             .scale(Vector3::new(radius, radius, radius))
             .build();
 
-        game_scene.nodes.push(
-            GameNodeBuilder::new()
+        let node_id = game_scene.add_node(
+            GameNodeDescBuilder::new()
                 .mesh(Some(mesh))
                 .transform(transform)
                 .build(),
         );
-        let node_index = game_scene.nodes.len() - 1;
 
         let rigid_body = RigidBodyBuilder::dynamic()
             .translation(vector![position.x, position.y, position.z])
@@ -48,7 +47,7 @@ impl PhysicsBall {
         );
 
         Self {
-            node_index,
+            node_id,
             rigid_body_handle,
         }
     }
@@ -67,9 +66,9 @@ impl PhysicsBall {
         Self::new(game_scene, physics_state, mesh, position, radius)
     }
 
-    pub fn update(&self, game_scene: &mut GameScene, physics_state: &PhysicsState) {
-        let rigid_body = &physics_state.rigid_body_set[self.rigid_body_handle];
-        let transform = &mut game_scene.nodes[self.node_index].transform;
+    pub fn update(&self, game_scene: &mut GameScene, physics_state: &mut PhysicsState) {
+        let rigid_body = &mut physics_state.rigid_body_set[self.rigid_body_handle];
+        let transform = &mut game_scene.get_node_mut(self.node_id).transform;
         transform.apply_isometry(*rigid_body.position());
     }
 }

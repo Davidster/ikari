@@ -1,8 +1,10 @@
+use super::*;
+
 use cgmath::Vector3;
 
 #[derive(Clone, Debug)]
 pub struct PointLightComponent {
-    pub node_index: usize,
+    pub node_id: GameNodeId,
     pub color: Vector3<f32>,
     pub intensity: f32,
 }

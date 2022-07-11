@@ -1,13 +1,8 @@
-use cgmath::Matrix4;
-
 use super::*;
 
 #[derive(Debug)]
 pub struct RenderScene {
     pub buffers: SceneBuffers,
-    pub skins: Vec<Skin>,
-    // same order as the animations list in the source asset
-    pub animations: Vec<Animation>,
 }
 
 #[derive(Debug)]
@@ -37,12 +32,6 @@ pub struct GeometryBuffers {
 
 pub type BindedUnlitMesh = GeometryBuffers;
 
-#[derive(Debug, Clone)]
-pub struct Skin {
-    pub bone_inverse_bind_matrices: Vec<Matrix4<f32>>,
-    pub bone_node_indices: Vec<usize>,
-}
-
 #[derive(Debug)]
 pub enum AlphaMode {
     Opaque,
@@ -52,19 +41,4 @@ pub enum AlphaMode {
 #[derive(Debug)]
 pub enum PrimitiveMode {
     Triangles,
-}
-
-#[derive(Debug)]
-pub struct Animation {
-    pub length_seconds: f32,
-    pub channels: Vec<Channel>,
-}
-
-#[derive(Debug)]
-pub struct Channel {
-    pub node_index: usize,
-    pub property: gltf::animation::Property,
-    pub interpolation_type: gltf::animation::Interpolation,
-    pub keyframe_timings: Vec<f32>,
-    pub keyframe_values_u8: Vec<u8>,
 }

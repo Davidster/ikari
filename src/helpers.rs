@@ -228,6 +228,17 @@ pub fn get_translation_from_matrix(transform: Matrix4<f32>) -> Vector3<f32> {
     Vector3::new(transform.w.x, transform.w.y, transform.w.z)
 }
 
+pub fn _matrix_diff(a: Matrix4<f32>, b: Matrix4<f32>) -> f32 {
+    let diff: [[f32; 4]; 4] = (b - a).into();
+    let mut total = 0.0;
+    for column in diff {
+        for val in column {
+            total += val;
+        }
+    }
+    total
+}
+
 #[cfg(test)]
 mod tests {
     use cgmath::Vector4;

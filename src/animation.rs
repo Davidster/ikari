@@ -1,9 +1,5 @@
-use std::{
-    collections::HashMap,
-    ops::{Add, Mul},
-};
+use std::ops::{Add, Mul};
 
-use anyhow::bail;
 use anyhow::Result;
 use cgmath::{Quaternion, Vector3};
 
@@ -17,85 +13,62 @@ struct KeyframeTime {
 
 pub fn update_node_transforms_at_moment(
     game_scene: &mut GameScene,
-    render_scene: &RenderScene,
     global_time_seconds: f32,
 ) -> Result<()> {
-    for animation in render_scene.animations.iter() {
+    pub enum Op {
+        Translation(Vector3<f32>),
+        Scale(Vector3<f32>),
+        Rotation(Quaternion<f32>),
+    }
+
+    let mut ops: Vec<(GameNodeId, Op)> = Vec::new();
+    for animation in game_scene.animations.iter() {
         for channel in animation.channels.iter() {
-            let transform = &mut game_scene.nodes[channel.node_index].transform;
             let animation_time_seconds = global_time_seconds % animation.length_seconds;
             let (previous_key_frame, next_key_frame) =
                 get_nearby_keyframes(&channel.keyframe_timings, animation_time_seconds);
-            match channel.property {
+            if let Some(op) = match channel.property {
                 gltf::animation::Property::Translation => {
-                    transform.set_position(get_vec3_at_moment(
+                    Some(Op::Translation(get_vec3_at_moment(
                         channel,
                         animation_time_seconds,
                         previous_key_frame,
                         next_key_frame,
-                    )?);
+                    )?))
                 }
-                gltf::animation::Property::Scale => {
-                    transform.set_scale(get_vec3_at_moment(
-                        channel,
-                        animation_time_seconds,
-                        previous_key_frame,
-                        next_key_frame,
-                    )?);
-                }
-                gltf::animation::Property::Rotation => {
-                    transform.set_rotation(get_quat_at_moment(
-                        channel,
-                        animation_time_seconds,
-                        previous_key_frame,
-                        next_key_frame,
-                    )?);
-                }
-                _ => {}
-            };
+                gltf::animation::Property::Scale => Some(Op::Scale(get_vec3_at_moment(
+                    channel,
+                    animation_time_seconds,
+                    previous_key_frame,
+                    next_key_frame,
+                )?)),
+                gltf::animation::Property::Rotation => Some(Op::Rotation(get_quat_at_moment(
+                    channel,
+                    animation_time_seconds,
+                    previous_key_frame,
+                    next_key_frame,
+                )?)),
+                _ => None,
+            } {
+                ops.push((channel.node_id, op));
+            }
+        }
+    }
+    for (node_id, op) in ops {
+        let transform = &mut game_scene.get_node_mut(node_id).transform;
+        match op {
+            Op::Translation(translation) => {
+                transform.set_position(translation);
+            }
+            Op::Scale(scale) => {
+                transform.set_scale(scale);
+            }
+            Op::Rotation(rotation) => {
+                transform.set_rotation(rotation);
+            }
         }
     }
     Ok(())
-}
-
-pub fn get_animations(
-    document: &gltf::Document,
-    buffers: &[gltf::buffer::Data],
-) -> Result<Vec<Animation>> {
-    document
-        .animations()
-        .map(|animation| {
-            let channel_timings: Vec<_> = animation
-                .channels()
-                .map(|channel| get_keyframe_times(&channel.sampler(), buffers))
-                .collect::<Result<Vec<_>, _>>()?;
-            let length_seconds = *channel_timings
-                .iter()
-                .map(|keyframe_times| keyframe_times.last().unwrap())
-                .max_by(|a, b| a.partial_cmp(b).unwrap())
-                .unwrap();
-            let channels: Vec<_> = animation
-                .channels()
-                .enumerate()
-                .map(|(channel_index, channel)| {
-                    validate_channel_data_type(&channel)?;
-                    let sampler = channel.sampler();
-                    let accessor = sampler.output();
-                    anyhow::Ok(Channel {
-                        node_index: channel.target().node().index(),
-                        property: channel.target().property(),
-                        interpolation_type: sampler.interpolation(),
-                        keyframe_timings: channel_timings[channel_index].clone(),
-                        keyframe_values_u8: get_buffer_slice_from_accessor(accessor, buffers),
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            anyhow::Ok(Animation {
-                length_seconds,
-                channels,
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()
 }
 
 fn get_vec3_at_moment(
@@ -251,55 +224,6 @@ fn get_quat_at_moment(
     })
 }
 
-fn validate_channel_data_type(channel: &gltf::animation::Channel) -> Result<()> {
-    let accessor = channel.sampler().output();
-    let data_type = accessor.data_type();
-    let dimensions = accessor.dimensions();
-    match channel.target().property() {
-        gltf::animation::Property::Translation | gltf::animation::Property::Scale => {
-            if dimensions != gltf::accessor::Dimensions::Vec3 {
-                bail!("Expected vec3 data but found: {:?}", dimensions);
-            }
-            if data_type != gltf::accessor::DataType::F32 {
-                bail!("Expected f32 data but found: {:?}", data_type);
-            }
-        }
-        gltf::animation::Property::Rotation => {
-            if dimensions != gltf::accessor::Dimensions::Vec4 {
-                bail!("Expected vec4 data but found: {:?}", dimensions);
-            }
-            if data_type != gltf::accessor::DataType::F32 {
-                bail!("Expected f32 data but found: {:?}", data_type);
-            }
-        }
-        gltf::animation::Property::MorphTargetWeights => {
-            bail!("MorphTargetWeights not supported")
-        }
-    };
-    Ok(())
-}
-
-fn get_keyframe_times(
-    sampler: &gltf::animation::Sampler,
-    buffers: &[gltf::buffer::Data],
-) -> Result<Vec<f32>> {
-    let keyframe_times = {
-        let accessor = sampler.input();
-        let data_type = accessor.data_type();
-        let dimensions = accessor.dimensions();
-        if dimensions != gltf::accessor::Dimensions::Scalar {
-            bail!("Expected scalar data but found: {:?}", dimensions);
-        }
-        if data_type != gltf::accessor::DataType::F32 {
-            bail!("Expected f32 data but found: {:?}", data_type);
-        }
-        let result_u8 = get_buffer_slice_from_accessor(accessor, buffers);
-        bytemuck::cast_slice::<_, f32>(&result_u8).to_vec()
-    };
-
-    Ok(keyframe_times)
-}
-
 fn get_nearby_keyframes(
     keyframe_times: &[f32],
     animation_time_seconds: f32,
@@ -342,48 +266,4 @@ where
         + b_k * t_d * (t_3 - 2.0 * t_2 + t)
         + v_k_1 * (-2.0 * t_3 + 3.0 * t_2)
         + a_k_1 * t_d * (t_3 - t_2)
-}
-
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
-struct ChannelPropertyStr<'a>(&'a str);
-
-impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
-    fn from(prop: gltf::animation::Property) -> Self {
-        Self(match prop {
-            gltf::animation::Property::Translation => "Translation",
-            gltf::animation::Property::Scale => "Scale",
-            gltf::animation::Property::Rotation => "Rotation",
-            gltf::animation::Property::MorphTargetWeights => "MorphTargetWeights",
-        })
-    }
-}
-
-pub fn validate_animation_property_counts(gltf_document: &gltf::Document, logger: &mut Logger) {
-    let property_counts: HashMap<(usize, ChannelPropertyStr), usize> = gltf_document
-        .animations()
-        .flat_map(|animation| animation.channels())
-        .fold(HashMap::new(), |mut acc, channel| {
-            let count = acc
-                .entry((
-                    channel.target().node().index(),
-                    channel.target().property().into(),
-                ))
-                .or_insert(0);
-            *count += 1;
-            acc
-        });
-    for ((node_index, property), count) in property_counts {
-        if count > 1 {
-            logger.log(&format!(
-                "Warning: expected no more than 1 animated property but found {:?} (node_index={:?}, node_name={:?}, property={:?})",
-                count,
-                node_index,
-                gltf_document
-                    .nodes()
-                    .find(|node| node.index() == node_index)
-                    .and_then(|node| node.name()),
-                property.0
-            ))
-        }
-    }
 }

@@ -52,7 +52,9 @@ fn make_point_light_uniform_buffer(game_state: &GameState) -> Vec<PointLightUnif
         .point_lights
         .iter()
         .map(|point_light| {
-            let position = game_state.scene.nodes[point_light.node_index]
+            let position = game_state
+                .scene
+                .get_node(point_light.node_id)
                 .transform
                 .position();
             PointLightUniform {
@@ -219,8 +221,8 @@ impl BaseRendererState {
             format: swapchain_format,
             width: window_size.width,
             height: window_size.height,
-            // present_mode: wgpu::PresentMode::Fifo,
-            present_mode: wgpu::PresentMode::Immediate,
+            present_mode: wgpu::PresentMode::Fifo,
+            // present_mode: wgpu::PresentMode::Immediate,
         };
 
         surface.configure(&device, &surface_config);
@@ -2041,8 +2043,7 @@ impl RendererState {
         let render_scene = &mut self.scene;
         if self.is_playing_animations {
             self.animation_time_acc += frame_time_seconds;
-            if let Err(err) =
-                update_node_transforms_at_moment(game_scene, render_scene, self.animation_time_acc)
+            if let Err(err) = update_node_transforms_at_moment(game_scene, self.animation_time_acc)
             {
                 logger.log(&format!("Error: animation computation failed: {:?}", err));
             }
@@ -2053,11 +2054,8 @@ impl RendererState {
         let queue = &mut self.base.queue;
         let device = &self.base.device;
         let bones_bind_group_layout = &self.base.bones_bind_group_layout;
-        let all_bone_transforms = get_all_bone_data(
-            game_scene,
-            render_scene,
-            limits.min_storage_buffer_offset_alignment,
-        );
+        let all_bone_transforms =
+            get_all_bone_data(game_scene, limits.min_storage_buffer_offset_alignment);
         queue.write_buffer(&self.bones_buffer, 0, &all_bone_transforms.buffer);
         self.bones_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: bones_bind_group_layout,
@@ -2086,26 +2084,24 @@ impl RendererState {
                     },
                 )| {
                     let gpu_instances: Vec<_> = game_scene
-                        .nodes
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(node_index, node)| match &node.mesh {
+                        .nodes()
+                        .filter_map(|node| match &node.mesh {
                             Some(GameNodeMesh::Pbr {
                                 mesh_indices,
                                 material_override,
                             }) => mesh_indices
                                 .iter()
                                 .find(|node_mesh_index| **node_mesh_index == binded_pbr_mesh_index)
-                                .map(|_| (node_index, material_override)),
+                                .map(|_| (node.id(), material_override)),
                             _ => None,
                         })
-                        .map(|(node_index, material_override)| {
-                            let node_ancestry_list = game_scene.get_node_ancestry_list(node_index);
+                        .map(|(node_id, material_override)| {
+                            let node_ancestry_list = game_scene.get_node_ancestry_list(node_id);
                             let transform = node_ancestry_list
                                 .iter()
                                 .rev()
-                                .fold(crate::transform::Transform::new(), |acc, node_index| {
-                                    acc * game_scene.nodes[*node_index].transform
+                                .fold(crate::transform::Transform::new(), |acc, node_id| {
+                                    acc * game_scene.get_node(*node_id).transform
                                 });
                             GpuPbrMeshInstance::new(
                                 transform,
@@ -2142,10 +2138,8 @@ impl RendererState {
                     },
                 )| {
                     let gpu_instances: Vec<_> = game_scene
-                        .nodes
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(node_index, node)| match &node.mesh {
+                        .nodes()
+                        .filter_map(|node| match &node.mesh {
                             Some(GameNodeMesh::Unlit {
                                 mesh_indices,
                                 color,
@@ -2154,16 +2148,16 @@ impl RendererState {
                                 .find(|node_mesh_index| {
                                     **node_mesh_index == binded_unlit_mesh_index
                                 })
-                                .map(|_| (node_index, color)),
+                                .map(|_| (node.id(), color)),
                             _ => None,
                         })
-                        .map(|(node_index, color)| {
-                            let node_ancestry_list = game_scene.get_node_ancestry_list(node_index);
+                        .map(|(node_id, color)| {
+                            let node_ancestry_list = game_scene.get_node_ancestry_list(node_id);
                             let transform = node_ancestry_list
                                 .iter()
                                 .rev()
-                                .fold(crate::transform::Transform::new(), |acc, node_index| {
-                                    acc * game_scene.nodes[*node_index].transform
+                                .fold(crate::transform::Transform::new(), |acc, node_id| {
+                                    acc * game_scene.get_node(*node_id).transform
                                 });
                             GpuUnlitMeshInstance {
                                 color: [color.x, color.y, color.z, 1.0],
@@ -2250,7 +2244,9 @@ impl RendererState {
             });
         (0..game_state.point_lights.len()).for_each(|light_index| {
             build_cubemap_face_camera_views(
-                game_state.scene.nodes[game_state.point_lights[light_index].node_index]
+                game_state
+                    .scene
+                    .get_node(game_state.point_lights[light_index].node_id)
                     .transform
                     .position(),
                 0.1,
@@ -2329,12 +2325,12 @@ impl RendererState {
 
         let camera_node_ancestry_list = game_state
             .scene
-            .get_node_ancestry_list(game_state.camera_node_index);
+            .get_node_ancestry_list(game_state.camera_node_id);
         let camera_transform = camera_node_ancestry_list
             .iter()
             .rev()
-            .fold(crate::transform::Transform::new(), |acc, node_index| {
-                acc * game_state.scene.nodes[*node_index].transform
+            .fold(crate::transform::Transform::new(), |acc, node_id| {
+                acc * game_state.scene.get_node(*node_id).transform
             });
         self.base.queue.write_buffer(
             &self.camera_buffer,
@@ -2393,17 +2389,12 @@ impl RendererState {
                 .iter()
                 .enumerate()
                 .filter(|(binded_unlit_mesh_index, _)| {
-                    game_state
-                        .scene
-                        .nodes
-                        .iter()
-                        .enumerate()
-                        .any(|(_, node)| match &node.mesh {
-                            Some(GameNodeMesh::Unlit { mesh_indices, .. }) => mesh_indices
-                                .iter()
-                                .any(|node_mesh_index| node_mesh_index == binded_unlit_mesh_index),
-                            _ => false,
-                        })
+                    game_state.scene.nodes().any(|node| match &node.mesh {
+                        Some(GameNodeMesh::Unlit { mesh_indices, .. }) => mesh_indices
+                            .iter()
+                            .any(|node_mesh_index| node_mesh_index == binded_unlit_mesh_index),
+                        _ => false,
+                    })
                 })
                 .for_each(
                     |(
@@ -2660,7 +2651,6 @@ impl RendererState {
         let render_scene = &self.scene;
         let all_bone_transforms = get_all_bone_data(
             &game_state.scene,
-            render_scene,
             limits.min_storage_buffer_offset_alignment,
         );
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -2675,17 +2665,12 @@ impl RendererState {
                 .iter()
                 .enumerate()
                 .filter(|(binded_pbr_mesh_index, _)| {
-                    game_state
-                        .scene
-                        .nodes
-                        .iter()
-                        .enumerate()
-                        .any(|(_, node)| match &node.mesh {
-                            Some(GameNodeMesh::Pbr { mesh_indices, .. }) => mesh_indices
-                                .iter()
-                                .any(|node_mesh_index| node_mesh_index == binded_pbr_mesh_index),
-                            _ => false,
-                        })
+                    game_state.scene.nodes().any(|node| match &node.mesh {
+                        Some(GameNodeMesh::Pbr { mesh_indices, .. }) => mesh_indices
+                            .iter()
+                            .any(|node_mesh_index| node_mesh_index == binded_pbr_mesh_index),
+                        _ => false,
+                    })
                 })
                 .for_each(
                     |(

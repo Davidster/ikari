@@ -6,24 +6,24 @@ pub struct GameState {
     pub state_update_time_accumulator: f32,
 
     pub camera_controller: CameraController,
-    pub camera_node_index: usize,
+    pub camera_node_id: GameNodeId,
 
     pub point_lights: Vec<PointLightComponent>,
-    pub point_light_node_indices: Vec<usize>,
+    pub point_light_node_ids: Vec<GameNodeId>,
     pub directional_lights: Vec<DirectionalLightComponent>,
 
     // store the previous state and next state and interpolate between them
     pub next_balls: Vec<BallComponent>,
     pub prev_balls: Vec<BallComponent>,
     pub actual_balls: Vec<BallComponent>,
-    pub ball_node_indices: Vec<usize>,
+    pub ball_node_ids: Vec<GameNodeId>,
     pub ball_pbr_mesh_index: usize,
 
     pub ball_spawner_acc: f32,
 
-    pub test_object_node_index: usize,
+    pub test_object_node_id: GameNodeId,
 
-    pub bouncing_ball_node_index: usize,
+    pub bouncing_ball_node_id: GameNodeId,
     pub bouncing_ball_body_handle: RigidBodyHandle,
 
     pub physics_state: PhysicsState,
