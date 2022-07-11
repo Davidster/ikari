@@ -594,6 +594,8 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
     }
     game_state.state_update_time_accumulator += frame_time_seconds;
 
+    game_state.physics_state.step();
+
     game_state.camera_controller.update(frame_time_seconds);
     // logger.log(&format!(
     //     "camera pose: {:?}",
@@ -740,23 +742,9 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
     }
 
     // let physics_time_step_start = Instant::now();
-    let physics_state = &mut game_state.physics_state;
-    physics_state.physics_pipeline.step(
-        &physics_state.gravity,
-        &physics_state.integration_parameters,
-        &mut physics_state.island_manager,
-        &mut physics_state.broad_phase,
-        &mut physics_state.narrow_phase,
-        &mut physics_state.rigid_body_set,
-        &mut physics_state.collider_set,
-        &mut physics_state.impulse_joint_set,
-        &mut physics_state.multibody_joint_set,
-        &mut physics_state.ccd_solver,
-        &(),
-        &(),
-    );
-    // logger.log(&format!("Physics step time: {:?}", physics_time_step_start.elapsed()));
 
+    // logger.log(&format!("Physics step time: {:?}", physics_time_step_start.elapsed()));
+    let physics_state = &mut game_state.physics_state;
     let ball_body = &physics_state.rigid_body_set[game_state.bouncing_ball_body_handle];
     game_state
         .scene
