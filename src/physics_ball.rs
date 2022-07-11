@@ -23,7 +23,7 @@ impl PhysicsBall {
             .scale(Vector3::new(radius, radius, radius))
             .build();
 
-        let node_id = game_scene.add_node(
+        let node = game_scene.add_node(
             GameNodeDescBuilder::new()
                 .mesh(Some(mesh))
                 .transform(transform)
@@ -47,7 +47,7 @@ impl PhysicsBall {
         );
 
         Self {
-            node_id,
+            node_id: node.id(),
             rigid_body_handle,
         }
     }
@@ -68,7 +68,13 @@ impl PhysicsBall {
 
     pub fn update(&self, game_scene: &mut GameScene, physics_state: &mut PhysicsState) {
         let rigid_body = &mut physics_state.rigid_body_set[self.rigid_body_handle];
-        let transform = &mut game_scene.get_node_mut(self.node_id).transform;
-        transform.apply_isometry(*rigid_body.position());
+        if let Some(node) = game_scene.get_node_mut(self.node_id) {
+            node.transform.apply_isometry(*rigid_body.position());
+        }
+    }
+
+    pub fn destroy(&self, game_scene: &mut GameScene, physics_state: &mut PhysicsState) {
+        game_scene.remove_node(self.node_id);
+        physics_state.remove_rigid_body(self.rigid_body_handle);
     }
 }

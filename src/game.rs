@@ -98,7 +98,7 @@ pub fn init_game_state(
     let mut camera = Camera::new((0.0, 16.0, 33.0).into());
     camera.vertical_rotation = Rad(-0.53);
     let camera_controller = CameraController::new(6.0, camera);
-    let camera_node_id = scene.add_node(GameNodeDesc::default());
+    let camera_node_id = scene.add_node(GameNodeDesc::default()).id();
 
     // add lights to the scene
     let directional_lights = vec![DirectionalLightComponent {
@@ -133,15 +133,17 @@ pub fn init_game_state(
     let mut point_light_node_ids: Vec<GameNodeId> = Vec::new();
     let mut point_light_components: Vec<PointLightComponent> = Vec::new();
     for (transform, color, intensity) in &point_lights {
-        let node_id = scene.add_node(
-            GameNodeDescBuilder::new()
-                .mesh(Some(GameNodeMesh::Unlit {
-                    mesh_indices: vec![point_light_unlit_mesh_index],
-                    color: color * *intensity,
-                }))
-                .transform(*transform)
-                .build(),
-        );
+        let node_id = scene
+            .add_node(
+                GameNodeDescBuilder::new()
+                    .mesh(Some(GameNodeMesh::Unlit {
+                        mesh_indices: vec![point_light_unlit_mesh_index],
+                        color: color * *intensity,
+                    }))
+                    .transform(*transform)
+                    .build(),
+            )
+            .id();
         point_light_node_ids.push(node_id);
         point_light_components.push(PointLightComponent {
             node_id,
@@ -229,20 +231,22 @@ pub fn init_game_state(
         },
         Default::default(),
     )?;
-    let test_object_node_id = scene.add_node(
-        GameNodeDescBuilder::new()
-            .mesh(Some(GameNodeMesh::Pbr {
-                mesh_indices: vec![test_object_pbr_mesh_index],
-                material_override: None,
-            }))
-            .transform(
-                TransformBuilder::new()
-                    .position(Vector3::new(4.0, 10.0, 4.0))
-                    // .scale(Vector3::new(0.0, 0.0, 0.0))
-                    .build(),
-            )
-            .build(),
-    );
+    let test_object_node_id = scene
+        .add_node(
+            GameNodeDescBuilder::new()
+                .mesh(Some(GameNodeMesh::Pbr {
+                    mesh_indices: vec![test_object_pbr_mesh_index],
+                    material_override: None,
+                }))
+                .transform(
+                    TransformBuilder::new()
+                        .position(Vector3::new(4.0, 10.0, 4.0))
+                        // .scale(Vector3::new(0.0, 0.0, 0.0))
+                        .build(),
+                )
+                .build(),
+        )
+        .id();
 
     // add floor to scene
     let big_checkerboard_texture_img = {
@@ -313,28 +317,6 @@ pub fn init_game_state(
         }),
     )?;
 
-    let floor_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
-        &plane_mesh,
-        &PbrMaterial {
-            diffuse: Some(&big_checkerboard_texture),
-            ..Default::default()
-        },
-        Default::default(),
-    )?;
-    let floor_node_id = scene.add_node(
-        GameNodeDescBuilder::new()
-            .mesh(Some(GameNodeMesh::Pbr {
-                mesh_indices: vec![floor_pbr_mesh_index],
-                material_override: None,
-            }))
-            .transform(
-                TransformBuilder::new()
-                    .scale(Vector3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH))
-                    .build(),
-            )
-            .build(),
-    );
-
     // add balls to scene
 
     // source: https://www.solarsystemscope.com/textures/
@@ -367,7 +349,7 @@ pub fn init_game_state(
 
     let mut ball_node_ids: Vec<GameNodeId> = Vec::new();
     for ball in &balls {
-        let node_id = scene.add_node(
+        let node = scene.add_node(
             GameNodeDescBuilder::new()
                 .mesh(Some(GameNodeMesh::Pbr {
                     mesh_indices: vec![ball_pbr_mesh_index],
@@ -376,10 +358,10 @@ pub fn init_game_state(
                 .transform(ball.transform)
                 .build(),
         );
-        ball_node_ids.push(node_id);
+        ball_node_ids.push(node.id());
     }
 
-    let physics_ball_count = 500;
+    let physics_ball_count = 2000;
     let physics_balls: Vec<_> = (0..physics_ball_count)
         .into_iter()
         .map(|_| {
@@ -417,48 +399,40 @@ pub fn init_game_state(
     //         .build(),
     // );
 
-    let bouncing_ball_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
-        &sphere_mesh,
+    // create the floor and add it to the scene
+    let floor_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
+        &plane_mesh,
         &PbrMaterial {
-            diffuse: Some(&small_checkerboard_texture),
+            diffuse: Some(&big_checkerboard_texture),
             ..Default::default()
         },
         Default::default(),
     )?;
-    let bouncing_ball_radius = 0.5;
-    let bouncing_ball_node_id = scene.add_node(
+    let floor_node = scene.add_node(
         GameNodeDescBuilder::new()
             .mesh(Some(GameNodeMesh::Pbr {
-                mesh_indices: vec![bouncing_ball_pbr_mesh_index],
+                mesh_indices: vec![floor_pbr_mesh_index],
                 material_override: None,
             }))
             .transform(
                 TransformBuilder::new()
-                    .scale(Vector3::new(
-                        bouncing_ball_radius,
-                        bouncing_ball_radius,
-                        bouncing_ball_radius,
-                    ))
-                    .position(Vector3::new(-1.0, 10.0, 0.0))
+                    .scale(Vector3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH))
                     .build(),
             )
             .build(),
     );
-
-    // initialize physics state
-    let floor_transform = scene.get_node(floor_node_id).transform;
     let floor_thickness = 0.1;
     let floor_rigid_body = RigidBodyBuilder::fixed()
         .translation(vector![
-            floor_transform.position().x / 2.0,
-            floor_transform.position().y - floor_thickness / 2.0,
-            floor_transform.position().z / 2.0
+            floor_node.transform.position().x / 2.0,
+            floor_node.transform.position().y - floor_thickness / 2.0,
+            floor_node.transform.position().z / 2.0
         ])
         .build();
     let floor_collider = ColliderBuilder::cuboid(
-        floor_transform.scale().x,
+        floor_node.transform.scale().x,
         floor_thickness / 2.0,
-        floor_transform.scale().z,
+        floor_node.transform.scale().z,
     )
     .friction(1.0)
     .build();
@@ -469,25 +443,55 @@ pub fn init_game_state(
         &mut physics_state.rigid_body_set,
     );
 
-    let bouncing_ball_transform = scene.get_node(bouncing_ball_node_id).transform;
-    let bouncing_ball_rigid_body = RigidBodyBuilder::dynamic()
-        .translation(vector![
-            bouncing_ball_transform.position().x,
-            bouncing_ball_transform.position().y,
-            bouncing_ball_transform.position().z
-        ])
-        .build();
-    let bouncing_ball_collider = ColliderBuilder::ball(bouncing_ball_radius)
-        .restitution(0.9)
-        .build();
-    let bouncing_ball_body_handle = physics_state
-        .rigid_body_set
-        .insert(bouncing_ball_rigid_body);
-    physics_state.collider_set.insert_with_parent(
-        bouncing_ball_collider,
-        bouncing_ball_body_handle,
-        &mut physics_state.rigid_body_set,
-    );
+    // create the checkerboarded bouncing ball and add it to the scene
+    let (bouncing_ball_node_id, bouncing_ball_body_handle) = {
+        let bouncing_ball_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
+            &sphere_mesh,
+            &PbrMaterial {
+                diffuse: Some(&small_checkerboard_texture),
+                ..Default::default()
+            },
+            Default::default(),
+        )?;
+        let bouncing_ball_radius = 0.5;
+        let bouncing_ball_node = scene.add_node(
+            GameNodeDescBuilder::new()
+                .mesh(Some(GameNodeMesh::Pbr {
+                    mesh_indices: vec![bouncing_ball_pbr_mesh_index],
+                    material_override: None,
+                }))
+                .transform(
+                    TransformBuilder::new()
+                        .scale(Vector3::new(
+                            bouncing_ball_radius,
+                            bouncing_ball_radius,
+                            bouncing_ball_radius,
+                        ))
+                        .position(Vector3::new(-1.0, 10.0, 0.0))
+                        .build(),
+                )
+                .build(),
+        );
+        let bouncing_ball_rigid_body = RigidBodyBuilder::dynamic()
+            .translation(vector![
+                bouncing_ball_node.transform.position().x,
+                bouncing_ball_node.transform.position().y,
+                bouncing_ball_node.transform.position().z
+            ])
+            .build();
+        let bouncing_ball_collider = ColliderBuilder::ball(bouncing_ball_radius)
+            .restitution(0.9)
+            .build();
+        let bouncing_ball_body_handle = physics_state
+            .rigid_body_set
+            .insert(bouncing_ball_rigid_body);
+        physics_state.collider_set.insert_with_parent(
+            bouncing_ball_collider,
+            bouncing_ball_body_handle,
+            &mut physics_state.rigid_body_set,
+        );
+        (bouncing_ball_node.id(), bouncing_ball_body_handle)
+    };
 
     Ok(GameState {
         scene,
@@ -601,11 +605,13 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
     //     "camera pose: {:?}",
     //     game_state.camera_controller.current_pose
     // ));
-    let camera_transform = game_state.camera_controller.current_pose.to_transform();
-    game_state
-        .scene
-        .get_node_mut(game_state.camera_node_id)
-        .transform = camera_transform.into();
+    if let Some(camera_transform) = game_state.scene.get_node_mut(game_state.camera_node_id) {
+        camera_transform.transform = game_state
+            .camera_controller
+            .current_pose
+            .to_transform()
+            .into();
+    }
 
     // update ball positions
     while game_state.state_update_time_accumulator >= min_update_timestep_seconds {
@@ -631,7 +637,9 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
         .iter()
         .zip(game_state.actual_balls.iter())
         .for_each(|(node_id, ball)| {
-            game_state.scene.get_node_mut(*node_id).transform = ball.transform;
+            if let Some(node) = game_state.scene.get_node_mut(*node_id) {
+                node.transform = ball.transform;
+            }
         });
 
     if let Some(point_light_0) = game_state.point_lights.get_mut(0) {
@@ -640,15 +648,13 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
             LIGHT_COLOR_B,
             (global_time_seconds * 2.0).sin(),
         );
-        let transform = &mut game_state
-            .scene
-            .get_node_mut(point_light_0.node_id)
-            .transform;
-        transform.set_position(Vector3::new(
-            1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).cos(),
-            transform.position().y - frame_time_seconds * 0.25,
-            1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).sin(),
-        ));
+        if let Some(node) = game_state.scene.get_node_mut(point_light_0.node_id) {
+            node.transform.set_position(Vector3::new(
+                1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).cos(),
+                node.transform.position().y - frame_time_seconds * 0.25,
+                1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).sin(),
+            ));
+        }
     }
 
     if let Some(point_light_1) = game_state.point_lights.get_mut(1) {
@@ -671,8 +677,10 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
         .iter()
         .zip(game_state.point_lights.iter())
         .for_each(|(node_id, point_light)| {
-            if let Some(GameNodeMesh::Unlit { ref mut color, .. }) =
-                game_state.scene.get_node_mut(*node_id).mesh
+            if let Some(GameNodeMesh::Unlit { ref mut color, .. }) = game_state
+                .scene
+                .get_node_mut(*node_id)
+                .and_then(|node| node.mesh.as_mut())
             {
                 *color = point_light.color * point_light.intensity;
             }
@@ -702,11 +710,13 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
     // rotate the test object
     let rotational_displacement =
         make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(frame_time_seconds / 5.0));
-    let test_object_transform = &mut game_state
+    if let Some(node) = game_state
         .scene
         .get_node_mut(game_state.test_object_node_id)
-        .transform;
-    test_object_transform.set_rotation(rotational_displacement * test_object_transform.rotation());
+    {
+        node.transform
+            .set_rotation(rotational_displacement * node.transform.rotation());
+    }
 
     // logger.log(&format!("Frame time: {:?}", frame_time_seconds));
     // logger.log(&format!(
@@ -714,10 +724,10 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
     //     game_state.state_update_time_accumulator
     // ));
 
-    // spawn balls over time
+    // remove physics balls over time
     game_state.ball_spawner_acc += frame_time_seconds;
-    let rate = 0.1;
-    let prev_ball_count = game_state.ball_node_ids.len();
+    let rate = 0.01;
+    let prev_ball_count = game_state.physics_balls.len();
     while game_state.ball_spawner_acc > rate {
         // let new_ball = BallComponent::rand();
         // let new_ball_transform = new_ball.transform;
@@ -734,11 +744,14 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
         // game_state
         //     .ball_node_indices
         //     .push(game_state.scene.nodes.len() - 1);
+        if let Some(physics_ball) = game_state.physics_balls.pop() {
+            physics_ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
+        }
         game_state.ball_spawner_acc -= rate;
     }
-    let new_ball_count = game_state.ball_node_ids.len();
+    let new_ball_count = game_state.physics_balls.len();
     if prev_ball_count != new_ball_count {
-        // logger.log(&format!("Ball count: {:?}", new_ball_count));
+        logger.log(&format!("Ball count: {:?}", new_ball_count));
     }
 
     // let physics_time_step_start = Instant::now();
@@ -746,11 +759,12 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
     // logger.log(&format!("Physics step time: {:?}", physics_time_step_start.elapsed()));
     let physics_state = &mut game_state.physics_state;
     let ball_body = &physics_state.rigid_body_set[game_state.bouncing_ball_body_handle];
-    game_state
+    if let Some(node) = game_state
         .scene
         .get_node_mut(game_state.bouncing_ball_node_id)
-        .transform
-        .apply_isometry(*ball_body.position());
+    {
+        node.transform.apply_isometry(*ball_body.position());
+    }
 
     physics_state.integration_parameters.dt = frame_time_seconds;
     game_state

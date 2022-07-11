@@ -57,21 +57,22 @@ fn make_point_light_uniform_buffer(game_state: &GameState) -> Vec<PointLightUnif
     let mut active_lights = game_state
         .point_lights
         .iter()
-        .map(|point_light| {
-            let position = game_state
+        .flat_map(|point_light| {
+            game_state
                 .scene
                 .get_node(point_light.node_id)
-                .transform
-                .position();
-            PointLightUniform {
-                position: [position.x, position.y, position.z, 1.0],
-                color: [
-                    point_light.color.x,
-                    point_light.color.y,
-                    point_light.color.z,
-                    point_light.intensity,
-                ],
-            }
+                .map(|light_node| {
+                    let position = light_node.transform.position();
+                    PointLightUniform {
+                        position: [position.x, position.y, position.z, 1.0],
+                        color: [
+                            point_light.color.x,
+                            point_light.color.y,
+                            point_light.color.z,
+                            point_light.intensity,
+                        ],
+                    }
+                })
         })
         .collect::<Vec<_>>();
     light_uniforms.append(&mut active_lights);
@@ -2130,12 +2131,12 @@ impl RendererState {
                         })
                         .map(|(node_id, material_override)| {
                             let node_ancestry_list = game_scene.get_node_ancestry_list(node_id);
-                            let transform = node_ancestry_list
-                                .iter()
-                                .rev()
-                                .fold(crate::transform::Transform::new(), |acc, node_id| {
-                                    acc * game_scene.get_node(*node_id).transform
-                                });
+                            let transform = node_ancestry_list.iter().rev().fold(
+                                crate::transform::Transform::new(),
+                                |acc, node_id| {
+                                    acc * game_scene.get_node(*node_id).unwrap().transform
+                                },
+                            );
                             GpuPbrMeshInstance::new(
                                 transform,
                                 material_override.unwrap_or(*dynamic_pbr_params),
@@ -2185,12 +2186,12 @@ impl RendererState {
                         })
                         .map(|(node_id, color)| {
                             let node_ancestry_list = game_scene.get_node_ancestry_list(node_id);
-                            let transform = node_ancestry_list
-                                .iter()
-                                .rev()
-                                .fold(crate::transform::Transform::new(), |acc, node_id| {
-                                    acc * game_scene.get_node(*node_id).transform
-                                });
+                            let transform = node_ancestry_list.iter().rev().fold(
+                                crate::transform::Transform::new(),
+                                |acc, node_id| {
+                                    acc * game_scene.get_node(*node_id).unwrap().transform
+                                },
+                            );
                             GpuUnlitMeshInstance {
                                 color: [color.x, color.y, color.z, 1.0],
                                 model_transform: GpuMatrix4(transform.matrix()),
@@ -2275,57 +2276,58 @@ impl RendererState {
                 );
             });
         (0..game_state.point_lights.len()).for_each(|light_index| {
-            build_cubemap_face_camera_views(
-                game_state
-                    .scene
-                    .get_node(game_state.point_lights[light_index].node_id)
-                    .transform
-                    .position(),
-                0.1,
-                1000.0,
-                false,
-            )
-            .iter()
-            .copied()
-            .enumerate()
-            .map(|(i, view_proj_matrices)| {
-                (
-                    view_proj_matrices,
-                    self.point_shadow_map_textures.texture.create_view(
-                        &wgpu::TextureViewDescriptor {
-                            dimension: Some(wgpu::TextureViewDimension::D2),
-                            base_array_layer: (6 * light_index + i).try_into().unwrap(),
-                            array_layer_count: NonZeroU32::new(1),
-                            ..Default::default()
-                        },
-                    ),
+            if let Some(light_node) = game_state
+                .scene
+                .get_node(game_state.point_lights[light_index].node_id)
+            {
+                build_cubemap_face_camera_views(
+                    light_node.transform.position(),
+                    0.1,
+                    1000.0,
+                    false,
                 )
-            })
-            .for_each(|(face_view_proj_matrices, face_texture_view)| {
-                let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
-                    label: Some("Shadow Render Pass"),
-                    color_attachments: &[],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &face_texture_view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(1.0),
-                            store: true,
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, view_proj_matrices)| {
+                    (
+                        view_proj_matrices,
+                        self.point_shadow_map_textures.texture.create_view(
+                            &wgpu::TextureViewDescriptor {
+                                dimension: Some(wgpu::TextureViewDimension::D2),
+                                base_array_layer: (6 * light_index + i).try_into().unwrap(),
+                                array_layer_count: NonZeroU32::new(1),
+                                ..Default::default()
+                            },
+                        ),
+                    )
+                })
+                .for_each(|(face_view_proj_matrices, face_texture_view)| {
+                    let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
+                        label: Some("Shadow Render Pass"),
+                        color_attachments: &[],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &face_texture_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(1.0),
+                                store: true,
+                            }),
+                            stencil_ops: None,
                         }),
-                        stencil_ops: None,
-                    }),
-                };
-                self.base.queue.write_buffer(
-                    &self.camera_buffer,
-                    0,
-                    bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
-                );
-                self.render_scene(
-                    game_state,
-                    &shadow_render_pass_desc,
-                    &self.point_shadow_map_pipeline,
-                    true,
-                );
-            });
+                    };
+                    self.base.queue.write_buffer(
+                        &self.camera_buffer,
+                        0,
+                        bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
+                    );
+                    self.render_scene(
+                        game_state,
+                        &shadow_render_pass_desc,
+                        &self.point_shadow_map_pipeline,
+                        true,
+                    );
+                });
+            }
         });
 
         let black = wgpu::Color {
@@ -2362,7 +2364,7 @@ impl RendererState {
             .iter()
             .rev()
             .fold(crate::transform::Transform::new(), |acc, node_id| {
-                acc * game_state.scene.get_node(*node_id).transform
+                acc * game_state.scene.get_node(*node_id).unwrap().transform
             });
         self.base.queue.write_buffer(
             &self.camera_buffer,

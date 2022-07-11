@@ -47,6 +47,7 @@ pub fn get_all_bone_data(
         for binded_pbr_mesh_index in binded_pbr_mesh_indices.iter().copied() {
             let skin_index = game_scene
                 .get_node(skeleton_root_node_id)
+                .unwrap()
                 .skin_index
                 .unwrap();
             match skin_index_to_slice_map.entry(skin_index) {
@@ -95,11 +96,11 @@ pub fn get_all_bone_data(
     }
 }
 
-pub fn get_bone_model_space_transforms(
+fn get_bone_model_space_transforms(
     game_scene: &GameScene,
-    skeleton_root_node_id: GameNodeId,
+    skeleton_root_node_id: GameNodeId, // node must exist!
 ) -> Vec<Matrix4<f32>> {
-    let skeleton_root_node = &game_scene.get_node(skeleton_root_node_id);
+    let skeleton_root_node = game_scene.get_node(skeleton_root_node_id).unwrap();
     let skin = &game_scene.skins[skeleton_root_node.skin_index.unwrap()];
     // goes from world space into the skeleton's space
     let world_space_to_model_space = skeleton_root_node
@@ -118,7 +119,7 @@ pub fn get_bone_model_space_transforms(
                 .iter()
                 .rev()
                 .fold(crate::transform::Transform::new(), |acc, node_id| {
-                    acc * game_scene.get_node(*node_id).transform
+                    acc * game_scene.get_node(*node_id).unwrap().transform
                 });
             // goes from the skeletons's space into the bone's space
             let skeleton_space_to_bone_space = skin.bone_inverse_bind_matrices[bone_index];

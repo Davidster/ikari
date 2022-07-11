@@ -55,16 +55,18 @@ pub fn update_node_transforms_at_moment(
         }
     }
     for (node_id, op) in ops {
-        let transform = &mut game_scene.get_node_mut(node_id).transform;
-        match op {
-            Op::Translation(translation) => {
-                transform.set_position(translation);
-            }
-            Op::Scale(scale) => {
-                transform.set_scale(scale);
-            }
-            Op::Rotation(rotation) => {
-                transform.set_rotation(rotation);
+        if let Some(node) = game_scene.get_node_mut(node_id) {
+            let transform = &mut node.transform;
+            match op {
+                Op::Translation(translation) => {
+                    transform.set_position(translation);
+                }
+                Op::Scale(scale) => {
+                    transform.set_scale(scale);
+                }
+                Op::Rotation(rotation) => {
+                    transform.set_rotation(rotation);
+                }
             }
         }
     }

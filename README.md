@@ -61,6 +61,7 @@ https://user-images.githubusercontent.com/2389735/178186964-c42f44c7-8e3e-475c-8
 - [x] Bump up to wgpu 0.13.1
 - [x] dynamically resizable buffers
 - [x] move camera controller from renderer module into game module
+- [ ] dedupe the get_ancestry_list -> fold transforms pattern into a function (maybe have a local_transform field and world_transform() function)
 - [ ] what happened to the helicopter in VC? black squares pop up when viewed from a certain distance
 
 

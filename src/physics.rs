@@ -61,4 +61,15 @@ impl PhysicsState {
             &(),
         );
     }
+
+    pub fn remove_rigid_body(&mut self, rigid_body_handle: RigidBodyHandle) {
+        self.rigid_body_set.remove(
+            rigid_body_handle,
+            &mut self.island_manager,
+            &mut self.collider_set,
+            &mut self.impulse_joint_set,
+            &mut self.multibody_joint_set,
+            true,
+        );
+    }
 }

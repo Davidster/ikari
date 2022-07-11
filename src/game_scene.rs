@@ -6,7 +6,7 @@ use super::*;
 
 #[derive(Debug)]
 pub struct GameScene {
-    nodes: Vec<GameNode>,
+    nodes: Vec<Option<GameNode>>, // None means the node was removed from the scene
     pub skins: Vec<Skin>,
     pub animations: Vec<Animation>,
     // node index -> parent node index
@@ -145,6 +145,7 @@ impl GameScene {
             .nodes
             .iter()
             .enumerate()
+            .filter_map(|(node_index, node)| node.as_ref().map(|node| (node_index, node)))
             .filter_map(|(node_index, node)| {
                 node.skin_index
                     .map(|skin_index| (node_index, &self.skins[skin_index]))
@@ -169,7 +170,8 @@ impl GameScene {
             .iter()
             .find_map(|GameNodeId(node_index)| {
                 self.nodes[*node_index]
-                    .skin_index
+                    .as_ref()
+                    .and_then(|node| node.skin_index)
                     .map(|_| GameNodeId(*node_index))
             })
     }
@@ -200,36 +202,64 @@ impl GameScene {
         }
     }
 
-    pub fn add_node(&mut self, node: GameNodeDesc) -> GameNodeId {
+    pub fn add_node(&mut self, node: GameNodeDesc) -> &GameNode {
         let GameNodeDesc {
             transform,
             skin_index,
             mesh,
         } = node;
-        let new_node_id = GameNodeId(self.nodes.len());
-        self.nodes.push(GameNode {
-            transform,
-            skin_index,
-            mesh,
-            id: new_node_id,
-        });
-        new_node_id
+        match self
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(node_index, node)| {
+                if node.is_none() {
+                    Some(node_index)
+                } else {
+                    None
+                }
+            }) {
+            Some(empty_node_index) => {
+                let new_node = GameNode {
+                    transform,
+                    skin_index,
+                    mesh,
+                    id: GameNodeId(empty_node_index),
+                };
+                self.nodes[empty_node_index] = Some(new_node);
+                self.nodes[empty_node_index].as_ref().unwrap()
+            }
+            None => {
+                let new_node = GameNode {
+                    transform,
+                    skin_index,
+                    mesh,
+                    id: GameNodeId(self.nodes.len()),
+                };
+                self.nodes.push(Some(new_node));
+                self.nodes[self.nodes.len() - 1].as_ref().unwrap()
+            }
+        }
     }
 
-    pub fn get_node(&self, GameNodeId(node_index): GameNodeId) -> &GameNode {
-        &self.nodes[node_index]
+    pub fn get_node(&self, GameNodeId(node_index): GameNodeId) -> Option<&GameNode> {
+        self.nodes[node_index].as_ref()
     }
 
-    pub fn get_node_mut(&mut self, GameNodeId(node_index): GameNodeId) -> &mut GameNode {
-        &mut self.nodes[node_index]
+    pub fn get_node_mut(&mut self, GameNodeId(node_index): GameNodeId) -> Option<&mut GameNode> {
+        self.nodes[node_index].as_mut()
     }
 
-    pub fn get_node_mut_by_index(&mut self, index: usize) -> Option<&mut GameNode> {
-        self.nodes.get_mut(index)
+    pub fn get_node_mut_by_index(&mut self, node_index: usize) -> Option<&mut GameNode> {
+        self.nodes[node_index].as_mut()
+    }
+
+    pub fn remove_node(&mut self, GameNodeId(node_index): GameNodeId) {
+        self.nodes[node_index].take();
     }
 
     pub fn nodes(&self) -> impl Iterator<Item = &GameNode> {
-        self.nodes.iter()
+        self.nodes.iter().flatten()
     }
 }
 
