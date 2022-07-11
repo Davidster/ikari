@@ -774,7 +774,7 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
 pub fn init_scene(
     base_renderer_state: &mut BaseRendererState,
     logger: &mut Logger,
-) -> Result<(GameScene, RenderScene)> {
+) -> Result<(GameScene, RenderBuffers)> {
     let (document, buffers, images) = gltf::import(get_gltf_path())?;
     validate_animation_property_counts(&document, logger);
     build_scene(base_renderer_state, (&document, &buffers, &images))

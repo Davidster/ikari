@@ -7,6 +7,12 @@ use anyhow::Result;
 use cgmath::{Deg, Matrix4, One, Vector3};
 use wgpu::util::DeviceExt;
 
+pub const MAX_LIGHT_COUNT: usize = 32;
+pub const MAX_BONES_BUFFER_SIZE_BYTES: u32 = 8192;
+pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
+pub const FAR_PLANE_DISTANCE: f32 = 100000.0;
+pub const FOV_Y: Deg<f32> = Deg(45.0);
+
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct GpuMatrix4(pub cgmath::Matrix4<f32>);
@@ -151,12 +157,6 @@ impl From<Vector3<f32>> for UnlitColorUniform {
     }
 }
 
-pub const MAX_LIGHT_COUNT: usize = 32;
-pub const MAX_BONES_BUFFER_SIZE_BYTES: u32 = 8192;
-pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
-pub const FAR_PLANE_DISTANCE: f32 = 100000.0;
-pub const FOV_Y: Deg<f32> = Deg(45.0);
-
 pub enum SkyboxBackground<'a> {
     Cube { face_image_paths: [&'a str; 6] },
     Equirectangular { image_path: &'a str },
@@ -164,6 +164,44 @@ pub enum SkyboxBackground<'a> {
 
 pub enum SkyboxHDREnvironment<'a> {
     Equirectangular { image_path: &'a str },
+}
+
+#[derive(Debug)]
+pub struct RenderBuffers {
+    pub binded_pbr_meshes: Vec<BindedPbrMesh>,
+    pub binded_unlit_meshes: Vec<BindedUnlitMesh>,
+    // same order as the textures in original gltf asset
+    pub textures: Vec<Texture>,
+}
+
+#[derive(Debug)]
+pub struct BindedPbrMesh {
+    pub geometry_buffers: GeometryBuffers,
+    pub textures_bind_group: wgpu::BindGroup,
+    pub dynamic_pbr_params: DynamicPbrParams,
+
+    pub alpha_mode: AlphaMode,
+    pub primitive_mode: PrimitiveMode,
+}
+
+#[derive(Debug)]
+pub struct GeometryBuffers {
+    pub vertex_buffer: GpuBuffer,
+    pub index_buffer: GpuBuffer,
+    pub instance_buffer: GpuBuffer,
+}
+
+pub type BindedUnlitMesh = GeometryBuffers;
+
+#[derive(Debug)]
+pub enum AlphaMode {
+    Opaque,
+    Mask,
+}
+
+#[derive(Debug)]
+pub enum PrimitiveMode {
+    Triangles,
 }
 
 pub struct BaseRendererState {
@@ -454,12 +492,12 @@ pub struct RendererState {
 
     pub skybox_mesh_buffers: GeometryBuffers,
 
-    pub scene: RenderScene,
+    pub buffers: RenderBuffers,
 }
 
 impl RendererState {
     pub async fn new(
-        scene: RenderScene,
+        buffers: RenderBuffers,
         base: BaseRendererState,
         logger: &mut Logger,
     ) -> Result<Self> {
@@ -1687,18 +1725,15 @@ impl RendererState {
 
             skybox_mesh_buffers,
 
-            scene,
+            buffers,
         })
     }
 
     pub fn bind_basic_unlit_mesh(&mut self, mesh: &BasicMesh) -> Result<usize> {
         let geometry_buffers = self.bind_geometry_buffers_for_basic_mesh(mesh);
 
-        self.scene
-            .buffers
-            .binded_unlit_meshes
-            .push(geometry_buffers);
-        Ok(self.scene.buffers.binded_unlit_meshes.len() - 1)
+        self.buffers.binded_unlit_meshes.push(geometry_buffers);
+        Ok(self.buffers.binded_unlit_meshes.len() - 1)
     }
 
     // returns index of mesh in the RenderScene::binded_pbr_meshes list
@@ -1712,14 +1747,14 @@ impl RendererState {
 
         let textures_bind_group = self.make_pbr_textures_bind_group(material)?;
 
-        self.scene.buffers.binded_pbr_meshes.push(BindedPbrMesh {
+        self.buffers.binded_pbr_meshes.push(BindedPbrMesh {
             geometry_buffers,
             dynamic_pbr_params,
             textures_bind_group,
             alpha_mode: AlphaMode::Opaque,
             primitive_mode: PrimitiveMode::Triangles,
         });
-        Ok(self.scene.buffers.binded_pbr_meshes.len() - 1)
+        Ok(self.buffers.binded_pbr_meshes.len() - 1)
     }
 
     fn bind_geometry_buffers_for_basic_mesh(&self, mesh: &BasicMesh) -> GeometryBuffers {
@@ -2040,7 +2075,6 @@ impl RendererState {
 
         // do animatons
         let game_scene = &mut game_state.scene;
-        let render_scene = &mut self.scene;
         if self.is_playing_animations {
             self.animation_time_acc += frame_time_seconds;
             if let Err(err) = update_node_transforms_at_moment(game_scene, self.animation_time_acc)
@@ -2069,8 +2103,7 @@ impl RendererState {
             }],
             label: Some("bones_bind_group"),
         });
-        render_scene
-            .buffers
+        self.buffers
             .binded_pbr_meshes
             .iter_mut()
             .enumerate()
@@ -2125,8 +2158,7 @@ impl RendererState {
                     }
                 },
             );
-        render_scene
-            .buffers
+        self.buffers
             .binded_unlit_meshes
             .iter_mut()
             .enumerate()
@@ -2383,8 +2415,7 @@ impl RendererState {
 
             unlit_render_pass.set_pipeline(&self.unlit_mesh_pipeline);
 
-            self.scene
-                .buffers
+            self.buffers
                 .binded_unlit_meshes
                 .iter()
                 .enumerate()
@@ -2648,7 +2679,6 @@ impl RendererState {
         let device = &self.base.device;
         let queue = &self.base.queue;
         let limits = &self.base.limits;
-        let render_scene = &self.scene;
         let all_bone_transforms = get_all_bone_data(
             &game_state.scene,
             limits.min_storage_buffer_offset_alignment,
@@ -2659,8 +2689,7 @@ impl RendererState {
         {
             let mut render_pass = encoder.begin_render_pass(render_pass_descriptor);
             render_pass.set_pipeline(pipeline);
-            render_scene
-                .buffers
+            self.buffers
                 .binded_pbr_meshes
                 .iter()
                 .enumerate()

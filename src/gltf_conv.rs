@@ -12,7 +12,7 @@ pub fn build_scene(
         &Vec<gltf::buffer::Data>,
         &Vec<gltf::image::Data>,
     ),
-) -> Result<(GameScene, RenderScene)> {
+) -> Result<(GameScene, RenderBuffers)> {
     let device = &base_renderer_state.device;
     let queue = &base_renderer_state.queue;
     let pbr_textures_bind_group_layout = &base_renderer_state.pbr_textures_bind_group_layout;
@@ -197,11 +197,11 @@ pub fn build_scene(
             wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         );
 
-        let primitive_mode = crate::render_scene::PrimitiveMode::Triangles;
+        let primitive_mode = crate::renderer::PrimitiveMode::Triangles;
 
         let alpha_mode = match primitive_group.material().alpha_mode() {
-            gltf::material::AlphaMode::Opaque => crate::render_scene::AlphaMode::Opaque,
-            gltf::material::AlphaMode::Mask => crate::render_scene::AlphaMode::Mask,
+            gltf::material::AlphaMode::Opaque => crate::renderer::AlphaMode::Opaque,
+            gltf::material::AlphaMode::Mask => crate::renderer::AlphaMode::Mask,
             gltf::material::AlphaMode::Blend => {
                 todo!("Alpha blending isn't yet supported")
             }
@@ -248,12 +248,10 @@ pub fn build_scene(
 
     Ok((
         game_scene,
-        RenderScene {
-            buffers: SceneBuffers {
-                binded_pbr_meshes,
-                binded_unlit_meshes: vec![],
-                textures,
-            },
+        RenderBuffers {
+            binded_pbr_meshes,
+            binded_unlit_meshes: vec![],
+            textures,
         },
     ))
 }
