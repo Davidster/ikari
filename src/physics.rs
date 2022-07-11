@@ -21,6 +21,7 @@ impl PhysicsState {
 
         let gravity = vector![0.0, -9.81, 0.0];
         let integration_parameters = IntegrationParameters::default();
+        // integration_parameters.dt = 1.0 / 240.0;
         let physics_pipeline = PhysicsPipeline::new();
         let island_manager = IslandManager::new();
         let broad_phase = BroadPhase::new();

@@ -27,6 +27,8 @@ pub struct GameState {
     pub bouncing_ball_body_handle: RigidBodyHandle,
 
     pub physics_state: PhysicsState,
+
+    pub physics_balls: Vec<PhysicsBall>,
 }
 
 impl GameState {

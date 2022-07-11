@@ -9,7 +9,7 @@ pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.5;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
 pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
-pub const ARENA_SIDE_LENGTH: f32 = 50.0;
+pub const ARENA_SIDE_LENGTH: f32 = 25.0;
 pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
 pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 
@@ -49,6 +49,7 @@ pub fn get_skybox_path() -> (
     Option<SkyboxHDREnvironment<'static>>,
 ) {
     // Mountains
+    // src: https://github.com/JoeyDeVries/LearnOpenGL/tree/master/resources/textures/skybox
     let _skybox_background = SkyboxBackground::Cube {
         face_image_paths: [
             "./src/textures/skybox/right.jpg",
@@ -62,6 +63,7 @@ pub fn get_skybox_path() -> (
     let _skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
 
     // Newport Loft
+    // src: http://www.hdrlabs.com/sibl/archive/
     let skybox_background = SkyboxBackground::Equirectangular {
         image_path: "./src/textures/newport_loft/background.jpg",
     };
@@ -71,6 +73,7 @@ pub fn get_skybox_path() -> (
         });
 
     // My photosphere pic
+    // src: me
     let _skybox_background = SkyboxBackground::Equirectangular {
         image_path: "./src/textures/photosphere_skybox.jpg",
     };
@@ -88,11 +91,13 @@ pub fn init_game_state(
 ) -> Result<GameState> {
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
     let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
-    let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
+    let _cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
 
     let mut physics_state = PhysicsState::new();
 
-    let camera_controller = CameraController::new(6.0, Camera::new((0.0, 3.0, 4.0).into()));
+    let mut camera = Camera::new((0.0, 16.0, 33.0).into());
+    camera.vertical_rotation = Rad(-0.53);
+    let camera_controller = CameraController::new(6.0, camera);
     scene.nodes.push(GameNode::default());
     let camera_node_index = scene.nodes.len() - 1;
 
@@ -147,12 +152,13 @@ pub fn init_game_state(
     }
 
     // rotate the animated character 90 deg
-    // if let Some(node_0) = scene.nodes.get_mut(0) {
-    //     node_0.transform.set_rotation(make_quat_from_axis_angle(
-    //         Vector3::new(0.0, 1.0, 0.0),
-    //         Deg(90.0).into(),
-    //     ));
-    // }
+    if let Some(node_0) = scene.nodes.get_mut(0) {
+        // node_0.transform.set_rotation(make_quat_from_axis_angle(
+        //     Vector3::new(0.0, 1.0, 0.0),
+        //     Deg(90.0).into(),
+        // ));
+        node_0.transform.set_scale(Vector3::new(0.0, 0.0, 0.0));
+    }
 
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
     // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
@@ -233,6 +239,7 @@ pub fn init_game_state(
             .transform(
                 TransformBuilder::new()
                     .position(Vector3::new(4.0, 10.0, 4.0))
+                    .scale(Vector3::new(0.0, 0.0, 0.0))
                     .build(),
             )
             .build(),
@@ -346,7 +353,7 @@ pub fn init_game_state(
         &Default::default(),
     )?;
 
-    let ball_count = 5;
+    let ball_count = 0;
     let balls: Vec<_> = (0..ball_count)
         .into_iter()
         .map(|_| BallComponent::rand())
@@ -374,6 +381,21 @@ pub fn init_game_state(
                 .build(),
         );
     }
+
+    let physics_ball_count = 1000;
+    let physics_balls: Vec<_> = (0..physics_ball_count)
+        .into_iter()
+        .map(|_| {
+            PhysicsBall::new_random(
+                &mut scene,
+                &mut physics_state,
+                GameNodeMesh::Pbr {
+                    mesh_indices: vec![ball_pbr_mesh_index],
+                    material_override: None,
+                },
+            )
+        })
+        .collect();
 
     // let box_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
     //     &cube_mesh,
@@ -420,7 +442,7 @@ pub fn init_game_state(
                         bouncing_ball_radius,
                         bouncing_ball_radius,
                     ))
-                    .position(Vector3::new(-1.0, 3.0, 0.0))
+                    .position(Vector3::new(-1.0, 10.0, 0.0))
                     .build(),
             )
             .build(),
@@ -441,7 +463,9 @@ pub fn init_game_state(
         floor_transform.scale().x,
         floor_thickness / 2.0,
         floor_transform.scale().z,
-    );
+    )
+    .friction(1.0)
+    .build();
     let floor_body_handle = physics_state.rigid_body_set.insert(floor_rigid_body);
     physics_state.collider_set.insert_with_parent(
         floor_collider,
@@ -495,6 +519,8 @@ pub fn init_game_state(
         bouncing_ball_body_handle,
 
         physics_state,
+
+        physics_balls,
     })
 }
 
@@ -573,6 +599,10 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
     game_state.state_update_time_accumulator += frame_time_seconds;
 
     game_state.camera_controller.update(frame_time_seconds);
+    // logger.log(&format!(
+    //     "camera pose: {:?}",
+    //     game_state.camera_controller.current_pose
+    // ));
     game_state.scene.nodes[game_state.camera_node_index].transform = game_state
         .camera_controller
         .current_pose
@@ -681,25 +711,26 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
     //     game_state.state_update_time_accumulator
     // ));
 
+    // spawn balls over time
     game_state.ball_spawner_acc += frame_time_seconds;
     let rate = 0.1;
     let prev_ball_count = game_state.ball_node_indices.len();
     while game_state.ball_spawner_acc > rate {
-        let new_ball = BallComponent::rand();
-        let new_ball_transform = new_ball.transform;
-        game_state.next_balls.push(new_ball);
-        game_state.scene.nodes.push(
-            GameNodeBuilder::new()
-                .mesh(Some(GameNodeMesh::Pbr {
-                    mesh_indices: vec![game_state.ball_pbr_mesh_index],
-                    material_override: None,
-                }))
-                .transform(new_ball_transform)
-                .build(),
-        );
-        game_state
-            .ball_node_indices
-            .push(game_state.scene.nodes.len() - 1);
+        // let new_ball = BallComponent::rand();
+        // let new_ball_transform = new_ball.transform;
+        // game_state.next_balls.push(new_ball);
+        // game_state.scene.nodes.push(
+        //     GameNodeBuilder::new()
+        //         .mesh(Some(GameNodeMesh::Pbr {
+        //             mesh_indices: vec![game_state.ball_pbr_mesh_index],
+        //             material_override: None,
+        //         }))
+        //         .transform(new_ball_transform)
+        //         .build(),
+        // );
+        // game_state
+        //     .ball_node_indices
+        //     .push(game_state.scene.nodes.len() - 1);
         game_state.ball_spawner_acc -= rate;
     }
     let new_ball_count = game_state.ball_node_indices.len();
@@ -727,6 +758,12 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
     game_state.scene.nodes[game_state.bouncing_ball_node_index]
         .transform
         .apply_isometry(*ball_body.position());
+
+    physics_state.integration_parameters.dt = frame_time_seconds;
+    game_state
+        .physics_balls
+        .iter()
+        .for_each(|physics_ball| physics_ball.update(&mut game_state.scene, physics_state));
 }
 
 pub fn init_scene(

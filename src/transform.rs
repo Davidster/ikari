@@ -89,10 +89,10 @@ impl Transform {
             isometry.translation.z,
         ));
         self.set_rotation(Quaternion::new(
+            isometry.rotation.w,
             isometry.rotation.i,
             isometry.rotation.j,
             isometry.rotation.k,
-            isometry.rotation.w,
         ));
     }
 
