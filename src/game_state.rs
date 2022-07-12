@@ -22,6 +22,7 @@ pub struct GameState {
     pub ball_spawner_acc: f32,
 
     pub test_object_node_id: GameNodeId,
+    pub crosshair_node_id: GameNodeId,
 
     pub bouncing_ball_node_id: GameNodeId,
     pub bouncing_ball_body_handle: RigidBodyHandle,

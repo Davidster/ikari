@@ -145,7 +145,7 @@ impl Default for DynamicPbrParams {
 
 #[derive(Default)]
 pub struct PbrMaterial<'a> {
-    pub diffuse: Option<&'a Texture>,
+    pub base_color: Option<&'a Texture>,
     pub normal: Option<&'a Texture>,
     pub metallic_roughness: Option<&'a Texture>,
     pub emissive: Option<&'a Texture>,

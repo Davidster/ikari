@@ -1806,7 +1806,7 @@ impl RendererState {
         let queue = &self.base.queue;
 
         let auto_generated_diffuse_texture;
-        let diffuse_texture = match material.diffuse {
+        let diffuse_texture = match material.base_color {
             Some(diffuse_texture) => diffuse_texture,
             None => {
                 auto_generated_diffuse_texture =

@@ -25,7 +25,7 @@ pub fn run(
                 game_state.on_frame_started();
                 logger.on_frame_completed();
 
-                update_game_state(&mut game_state, &mut logger);
+                update_game_state(&mut game_state, &renderer_state, &mut logger);
                 renderer_state.update(&mut game_state, &mut logger);
 
                 let last_log_time_clone = last_log_time;

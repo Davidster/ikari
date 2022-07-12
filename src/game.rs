@@ -1,7 +1,7 @@
 use super::*;
 
 use anyhow::Result;
-use cgmath::{Deg, Rad, Vector3};
+use cgmath::{Deg, Rad, Vector3, Vector4};
 use rapier3d::prelude::*;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
@@ -224,7 +224,7 @@ pub fn init_game_state(
     let test_object_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
         &sphere_mesh,
         &PbrMaterial {
-            diffuse: Some(&earth_texture),
+            base_color: Some(&earth_texture),
             normal: Some(&earth_normal_map),
             metallic_roughness: Some(&test_object_metallic_roughness_map),
             ..Default::default()
@@ -341,7 +341,7 @@ pub fn init_game_state(
     let ball_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
         &sphere_mesh,
         &PbrMaterial {
-            diffuse: Some(&mars_texture),
+            base_color: Some(&mars_texture),
             ..Default::default()
         },
         Default::default(),
@@ -403,7 +403,7 @@ pub fn init_game_state(
     let floor_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
         &plane_mesh,
         &PbrMaterial {
-            diffuse: Some(&big_checkerboard_texture),
+            base_color: Some(&big_checkerboard_texture),
             ..Default::default()
         },
         Default::default(),
@@ -448,7 +448,7 @@ pub fn init_game_state(
         let bouncing_ball_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
             &sphere_mesh,
             &PbrMaterial {
-                diffuse: Some(&small_checkerboard_texture),
+                base_color: Some(&small_checkerboard_texture),
                 ..Default::default()
             },
             Default::default(),
@@ -493,6 +493,103 @@ pub fn init_game_state(
         (bouncing_ball_node.id(), bouncing_ball_body_handle)
     };
 
+    // add crosshair to scene
+    let crosshair_texture_img = {
+        let thickness = 8;
+        let gap = 30;
+        let bar_length = 14;
+        let texture_size = 512;
+        let mut img = image::RgbaImage::new(texture_size, texture_size);
+        for x in 0..img.width() {
+            for y in 0..img.height() {
+                let d_x = ((x as i32) - ((texture_size / 2) as i32)).abs();
+                let d_y = ((y as i32) - ((texture_size / 2) as i32)).abs();
+
+                let inside_vertical_bar =
+                    d_x < thickness / 2 && d_y > gap / 2 && d_y < gap + bar_length;
+                let inside_horizontal_bar =
+                    d_y < thickness / 2 && d_x > gap / 2 && d_x < gap + bar_length;
+
+                img.put_pixel(
+                    x,
+                    y,
+                    if inside_vertical_bar || inside_horizontal_bar {
+                        [255, 255, 255, 255].into()
+                    } else {
+                        [0, 0, 0, 0].into()
+                    },
+                );
+            }
+        }
+        img
+    };
+    let crosshair_texture = Texture::from_decoded_image(
+        &renderer_state.base.device,
+        &renderer_state.base.queue,
+        &crosshair_texture_img,
+        crosshair_texture_img.dimensions(),
+        Some("crosshair_texture"),
+        None,
+        false,
+        &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
+            // mag_filter: wgpu::FilterMode::Nearest,
+            // min_filter: wgpu::FilterMode::Nearest,
+            // mipmap_filter: wgpu::FilterMode::Nearest,
+            ..texture::SamplerDescriptor::default().0
+        }),
+    )?;
+    let crosshair_quad = BasicMesh {
+        vertices: vec![[1.0, 1.0], [1.0, -1.0], [-1.0, -1.0], [-1.0, 1.0]]
+            .iter()
+            .map(|position| Vertex {
+                position: [0.0, position[1], position[0]],
+                normal: [0.0, 0.0, 1.0],
+                tex_coords: [0.5 * (position[0] + 1.0), 0.5 * (1.0 - position[1])],
+                tangent: [1.0, 0.0, 0.0],
+                bitangent: [0.0, -1.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                bone_indices: [0, 1, 2, 3],
+                bone_weights: [1.0, 0.0, 0.0, 0.0],
+            })
+            .collect(),
+        indices: vec![0, 2, 1, 0, 3, 2],
+    };
+    let pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
+        &crosshair_quad,
+        &PbrMaterial {
+            ambient_occlusion: Some(&Texture::from_color(
+                &renderer_state.base.device,
+                &renderer_state.base.queue,
+                [0, 0, 0, 0],
+            )?),
+            metallic_roughness: Some(&Texture::from_color(
+                &renderer_state.base.device,
+                &renderer_state.base.queue,
+                [0, 0, 255, 0],
+            )?),
+            base_color: Some(&crosshair_texture),
+            emissive: Some(&crosshair_texture),
+            ..Default::default()
+        },
+        Default::default(),
+    )?;
+    let crosshair_color = Vector3::new(1.0, 0.0, 0.0);
+    let crosshair_node_id = scene
+        .add_node(
+            GameNodeDescBuilder::new()
+                .mesh(Some(GameNodeMesh::Pbr {
+                    mesh_indices: vec![pbr_mesh_index],
+                    material_override: Some(DynamicPbrParams {
+                        emissive_factor: crosshair_color,
+                        base_color_factor: Vector4::new(0.0, 0.0, 0.0, 1.0),
+                        alpha_cutoff: 0.5,
+                        ..Default::default()
+                    }),
+                }))
+                .build(),
+        )
+        .id();
+
     Ok(GameState {
         scene,
         time_tracker: None,
@@ -514,6 +611,7 @@ pub fn init_game_state(
         ball_spawner_acc: 0.0,
 
         test_object_node_id,
+        crosshair_node_id,
 
         bouncing_ball_node_id,
         bouncing_ball_body_handle,
@@ -583,7 +681,11 @@ pub fn process_window_input(
         .process_window_events(event, window, logger);
 }
 
-pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
+pub fn update_game_state(
+    game_state: &mut GameState,
+    renderer_state: &RendererState,
+    logger: &mut Logger,
+) {
     let time_tracker = game_state.time();
     let global_time_seconds = time_tracker.global_time_seconds();
 
@@ -605,12 +707,9 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
     //     "camera pose: {:?}",
     //     game_state.camera_controller.current_pose
     // ));
+    let new_camera_transform = game_state.camera_controller.current_pose.to_transform();
     if let Some(camera_transform) = game_state.scene.get_node_mut(game_state.camera_node_id) {
-        camera_transform.transform = game_state
-            .camera_controller
-            .current_pose
-            .to_transform()
-            .into();
+        camera_transform.transform = new_camera_transform.into();
     }
 
     // update ball positions
@@ -771,6 +870,22 @@ pub fn update_game_state(game_state: &mut GameState, logger: &mut Logger) {
         .physics_balls
         .iter()
         .for_each(|physics_ball| physics_ball.update(&mut game_state.scene, physics_state));
+
+    if let Some(crosshair_node) = game_state.scene.get_node_mut(game_state.crosshair_node_id) {
+        crosshair_node.transform = crate::transform::Transform::from(new_camera_transform)
+            * TransformBuilder::new()
+                .position(Vector3::new(0.0, 0.0, -NEAR_PLANE_DISTANCE * 2.0))
+                .rotation(make_quat_from_axis_angle(
+                    Vector3::new(0.0, 1.0, 0.0),
+                    Deg(90.0).into(),
+                ))
+                .scale(
+                    (1080.0 / renderer_state.base.window_size.height as f32)
+                        * 0.0001f32
+                        * Vector3::new(1.0, 1.0, 1.0),
+                )
+                .build();
+    }
 }
 
 pub fn init_scene(
