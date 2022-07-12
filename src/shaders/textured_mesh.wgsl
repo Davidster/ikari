@@ -488,12 +488,12 @@ fn do_fragment_shade(
         let from_shadow_vec = world_position - light.position.xyz;
         let shadow_camera_far_plane_distance = 1000.0;
         let current_depth = length(from_shadow_vec) / shadow_camera_far_plane_distance;
+        let bias = 0.0001;
 
+        // soft shadows
         // irregular shadow sampling
         var shadow_occlusion_acc = 0.0;
-        let bias = 0.0001;
         let sample_count = 4.0;
-
         let max_offset_x = 0.01 + 0.04 * rand(random_seed * 1.0);
         let max_offset_y = 0.01 + 0.04 * rand(random_seed * 2.0);
         let max_offset_z = 0.01 + 0.04 * rand(random_seed * 3.0);
@@ -543,6 +543,18 @@ fn do_fragment_shade(
         // }
         // let shadow_occlusion_factor = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
 
+        // hard shadows
+        // var shadow_occlusion_factor = 1.0;
+        // let closest_depth = textureSample(
+        //     point_shadow_map_textures,
+        //     point_shadow_map_sampler,
+        //     world_normal_to_cubemap_vec(from_shadow_vec),
+        //     i32(light_index)
+        // ).r;
+        // if (current_depth - bias < closest_depth) {
+        //     shadow_occlusion_factor = 1.0;
+        // }
+
         if (shadow_occlusion_factor < epsilon) {
                 continue;
         }
@@ -590,14 +602,13 @@ fn do_fragment_shade(
             1.0 - (light_space_position.y * 0.5 + 0.5),
         );
         let current_depth = light_space_position.z;
-
-        var shadow_occlusion_acc = 0.0;
         let bias = 0.0001;
-        let sample_count = 4.0;
 
+        // soft shadows
+        var shadow_occlusion_acc = 0.0;
+        let sample_count = 4.0;
         let max_offset_x = 0.0001 + 0.0005 * rand(random_seed * 1.0);
         let max_offset_y = 0.0001 + 0.0005 * rand(random_seed * 2.0);
-
         for (var x = 0.0; x < sample_count; x = x + 1.0) {
             for (var y = 0.0; y < sample_count; y = y + 1.0) {
                 let irregular_offset = vec2<f32>(
@@ -619,11 +630,24 @@ fn do_fragment_shade(
                 }
             }
         }
-
-
-
         let shadow_occlusion_factor = shadow_occlusion_acc / (sample_count * sample_count);
-        // let shadow_occlusion_factor = shadow_occlusion_acc;
+
+        // hard shadows
+        // var shadow_occlusion_factor = 1.0;
+        // let closest_depth = textureSample(
+        //     directional_shadow_map_textures,
+        //     directional_shadow_map_sampler,
+        //     light_space_position_uv,
+        //     i32(light_index)
+        // ).r;
+        // if (light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0) {
+        //     if (current_depth - bias < closest_depth) {
+        //         shadow_occlusion_factor = 1.0;
+        //     }
+        // } else {
+        //     shadow_occlusion_factor = 1.0;
+        // }
+
 
         if (shadow_occlusion_factor < epsilon) {
                 continue;

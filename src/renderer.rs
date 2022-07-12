@@ -1776,7 +1776,7 @@ impl RendererState {
         let index_buffer = GpuBuffer::from_bytes(
             device,
             bytemuck::cast_slice(&mesh.indices),
-            std::mem::size_of::<u16>(),
+            std::mem::size_of::<u32>(),
             wgpu::BufferUsages::INDEX,
         );
 
@@ -2211,6 +2211,62 @@ impl RendererState {
                 },
             );
 
+        // let total_instance_buffer_memory_usage = self
+        //     .buffers
+        //     .binded_pbr_meshes
+        //     .iter()
+        //     .map(|mesh| mesh.geometry_buffers.instance_buffer._length_bytes())
+        //     .chain(
+        //         self.buffers
+        //             .binded_unlit_meshes
+        //             .iter()
+        //             .map(|mesh| mesh.instance_buffer._length_bytes()),
+        //     )
+        //     .reduce(|acc, val| acc + val);
+        // let total_instance_buffer_count =
+        //     self.buffers.binded_pbr_meshes.len() + self.buffers.binded_pbr_meshes.len();
+        // logger.log(&format!(
+        //     "total_instance_buffer_memory_usage={:?}",
+        //     total_instance_buffer_memory_usage
+        // ));
+        // logger.log(&format!(
+        //     "total_instance_buffer_count={:?}",
+        //     total_instance_buffer_count
+        // ));
+
+        // let total_index_buffer_memory_usage = self
+        //     .buffers
+        //     .binded_pbr_meshes
+        //     .iter()
+        //     .map(|mesh| mesh.geometry_buffers.index_buffer._length_bytes())
+        //     .chain(
+        //         self.buffers
+        //             .binded_unlit_meshes
+        //             .iter()
+        //             .map(|mesh| mesh.index_buffer._length_bytes()),
+        //     )
+        //     .reduce(|acc, val| acc + val);
+        // logger.log(&format!(
+        //     "total_index_buffer_memory_usage={:?}",
+        //     total_index_buffer_memory_usage
+        // ));
+
+        // let total_vertex_buffer_memory_usage = self
+        //     .buffers
+        //     .binded_pbr_meshes
+        //     .iter()
+        //     .map(|mesh| mesh.geometry_buffers.vertex_buffer._length_bytes())
+        //     .chain(
+        //         self.buffers
+        //             .binded_unlit_meshes
+        //             .iter()
+        //             .map(|mesh| mesh.vertex_buffer._length_bytes()),
+        //     )
+        //     .reduce(|acc, val| acc + val);
+        // logger.log(&format!(
+        //     "total_vertex_buffer_memory_usage={:?}",
+        //     total_vertex_buffer_memory_usage
+        // ));
         queue.write_buffer(
             &self.point_lights_buffer,
             0,
@@ -2450,7 +2506,7 @@ impl RendererState {
                             unlit_render_pass.set_vertex_buffer(1, instance_buffer.src().slice(..));
                             unlit_render_pass.set_index_buffer(
                                 index_buffer.src().slice(..),
-                                wgpu::IndexFormat::Uint16,
+                                wgpu::IndexFormat::Uint32,
                             );
                             unlit_render_pass.draw_indexed(
                                 0..index_buffer.length() as u32,
@@ -2589,7 +2645,7 @@ impl RendererState {
                 .set_vertex_buffer(0, self.skybox_mesh_buffers.vertex_buffer.src().slice(..));
             skybox_render_pass.set_index_buffer(
                 self.skybox_mesh_buffers.index_buffer.src().slice(..),
-                wgpu::IndexFormat::Uint16,
+                wgpu::IndexFormat::Uint32,
             );
             skybox_render_pass.draw_indexed(
                 0..(self.skybox_mesh_buffers.index_buffer.length() as u32),
@@ -2746,7 +2802,7 @@ impl RendererState {
                             );
                             render_pass.set_index_buffer(
                                 geometry_buffers.index_buffer.src().slice(..),
-                                wgpu::IndexFormat::Uint16,
+                                wgpu::IndexFormat::Uint32,
                             );
                             render_pass.draw_indexed(
                                 0..geometry_buffers.index_buffer.length() as u32,

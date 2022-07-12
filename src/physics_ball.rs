@@ -2,7 +2,7 @@ use cgmath::Vector3;
 
 use super::*;
 
-const RESTITUTION: f32 = 0.9;
+const RESTITUTION: f32 = 1.0;
 
 #[derive(Clone, Debug)]
 pub struct PhysicsBall {
@@ -60,7 +60,7 @@ impl PhysicsBall {
         let radius = 0.1 + (rand::random::<f32>() * 0.5);
         let position = Vector3::new(
             ARENA_SIDE_LENGTH * (rand::random::<f32>() * 2.0 - 1.0),
-            radius * 2.0 + rand::random::<f32>() * 30.0 + 5.0,
+            radius * 2.0 + rand::random::<f32>() * 15.0 + 2.0,
             ARENA_SIDE_LENGTH * (rand::random::<f32>() * 2.0 - 1.0),
         );
         Self::new(game_scene, physics_state, mesh, position, radius)
@@ -76,5 +76,9 @@ impl PhysicsBall {
     pub fn destroy(&self, game_scene: &mut GameScene, physics_state: &mut PhysicsState) {
         game_scene.remove_node(self.node_id);
         physics_state.remove_rigid_body(self.rigid_body_handle);
+    }
+
+    pub fn rigid_body_handle(&self) -> RigidBodyHandle {
+        self.rigid_body_handle
     }
 }

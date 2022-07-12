@@ -652,26 +652,24 @@ pub fn build_geometry_buffers(
         )
     };
 
-    let indices: Vec<u16> = primitive_group
+    let indices: Vec<u32> = primitive_group
         .indices()
         .map(|accessor| {
             let data_type = accessor.data_type();
             let buffer_slice = get_buffer_slice_from_accessor(accessor, buffers);
 
-            let indices: Vec<u16> = match data_type {
-                gltf::accessor::DataType::U16 => {
-                    anyhow::Ok(bytemuck::cast_slice(&buffer_slice).to_vec())
-                }
+            let indices: Vec<u32> = match data_type {
+                gltf::accessor::DataType::U16 => anyhow::Ok(
+                    bytemuck::cast_slice::<_, u16>(&buffer_slice)
+                        .iter()
+                        .map(|&x| x as u32)
+                        .collect::<Vec<_>>(),
+                ),
                 gltf::accessor::DataType::U8 => {
-                    anyhow::Ok(buffer_slice.iter().map(|&x| x as u16).collect::<Vec<u16>>())
+                    anyhow::Ok(buffer_slice.iter().map(|&x| x as u32).collect::<Vec<_>>())
                 }
                 gltf::accessor::DataType::U32 => {
-                    let as_u32 = bytemuck::cast_slice::<_, u32>(&buffer_slice);
-                    let as_u16: Vec<_> = as_u32
-                        .iter()
-                        .map(|&x| u16::try_from(x))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    anyhow::Ok(as_u16)
+                    anyhow::Ok(bytemuck::cast_slice::<_, u32>(&buffer_slice).to_vec())
                 }
                 data_type => {
                     bail!("Expected u32, u16 or u8 indices but found: {:?}", data_type)
@@ -680,8 +678,8 @@ pub fn build_geometry_buffers(
             anyhow::Ok(indices)
         })
         .unwrap_or_else(|| {
-            let vertex_position_count_u16 = u16::try_from(vertex_position_count)?;
-            Ok((0..vertex_position_count_u16).collect())
+            let vertex_position_count_u32 = u32::try_from(vertex_position_count)?;
+            Ok((0..vertex_position_count_u32).collect())
         })?;
 
     let triangle_count = indices.len() / 3;
@@ -980,17 +978,12 @@ pub fn build_geometry_buffers(
                     let delta_uv_1 = points_with_attribs[1].2 - points_with_attribs[0].2;
                     let delta_uv_2 = points_with_attribs[2].2 - points_with_attribs[0].2;
 
+                    let f = 1.0 / (delta_uv_1.x * delta_uv_2.y - delta_uv_2.x * delta_uv_1.y);
+
                     let (tangent, bitangent) = {
-                        if abs_diff_eq!(delta_uv_1.x, 0.0, epsilon = 0.00001)
-                            && abs_diff_eq!(delta_uv_2.x, 0.0, epsilon = 0.00001)
-                            && abs_diff_eq!(delta_uv_1.y, 0.0, epsilon = 0.00001)
-                            && abs_diff_eq!(delta_uv_2.y, 0.0, epsilon = 0.00001)
-                        {
+                        if abs_diff_eq!(f, 0.0, epsilon = 0.00001) || !f.is_finite() {
                             (Vector3::new(1.0, 0.0, 0.0), Vector3::new(0.0, 1.0, 0.0))
                         } else {
-                            let f =
-                                1.0 / (delta_uv_1.x * delta_uv_2.y - delta_uv_2.x * delta_uv_1.y);
-
                             let tangent = Vector3::new(
                                 f * (delta_uv_2.y * edge_1.x - delta_uv_1.y * edge_2.x),
                                 f * (delta_uv_2.y * edge_1.y - delta_uv_1.y * edge_2.y),
@@ -1039,7 +1032,7 @@ pub fn build_geometry_buffers(
     let index_buffer = GpuBuffer::from_bytes(
         device,
         bytemuck::cast_slice(&indices),
-        std::mem::size_of::<u16>(),
+        std::mem::size_of::<u32>(),
         wgpu::BufferUsages::INDEX,
     );
 

@@ -30,6 +30,7 @@ pub struct GameState {
     pub physics_state: PhysicsState,
 
     pub physics_balls: Vec<PhysicsBall>,
+    pub mouse_button_pressed: bool,
 }
 
 impl GameState {

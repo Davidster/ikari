@@ -126,7 +126,7 @@ impl CameraController {
 
     pub fn update(&mut self, dt: f32) {
         if let Some((d_x, d_y)) = self.unprocessed_delta {
-            let mouse_sensitivity = 0.003;
+            let mouse_sensitivity = 0.002;
 
             self.target_pose.horizontal_rotation += Rad(-d_x as f32 * mouse_sensitivity);
             self.target_pose.vertical_rotation = Rad((self.target_pose.vertical_rotation.0

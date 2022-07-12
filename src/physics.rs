@@ -12,6 +12,8 @@ pub struct PhysicsState {
     pub impulse_joint_set: ImpulseJointSet,
     pub multibody_joint_set: MultibodyJointSet,
     pub ccd_solver: CCDSolver,
+
+    pub query_pipeline: QueryPipeline,
 }
 
 impl PhysicsState {
@@ -19,7 +21,7 @@ impl PhysicsState {
         let rigid_body_set = RigidBodySet::new();
         let collider_set = ColliderSet::new();
 
-        let gravity = vector![0.0, -9.81, 0.0];
+        let gravity = vector![0.0, -5.0, 0.0];
         let integration_parameters = IntegrationParameters::default();
         // integration_parameters.dt = 1.0 / 240.0;
         let physics_pipeline = PhysicsPipeline::new();
@@ -29,6 +31,8 @@ impl PhysicsState {
         let impulse_joint_set = ImpulseJointSet::new();
         let multibody_joint_set = MultibodyJointSet::new();
         let ccd_solver = CCDSolver::new();
+
+        let query_pipeline = QueryPipeline::new();
 
         Self {
             gravity,
@@ -42,6 +46,8 @@ impl PhysicsState {
             impulse_joint_set,
             multibody_joint_set,
             ccd_solver,
+
+            query_pipeline,
         }
     }
 
@@ -59,6 +65,12 @@ impl PhysicsState {
             &mut self.ccd_solver,
             &(),
             &(),
+        );
+
+        self.query_pipeline.update(
+            &mut self.island_manager,
+            &mut self.rigid_body_set,
+            &mut self.collider_set,
         );
     }
 

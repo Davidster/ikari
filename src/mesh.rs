@@ -154,7 +154,7 @@ pub struct PbrMaterial<'a> {
 
 pub struct BasicMesh {
     pub vertices: Vec<Vertex>,
-    pub indices: Vec<u16>,
+    pub indices: Vec<u32>,
 }
 
 impl BasicMesh {
@@ -280,9 +280,9 @@ impl BasicMesh {
                         let normal_index = vti.2.expect("Obj file is missing normal");
                         let uv_index = vti.1.unwrap();
                         let key = (pos_index, normal_index, uv_index);
-                        index_map.get(&key).map(|final_index| *final_index as u16)
+                        index_map.get(&key).map(|final_index| *final_index as u32)
                     })
-                    .collect::<Vec<u16>>()
+                    .collect::<Vec<u32>>()
             })
             .collect();
         Ok(BasicMesh { vertices, indices })

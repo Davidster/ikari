@@ -3,7 +3,9 @@ use super::*;
 use anyhow::Result;
 use cgmath::{Deg, Rad, Vector3, Vector4};
 use rapier3d::prelude::*;
-use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
+use winit::event::{
+    DeviceEvent, ElementState, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent,
+};
 
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.5;
@@ -16,7 +18,8 @@ pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 #[allow(clippy::let_and_return)]
 fn get_gltf_path() -> &'static str {
     // let gltf_path = "/home/david/Downloads/adamHead/adamHead.gltf";
-    // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/VC/glTF/VC.gltf";
+    let gltf_path = "/home/david/Downloads/free_low_poly_forest/scene_2.glb";
+    // let gltf_path = "/home/david/Downloads/free_low_poly_forest/scene.gltf";
     // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
     // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf";
     // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
@@ -34,7 +37,7 @@ fn get_gltf_path() -> &'static str {
     // let gltf_path = "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
     // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
     // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
-    let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
+    // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
     // let gltf_path =
     //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
     // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
@@ -361,7 +364,7 @@ pub fn init_game_state(
         ball_node_ids.push(node.id());
     }
 
-    let physics_ball_count = 2000;
+    let physics_ball_count = 25;
     let physics_balls: Vec<_> = (0..physics_ball_count)
         .into_iter()
         .map(|_| {
@@ -435,6 +438,7 @@ pub fn init_game_state(
         floor_node.transform.scale().z,
     )
     .friction(1.0)
+    .restitution(1.0)
     .build();
     let floor_body_handle = physics_state.rigid_body_set.insert(floor_rigid_body);
     physics_state.collider_set.insert_with_parent(
@@ -619,6 +623,7 @@ pub fn init_game_state(
         physics_state,
 
         physics_balls,
+        mouse_button_pressed: false,
     })
 }
 
@@ -639,6 +644,14 @@ pub fn process_window_input(
     window: &mut winit::window::Window,
     logger: &mut Logger,
 ) {
+    if let WindowEvent::MouseInput {
+        state,
+        button: MouseButton::Left,
+        ..
+    } = event
+    {
+        game_state.mouse_button_pressed = *state == ElementState::Pressed;
+    }
     if let WindowEvent::KeyboardInput {
         input:
             KeyboardInput {
@@ -843,9 +856,9 @@ pub fn update_game_state(
         // game_state
         //     .ball_node_indices
         //     .push(game_state.scene.nodes.len() - 1);
-        if let Some(physics_ball) = game_state.physics_balls.pop() {
-            physics_ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
-        }
+        // if let Some(physics_ball) = game_state.physics_balls.pop() {
+        //     physics_ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
+        // }
         game_state.ball_spawner_acc -= rate;
     }
     let new_ball_count = game_state.physics_balls.len();
@@ -886,6 +899,60 @@ pub fn update_game_state(
                 )
                 .build();
     }
+
+    if game_state.mouse_button_pressed {
+        let camera_position = game_state.camera_controller.current_pose.position;
+        let direction_vec = game_state
+            .camera_controller
+            .current_pose
+            .get_direction_vector();
+        let ray = Ray::new(
+            point![camera_position.x, camera_position.y, camera_position.z],
+            vector![direction_vec.x, direction_vec.y, direction_vec.z],
+        );
+        let max_distance = ARENA_SIDE_LENGTH * 10.0;
+        let solid = true;
+        if let Some((collider_handle, collision_point_distance)) =
+            game_state.physics_state.query_pipeline.cast_ray(
+                &game_state.physics_state.collider_set,
+                &ray,
+                max_distance,
+                solid,
+                InteractionGroups::all(),
+                None,
+            )
+        {
+            // The first collider hit has the handle `handle` and it hit after
+            // the ray travelled a distance equal to `ray.dir * toi`.
+            let hit_point = ray.point_at(collision_point_distance); // Same as: `ray.origin + ray.dir * toi`
+            logger.log(&format!(
+                "Collider {:?} hit at point {}",
+                collider_handle, hit_point
+            ));
+            if let Some(rigid_body_handle) = game_state
+                .physics_state
+                .collider_set
+                .get(collider_handle)
+                .unwrap()
+                .parent()
+            {
+                if let Some((ball_index, ball)) = game_state
+                    .physics_balls
+                    .iter()
+                    .enumerate()
+                    .find(|(_, ball)| ball.rigid_body_handle() == rigid_body_handle)
+                {
+                    logger.log(&format!(
+                        "Hit physics ball {:?} hit at point {}",
+                        ball_index, hit_point
+                    ));
+                    ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
+                    game_state.physics_balls.remove(ball_index);
+                }
+            }
+        }
+    }
+    game_state.mouse_button_pressed = false;
 }
 
 pub fn init_scene(

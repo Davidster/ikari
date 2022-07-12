@@ -573,7 +573,7 @@ impl Texture {
                 rpass.set_vertex_buffer(0, skybox_buffers.vertex_buffer.src().slice(..));
                 rpass.set_index_buffer(
                     skybox_buffers.index_buffer.src().slice(..),
-                    wgpu::IndexFormat::Uint16,
+                    wgpu::IndexFormat::Uint32,
                 );
                 rpass.draw_indexed(0..(skybox_buffers.index_buffer.length() as u32), 0, 0..1);
             }
@@ -758,7 +758,7 @@ impl Texture {
                 rpass.set_vertex_buffer(0, skybox_buffers.vertex_buffer.src().slice(..));
                 rpass.set_index_buffer(
                     skybox_buffers.index_buffer.src().slice(..),
-                    wgpu::IndexFormat::Uint16,
+                    wgpu::IndexFormat::Uint32,
                 );
                 rpass.draw_indexed(0..(skybox_buffers.index_buffer.length() as u32), 0, 0..1);
             }
@@ -980,7 +980,7 @@ impl Texture {
                                 .set_vertex_buffer(0, skybox_buffers.vertex_buffer.src().slice(..));
                             rpass.set_index_buffer(
                                 skybox_buffers.index_buffer.src().slice(..),
-                                wgpu::IndexFormat::Uint16,
+                                wgpu::IndexFormat::Uint32,
                             );
                             rpass.draw_indexed(
                                 0..(skybox_buffers.index_buffer.length() as u32),
