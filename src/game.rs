@@ -27,16 +27,17 @@ fn get_gltf_path() -> &'static str {
     // let gltf_path = "./src/models/gltf/Arrow/Arrow.gltf";
     // let gltf_path = "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf";
     // let gltf_path = "./src/models/gltf/VertexColorTest/VertexColorTest.gltf";
+    // let gltf_path = "./src/models/gltf/Revolver/revolver_low_poly.gltf";
     // let gltf_path =
     //     "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf";
     // let gltf_path =
     //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb";
     // let gltf_path = "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.gltf";
     // let gltf_path = "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
+    let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
     // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
     // let gltf_path = "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf";
-    let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
+    // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
     // let gltf_path =
     //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
     // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
@@ -90,6 +91,7 @@ pub fn get_skybox_path() -> (
 pub fn init_game_state(
     mut scene: GameScene,
     renderer_state: &mut RendererState,
+    logger: &mut Logger,
 ) -> Result<GameState> {
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
     let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
@@ -155,13 +157,14 @@ pub fn init_game_state(
     }
 
     // rotate the animated character 90 deg
-    // if let Some(node_0) = scene.get_node_mut_by_index(0) {
-    //     node_0.transform.set_rotation(make_quat_from_axis_angle(
-    //         Vector3::new(0.0, 1.0, 0.0),
-    //         Deg(90.0).into(),
-    //     ));
-    //     // node_0.transform.set_scale(Vector3::new(0.0, 0.0, 0.0));
-    // }
+    if let Some(node_0) = scene._get_node_mut_by_index(0) {
+        // node_0.transform.set_rotation(make_quat_from_axis_angle(
+        //     Vector3::new(0.0, 1.0, 0.0),
+        //     Deg(90.0).into(),
+        // ));
+        // node_0.transform.set_scale(Vector3::new(0.0, 0.0, 0.0));
+        node_0.transform.set_position(Vector3::new(2.0, 0.0, 0.0));
+    }
 
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
     // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
@@ -592,6 +595,36 @@ pub fn init_game_state(
                 .build(),
         )
         .id();
+
+    // merge revolver scene into current scene
+    // let (document, buffers, images) =
+    //     gltf::import("./src/models/gltf/Revolver/revolver_low_poly.gltf")?;
+    let (document, buffers, images) =
+        gltf::import("../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf")?;
+    validate_animation_property_counts(&document, logger);
+    let (revolver_game_scene, mut revolver_render_buffers) =
+        build_scene(&renderer_state.base, (&document, &buffers, &images))?;
+    let pbr_mesh_offset = renderer_state.buffers.binded_pbr_meshes.len();
+    let unlit_mesh_offset = renderer_state.buffers.binded_unlit_meshes.len();
+    renderer_state
+        .buffers
+        .binded_pbr_meshes
+        .append(&mut revolver_render_buffers.binded_pbr_meshes);
+    renderer_state
+        .buffers
+        .binded_unlit_meshes
+        .append(&mut revolver_render_buffers.binded_unlit_meshes);
+    renderer_state
+        .buffers
+        .textures
+        .append(&mut revolver_render_buffers.textures);
+    scene.merge_scene(revolver_game_scene, pbr_mesh_offset, unlit_mesh_offset);
+
+    // let revolver_node = revolver_game_scene.
+    // scene.add_node(GameNodeDescBuilder::new().mesh(Some(GameNodeMesh::Pbr {
+    //     mesh_indices: Vec<usize>,
+    //     material_override: Option<DynamicPbrParams>,
+    // })).build());
 
     Ok(GameState {
         scene,

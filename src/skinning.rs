@@ -10,6 +10,7 @@ pub struct AllBoneTransforms {
     pub identity_slice: (usize, usize),
 }
 
+#[derive(Debug)]
 pub struct AllBoneTransformsSlice {
     pub binded_pbr_mesh_index: usize,
     pub start_index: usize,
@@ -73,17 +74,17 @@ pub fn get_all_bone_data(
                             .copied()
                             .map(GpuMatrix4)
                             .collect();
-                    // add padding
-                    let mut padding: Vec<_> = (0..buffer.len()
-                        % min_storage_buffer_offset_alignment as usize)
-                        .map(|_| 0u8)
-                        .collect();
 
                     let start_index = buffer.len();
                     let end_index = start_index + bone_transforms.len() * matrix_size_bytes;
-
                     buffer.append(&mut bytemuck::cast_slice(&bone_transforms).to_vec());
+
+                    // add padding
+                    let needed_padding = min_storage_buffer_offset_alignment as usize
+                        - (buffer.len() % min_storage_buffer_offset_alignment as usize);
+                    let mut padding: Vec<_> = (0..needed_padding).map(|_| 0u8).collect();
                     buffer.append(&mut padding);
+
                     animated_bone_transforms.push(AllBoneTransformsSlice {
                         binded_pbr_mesh_index,
                         start_index,
