@@ -3,9 +3,7 @@ use super::*;
 use anyhow::Result;
 use cgmath::{Deg, Rad, Vector3, Vector4};
 use rapier3d::prelude::*;
-use winit::event::{
-    DeviceEvent, ElementState, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent,
-};
+use winit::event::{ElementState, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent};
 
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.5;
@@ -18,7 +16,7 @@ pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 #[allow(clippy::let_and_return)]
 fn get_gltf_path() -> &'static str {
     // let gltf_path = "/home/david/Downloads/adamHead/adamHead.gltf";
-    let gltf_path = "/home/david/Downloads/free_low_poly_forest/scene_2.glb";
+    // let gltf_path = "/home/david/Downloads/free_low_poly_forest/scene_2.glb";
     // let gltf_path = "/home/david/Downloads/free_low_poly_forest/scene.gltf";
     // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
     // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf";
@@ -37,7 +35,8 @@ fn get_gltf_path() -> &'static str {
     // let gltf_path = "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
     // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
     // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
+    // let gltf_path = "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf";
+    let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
     // let gltf_path =
     //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
     // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
@@ -156,13 +155,13 @@ pub fn init_game_state(
     }
 
     // rotate the animated character 90 deg
-    if let Some(node_0) = scene.get_node_mut_by_index(0) {
-        node_0.transform.set_rotation(make_quat_from_axis_angle(
-            Vector3::new(0.0, 1.0, 0.0),
-            Deg(90.0).into(),
-        ));
-        // node_0.transform.set_scale(Vector3::new(0.0, 0.0, 0.0));
-    }
+    // if let Some(node_0) = scene.get_node_mut_by_index(0) {
+    //     node_0.transform.set_rotation(make_quat_from_axis_angle(
+    //         Vector3::new(0.0, 1.0, 0.0),
+    //         Deg(90.0).into(),
+    //     ));
+    //     // node_0.transform.set_scale(Vector3::new(0.0, 0.0, 0.0));
+    // }
 
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
     // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;

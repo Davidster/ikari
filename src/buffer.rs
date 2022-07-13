@@ -88,7 +88,7 @@ impl GpuBuffer {
         self.length
     }
 
-    pub fn _length_bytes(&self) -> usize {
+    pub fn length_bytes(&self) -> usize {
         self.length * self.stride
     }
 

@@ -68,9 +68,9 @@ impl PhysicsState {
         );
 
         self.query_pipeline.update(
-            &mut self.island_manager,
-            &mut self.rigid_body_set,
-            &mut self.collider_set,
+            &self.island_manager,
+            &self.rigid_body_set,
+            &self.collider_set,
         );
     }
 
