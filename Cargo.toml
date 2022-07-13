@@ -22,3 +22,9 @@ dialoguer = "0.10.0"
 rand = "0.8.5"
 gltf = "1.0.0"
 rapier3d = "0.13.0"
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# [profile.release]
+# codegen-units = 1

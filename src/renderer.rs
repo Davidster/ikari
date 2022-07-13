@@ -480,7 +480,7 @@ pub struct RendererState {
     camera_buffer: wgpu::Buffer,
     point_lights_buffer: wgpu::Buffer,
     directional_lights_buffer: wgpu::Buffer,
-    bones_buffer: wgpu::Buffer,
+    bones_buffer: GpuBuffer,
     bloom_config_buffer: wgpu::Buffer,
     tone_mapping_config_buffer: wgpu::Buffer,
 
@@ -490,6 +490,8 @@ pub struct RendererState {
     tone_mapping_texture: Texture,
     depth_texture: Texture,
     bloom_pingpong_textures: [Texture; 2],
+
+    all_bone_transforms: AllBoneTransforms,
 
     pub skybox_mesh_buffers: GeometryBuffers,
 
@@ -1582,20 +1584,21 @@ impl RendererState {
         let initial_bone_transforms_data = (0..MAX_BONES_BUFFER_SIZE_BYTES)
             .map(|_| 0u8)
             .collect::<Vec<_>>();
-        let bones_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Bones Buffer"),
-            contents: &initial_bone_transforms_data,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        });
+        let bones_buffer = GpuBuffer::empty(
+            device,
+            1,
+            std::mem::size_of::<GpuMatrix4>(),
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
 
         let bones_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: bones_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &bones_buffer,
+                    buffer: bones_buffer.src(),
                     offset: 0,
-                    size: NonZeroU64::new(initial_bone_transforms_data.len().try_into().unwrap()),
+                    size: NonZeroU64::new(bones_buffer.length_bytes().try_into().unwrap()),
                 }),
             }],
             label: Some("bones_bind_group"),
@@ -1727,6 +1730,12 @@ impl RendererState {
             skybox_mesh_buffers,
 
             buffers,
+
+            all_bone_transforms: AllBoneTransforms {
+                buffer: vec![],
+                animated_bone_transforms: vec![],
+                identity_slice: (0, 0),
+            },
         })
     }
 
@@ -2089,17 +2098,26 @@ impl RendererState {
         let queue = &mut self.base.queue;
         let device = &self.base.device;
         let bones_bind_group_layout = &self.base.bones_bind_group_layout;
-        let all_bone_transforms =
+        let yo = std::time::Instant::now();
+        self.all_bone_transforms =
             get_all_bone_data(game_scene, limits.min_storage_buffer_offset_alignment);
-        queue.write_buffer(&self.bones_buffer, 0, &all_bone_transforms.buffer);
+        // queue.write_buffer(&self.bones_buffer, 0, &all_bone_transforms.buffer);
+        self.bones_buffer
+            .write(device, queue, &self.all_bone_transforms.buffer);
+        // dbg!("yo");
+        logger.log(&format!("get_all_bone_data length -> {:?}", yo.elapsed()));
+        logger.log(&format!(
+            "self.bones_buffer.length_bytes() -> {:?}",
+            self.bones_buffer.length_bytes()
+        ));
         self.bones_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: bones_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &self.bones_buffer,
+                    buffer: self.bones_buffer.src(),
                     offset: 0,
-                    size: NonZeroU64::new(all_bone_transforms.buffer.len().try_into().unwrap()),
+                    size: NonZeroU64::new(self.bones_buffer.length_bytes().try_into().unwrap()),
                 }),
             }],
             label: Some("bones_bind_group"),
@@ -2117,7 +2135,7 @@ impl RendererState {
                         ..
                     },
                 )| {
-                    let gpu_instances: Vec<_> = game_scene
+                    let mut gpu_instances: Vec<_> = game_scene
                         .nodes()
                         .filter_map(|node| match &node.mesh {
                             Some(GameNodeMesh::Pbr {
@@ -2126,17 +2144,22 @@ impl RendererState {
                             }) => mesh_indices
                                 .iter()
                                 .find(|node_mesh_index| **node_mesh_index == binded_pbr_mesh_index)
-                                .map(|_| (node.id(), material_override)),
+                                .map(|_| {
+                                    (
+                                        node.id(),
+                                        material_override,
+                                        node.skin_index.unwrap_or(usize::MAX),
+                                    )
+                                }),
                             _ => None,
                         })
-                        .map(|(node_id, material_override)| {
-                            let node_ancestry_list = game_scene.get_node_ancestry_list(node_id);
-                            let transform = node_ancestry_list.iter().rev().fold(
-                                crate::transform::Transform::new(),
-                                |acc, node_id| {
-                                    acc * game_scene.get_node(*node_id).unwrap().transform
-                                },
-                            );
+                        .collect::<Vec<_>>();
+                    gpu_instances.sort_unstable_by_key(|(_, _, skin_index)| *skin_index);
+                    let gpu_instances: Vec<_> = gpu_instances
+                        .iter()
+                        .rev()
+                        .map(|(node_id, material_override, _)| {
+                            let transform = game_scene.get_global_transform_for_node(*node_id);
                             GpuPbrMeshInstance::new(
                                 transform,
                                 material_override.unwrap_or(*dynamic_pbr_params),
@@ -2184,18 +2207,11 @@ impl RendererState {
                                 .map(|_| (node.id(), color)),
                             _ => None,
                         })
-                        .map(|(node_id, color)| {
-                            let node_ancestry_list = game_scene.get_node_ancestry_list(node_id);
-                            let transform = node_ancestry_list.iter().rev().fold(
-                                crate::transform::Transform::new(),
-                                |acc, node_id| {
-                                    acc * game_scene.get_node(*node_id).unwrap().transform
-                                },
-                            );
-                            GpuUnlitMeshInstance {
-                                color: [color.x, color.y, color.z, 1.0],
-                                model_transform: GpuMatrix4(transform.matrix()),
-                            }
+                        .map(|(node_id, color)| GpuUnlitMeshInstance {
+                            color: [color.x, color.y, color.z, 1.0],
+                            model_transform: GpuMatrix4(
+                                game_scene.get_global_transform_for_node(node_id).matrix(),
+                            ),
                         })
                         .collect();
                     let previous_buffer_capacity_bytes = instance_buffer.capacity_bytes();
@@ -2292,99 +2308,99 @@ impl RendererState {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        game_state
-            .directional_lights
-            .iter()
-            .enumerate()
-            .for_each(|(light_index, light)| {
-                let view_proj_matrices =
-                    build_directional_light_camera_view(-light.direction, 100.0, 100.0, 1000.0);
-                let texture_view = self.directional_shadow_map_textures.texture.create_view(
-                    &wgpu::TextureViewDescriptor {
-                        dimension: Some(wgpu::TextureViewDimension::D2),
-                        base_array_layer: light_index.try_into().unwrap(),
-                        array_layer_count: NonZeroU32::new(1),
-                        ..Default::default()
-                    },
-                );
-                let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
-                    label: Some("Shadow Render Pass"),
-                    color_attachments: &[],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &texture_view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(1.0),
-                            store: true,
-                        }),
-                        stencil_ops: None,
-                    }),
-                };
-                self.base.queue.write_buffer(
-                    &self.camera_buffer,
-                    0,
-                    bytemuck::cast_slice(&[CameraUniform::from(view_proj_matrices)]),
-                );
-                self.render_scene(
-                    game_state,
-                    &shadow_render_pass_desc,
-                    &self.directional_shadow_map_pipeline,
-                    true,
-                );
-            });
-        (0..game_state.point_lights.len()).for_each(|light_index| {
-            if let Some(light_node) = game_state
-                .scene
-                .get_node(game_state.point_lights[light_index].node_id)
-            {
-                build_cubemap_face_camera_views(
-                    light_node.transform.position(),
-                    0.1,
-                    1000.0,
-                    false,
-                )
-                .iter()
-                .copied()
-                .enumerate()
-                .map(|(i, view_proj_matrices)| {
-                    (
-                        view_proj_matrices,
-                        self.point_shadow_map_textures.texture.create_view(
-                            &wgpu::TextureViewDescriptor {
-                                dimension: Some(wgpu::TextureViewDimension::D2),
-                                base_array_layer: (6 * light_index + i).try_into().unwrap(),
-                                array_layer_count: NonZeroU32::new(1),
-                                ..Default::default()
-                            },
-                        ),
-                    )
-                })
-                .for_each(|(face_view_proj_matrices, face_texture_view)| {
-                    let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
-                        label: Some("Shadow Render Pass"),
-                        color_attachments: &[],
-                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                            view: &face_texture_view,
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(1.0),
-                                store: true,
-                            }),
-                            stencil_ops: None,
-                        }),
-                    };
-                    self.base.queue.write_buffer(
-                        &self.camera_buffer,
-                        0,
-                        bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
-                    );
-                    self.render_scene(
-                        game_state,
-                        &shadow_render_pass_desc,
-                        &self.point_shadow_map_pipeline,
-                        true,
-                    );
-                });
-            }
-        });
+        // game_state
+        //     .directional_lights
+        //     .iter()
+        //     .enumerate()
+        //     .for_each(|(light_index, light)| {
+        //         let view_proj_matrices =
+        //             build_directional_light_camera_view(-light.direction, 100.0, 100.0, 1000.0);
+        //         let texture_view = self.directional_shadow_map_textures.texture.create_view(
+        //             &wgpu::TextureViewDescriptor {
+        //                 dimension: Some(wgpu::TextureViewDimension::D2),
+        //                 base_array_layer: light_index.try_into().unwrap(),
+        //                 array_layer_count: NonZeroU32::new(1),
+        //                 ..Default::default()
+        //             },
+        //         );
+        //         let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
+        //             label: Some("Shadow Render Pass"),
+        //             color_attachments: &[],
+        //             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+        //                 view: &texture_view,
+        //                 depth_ops: Some(wgpu::Operations {
+        //                     load: wgpu::LoadOp::Clear(1.0),
+        //                     store: true,
+        //                 }),
+        //                 stencil_ops: None,
+        //             }),
+        //         };
+        //         self.base.queue.write_buffer(
+        //             &self.camera_buffer,
+        //             0,
+        //             bytemuck::cast_slice(&[CameraUniform::from(view_proj_matrices)]),
+        //         );
+        //         self.render_scene(
+        //             game_state,
+        //             &shadow_render_pass_desc,
+        //             &self.directional_shadow_map_pipeline,
+        //             true,
+        //         );
+        //     });
+        // (0..game_state.point_lights.len()).for_each(|light_index| {
+        //     if let Some(light_node) = game_state
+        //         .scene
+        //         .get_node(game_state.point_lights[light_index].node_id)
+        //     {
+        //         build_cubemap_face_camera_views(
+        //             light_node.transform.position(),
+        //             0.1,
+        //             1000.0,
+        //             false,
+        //         )
+        //         .iter()
+        //         .copied()
+        //         .enumerate()
+        //         .map(|(i, view_proj_matrices)| {
+        //             (
+        //                 view_proj_matrices,
+        //                 self.point_shadow_map_textures.texture.create_view(
+        //                     &wgpu::TextureViewDescriptor {
+        //                         dimension: Some(wgpu::TextureViewDimension::D2),
+        //                         base_array_layer: (6 * light_index + i).try_into().unwrap(),
+        //                         array_layer_count: NonZeroU32::new(1),
+        //                         ..Default::default()
+        //                     },
+        //                 ),
+        //             )
+        //         })
+        //         .for_each(|(face_view_proj_matrices, face_texture_view)| {
+        //             let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
+        //                 label: Some("Shadow Render Pass"),
+        //                 color_attachments: &[],
+        //                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+        //                     view: &face_texture_view,
+        //                     depth_ops: Some(wgpu::Operations {
+        //                         load: wgpu::LoadOp::Clear(1.0),
+        //                         store: true,
+        //                     }),
+        //                     stencil_ops: None,
+        //                 }),
+        //             };
+        //             self.base.queue.write_buffer(
+        //                 &self.camera_buffer,
+        //                 0,
+        //                 bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
+        //             );
+        //             self.render_scene(
+        //                 game_state,
+        //                 &shadow_render_pass_desc,
+        //                 &self.point_shadow_map_pipeline,
+        //                 true,
+        //             );
+        //         });
+        //     }
+        // });
 
         let black = wgpu::Color {
             r: 0.0,
@@ -2413,15 +2429,9 @@ impl RendererState {
             }),
         };
 
-        let camera_node_ancestry_list = game_state
+        let camera_transform = game_state
             .scene
-            .get_node_ancestry_list(game_state.camera_node_id);
-        let camera_transform = camera_node_ancestry_list
-            .iter()
-            .rev()
-            .fold(crate::transform::Transform::new(), |acc, node_id| {
-                acc * game_state.scene.get_node(*node_id).unwrap().transform
-            });
+            .get_global_transform_for_node(game_state.camera_node_id);
         self.base.queue.write_buffer(
             &self.camera_buffer,
             0,
@@ -2522,42 +2532,42 @@ impl RendererState {
             .queue
             .submit(std::iter::once(unlit_encoder.finish()));
 
-        self.base.queue.write_buffer(
-            &self.bloom_config_buffer,
-            0,
-            bytemuck::cast_slice(&[0.0f32, self.bloom_threshold, self.bloom_ramp_size]),
-        );
+        // self.base.queue.write_buffer(
+        //     &self.bloom_config_buffer,
+        //     0,
+        //     bytemuck::cast_slice(&[0.0f32, self.bloom_threshold, self.bloom_ramp_size]),
+        // );
 
-        let mut bloom_threshold_encoder =
-            self.base
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Bloom Threshold Encoder"),
-                });
-        {
-            let mut bloom_threshold_render_pass =
-                bloom_threshold_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &self.bloom_pingpong_textures[0].view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(black),
-                            store: true,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                });
+        // let mut bloom_threshold_encoder =
+        //     self.base
+        //         .device
+        //         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        //             label: Some("Bloom Threshold Encoder"),
+        //         });
+        // {
+        //     let mut bloom_threshold_render_pass =
+        //         bloom_threshold_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        //             label: None,
+        //             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+        //                 view: &self.bloom_pingpong_textures[0].view,
+        //                 resolve_target: None,
+        //                 ops: wgpu::Operations {
+        //                     load: wgpu::LoadOp::Clear(black),
+        //                     store: true,
+        //                 },
+        //             })],
+        //             depth_stencil_attachment: None,
+        //         });
 
-            bloom_threshold_render_pass.set_pipeline(&self.bloom_threshold_pipeline);
-            bloom_threshold_render_pass.set_bind_group(0, &self.shading_texture_bind_group, &[]);
-            bloom_threshold_render_pass.set_bind_group(1, &self.bloom_config_bind_group, &[]);
-            bloom_threshold_render_pass.draw(0..3, 0..1);
-        }
+        //     bloom_threshold_render_pass.set_pipeline(&self.bloom_threshold_pipeline);
+        //     bloom_threshold_render_pass.set_bind_group(0, &self.shading_texture_bind_group, &[]);
+        //     bloom_threshold_render_pass.set_bind_group(1, &self.bloom_config_bind_group, &[]);
+        //     bloom_threshold_render_pass.draw(0..3, 0..1);
+        // }
 
-        self.base
-            .queue
-            .submit(std::iter::once(bloom_threshold_encoder.finish()));
+        // self.base
+        //     .queue
+        //     .submit(std::iter::once(bloom_threshold_encoder.finish()));
 
         let do_bloom_blur_pass =
             |src_texture: &wgpu::BindGroup, dst_texture: &wgpu::TextureView, horizontal: bool| {
@@ -2601,14 +2611,14 @@ impl RendererState {
 
         // do 10 gaussian blur passes, switching between horizontal and vertical and ping ponging between
         // the two textures, effectively doing 5 full blurs
-        let blur_passes = 10;
-        (0..blur_passes).for_each(|i| {
-            do_bloom_blur_pass(
-                &self.bloom_pingpong_texture_bind_groups[i % 2],
-                &self.bloom_pingpong_textures[(i + 1) % 2].view,
-                i % 2 == 0,
-            );
-        });
+        // let blur_passes = 10;
+        // (0..blur_passes).for_each(|i| {
+        //     do_bloom_blur_pass(
+        //         &self.bloom_pingpong_texture_bind_groups[i % 2],
+        //         &self.bloom_pingpong_textures[(i + 1) % 2].view,
+        //         i % 2 == 0,
+        //     );
+        // });
 
         let mut skybox_encoder =
             self.base
@@ -2736,11 +2746,6 @@ impl RendererState {
     ) {
         let device = &self.base.device;
         let queue = &self.base.queue;
-        let limits = &self.base.limits;
-        let all_bone_transforms = get_all_bone_data(
-            &game_state.scene,
-            limits.min_storage_buffer_offset_alignment,
-        );
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("render_scene Encoder"),
         });
@@ -2768,48 +2773,52 @@ impl RendererState {
                             ..
                         },
                     )| {
-                        {
-                            render_pass.set_bind_group(0, &self.camera_and_lights_bind_group, &[]);
-                            let bone_transforms_buffer_start_index = all_bone_transforms
-                                .animated_bone_transforms
-                                .iter()
-                                .find(|bone_slice| {
-                                    bone_slice.binded_pbr_mesh_index == binded_pbr_mesh_index
-                                })
-                                .map(|bone_slice| bone_slice.start_index.try_into().unwrap())
-                                .unwrap_or(0);
+                        render_pass.set_bind_group(0, &self.camera_and_lights_bind_group, &[]);
+                        let bone_transforms_for_mesh: Vec<_> = self
+                            .all_bone_transforms
+                            .animated_bone_transforms
+                            .iter()
+                            .filter(|bone_slice| {
+                                bone_slice.binded_pbr_mesh_index == binded_pbr_mesh_index
+                            })
+                            .collect();
+                        // let bone_transforms_by_skin_index: Vec<(usize, Vec<&AllBoneTransformsSlice>)> TODO:
+                        let bone_transforms_buffer_start_index = self
+                            .all_bone_transforms
+                            .animated_bone_transforms
+                            .iter()
+                            .find(|bone_slice| {
+                                bone_slice.binded_pbr_mesh_index == binded_pbr_mesh_index
+                            })
+                            .map(|bone_slice| bone_slice.start_index.try_into().unwrap())
+                            .unwrap_or(0);
+                        render_pass.set_bind_group(
+                            if is_shadow { 1 } else { 3 },
+                            &self.bones_bind_group,
+                            &[bone_transforms_buffer_start_index],
+                        );
+                        if !is_shadow {
+                            render_pass.set_bind_group(1, textures_bind_group, &[]);
                             render_pass.set_bind_group(
-                                if is_shadow { 1 } else { 3 },
-                                &self.bones_bind_group,
-                                &[bone_transforms_buffer_start_index],
-                            );
-                            if !is_shadow {
-                                render_pass.set_bind_group(1, textures_bind_group, &[]);
-                                render_pass.set_bind_group(
-                                    2,
-                                    &self.environment_textures_bind_group,
-                                    &[],
-                                );
-                            }
-
-                            render_pass.set_vertex_buffer(
-                                0,
-                                geometry_buffers.vertex_buffer.src().slice(..),
-                            );
-                            render_pass.set_vertex_buffer(
-                                1,
-                                geometry_buffers.instance_buffer.src().slice(..),
-                            );
-                            render_pass.set_index_buffer(
-                                geometry_buffers.index_buffer.src().slice(..),
-                                wgpu::IndexFormat::Uint32,
-                            );
-                            render_pass.draw_indexed(
-                                0..geometry_buffers.index_buffer.length() as u32,
-                                0,
-                                0..geometry_buffers.instance_buffer.length() as u32,
+                                2,
+                                &self.environment_textures_bind_group,
+                                &[],
                             );
                         }
+
+                        render_pass
+                            .set_vertex_buffer(0, geometry_buffers.vertex_buffer.src().slice(..));
+                        render_pass
+                            .set_vertex_buffer(1, geometry_buffers.instance_buffer.src().slice(..));
+                        render_pass.set_index_buffer(
+                            geometry_buffers.index_buffer.src().slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        render_pass.draw_indexed(
+                            0..geometry_buffers.index_buffer.length() as u32,
+                            0,
+                            0..geometry_buffers.instance_buffer.length() as u32,
+                        );
                     },
                 );
         }

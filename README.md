@@ -61,12 +61,14 @@ https://user-images.githubusercontent.com/2389735/178186964-c42f44c7-8e3e-475c-8
 - [x] Bump up to wgpu 0.13.1
 - [x] dynamically resizable buffers
 - [x] move camera controller from renderer module into game module
-- [ ] add flags for turning off shadows / bloom for renderdoc speed
-- [ ] gltf_conv -> gltf_loader?
+- [x] gltf_conv -> gltf_loader?
+- [x] what happened to the helicopter in VC? black squares pop up when viewed from a certain distance
+  - [ ] fix bug where auto-generated tangent/bitangents can sometimes become inf
 - [ ] dedupe the get_ancestry_list -> fold transforms pattern into a function (maybe have a local_transform field and world_transform() function)
+- [ ] add generation ids to game nodes list
+- [ ] add flags for turning off shadows / bloom for renderdoc speed
 - [ ] use u16 index buffer if possible for memory savings
 - [ ] shadows are slow as hell, taking like 7ms of frame time 😬
-- [ ] what happened to the helicopter in VC? black squares pop up when viewed from a certain distance
 
 
 ## Low priority
