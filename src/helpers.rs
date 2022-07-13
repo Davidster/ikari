@@ -246,7 +246,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_I_exist() {
+    fn should_i_exist() {
         // println!(
         //     "{:?}",
         //     make_rotation_matrix(make_quat_from_axis_angle(
