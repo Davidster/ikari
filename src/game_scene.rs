@@ -167,10 +167,24 @@ impl GameScene {
 
     pub fn merge_scene(
         &mut self,
+        renderer_state: &mut RendererState,
         mut other_scene: GameScene,
-        pbr_mesh_index_offset: usize,
-        unlit_mesh_index_offset: usize,
+        mut other_render_buffers: RenderBuffers,
     ) {
+        let pbr_mesh_index_offset = renderer_state.buffers.binded_pbr_meshes.len();
+        let unlit_mesh_index_offset = renderer_state.buffers.binded_unlit_meshes.len();
+        renderer_state
+            .buffers
+            .binded_pbr_meshes
+            .append(&mut other_render_buffers.binded_pbr_meshes);
+        renderer_state
+            .buffers
+            .binded_unlit_meshes
+            .append(&mut other_render_buffers.binded_unlit_meshes);
+        renderer_state
+            .buffers
+            .textures
+            .append(&mut other_render_buffers.textures);
         let skin_index_offset = self.skins.len();
         let node_index_offset = self.nodes.len();
         for (node, _) in &mut other_scene.nodes {

@@ -602,29 +602,9 @@ pub fn init_game_state(
     let (document, buffers, images) =
         gltf::import("../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf")?;
     validate_animation_property_counts(&document, logger);
-    let (revolver_game_scene, mut revolver_render_buffers) =
+    let (other_game_scene, other_render_buffers) =
         build_scene(&renderer_state.base, (&document, &buffers, &images))?;
-    let pbr_mesh_offset = renderer_state.buffers.binded_pbr_meshes.len();
-    let unlit_mesh_offset = renderer_state.buffers.binded_unlit_meshes.len();
-    renderer_state
-        .buffers
-        .binded_pbr_meshes
-        .append(&mut revolver_render_buffers.binded_pbr_meshes);
-    renderer_state
-        .buffers
-        .binded_unlit_meshes
-        .append(&mut revolver_render_buffers.binded_unlit_meshes);
-    renderer_state
-        .buffers
-        .textures
-        .append(&mut revolver_render_buffers.textures);
-    scene.merge_scene(revolver_game_scene, pbr_mesh_offset, unlit_mesh_offset);
-
-    // let revolver_node = revolver_game_scene.
-    // scene.add_node(GameNodeDescBuilder::new().mesh(Some(GameNodeMesh::Pbr {
-    //     mesh_indices: Vec<usize>,
-    //     material_override: Option<DynamicPbrParams>,
-    // })).build());
+    scene.merge_scene(renderer_state, other_game_scene, other_render_buffers);
 
     Ok(GameState {
         scene,
