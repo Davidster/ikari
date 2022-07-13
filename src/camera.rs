@@ -203,7 +203,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn my_test() {
+    fn should_I_exist() {
         let reverse_z_mat =
             make_perspective_proj_matrix(0.1, 100000.0, cgmath::Deg(90.0).into(), 1.0, true);
         let reg_z_mat =
