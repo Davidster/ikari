@@ -684,6 +684,12 @@ pub fn process_window_input(
                 VirtualKeyCode::P => {
                     renderer_state.toggle_animations();
                 }
+                VirtualKeyCode::M => {
+                    renderer_state.toggle_shadows();
+                }
+                VirtualKeyCode::B => {
+                    renderer_state.toggle_bloom();
+                }
                 _ => {}
             }
         }

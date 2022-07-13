@@ -454,6 +454,8 @@ pub struct RendererState {
     render_scale: f32,
     animation_time_acc: f32,
     is_playing_animations: bool,
+    enable_bloom: bool,
+    enable_shadows: bool,
 
     mesh_pipeline: wgpu::RenderPipeline,
     unlit_mesh_pipeline: wgpu::RenderPipeline,
@@ -527,6 +529,8 @@ impl RendererState {
             "Adjust Exposure:         E / R",
             "Adjust Bloom Threshold:  T / Y",
             "Pause/Resume Animations: P",
+            "Toggle Bloom Effect:     B",
+            "Toggle Shadows:          M",
             "Exit:                    Escape",
         ]
         .iter()
@@ -1687,6 +1691,8 @@ impl RendererState {
             render_scale: initial_render_scale,
             animation_time_acc: 0.0,
             is_playing_animations: true,
+            enable_bloom: true,
+            enable_shadows: true,
 
             mesh_pipeline,
             unlit_mesh_pipeline,
@@ -1931,6 +1937,14 @@ impl RendererState {
 
     pub fn toggle_animations(&mut self) {
         self.is_playing_animations = !self.is_playing_animations;
+    }
+
+    pub fn toggle_bloom(&mut self) {
+        self.enable_bloom = !self.enable_bloom;
+    }
+
+    pub fn toggle_shadows(&mut self) {
+        self.enable_shadows = !self.enable_shadows;
     }
 
     pub fn resize(&mut self, new_window_size: winit::dpi::PhysicalSize<u32>) {
@@ -2296,78 +2310,27 @@ impl RendererState {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        game_state
-            .directional_lights
-            .iter()
-            .enumerate()
-            .for_each(|(light_index, light)| {
-                let view_proj_matrices =
-                    build_directional_light_camera_view(-light.direction, 100.0, 100.0, 1000.0);
-                let texture_view = self.directional_shadow_map_textures.texture.create_view(
-                    &wgpu::TextureViewDescriptor {
-                        dimension: Some(wgpu::TextureViewDimension::D2),
-                        base_array_layer: light_index.try_into().unwrap(),
-                        array_layer_count: NonZeroU32::new(1),
-                        ..Default::default()
-                    },
-                );
-                let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
-                    label: Some("Shadow Render Pass"),
-                    color_attachments: &[],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &texture_view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(1.0),
-                            store: true,
-                        }),
-                        stencil_ops: None,
-                    }),
-                };
-                self.base.queue.write_buffer(
-                    &self.camera_buffer,
-                    0,
-                    bytemuck::cast_slice(&[CameraUniform::from(view_proj_matrices)]),
-                );
-                self.render_scene(
-                    game_state,
-                    &shadow_render_pass_desc,
-                    &self.directional_shadow_map_pipeline,
-                    true,
-                );
-            });
-        (0..game_state.point_lights.len()).for_each(|light_index| {
-            if let Some(light_node) = game_state
-                .scene
-                .get_node(game_state.point_lights[light_index].node_id)
-            {
-                build_cubemap_face_camera_views(
-                    light_node.transform.position(),
-                    0.1,
-                    1000.0,
-                    false,
-                )
+        if self.enable_shadows {
+            game_state
+                .directional_lights
                 .iter()
-                .copied()
                 .enumerate()
-                .map(|(i, view_proj_matrices)| {
-                    (
-                        view_proj_matrices,
-                        self.point_shadow_map_textures.texture.create_view(
-                            &wgpu::TextureViewDescriptor {
-                                dimension: Some(wgpu::TextureViewDimension::D2),
-                                base_array_layer: (6 * light_index + i).try_into().unwrap(),
-                                array_layer_count: NonZeroU32::new(1),
-                                ..Default::default()
-                            },
-                        ),
-                    )
-                })
-                .for_each(|(face_view_proj_matrices, face_texture_view)| {
+                .for_each(|(light_index, light)| {
+                    let view_proj_matrices =
+                        build_directional_light_camera_view(-light.direction, 100.0, 100.0, 1000.0);
+                    let texture_view = self.directional_shadow_map_textures.texture.create_view(
+                        &wgpu::TextureViewDescriptor {
+                            dimension: Some(wgpu::TextureViewDimension::D2),
+                            base_array_layer: light_index.try_into().unwrap(),
+                            array_layer_count: NonZeroU32::new(1),
+                            ..Default::default()
+                        },
+                    );
                     let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
                         label: Some("Shadow Render Pass"),
                         color_attachments: &[],
                         depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                            view: &face_texture_view,
+                            view: &texture_view,
                             depth_ops: Some(wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(1.0),
                                 store: true,
@@ -2378,17 +2341,76 @@ impl RendererState {
                     self.base.queue.write_buffer(
                         &self.camera_buffer,
                         0,
-                        bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
+                        bytemuck::cast_slice(&[CameraUniform::from(view_proj_matrices)]),
                     );
                     self.render_scene(
                         game_state,
                         &shadow_render_pass_desc,
-                        &self.point_shadow_map_pipeline,
+                        &self.directional_shadow_map_pipeline,
                         true,
                     );
                 });
-            }
-        });
+            (0..game_state.point_lights.len()).for_each(|light_index| {
+                if let Some(light_node) = game_state
+                    .scene
+                    .get_node(game_state.point_lights[light_index].node_id)
+                {
+                    build_cubemap_face_camera_views(
+                        light_node.transform.position(),
+                        0.1,
+                        1000.0,
+                        false,
+                    )
+                    .iter()
+                    .copied()
+                    .enumerate()
+                    .map(|(i, view_proj_matrices)| {
+                        (
+                            view_proj_matrices,
+                            self.point_shadow_map_textures.texture.create_view(
+                                &wgpu::TextureViewDescriptor {
+                                    dimension: Some(wgpu::TextureViewDimension::D2),
+                                    base_array_layer: (6 * light_index + i).try_into().unwrap(),
+                                    array_layer_count: NonZeroU32::new(1),
+                                    ..Default::default()
+                                },
+                            ),
+                        )
+                    })
+                    .for_each(
+                        |(face_view_proj_matrices, face_texture_view)| {
+                            let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
+                                label: Some("Shadow Render Pass"),
+                                color_attachments: &[],
+                                depth_stencil_attachment: Some(
+                                    wgpu::RenderPassDepthStencilAttachment {
+                                        view: &face_texture_view,
+                                        depth_ops: Some(wgpu::Operations {
+                                            load: wgpu::LoadOp::Clear(1.0),
+                                            store: true,
+                                        }),
+                                        stencil_ops: None,
+                                    },
+                                ),
+                            };
+                            self.base.queue.write_buffer(
+                                &self.camera_buffer,
+                                0,
+                                bytemuck::cast_slice(&[CameraUniform::from(
+                                    face_view_proj_matrices,
+                                )]),
+                            );
+                            self.render_scene(
+                                game_state,
+                                &shadow_render_pass_desc,
+                                &self.point_shadow_map_pipeline,
+                                true,
+                            );
+                        },
+                    );
+                }
+            });
+        }
 
         let black = wgpu::Color {
             r: 0.0,
@@ -2520,45 +2542,51 @@ impl RendererState {
             .queue
             .submit(std::iter::once(unlit_encoder.finish()));
 
-        self.base.queue.write_buffer(
-            &self.bloom_config_buffer,
-            0,
-            bytemuck::cast_slice(&[0.0f32, self.bloom_threshold, self.bloom_ramp_size]),
-        );
+        if self.enable_bloom {
+            self.base.queue.write_buffer(
+                &self.bloom_config_buffer,
+                0,
+                bytemuck::cast_slice(&[0.0f32, self.bloom_threshold, self.bloom_ramp_size]),
+            );
 
-        let mut bloom_threshold_encoder =
+            let mut bloom_threshold_encoder =
+                self.base
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("Bloom Threshold Encoder"),
+                    });
+            {
+                let mut bloom_threshold_render_pass =
+                    bloom_threshold_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: None,
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &self.bloom_pingpong_textures[0].view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(black),
+                                store: true,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                    });
+
+                bloom_threshold_render_pass.set_pipeline(&self.bloom_threshold_pipeline);
+                bloom_threshold_render_pass.set_bind_group(
+                    0,
+                    &self.shading_texture_bind_group,
+                    &[],
+                );
+                bloom_threshold_render_pass.set_bind_group(1, &self.bloom_config_bind_group, &[]);
+                bloom_threshold_render_pass.draw(0..3, 0..1);
+            }
+
             self.base
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Bloom Threshold Encoder"),
-                });
-        {
-            let mut bloom_threshold_render_pass =
-                bloom_threshold_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &self.bloom_pingpong_textures[0].view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(black),
-                            store: true,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                });
+                .queue
+                .submit(std::iter::once(bloom_threshold_encoder.finish()));
 
-            bloom_threshold_render_pass.set_pipeline(&self.bloom_threshold_pipeline);
-            bloom_threshold_render_pass.set_bind_group(0, &self.shading_texture_bind_group, &[]);
-            bloom_threshold_render_pass.set_bind_group(1, &self.bloom_config_bind_group, &[]);
-            bloom_threshold_render_pass.draw(0..3, 0..1);
-        }
-
-        self.base
-            .queue
-            .submit(std::iter::once(bloom_threshold_encoder.finish()));
-
-        let do_bloom_blur_pass =
-            |src_texture: &wgpu::BindGroup, dst_texture: &wgpu::TextureView, horizontal: bool| {
+            let do_bloom_blur_pass = |src_texture: &wgpu::BindGroup,
+                                      dst_texture: &wgpu::TextureView,
+                                      horizontal: bool| {
                 let mut encoder =
                     self.base
                         .device
@@ -2597,16 +2625,17 @@ impl RendererState {
                 self.base.queue.submit(std::iter::once(encoder.finish()));
             };
 
-        // do 10 gaussian blur passes, switching between horizontal and vertical and ping ponging between
-        // the two textures, effectively doing 5 full blurs
-        let blur_passes = 10;
-        (0..blur_passes).for_each(|i| {
-            do_bloom_blur_pass(
-                &self.bloom_pingpong_texture_bind_groups[i % 2],
-                &self.bloom_pingpong_textures[(i + 1) % 2].view,
-                i % 2 == 0,
-            );
-        });
+            // do 10 gaussian blur passes, switching between horizontal and vertical and ping ponging between
+            // the two textures, effectively doing 5 full blurs
+            let blur_passes = 10;
+            (0..blur_passes).for_each(|i| {
+                do_bloom_blur_pass(
+                    &self.bloom_pingpong_texture_bind_groups[i % 2],
+                    &self.bloom_pingpong_textures[(i + 1) % 2].view,
+                    i % 2 == 0,
+                );
+            });
+        }
 
         let mut skybox_encoder =
             self.base
