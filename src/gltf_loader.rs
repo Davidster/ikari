@@ -183,7 +183,7 @@ pub fn build_scene(
             pbr_textures_bind_group_layout,
         )?;
 
-        let (vertex_buffer, index_buffer) =
+        let (vertex_buffer, index_buffer, index_buffer_format) =
             build_geometry_buffers(device, &primitive_group, buffers)?;
         let initial_instances: Vec<_> = scene_nodes
             .iter()
@@ -217,6 +217,7 @@ pub fn build_scene(
             geometry_buffers: GeometryBuffers {
                 vertex_buffer,
                 index_buffer,
+                index_buffer_format,
                 instance_buffer,
             },
             dynamic_pbr_params,
@@ -595,7 +596,7 @@ pub fn build_geometry_buffers(
     device: &wgpu::Device,
     primitive_group: &gltf::mesh::Primitive,
     buffers: &[gltf::buffer::Data],
-) -> Result<(GpuBuffer, GpuBuffer)> {
+) -> Result<(GpuBuffer, GpuBuffer, wgpu::IndexFormat)> {
     let vertex_positions: Vec<Vector3<f32>> = {
         let (_, accessor) = primitive_group
             .attributes()
@@ -1029,14 +1030,34 @@ pub fn build_geometry_buffers(
         wgpu::BufferUsages::VERTEX,
     );
 
+    let index_buffer_u16_result: Result<Vec<_>, _> =
+        indices.iter().map(|index| u16::try_from(*index)).collect();
+    let index_buffer_u16;
+    let (index_buffer_bytes, index_buffer_format) = match index_buffer_u16_result {
+        Ok(as_u16) => {
+            index_buffer_u16 = as_u16;
+            (
+                bytemuck::cast_slice::<u16, u8>(&index_buffer_u16),
+                wgpu::IndexFormat::Uint16,
+            )
+        }
+        Err(_) => (
+            bytemuck::cast_slice::<u32, u8>(&indices),
+            wgpu::IndexFormat::Uint32,
+        ),
+    };
+
     let index_buffer = GpuBuffer::from_bytes(
         device,
-        bytemuck::cast_slice(&indices),
-        std::mem::size_of::<u32>(),
+        index_buffer_bytes,
+        match index_buffer_format {
+            wgpu::IndexFormat::Uint16 => std::mem::size_of::<u16>(),
+            wgpu::IndexFormat::Uint32 => std::mem::size_of::<u32>(),
+        },
         wgpu::BufferUsages::INDEX,
     );
 
-    Ok((vertex_buffer, index_buffer))
+    Ok((vertex_buffer, index_buffer, index_buffer_format))
 }
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]

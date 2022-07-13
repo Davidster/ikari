@@ -188,6 +188,7 @@ pub struct BindedPbrMesh {
 pub struct GeometryBuffers {
     pub vertex_buffer: GpuBuffer,
     pub index_buffer: GpuBuffer,
+    pub index_buffer_format: wgpu::IndexFormat,
     pub instance_buffer: GpuBuffer,
 }
 
@@ -1787,7 +1788,7 @@ impl RendererState {
         let index_buffer = GpuBuffer::from_bytes(
             device,
             bytemuck::cast_slice(&mesh.indices),
-            std::mem::size_of::<u32>(),
+            std::mem::size_of::<u16>(),
             wgpu::BufferUsages::INDEX,
         );
 
@@ -1803,6 +1804,7 @@ impl RendererState {
         GeometryBuffers {
             vertex_buffer,
             index_buffer,
+            index_buffer_format: wgpu::IndexFormat::Uint16,
             instance_buffer,
         }
     }
@@ -2511,6 +2513,7 @@ impl RendererState {
                         BindedUnlitMesh {
                             vertex_buffer,
                             index_buffer,
+                            index_buffer_format,
                             instance_buffer,
                             ..
                         },
@@ -2526,7 +2529,7 @@ impl RendererState {
                             unlit_render_pass.set_vertex_buffer(1, instance_buffer.src().slice(..));
                             unlit_render_pass.set_index_buffer(
                                 index_buffer.src().slice(..),
-                                wgpu::IndexFormat::Uint32,
+                                *index_buffer_format,
                             );
                             unlit_render_pass.draw_indexed(
                                 0..index_buffer.length() as u32,
@@ -2672,7 +2675,7 @@ impl RendererState {
                 .set_vertex_buffer(0, self.skybox_mesh_buffers.vertex_buffer.src().slice(..));
             skybox_render_pass.set_index_buffer(
                 self.skybox_mesh_buffers.index_buffer.src().slice(..),
-                wgpu::IndexFormat::Uint32,
+                self.skybox_mesh_buffers.index_buffer_format,
             );
             skybox_render_pass.draw_indexed(
                 0..(self.skybox_mesh_buffers.index_buffer.length() as u32),
@@ -2820,7 +2823,7 @@ impl RendererState {
                             .set_vertex_buffer(1, geometry_buffers.instance_buffer.src().slice(..));
                         render_pass.set_index_buffer(
                             geometry_buffers.index_buffer.src().slice(..),
-                            wgpu::IndexFormat::Uint32,
+                            geometry_buffers.index_buffer_format,
                         );
                         render_pass.draw_indexed(
                             0..geometry_buffers.index_buffer.length() as u32,
