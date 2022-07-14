@@ -991,7 +991,7 @@ pub fn update_game_state(
         .for_each(|physics_ball| physics_ball.update(&mut game_state.scene, physics_state));
 
     if let Some(crosshair_node) = game_state.scene.get_node_mut(game_state.crosshair_node_id) {
-        crosshair_node.transform = crate::transform::Transform::from(new_camera_transform)
+        crosshair_node.transform = new_camera_transform
             * TransformBuilder::new()
                 .position(Vector3::new(0.0, 0.0, -NEAR_PLANE_DISTANCE * 2.0))
                 .rotation(make_quat_from_axis_angle(
