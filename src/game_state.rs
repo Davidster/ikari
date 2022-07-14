@@ -1,7 +1,7 @@
 use super::*;
 
 pub struct GameState {
-    pub scene: GameScene,
+    pub scene: Scene,
     pub time_tracker: Option<TimeTracker>,
     pub state_update_time_accumulator: f32,
 
@@ -23,6 +23,7 @@ pub struct GameState {
 
     pub test_object_node_id: GameNodeId,
     pub crosshair_node_id: GameNodeId,
+    pub revolver: Revolver,
 
     pub bouncing_ball_node_id: GameNodeId,
     pub bouncing_ball_body_handle: RigidBodyHandle,

@@ -5,7 +5,7 @@ use cgmath::{Matrix4, Vector3};
 use super::*;
 
 #[derive(Debug)]
-pub struct GameScene {
+pub struct Scene {
     nodes: Vec<(Option<GameNode>, usize)>, // (node, generation number). None means the node was removed from the scene
     pub skins: Vec<Skin>,
     pub animations: Vec<Animation>,
@@ -58,21 +58,6 @@ pub struct IndexedSkin {
 }
 
 #[derive(Debug)]
-pub struct Animation {
-    pub length_seconds: f32,
-    pub channels: Vec<Channel>,
-}
-
-#[derive(Debug)]
-pub struct Channel {
-    pub node_id: GameNodeId,
-    pub property: gltf::animation::Property,
-    pub interpolation_type: gltf::animation::Interpolation,
-    pub keyframe_timings: Vec<f32>,
-    pub keyframe_values_u8: Vec<u8>,
-}
-
-#[derive(Debug)]
 pub struct IndexedAnimation {
     pub length_seconds: f32,
     pub channels: Vec<IndexedChannel>,
@@ -87,7 +72,7 @@ pub struct IndexedChannel {
     pub keyframe_values_u8: Vec<u8>,
 }
 
-impl GameScene {
+impl Scene {
     pub fn new(
         nodes_desc: Vec<GameNodeDesc>,
         skins: Vec<IndexedSkin>,
@@ -120,9 +105,10 @@ impl GameScene {
                         keyframe_values_u8: indexed_channel.keyframe_values_u8.clone(),
                     })
                     .collect(),
+                state: AnimationState::default(),
             })
             .collect();
-        let mut scene = GameScene {
+        let mut scene = Scene {
             nodes: Vec::new(),
             skins,
             animations,
@@ -168,7 +154,7 @@ impl GameScene {
     pub fn merge_scene(
         &mut self,
         renderer_state: &mut RendererState,
-        mut other_scene: GameScene,
+        mut other_scene: Scene,
         mut other_render_buffers: RenderBuffers,
     ) {
         let pbr_mesh_index_offset = renderer_state.buffers.binded_pbr_meshes.len();
@@ -385,6 +371,15 @@ impl GameScene {
             .map(|node| node.id)
     }
 
+    pub fn set_node_parent(&mut self, node_id: GameNodeId, parent_id: GameNodeId) {
+        if let (Some(node), Some(parent_node)) = (self.get_node(node_id), self.get_node(parent_id))
+        {
+            let GameNodeId(node_index, _) = node.id();
+            let GameNodeId(parent_node_index, _) = parent_node.id();
+            self.parent_index_map.insert(node_index, parent_node_index);
+        }
+    }
+
     pub fn nodes(&self) -> impl Iterator<Item = &GameNode> {
         self.nodes.iter().flat_map(|(node, _)| node)
     }
@@ -486,7 +481,7 @@ mod tests {
 
     #[test]
     fn removing_nodes_invalidates_ids() {
-        let mut scene = GameScene::new(vec![], vec![], vec![], HashMap::new());
+        let mut scene = Scene::new(vec![], vec![], vec![], HashMap::new());
 
         let node_1 = scene.add_node(GameNodeDesc::default());
         let node_1_id = node_1.id();
@@ -517,11 +512,11 @@ mod tests {
         assert_node_exists(&scene, node_3_id);
     }
 
-    fn assert_node_exists(scene: &GameScene, node_id: GameNodeId) {
+    fn assert_node_exists(scene: &Scene, node_id: GameNodeId) {
         assert_eq!(scene.get_node(node_id).map(|node| node.id), Some(node_id));
     }
 
-    fn assert_node_doesnt_exist(scene: &GameScene, node_id: GameNodeId) {
+    fn assert_node_doesnt_exist(scene: &Scene, node_id: GameNodeId) {
         assert_eq!(scene.get_node(node_id).map(|node| node.id), None);
     }
 }

@@ -12,7 +12,7 @@ pub struct PhysicsBall {
 
 impl PhysicsBall {
     pub fn new(
-        game_scene: &mut GameScene,
+        scene: &mut Scene,
         physics_state: &mut PhysicsState,
         mesh: GameNodeMesh,
         position: Vector3<f32>,
@@ -23,7 +23,7 @@ impl PhysicsBall {
             .scale(Vector3::new(radius, radius, radius))
             .build();
 
-        let node = game_scene.add_node(
+        let node = scene.add_node(
             GameNodeDescBuilder::new()
                 .mesh(Some(mesh))
                 .transform(transform)
@@ -53,7 +53,7 @@ impl PhysicsBall {
     }
 
     pub fn new_random(
-        game_scene: &mut GameScene,
+        scene: &mut Scene,
         physics_state: &mut PhysicsState,
         mesh: GameNodeMesh,
     ) -> Self {
@@ -63,18 +63,18 @@ impl PhysicsBall {
             radius * 2.0 + rand::random::<f32>() * 15.0 + 2.0,
             ARENA_SIDE_LENGTH * (rand::random::<f32>() * 2.0 - 1.0),
         );
-        Self::new(game_scene, physics_state, mesh, position, radius)
+        Self::new(scene, physics_state, mesh, position, radius)
     }
 
-    pub fn update(&self, game_scene: &mut GameScene, physics_state: &mut PhysicsState) {
+    pub fn update(&self, scene: &mut Scene, physics_state: &mut PhysicsState) {
         let rigid_body = &mut physics_state.rigid_body_set[self.rigid_body_handle];
-        if let Some(node) = game_scene.get_node_mut(self.node_id) {
+        if let Some(node) = scene.get_node_mut(self.node_id) {
             node.transform.apply_isometry(*rigid_body.position());
         }
     }
 
-    pub fn destroy(&self, game_scene: &mut GameScene, physics_state: &mut PhysicsState) {
-        game_scene.remove_node(self.node_id);
+    pub fn destroy(&self, scene: &mut Scene, physics_state: &mut PhysicsState) {
+        scene.remove_node(self.node_id);
         physics_state.remove_rigid_body(self.rigid_body_handle);
     }
 

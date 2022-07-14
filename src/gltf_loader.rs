@@ -12,7 +12,7 @@ pub fn build_scene(
         &Vec<gltf::buffer::Data>,
         &Vec<gltf::image::Data>,
     ),
-) -> Result<(GameScene, RenderBuffers)> {
+) -> Result<(Scene, RenderBuffers)> {
     let device = &base_renderer_state.device;
     let queue = &base_renderer_state.queue;
     let pbr_textures_bind_group_layout = &base_renderer_state.pbr_textures_bind_group_layout;
@@ -245,10 +245,10 @@ pub fn build_scene(
 
     let animations = get_animations(document, buffers)?;
 
-    let game_scene = GameScene::new(nodes, skins, animations, parent_index_map);
+    let scene = Scene::new(nodes, skins, animations, parent_index_map);
 
     Ok((
-        game_scene,
+        scene,
         RenderBuffers {
             binded_pbr_meshes,
             binded_unlit_meshes: vec![],

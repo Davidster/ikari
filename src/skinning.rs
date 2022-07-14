@@ -18,7 +18,7 @@ pub struct AllBoneTransformsSlice {
 }
 
 pub fn get_all_bone_data(
-    game_scene: &GameScene,
+    scene: &Scene,
     min_storage_buffer_offset_alignment: u32,
 ) -> AllBoneTransforms {
     let matrix_size_bytes = std::mem::size_of::<GpuMatrix4>();
@@ -35,25 +35,23 @@ pub fn get_all_bone_data(
     let mut animated_bone_transforms: Vec<AllBoneTransformsSlice> = Vec::new();
     let mut skin_index_to_slice_map: HashMap<usize, (usize, usize)> = HashMap::new();
 
-    let skinned_nodes: Vec<_> = game_scene
+    let skinned_nodes: Vec<_> = scene
         .nodes()
         .filter_map(|node| {
-            game_scene
-                .get_skeleton_skin_node_id(node.id())
-                .and_then(|skeleton_skin_node_id| {
-                    match &game_scene.get_node(skeleton_skin_node_id).unwrap().mesh {
-                        Some(GameNodeMesh::Pbr { mesh_indices, .. }) => {
-                            Some((mesh_indices, skeleton_skin_node_id))
-                        }
-                        _ => None,
+            scene.get_skeleton_skin_node_id(node.id()).and_then(
+                |skeleton_skin_node_id| match &scene.get_node(skeleton_skin_node_id).unwrap().mesh {
+                    Some(GameNodeMesh::Pbr { mesh_indices, .. }) => {
+                        Some((mesh_indices, skeleton_skin_node_id))
                     }
-                })
+                    _ => None,
+                },
+            )
         })
         .collect();
 
     for (binded_pbr_mesh_indices, skeleton_skin_node_id) in skinned_nodes {
         for binded_pbr_mesh_index in binded_pbr_mesh_indices.iter().copied() {
-            let skin_index = game_scene
+            let skin_index = scene
                 .get_node(skeleton_skin_node_id)
                 .unwrap()
                 .skin_index
@@ -69,7 +67,7 @@ pub fn get_all_bone_data(
                 }
                 Entry::Vacant(entry) => {
                     let bone_transforms: Vec<_> =
-                        get_bone_skeleton_space_transforms(game_scene, skeleton_skin_node_id)
+                        get_bone_skeleton_space_transforms(scene, skeleton_skin_node_id)
                             .iter()
                             .copied()
                             .map(GpuMatrix4)
@@ -104,24 +102,24 @@ pub fn get_all_bone_data(
 }
 
 fn get_bone_skeleton_space_transforms(
-    game_scene: &GameScene,
+    scene: &Scene,
     skeleton_skin_node_id: GameNodeId, // node must exist!
 ) -> Vec<Matrix4<f32>> {
-    let skeleton_skin_node = game_scene.get_node(skeleton_skin_node_id).unwrap();
-    let skin = &game_scene.skins[skeleton_skin_node.skin_index.unwrap()];
+    let skeleton_skin_node = scene.get_node(skeleton_skin_node_id).unwrap();
+    let skin = &scene.skins[skeleton_skin_node.skin_index.unwrap()];
     skin.bone_node_ids
         .iter()
         .enumerate()
         .map(|(bone_index, bone_node_id)| {
             let node_ancestry_list =
-                game_scene.get_skeleton_node_ancestry_list(*bone_node_id, skeleton_skin_node_id);
+                scene.get_skeleton_node_ancestry_list(*bone_node_id, skeleton_skin_node_id);
 
             // goes from the bone's space into skeleton space given parent hierarchy
             let bone_space_to_skeleton_space = node_ancestry_list
                 .iter()
                 .rev()
                 .fold(crate::transform::Transform::new(), |acc, node_id| {
-                    acc * game_scene.get_node(*node_id).unwrap().transform
+                    acc * scene.get_node(*node_id).unwrap().transform
                 });
 
             // goes from the skeletons's space into the bone's space

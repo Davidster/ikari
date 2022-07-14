@@ -2096,11 +2096,10 @@ impl RendererState {
         let frame_time_seconds = time_tracker.last_frame_time_seconds();
 
         // do animatons
-        let game_scene = &mut game_state.scene;
+        let scene = &mut game_state.scene;
         if self.is_playing_animations {
             self.animation_time_acc += frame_time_seconds;
-            if let Err(err) = update_node_transforms_at_moment(game_scene, self.animation_time_acc)
-            {
+            if let Err(err) = step_animations(scene, frame_time_seconds) {
                 logger.log(&format!("Error: animation computation failed: {:?}", err));
             }
         }
@@ -2111,7 +2110,7 @@ impl RendererState {
         let device = &self.base.device;
         let bones_bind_group_layout = &self.base.bones_bind_group_layout;
         self.all_bone_transforms =
-            get_all_bone_data(game_scene, limits.min_storage_buffer_offset_alignment);
+            get_all_bone_data(scene, limits.min_storage_buffer_offset_alignment);
         self.bones_buffer
             .write(device, queue, &self.all_bone_transforms.buffer);
         // logger.log(&format!("get_all_bone_data length -> {:?}", yo.elapsed()));
@@ -2144,7 +2143,7 @@ impl RendererState {
                         ..
                     },
                 )| {
-                    let gpu_instances: Vec<_> = game_scene
+                    let gpu_instances: Vec<_> = scene
                         .nodes()
                         .filter_map(|node| match &node.mesh {
                             Some(GameNodeMesh::Pbr {
@@ -2163,7 +2162,7 @@ impl RendererState {
                             _ => None,
                         })
                         .map(|(node_id, material_override, _)| {
-                            let transform = game_scene.get_global_transform_for_node(node_id);
+                            let transform = scene.get_global_transform_for_node(node_id);
                             GpuPbrMeshInstance::new(
                                 transform,
                                 material_override.unwrap_or(*dynamic_pbr_params),
@@ -2197,7 +2196,7 @@ impl RendererState {
                         instance_buffer, ..
                     },
                 )| {
-                    let gpu_instances: Vec<_> = game_scene
+                    let gpu_instances: Vec<_> = scene
                         .nodes()
                         .filter_map(|node| match &node.mesh {
                             Some(GameNodeMesh::Unlit {
@@ -2214,7 +2213,7 @@ impl RendererState {
                         .map(|(node_id, color)| GpuUnlitMeshInstance {
                             color: [color.x, color.y, color.z, 1.0],
                             model_transform: GpuMatrix4(
-                                game_scene.get_global_transform_for_node(node_id).matrix(),
+                                scene.get_global_transform_for_node(node_id).matrix(),
                             ),
                         })
                         .collect();

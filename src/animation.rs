@@ -5,16 +5,46 @@ use cgmath::{Quaternion, Vector3};
 
 use super::*;
 
+#[derive(Debug)]
+pub struct Animation {
+    pub length_seconds: f32,
+    pub channels: Vec<Channel>,
+    pub state: AnimationState,
+}
+
+#[derive(Debug)]
+pub struct Channel {
+    pub node_id: GameNodeId,
+    pub property: gltf::animation::Property,
+    pub interpolation_type: gltf::animation::Interpolation,
+    pub keyframe_timings: Vec<f32>,
+    pub keyframe_values_u8: Vec<u8>,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct AnimationState {
+    pub current_time_seconds: f32,
+    pub is_playing: bool,
+    pub is_looping: bool,
+}
+
+impl Default for AnimationState {
+    fn default() -> Self {
+        Self {
+            current_time_seconds: 0.0,
+            is_playing: false,
+            is_looping: false,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 struct KeyframeTime {
     index: usize,
     time: f32,
 }
 
-pub fn update_node_transforms_at_moment(
-    game_scene: &mut GameScene,
-    global_time_seconds: f32,
-) -> Result<()> {
+pub fn step_animations(scene: &mut Scene, delta_time_seconds: f32) -> Result<()> {
     pub enum Op {
         Translation(Vector3<f32>),
         Scale(Vector3<f32>),
@@ -22,9 +52,19 @@ pub fn update_node_transforms_at_moment(
     }
 
     let mut ops: Vec<(GameNodeId, Op)> = Vec::new();
-    for animation in game_scene.animations.iter() {
+    for animation in scene.animations.iter_mut() {
+        let state = &mut animation.state;
+        if !state.is_playing {
+            continue;
+        }
+        if !state.is_looping && state.current_time_seconds > animation.length_seconds {
+            state.current_time_seconds = 0.0;
+            state.is_playing = false;
+            continue;
+        }
+        state.current_time_seconds += delta_time_seconds;
+        let animation_time_seconds = state.current_time_seconds % animation.length_seconds;
         for channel in animation.channels.iter() {
-            let animation_time_seconds = global_time_seconds % animation.length_seconds;
             let (previous_key_frame, next_key_frame) =
                 get_nearby_keyframes(&channel.keyframe_timings, animation_time_seconds);
             if let Some(op) = match channel.property {
@@ -55,7 +95,7 @@ pub fn update_node_transforms_at_moment(
         }
     }
     for (node_id, op) in ops {
-        if let Some(node) = game_scene.get_node_mut(node_id) {
+        if let Some(node) = scene.get_node_mut(node_id) {
             let transform = &mut node.transform;
             match op {
                 Op::Translation(translation) => {

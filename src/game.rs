@@ -89,7 +89,7 @@ pub fn get_skybox_path() -> (
 }
 
 pub fn init_game_state(
-    mut scene: GameScene,
+    mut scene: Scene,
     renderer_state: &mut RendererState,
     logger: &mut Logger,
 ) -> Result<GameState> {
@@ -597,14 +597,33 @@ pub fn init_game_state(
         .id();
 
     // merge revolver scene into current scene
-    // let (document, buffers, images) =
-    //     gltf::import("./src/models/gltf/Revolver/revolver_low_poly.gltf")?;
     let (document, buffers, images) =
-        gltf::import("../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf")?;
+        gltf::import("./src/models/gltf/Revolver/revolver_low_poly_2.gltf")?;
+    // let (document, buffers, images) =
+    //     gltf::import("../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf")?;
     validate_animation_property_counts(&document, logger);
-    let (other_game_scene, other_render_buffers) =
+    let (other_scene, other_render_buffers) =
         build_scene(&renderer_state.base, (&document, &buffers, &images))?;
-    scene.merge_scene(renderer_state, other_game_scene, other_render_buffers);
+    scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+
+    let revolver_model_node_id = scene.nodes().last().unwrap().id();
+    let animation_index = scene.animations.len() - 1;
+    let revolver = Revolver::new(
+        &mut scene,
+        camera_node_id,
+        revolver_model_node_id,
+        animation_index,
+        TransformBuilder::new()
+            .position(Vector3::new(0.21, -0.09, -1.0))
+            .rotation(make_quat_from_axis_angle(
+                Vector3::new(0.0, 1.0, 0.0),
+                Deg(180.0).into(),
+            ))
+            .scale(0.17f32 * Vector3::new(1.0, 1.0, 1.0))
+            .build(),
+    );
+
+    // logger.log(&format!("{:?}", &revolver));
 
     Ok(GameState {
         scene,
@@ -628,6 +647,7 @@ pub fn init_game_state(
 
         test_object_node_id,
         crosshair_node_id,
+        revolver,
 
         bouncing_ball_node_id,
         bouncing_ball_body_handle,
@@ -706,6 +726,62 @@ pub fn process_window_input(
                 _ => {}
             }
         }
+        // if *state == ElementState::Pressed {
+        //     match keycode {
+        //         VirtualKeyCode::Up => {
+        //             if let Some(revolver_parent_node) = game_state
+        //                 .scene
+        //                 .get_node_mut(game_state.revolver_parent_node_id)
+        //             {
+        //                 revolver_parent_node.transform.set_position(Vector3::new(
+        //                     revolver_parent_node.transform.position().x,
+        //                     revolver_parent_node.transform.position().y - 0.01,
+        //                     revolver_parent_node.transform.position().z,
+        //                 ));
+        //             }
+        //         }
+        //         VirtualKeyCode::Down => {
+        //             if let Some(revolver_parent_node) = game_state
+        //                 .scene
+        //                 .get_node_mut(game_state.revolver_parent_node_id)
+        //             {
+        //                 revolver_parent_node.transform.set_position(Vector3::new(
+        //                     revolver_parent_node.transform.position().x,
+        //                     revolver_parent_node.transform.position().y + 0.01,
+        //                     revolver_parent_node.transform.position().z,
+        //                 ));
+        //             }
+        //         }
+        //         VirtualKeyCode::Left => {
+        //             if let Some(revolver_parent_node) = game_state
+        //                 .scene
+        //                 .get_node_mut(game_state.revolver_parent_node_id)
+        //             {
+        //                 revolver_parent_node.transform.set_scale(
+        //                     revolver_parent_node.transform.scale() - Vector3::new(0.01, 0.01, 0.01),
+        //                 );
+        //             }
+        //         }
+        //         VirtualKeyCode::Right => {
+        //             if let Some(revolver_parent_node) = game_state
+        //                 .scene
+        //                 .get_node_mut(game_state.revolver_parent_node_id)
+        //             {
+        //                 revolver_parent_node.transform.set_scale(
+        //                     revolver_parent_node.transform.scale() + Vector3::new(0.01, 0.01, 0.01),
+        //                 );
+        //             }
+        //         }
+        //         _ => {}
+        //     }
+        // }
+        // logger.log(&format!(
+        //     "{:?}",
+        //     game_state
+        //         .scene
+        //         .get_node_mut(game_state.revolver_parent_node_id)
+        //         .map(|node| node.transform)
+        // ));
     }
     game_state
         .camera_controller
@@ -918,7 +994,8 @@ pub fn update_game_state(
                 .build();
     }
 
-    if game_state.mouse_button_pressed {
+    if game_state.mouse_button_pressed && game_state.revolver.fire(&mut game_state.scene) {
+        // logger.log("Fired!");
         let camera_position = game_state.camera_controller.current_pose.position;
         let direction_vec = game_state
             .camera_controller
@@ -942,11 +1019,12 @@ pub fn update_game_state(
         {
             // The first collider hit has the handle `handle` and it hit after
             // the ray travelled a distance equal to `ray.dir * toi`.
-            let hit_point = ray.point_at(collision_point_distance); // Same as: `ray.origin + ray.dir * toi`
-            logger.log(&format!(
-                "Collider {:?} hit at point {}",
-                collider_handle, hit_point
-            ));
+            let _hit_point = ray.point_at(collision_point_distance); // Same as: `ray.origin + ray.dir * toi`
+
+            // logger.log(&format!(
+            //     "Collider {:?} hit at point {}",
+            //     collider_handle, hit_point
+            // ));
             if let Some(rigid_body_handle) = game_state
                 .physics_state
                 .collider_set
@@ -960,23 +1038,22 @@ pub fn update_game_state(
                     .enumerate()
                     .find(|(_, ball)| ball.rigid_body_handle() == rigid_body_handle)
                 {
-                    logger.log(&format!(
-                        "Hit physics ball {:?} hit at point {}",
-                        ball_index, hit_point
-                    ));
+                    // logger.log(&format!(
+                    //     "Hit physics ball {:?} hit at point {}",
+                    //     ball_index, hit_point
+                    // ));
                     ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
                     game_state.physics_balls.remove(ball_index);
                 }
             }
         }
     }
-    game_state.mouse_button_pressed = false;
 }
 
 pub fn init_scene(
     base_renderer_state: &mut BaseRendererState,
     logger: &mut Logger,
-) -> Result<(GameScene, RenderBuffers)> {
+) -> Result<(Scene, RenderBuffers)> {
     let (document, buffers, images) = gltf::import(get_gltf_path())?;
     validate_animation_property_counts(&document, logger);
     build_scene(base_renderer_state, (&document, &buffers, &images))
