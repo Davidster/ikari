@@ -67,20 +67,20 @@ pub fn get_skybox_path() -> (
 
     // Newport Loft
     // src: http://www.hdrlabs.com/sibl/archive/
-    let skybox_background = SkyboxBackground::Equirectangular {
-        image_path: "./src/textures/newport_loft/background.jpg",
-    };
-    let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-        Some(SkyboxHDREnvironment::Equirectangular {
-            image_path: "./src/textures/newport_loft/radiance.hdr",
-        });
+    // let skybox_background = SkyboxBackground::Equirectangular {
+    //     image_path: "./src/textures/newport_loft/background.jpg",
+    // };
+    // let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+    //     Some(SkyboxHDREnvironment::Equirectangular {
+    //         image_path: "./src/textures/newport_loft/radiance.hdr",
+    //     });
 
     // My photosphere pic
     // src: me
-    let _skybox_background = SkyboxBackground::Equirectangular {
+    let skybox_background = SkyboxBackground::Equirectangular {
         image_path: "./src/textures/photosphere_skybox.jpg",
     };
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+    let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
         Some(SkyboxHDREnvironment::Equirectangular {
             image_path: "./src/textures/photosphere_skybox_small.jpg",
         });
@@ -601,10 +601,10 @@ pub fn init_game_state(
         .id();
 
     // merge revolver scene into current scene
-    let (document, buffers, images) =
-        gltf::import("./src/models/gltf/Revolver/revolver_low_poly.gltf")?;
     // let (document, buffers, images) =
-    //     gltf::import("../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf")?;
+    //     gltf::import("./src/models/gltf/Revolver/revolver_low_poly.gltf")?;
+    let (document, buffers, images) =
+        gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
     validate_animation_property_counts(&document, logger);
     let (other_scene, other_render_buffers) =
         build_scene(&renderer_state.base, (&document, &buffers, &images))?;
@@ -617,13 +617,23 @@ pub fn init_game_state(
         camera_node_id,
         revolver_model_node_id,
         animation_index,
+        // revolver model
+        // TransformBuilder::new()
+        //     .position(Vector3::new(0.21, -0.09, -1.0))
+        //     .rotation(make_quat_from_axis_angle(
+        //         Vector3::new(0.0, 1.0, 0.0),
+        //         Deg(180.0).into(),
+        //     ))
+        //     .scale(0.17f32 * Vector3::new(1.0, 1.0, 1.0))
+        //     .build(),
+        // colt python model
         TransformBuilder::new()
-            .position(Vector3::new(0.21, -0.09, -1.0))
-            .rotation(make_quat_from_axis_angle(
-                Vector3::new(0.0, 1.0, 0.0),
-                Deg(180.0).into(),
-            ))
-            .scale(0.17f32 * Vector3::new(1.0, 1.0, 1.0))
+            .position(Vector3::new(0.21, -0.13, -1.0))
+            .rotation(
+                make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(180.0).into())
+                    * make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(0.1)),
+            )
+            .scale(2.0f32 * Vector3::new(1.0, 1.0, 1.0))
             .build(),
     );
 
@@ -733,9 +743,8 @@ pub fn process_window_input(
         // if *state == ElementState::Pressed {
         //     match keycode {
         //         VirtualKeyCode::Up => {
-        //             if let Some(revolver_parent_node) = game_state
-        //                 .scene
-        //                 .get_node_mut(game_state.revolver_parent_node_id)
+        //             if let Some(revolver_parent_node) =
+        //                 game_state.scene.get_node_mut(game_state.revolver.node_id)
         //             {
         //                 revolver_parent_node.transform.set_position(Vector3::new(
         //                     revolver_parent_node.transform.position().x,
@@ -745,9 +754,8 @@ pub fn process_window_input(
         //             }
         //         }
         //         VirtualKeyCode::Down => {
-        //             if let Some(revolver_parent_node) = game_state
-        //                 .scene
-        //                 .get_node_mut(game_state.revolver_parent_node_id)
+        //             if let Some(revolver_parent_node) =
+        //                 game_state.scene.get_node_mut(game_state.revolver.node_id)
         //             {
         //                 revolver_parent_node.transform.set_position(Vector3::new(
         //                     revolver_parent_node.transform.position().x,
@@ -757,22 +765,22 @@ pub fn process_window_input(
         //             }
         //         }
         //         VirtualKeyCode::Left => {
-        //             if let Some(revolver_parent_node) = game_state
-        //                 .scene
-        //                 .get_node_mut(game_state.revolver_parent_node_id)
+        //             if let Some(revolver_parent_node) =
+        //                 game_state.scene.get_node_mut(game_state.revolver.node_id)
         //             {
-        //                 revolver_parent_node.transform.set_scale(
-        //                     revolver_parent_node.transform.scale() - Vector3::new(0.01, 0.01, 0.01),
+        //                 revolver_parent_node.transform.set_rotation(
+        //                     revolver_parent_node.transform.rotation()
+        //                         * make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(0.1)),
         //                 );
         //             }
         //         }
         //         VirtualKeyCode::Right => {
-        //             if let Some(revolver_parent_node) = game_state
-        //                 .scene
-        //                 .get_node_mut(game_state.revolver_parent_node_id)
+        //             if let Some(revolver_parent_node) =
+        //                 game_state.scene.get_node_mut(game_state.revolver.node_id)
         //             {
-        //                 revolver_parent_node.transform.set_scale(
-        //                     revolver_parent_node.transform.scale() + Vector3::new(0.01, 0.01, 0.01),
+        //                 revolver_parent_node.transform.set_rotation(
+        //                     revolver_parent_node.transform.rotation()
+        //                         * make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), -Rad(0.1)),
         //                 );
         //             }
         //         }
@@ -783,7 +791,7 @@ pub fn process_window_input(
         //     "{:?}",
         //     game_state
         //         .scene
-        //         .get_node_mut(game_state.revolver_parent_node_id)
+        //         .get_node_mut(game_state.revolver.node_id)
         //         .map(|node| node.transform)
         // ));
     }
@@ -820,7 +828,7 @@ pub fn update_game_state(
     // ));
     let new_camera_transform = game_state.camera_controller.current_pose.to_transform();
     if let Some(camera_transform) = game_state.scene.get_node_mut(game_state.camera_node_id) {
-        camera_transform.transform = new_camera_transform.into();
+        camera_transform.transform = new_camera_transform;
     }
 
     // update ball positions
@@ -997,6 +1005,11 @@ pub fn update_game_state(
                 )
                 .build();
     }
+
+    game_state.revolver.update(
+        game_state.camera_controller.current_pose,
+        &mut game_state.scene,
+    );
 
     if game_state.mouse_button_pressed && game_state.revolver.fire(&mut game_state.scene) {
         // logger.log("Fired!");

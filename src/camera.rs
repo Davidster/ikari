@@ -17,18 +17,14 @@ impl Camera {
         }
     }
 
-    pub fn to_transform(self) -> Matrix4<f32> {
-        make_translation_matrix(self.position)
-            * make_rotation_matrix(Quaternion::from(Euler::new(
-                Rad(0.0),
-                self.horizontal_rotation,
-                Rad(0.0),
-            )))
-            * make_rotation_matrix(Quaternion::from(Euler::new(
-                self.vertical_rotation,
-                Rad(0.0),
-                Rad(0.0),
-            )))
+    pub fn to_transform(self) -> crate::transform::Transform {
+        TransformBuilder::new()
+            .position(self.position)
+            .rotation(
+                Quaternion::from(Euler::new(Rad(0.0), self.horizontal_rotation, Rad(0.0)))
+                    * Quaternion::from(Euler::new(self.vertical_rotation, Rad(0.0), Rad(0.0))),
+            )
+            .build()
     }
 
     pub fn get_direction_vector(&self) -> Vector3<f32> {
