@@ -20,7 +20,7 @@ fn get_gltf_path() -> &'static str {
     // let gltf_path = "/home/david/Downloads/free_low_poly_forest/scene.gltf";
     // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
     // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf";
-    // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
+    let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
     // let gltf_path = "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf";
     // let gltf_path = "./src/models/gltf/Sponza/Sponza.gltf";
     // let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
@@ -34,7 +34,7 @@ fn get_gltf_path() -> &'static str {
     //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb";
     // let gltf_path = "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.gltf";
     // let gltf_path = "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
-    let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
+    // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
     // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
     // let gltf_path = "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf";
     // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
@@ -165,6 +165,8 @@ pub fn init_game_state(
         // node_0.transform.set_scale(Vector3::new(0.0, 0.0, 0.0));
         node_0.transform.set_position(Vector3::new(2.0, 0.0, 0.0));
     }
+    let node_0_id = scene._get_node_by_index(0).unwrap().id();
+    scene.remove_node(node_0_id);
 
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
     // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
@@ -252,6 +254,7 @@ pub fn init_game_state(
                 .build(),
         )
         .id();
+    scene.remove_node(test_object_node_id);
 
     // add floor to scene
     let big_checkerboard_texture_img = {
@@ -498,6 +501,7 @@ pub fn init_game_state(
         );
         (bouncing_ball_node.id(), bouncing_ball_body_handle)
     };
+    scene.remove_node(bouncing_ball_node_id);
 
     // add crosshair to scene
     let crosshair_texture_img = {
@@ -598,7 +602,7 @@ pub fn init_game_state(
 
     // merge revolver scene into current scene
     let (document, buffers, images) =
-        gltf::import("./src/models/gltf/Revolver/revolver_low_poly_2.gltf")?;
+        gltf::import("./src/models/gltf/Revolver/revolver_low_poly.gltf")?;
     // let (document, buffers, images) =
     //     gltf::import("../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf")?;
     validate_animation_property_counts(&document, logger);

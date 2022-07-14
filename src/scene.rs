@@ -360,6 +360,17 @@ impl Scene {
         if let Some(node) = self.get_node(node_id) {
             let GameNodeId(node_index, _) = node.id;
             self.nodes[node_index].0.take();
+            self.parent_index_map.remove(&node_index);
+            let child_entry_option =
+                self.parent_index_map
+                    .iter()
+                    .find_map(|(child_index, parent_index)| {
+                        (*parent_index == node_index).then(|| (*child_index, *parent_index))
+                    });
+            if let Some((child_index, _)) = child_entry_option {
+                self.parent_index_map.remove(&child_index);
+            }
+            self.rebuild_skeleton_parent_index_maps();
         }
     }
 
