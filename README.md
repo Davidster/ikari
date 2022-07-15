@@ -68,6 +68,7 @@ https://user-images.githubusercontent.com/2389735/178186964-c42f44c7-8e3e-475c-8
 - [x] add generation ids to game nodes list
 - [x] add flags for turning off shadows / bloom for renderdoc speed
 - [x] use u16 index buffer if possible for memory savings
+- [ ] move renderer state into game state?
 - [ ] shadows are slow as hell, taking like 7ms of frame time 😬
 
 

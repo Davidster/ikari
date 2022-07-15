@@ -1,4 +1,5 @@
 mod animation;
+mod audio;
 mod ball;
 mod buffer;
 mod camera;
@@ -22,6 +23,7 @@ mod time_tracker;
 mod transform;
 
 use animation::*;
+use audio::*;
 use ball::*;
 use buffer::*;
 use camera::*;

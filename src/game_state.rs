@@ -5,6 +5,11 @@ pub struct GameState {
     pub time_tracker: Option<TimeTracker>,
     pub state_update_time_accumulator: f32,
 
+    pub audio_manager: AudioManager,
+    // pub bgm_sound_index: usize,
+    pub gunshot_sound_index: usize,
+    pub gunshot_sound_data: SoundData,
+
     pub camera_controller: CameraController,
     pub camera_node_id: GameNodeId,
 
