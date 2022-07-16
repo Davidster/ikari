@@ -6,8 +6,8 @@ use cpal::{
 };
 use hound::{WavReader, WavSpec};
 use oddio::{
-    FilterHaving, FramesSignal, Gain, Handle, Mixer, Seek, SpatialBuffered, SpatialOptions,
-    SpatialScene, Stop,
+    FixedGain, FramesSignal, Gain, Handle, Mixer, SpatialBuffered, SpatialOptions, SpatialScene,
+    Stop,
 };
 
 pub struct AudioManager {
@@ -15,10 +15,10 @@ pub struct AudioManager {
     device_sample_rate: u32,
 
     spatial_scene_handle: Handle<SpatialScene>,
-    spatial_scene_output_stream: Stream,
+    _spatial_scene_output_stream: Stream,
 
     mixer_handle: Handle<Mixer<[f32; 2]>>,
-    mixer_output_stream: Stream,
+    _mixer_output_stream: Stream,
 
     sounds: Vec<Sound>,
 }
@@ -37,6 +37,9 @@ pub enum SoundSignal {
     },
     Ambient {
         signal_handle: Handle<Stop<Gain<FramesSignal<[f32; 2]>>>>,
+    },
+    AmbientFixed {
+        signal_handle: Handle<Stop<FixedGain<FramesSignal<[f32; 2]>>>>,
     },
 }
 
@@ -90,10 +93,10 @@ impl AudioManager {
             device_sample_rate,
 
             spatial_scene_handle,
-            spatial_scene_output_stream,
+            _spatial_scene_output_stream: spatial_scene_output_stream,
 
             mixer_handle,
-            mixer_output_stream,
+            _mixer_output_stream: mixer_output_stream,
 
             sounds: vec![],
         })
@@ -109,8 +112,6 @@ impl AudioManager {
             channels,
             ..
         } = reader.spec();
-        let length_samples = reader.duration();
-        let length_seconds = length_samples as f32 / source_sample_rate as f32;
 
         // convert the WAV data to floating point samples
         // e.g. i8 data is converted from [-128, 127] to [-1.0, 1.0]
@@ -133,36 +134,47 @@ impl AudioManager {
 
         if sample_rate != source_sample_rate {
             // resample the sound to the device sample rate using linear interpolation
-            let old_sample_count = samples.len();
-            let new_sample_count = (length_seconds * sample_rate as f32).ceil() as usize;
-            // TODO: instead of vec of vecs, use one big vec with smart indexing
-            let new_samples: Vec<_> = (1..(new_sample_count + 1))
-                .map(|new_sample_number| {
-                    let old_sample_number =
-                        new_sample_number as f32 * (source_sample_rate as f32 / sample_rate as f32);
+            samples = resample_linear(&samples, source_sample_rate, sample_rate);
+        }
 
-                    // get the indices of the two samples that surround the old sample number
-                    let left_index = old_sample_number
-                        .clamp(1.0, old_sample_count as f32)
-                        .floor() as usize
-                        - 1;
-                    let right_index = (left_index + 1).min(old_sample_count - 1);
+        Ok(SoundData(samples))
+    }
 
-                    let left_sample = &samples[left_index];
-                    if left_index == right_index {
-                        left_sample.to_vec()
-                    } else {
-                        let right_sample = &samples[right_index];
-                        let t = old_sample_number % 1.0;
-                        (0..(channels as usize))
-                            .map(|channel| {
-                                (1.0 - t) * left_sample[channel] + t * right_sample[channel]
-                            })
-                            .collect::<Vec<_>>()
-                    }
+    pub fn decode_mp3(sample_rate: u32, file_path: &str) -> Result<SoundData> {
+        let file_bytes: &[u8] = &std::fs::read(file_path)?;
+        let mut decoder = minimp3::Decoder::new(file_bytes);
+        let mut mp3_frames: Vec<minimp3::Frame> = Vec::new();
+        loop {
+            match decoder.next_frame() {
+                Ok(frame) => {
+                    mp3_frames.push(frame);
+                }
+                Err(minimp3::Error::Eof) => {
+                    break;
+                }
+                Err(err) => anyhow::bail!(err),
+            }
+        }
+
+        let mut samples: Vec<Vec<f32>> = Vec::new();
+        for mp3_frame in mp3_frames {
+            let source_sample_rate = u32::try_from(mp3_frame.sample_rate).unwrap();
+            let mut current_samples: Vec<_> = mp3_frame
+                .data
+                .chunks(2)
+                .map(|chunk| {
+                    chunk
+                        .iter()
+                        .map(|channel| *channel as f32 / i16::MAX as f32)
+                        .collect::<Vec<_>>()
                 })
                 .collect();
-            samples = new_samples;
+            if sample_rate != source_sample_rate {
+                // resample the sound to the device sample rate using linear interpolation
+                current_samples =
+                    resample_linear(&current_samples, source_sample_rate, sample_rate);
+            }
+            samples.extend(current_samples);
         }
 
         Ok(SoundData(samples))
@@ -171,9 +183,17 @@ impl AudioManager {
     pub fn add_sound(
         &mut self,
         sound_data: &SoundData,
+        initial_volume: f32,
+        fixed_volume: bool,
         spacial_params: Option<SpacialParams>,
     ) -> usize {
-        let sound = Sound::new(self, sound_data, 1.0, spacial_params);
+        let sound = Sound::new(
+            self,
+            sound_data,
+            initial_volume,
+            fixed_volume,
+            spacial_params,
+        );
         self.sounds.push(sound);
         self.sounds.len() - 1
     }
@@ -187,11 +207,44 @@ impl AudioManager {
     }
 }
 
+fn resample_linear(samples: &Vec<Vec<f32>>, from_hz: u32, to_hz: u32) -> Vec<Vec<f32>> {
+    let channels = samples[0].len();
+
+    let old_sample_count = samples.len();
+    let length_seconds = old_sample_count as f32 / from_hz as f32;
+    let new_sample_count = (length_seconds * to_hz as f32).ceil() as usize;
+    // TODO: instead of vec of vecs, use one big vec with smart indexing
+    (1..(new_sample_count + 1))
+        .map(|new_sample_number| {
+            let old_sample_number = new_sample_number as f32 * (from_hz as f32 / to_hz as f32);
+
+            // get the indices of the two samples that surround the old sample number
+            let left_index = old_sample_number
+                .clamp(1.0, old_sample_count as f32)
+                .floor() as usize
+                - 1;
+            let right_index = (left_index + 1).min(old_sample_count - 1);
+
+            let left_sample = &samples[left_index];
+            if left_index == right_index {
+                left_sample.to_vec()
+            } else {
+                let right_sample = &samples[right_index];
+                let t = old_sample_number % 1.0;
+                (0..(channels as usize))
+                    .map(|channel| (1.0 - t) * left_sample[channel] + t * right_sample[channel])
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect()
+}
+
 impl Sound {
     fn new(
         audio_manager: &mut AudioManager,
         sound_data: &SoundData,
         initial_volume: f32,
+        fixed_volume: bool,
         spacial_params: Option<SpacialParams>,
     ) -> Self {
         let SoundData(samples) = sound_data;
@@ -232,28 +285,45 @@ impl Sound {
                 }
             }
             None => {
-                let signal = Gain::new(FramesSignal::from(oddio::Frames::from_iter(
+                let frames_signal = FramesSignal::from(oddio::Frames::from_iter(
                     audio_manager.device_sample_rate,
                     samples
                         .iter()
                         .map(|sample| [sample[0], if channels > 1 { sample[1] } else { sample[0] }])
                         .collect::<Vec<_>>(),
-                )));
-                let signal_handle = audio_manager
-                    .mixer_handle
-                    .control::<Mixer<_>, _>()
-                    .play(signal);
-                Sound {
-                    is_playing: true,
-                    volume: initial_volume,
-                    signal: SoundSignal::Ambient { signal_handle },
+                ));
+                if fixed_volume {
+                    let volume_amplitude_ratio =
+                        (audio_manager.master_volume * initial_volume).powf(2.0);
+                    let volume_db = 20.0 * volume_amplitude_ratio.log10();
+                    let signal = FixedGain::new(frames_signal, volume_db);
+                    let signal_handle = audio_manager
+                        .mixer_handle
+                        .control::<Mixer<_>, _>()
+                        .play(signal);
+                    Sound {
+                        is_playing: true,
+                        volume: initial_volume,
+                        signal: SoundSignal::AmbientFixed { signal_handle },
+                    }
+                } else {
+                    let signal = Gain::new(frames_signal);
+                    let signal_handle = audio_manager
+                        .mixer_handle
+                        .control::<Mixer<_>, _>()
+                        .play(signal);
+                    let mut sound = Sound {
+                        is_playing: true,
+                        volume: initial_volume,
+                        signal: SoundSignal::Ambient { signal_handle },
+                    };
+                    sound.set_volume(audio_manager.master_volume, initial_volume);
+                    sound
                 }
             }
         };
 
-        sound.set_volume(audio_manager.master_volume, initial_volume);
         sound.pause();
-
         sound
     }
 
@@ -264,6 +334,9 @@ impl Sound {
                 signal_handle.control::<Stop<_>, _>().pause();
             }
             SoundSignal::Ambient { signal_handle } => {
+                signal_handle.control::<Stop<_>, _>().pause();
+            }
+            SoundSignal::AmbientFixed { signal_handle } => {
                 signal_handle.control::<Stop<_>, _>().pause();
             }
         }
@@ -278,6 +351,9 @@ impl Sound {
             SoundSignal::Ambient { signal_handle } => {
                 signal_handle.control::<Stop<_>, _>().resume();
             }
+            SoundSignal::AmbientFixed { signal_handle } => {
+                signal_handle.control::<Stop<_>, _>().resume();
+            }
         }
     }
 
@@ -287,17 +363,18 @@ impl Sound {
             SoundSignal::Spacial { signal_handle } => {
                 signal_handle
                     .control::<Gain<_>, _>()
-                    .set_gain(master_volume * self.volume);
+                    .set_amplitude_ratio((master_volume * self.volume).powf(2.0));
             }
             SoundSignal::Ambient { signal_handle } => {
                 signal_handle
                     .control::<Gain<_>, _>()
-                    .set_gain(master_volume * self.volume);
+                    .set_amplitude_ratio((master_volume * self.volume).powf(2.0));
             }
+            SoundSignal::AmbientFixed { .. } => {}
         }
     }
 
-    fn set_motion(&mut self, position: Vector3<f32>, velocity: Vector3<f32>, discontinuity: bool) {
+    fn _set_motion(&mut self, position: Vector3<f32>, velocity: Vector3<f32>, discontinuity: bool) {
         if let SoundSignal::Spacial { signal_handle } = &mut self.signal {
             signal_handle.control::<SpatialBuffered<_>, _>().set_motion(
                 [position.x, position.y, position.z].into(),

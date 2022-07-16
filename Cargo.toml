@@ -25,6 +25,7 @@ rapier3d = "0.13.0"
 cpal = "0.13.5"
 oddio = { git = "https://github.com/Ralith/oddio" }
 hound = "3.4"
+minimp3 = "0.5.1"
 
 [profile.dev.package."*"]
 opt-level = 3

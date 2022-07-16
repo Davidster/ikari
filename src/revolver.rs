@@ -40,7 +40,8 @@ impl Revolver {
         scene.set_node_parent(node_id, hand_node_id);
         scene.set_node_parent(model_node_id, node_id);
 
-        let cooldown = scene.animations[animation_index].length_seconds;
+        // let cooldown = scene.animations[animation_index].length_seconds;
+        let cooldown = scene.animations[animation_index].length_seconds + 0.1;
 
         Self {
             animation_index,

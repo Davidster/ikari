@@ -639,17 +639,16 @@ pub fn init_game_state(
 
     let mut audio_manager = AudioManager::new()?;
 
-    // let bgm_data = AudioManager::decode_mp3(
-    //     audio_manager.device_sample_rate(),
-    //     "/home/david/Downloads/wgpu_sandbox_bgm.mp3",
-    // )?;
-    // let bgm_sound_index = audio_manager.add_sound(&bgm_data, None);
+    let bgm_data =
+        AudioManager::decode_mp3(audio_manager.device_sample_rate(), "./src/sounds/bgm.mp3")?;
+    let bgm_sound_index = audio_manager.add_sound(&bgm_data, 0.5, false, None);
+    audio_manager.play_sound(bgm_sound_index);
 
     let gunshot_sound_data = AudioManager::decode_wav(
         audio_manager.device_sample_rate(),
-        "/home/david/Downloads/smith_n_wesson_magnum_shot_shorter.wav",
+        "./src/sounds/gunshot.wav",
     )?;
-    let gunshot_sound_index = audio_manager.add_sound(&gunshot_sound_data, None);
+    let gunshot_sound_index = audio_manager.add_sound(&gunshot_sound_data, 0.75, true, None);
 
     // logger.log(&format!("{:?}", &revolver));
 
@@ -659,7 +658,7 @@ pub fn init_game_state(
         state_update_time_accumulator: 0.0,
 
         audio_manager,
-        // bgm_sound_index,
+        bgm_sound_index,
         gunshot_sound_index,
         gunshot_sound_data,
 
@@ -1034,9 +1033,10 @@ pub fn update_game_state(
         game_state
             .audio_manager
             .play_sound(game_state.gunshot_sound_index);
-        game_state.gunshot_sound_index = game_state
-            .audio_manager
-            .add_sound(&game_state.gunshot_sound_data, None);
+        game_state.gunshot_sound_index =
+            game_state
+                .audio_manager
+                .add_sound(&game_state.gunshot_sound_data, 0.75, true, None);
 
         // logger.log("Fired!");
         let camera_position = game_state.camera_controller.current_pose.position;
