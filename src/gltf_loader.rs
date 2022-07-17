@@ -162,6 +162,7 @@ pub fn build_scene(
     let meshes: Vec<_> = document.meshes().collect();
 
     let mut binded_pbr_meshes: Vec<BindedPbrMesh> = Vec::new();
+    let mut binded_wireframe_meshes: Vec<BindedWireframeMesh> = Vec::new();
     // gltf node index -> game node
     let mut node_mesh_links: HashMap<usize, Vec<usize>> = HashMap::new();
 
@@ -183,8 +184,13 @@ pub fn build_scene(
             pbr_textures_bind_group_layout,
         )?;
 
-        let (vertex_buffer, index_buffer, index_buffer_format) =
-            build_geometry_buffers(device, &primitive_group, buffers)?;
+        let (
+            vertex_buffer,
+            index_buffer,
+            index_buffer_format,
+            wireframe_index_buffer,
+            wireframe_index_buffer_format,
+        ) = build_geometry_buffers(device, &primitive_group, buffers)?;
         let initial_instances: Vec<_> = scene_nodes
             .iter()
             .filter(|node| node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index())
@@ -194,6 +200,13 @@ pub fn build_scene(
             device,
             initial_instances.len(),
             std::mem::size_of::<GpuPbrMeshInstance>(),
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        );
+
+        let wireframe_instance_buffer = GpuBuffer::empty(
+            device,
+            1,
+            std::mem::size_of::<GpuWireframeMeshInstance>(),
             wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         );
 
@@ -225,6 +238,14 @@ pub fn build_scene(
             primitive_mode,
             alpha_mode,
         });
+
+        binded_wireframe_meshes.push(BindedWireframeMesh {
+            source_mesh_type: MeshType::Pbr,
+            source_mesh_index: binded_pbr_mesh_index,
+            index_buffer: wireframe_index_buffer,
+            index_buffer_format: wireframe_index_buffer_format,
+            instance_buffer: wireframe_instance_buffer,
+        });
     }
 
     // it is important that the node indices from the gltf document are preserved
@@ -236,9 +257,12 @@ pub fn build_scene(
             skin_index: node.skin().map(|skin| skin.index()),
             mesh: node_mesh_links
                 .get(&node.index())
-                .map(|mesh_indices| GameNodeMesh::Pbr {
+                .map(|mesh_indices| GameNodeMesh {
                     mesh_indices: mesh_indices.clone(),
-                    material_override: None,
+                    mesh_type: GameNodeMeshType::Pbr {
+                        material_override: None,
+                    },
+                    wireframe: false,
                 }),
         })
         .collect();
@@ -252,6 +276,7 @@ pub fn build_scene(
         RenderBuffers {
             binded_pbr_meshes,
             binded_unlit_meshes: vec![],
+            binded_wireframe_meshes,
             textures,
         },
     ))
@@ -596,7 +621,13 @@ pub fn build_geometry_buffers(
     device: &wgpu::Device,
     primitive_group: &gltf::mesh::Primitive,
     buffers: &[gltf::buffer::Data],
-) -> Result<(GpuBuffer, GpuBuffer, wgpu::IndexFormat)> {
+) -> Result<(
+    GpuBuffer,
+    GpuBuffer,
+    wgpu::IndexFormat,
+    GpuBuffer,
+    wgpu::IndexFormat,
+)> {
     let vertex_positions: Vec<Vector3<f32>> = {
         let (_, accessor) = primitive_group
             .attributes()
@@ -1030,34 +1061,63 @@ pub fn build_geometry_buffers(
         wgpu::BufferUsages::VERTEX,
     );
 
-    let index_buffer_u16_result: Result<Vec<_>, _> =
-        indices.iter().map(|index| u16::try_from(*index)).collect();
-    let index_buffer_u16;
-    let (index_buffer_bytes, index_buffer_format) = match index_buffer_u16_result {
-        Ok(as_u16) => {
-            index_buffer_u16 = as_u16;
-            (
-                bytemuck::cast_slice::<u16, u8>(&index_buffer_u16),
-                wgpu::IndexFormat::Uint16,
-            )
-        }
-        Err(_) => (
-            bytemuck::cast_slice::<u32, u8>(&indices),
-            wgpu::IndexFormat::Uint32,
-        ),
+    let into_index_buffer = |indices: &Vec<u32>| {
+        let index_buffer_u16_result: Result<Vec<_>, _> =
+            indices.iter().map(|index| u16::try_from(*index)).collect();
+        let index_buffer_u16;
+        let (index_buffer_bytes, index_buffer_format) = match index_buffer_u16_result {
+            Ok(as_u16) => {
+                index_buffer_u16 = as_u16;
+                (
+                    bytemuck::cast_slice::<u16, u8>(&index_buffer_u16),
+                    wgpu::IndexFormat::Uint16,
+                )
+            }
+            Err(_) => (
+                bytemuck::cast_slice::<u32, u8>(indices),
+                wgpu::IndexFormat::Uint32,
+            ),
+        };
+
+        (
+            GpuBuffer::from_bytes(
+                device,
+                index_buffer_bytes,
+                match index_buffer_format {
+                    wgpu::IndexFormat::Uint16 => std::mem::size_of::<u16>(),
+                    wgpu::IndexFormat::Uint32 => std::mem::size_of::<u32>(),
+                },
+                wgpu::BufferUsages::INDEX,
+            ),
+            index_buffer_format,
+        )
     };
 
-    let index_buffer = GpuBuffer::from_bytes(
-        device,
-        index_buffer_bytes,
-        match index_buffer_format {
-            wgpu::IndexFormat::Uint16 => std::mem::size_of::<u16>(),
-            wgpu::IndexFormat::Uint32 => std::mem::size_of::<u32>(),
-        },
-        wgpu::BufferUsages::INDEX,
+    let (index_buffer, index_buffer_format) = into_index_buffer(&indices);
+
+    let (wireframe_index_buffer, wireframe_index_buffer_format) = into_index_buffer(
+        &indices
+            .chunks(3)
+            .flat_map(|triangle| {
+                vec![
+                    triangle[0],
+                    triangle[1],
+                    triangle[1],
+                    triangle[2],
+                    triangle[2],
+                    triangle[0],
+                ]
+            })
+            .collect(),
     );
 
-    Ok((vertex_buffer, index_buffer, index_buffer_format))
+    Ok((
+        vertex_buffer,
+        index_buffer,
+        index_buffer_format,
+        wireframe_index_buffer,
+        wireframe_index_buffer_format,
+    ))
 }
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]

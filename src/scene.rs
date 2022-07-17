@@ -34,13 +34,18 @@ pub struct GameNode {
 pub struct GameNodeId(usize, usize); // (index into GameScene::nodes array, generation num)
 
 #[derive(Debug, Clone)]
-pub enum GameNodeMesh {
+pub struct GameNodeMesh {
+    pub mesh_type: GameNodeMeshType,
+    pub mesh_indices: Vec<usize>,
+    pub wireframe: bool,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum GameNodeMeshType {
     Pbr {
-        mesh_indices: Vec<usize>,
         material_override: Option<DynamicPbrParams>,
     },
     Unlit {
-        mesh_indices: Vec<usize>,
         color: Vector3<f32>,
     },
 }
@@ -159,6 +164,18 @@ impl Scene {
     ) {
         let pbr_mesh_index_offset = renderer_state.buffers.binded_pbr_meshes.len();
         let unlit_mesh_index_offset = renderer_state.buffers.binded_unlit_meshes.len();
+
+        for binded_wireframe_mesh in &mut other_render_buffers.binded_wireframe_meshes {
+            match binded_wireframe_mesh.source_mesh_type {
+                MeshType::Pbr => {
+                    binded_wireframe_mesh.source_mesh_index += pbr_mesh_index_offset;
+                }
+                MeshType::Unlit => {
+                    binded_wireframe_mesh.source_mesh_index += unlit_mesh_index_offset;
+                }
+            }
+        }
+
         renderer_state
             .buffers
             .binded_pbr_meshes
@@ -169,6 +186,10 @@ impl Scene {
             .append(&mut other_render_buffers.binded_unlit_meshes);
         renderer_state
             .buffers
+            .binded_wireframe_meshes
+            .append(&mut other_render_buffers.binded_wireframe_meshes);
+        renderer_state
+            .buffers
             .textures
             .append(&mut other_render_buffers.textures);
         let skin_index_offset = self.skins.len();
@@ -176,8 +197,9 @@ impl Scene {
         for (node, _) in &mut other_scene.nodes {
             if let Some(ref mut node) = node {
                 match node.mesh {
-                    Some(GameNodeMesh::Pbr {
+                    Some(GameNodeMesh {
                         ref mut mesh_indices,
+                        mesh_type: GameNodeMeshType::Pbr { .. },
                         ..
                     }) => {
                         *mesh_indices = mesh_indices
@@ -185,8 +207,9 @@ impl Scene {
                             .map(|mesh_index| mesh_index + pbr_mesh_index_offset)
                             .collect();
                     }
-                    Some(GameNodeMesh::Unlit {
+                    Some(GameNodeMesh {
                         ref mut mesh_indices,
+                        mesh_type: GameNodeMeshType::Unlit { .. },
                         ..
                     }) => {
                         *mesh_indices = mesh_indices
@@ -481,6 +504,18 @@ impl GameNodeDescBuilder {
             transform: self.transform,
             skin_index: self.skin_index,
             mesh: self.mesh,
+        }
+    }
+}
+
+impl GameNodeMesh {
+    pub fn from_pbr_mesh_index(pbr_mesh_index: usize) -> Self {
+        Self {
+            mesh_indices: vec![pbr_mesh_index],
+            mesh_type: GameNodeMeshType::Pbr {
+                material_override: None,
+            },
+            wireframe: false,
         }
     }
 }

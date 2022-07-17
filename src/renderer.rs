@@ -11,6 +11,7 @@ pub const MAX_LIGHT_COUNT: usize = 32;
 pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const FAR_PLANE_DISTANCE: f32 = 100000.0;
 pub const FOV_Y: Deg<f32> = Deg(45.0);
+pub const DEFAULT_WIREFRAME_COLOR: [f32; 4] = [0.0, 1.0, 1.0, 1.0];
 
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -170,6 +171,7 @@ pub enum SkyboxHDREnvironment<'a> {
 pub struct RenderBuffers {
     pub binded_pbr_meshes: Vec<BindedPbrMesh>,
     pub binded_unlit_meshes: Vec<BindedUnlitMesh>,
+    pub binded_wireframe_meshes: Vec<BindedWireframeMesh>,
     // same order as the textures in original gltf asset
     pub textures: Vec<Texture>,
 }
@@ -193,6 +195,30 @@ pub struct GeometryBuffers {
 }
 
 pub type BindedUnlitMesh = GeometryBuffers;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum MeshType {
+    Pbr,
+    Unlit,
+}
+
+impl From<GameNodeMeshType> for MeshType {
+    fn from(game_node_mesh_type: GameNodeMeshType) -> Self {
+        match game_node_mesh_type {
+            GameNodeMeshType::Pbr { .. } => MeshType::Pbr,
+            GameNodeMeshType::Unlit { .. } => MeshType::Unlit,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct BindedWireframeMesh {
+    pub source_mesh_type: MeshType,
+    pub source_mesh_index: usize,
+    pub index_buffer: GpuBuffer,
+    pub index_buffer_format: wgpu::IndexFormat,
+    pub instance_buffer: GpuBuffer,
+}
 
 #[derive(Debug)]
 pub enum AlphaMode {
@@ -460,6 +486,7 @@ pub struct RendererState {
 
     mesh_pipeline: wgpu::RenderPipeline,
     unlit_mesh_pipeline: wgpu::RenderPipeline,
+    wireframe_pipeline: wgpu::RenderPipeline,
     skybox_pipeline: wgpu::RenderPipeline,
     tone_mapping_pipeline: wgpu::RenderPipeline,
     surface_blit_pipeline: wgpu::RenderPipeline,
@@ -776,7 +803,6 @@ impl RendererState {
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
         })];
-
         let mesh_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Mesh Pipeline Layout"),
             bind_group_layouts: &[
@@ -846,6 +872,16 @@ impl RendererState {
             targets: fragment_shader_color_targets,
         });
         let unlit_mesh_pipeline = device.create_render_pipeline(&unlit_mesh_pipeline_descriptor);
+
+        let mut wireframe_pipeline_descriptor = unlit_mesh_pipeline_descriptor.clone();
+        wireframe_pipeline_descriptor.label = Some("Wireframe Render Pipeline");
+        let wireframe_mesh_pipeline_v_buffers = &[Vertex::desc(), GpuWireframeMeshInstance::desc()];
+        wireframe_pipeline_descriptor.vertex.buffers = wireframe_mesh_pipeline_v_buffers;
+        wireframe_pipeline_descriptor.primitive = wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::LineList,
+            ..Default::default()
+        };
+        let wireframe_pipeline = device.create_render_pipeline(&wireframe_pipeline_descriptor);
 
         let bloom_threshold_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1697,6 +1733,7 @@ impl RendererState {
 
             mesh_pipeline,
             unlit_mesh_pipeline,
+            wireframe_pipeline,
             skybox_pipeline,
             tone_mapping_pipeline,
             surface_blit_pipeline,
@@ -1746,7 +1783,21 @@ impl RendererState {
         let geometry_buffers = self.bind_geometry_buffers_for_basic_mesh(mesh);
 
         self.buffers.binded_unlit_meshes.push(geometry_buffers);
-        Ok(self.buffers.binded_unlit_meshes.len() - 1)
+        let unlit_mesh_index = self.buffers.binded_unlit_meshes.len() - 1;
+
+        let (wireframe_index_buffer, wireframe_instance_buffer) =
+            self.bind_wireframe_buffers_for_basic_mesh(mesh);
+        self.buffers
+            .binded_wireframe_meshes
+            .push(BindedWireframeMesh {
+                source_mesh_type: MeshType::Unlit,
+                source_mesh_index: unlit_mesh_index,
+                index_buffer: wireframe_index_buffer,
+                index_buffer_format: wgpu::IndexFormat::Uint16,
+                instance_buffer: wireframe_instance_buffer,
+            });
+
+        Ok(unlit_mesh_index)
     }
 
     // returns index of mesh in the RenderScene::binded_pbr_meshes list
@@ -1767,7 +1818,21 @@ impl RendererState {
             alpha_mode: AlphaMode::Opaque,
             primitive_mode: PrimitiveMode::Triangles,
         });
-        Ok(self.buffers.binded_pbr_meshes.len() - 1)
+        let pbr_mesh_index = self.buffers.binded_pbr_meshes.len() - 1;
+
+        let (wireframe_index_buffer, wireframe_instance_buffer) =
+            self.bind_wireframe_buffers_for_basic_mesh(mesh);
+        self.buffers
+            .binded_wireframe_meshes
+            .push(BindedWireframeMesh {
+                source_mesh_type: MeshType::Pbr,
+                source_mesh_index: pbr_mesh_index,
+                index_buffer: wireframe_index_buffer,
+                index_buffer_format: wgpu::IndexFormat::Uint16,
+                instance_buffer: wireframe_instance_buffer,
+            });
+
+        Ok(pbr_mesh_index)
     }
 
     fn bind_geometry_buffers_for_basic_mesh(&self, mesh: &BasicMesh) -> GeometryBuffers {
@@ -1807,6 +1872,45 @@ impl RendererState {
             index_buffer_format: wgpu::IndexFormat::Uint16,
             instance_buffer,
         }
+    }
+
+    fn bind_wireframe_buffers_for_basic_mesh(&self, mesh: &BasicMesh) -> (GpuBuffer, GpuBuffer) {
+        Self::bind_wireframe_buffers_for_basic_mesh_impl(&self.base.device, mesh)
+    }
+
+    fn bind_wireframe_buffers_for_basic_mesh_impl(
+        device: &wgpu::Device,
+        mesh: &BasicMesh,
+    ) -> (GpuBuffer, GpuBuffer) {
+        let index_buffer = GpuBuffer::from_bytes(
+            device,
+            bytemuck::cast_slice(
+                &mesh
+                    .indices
+                    .chunks(3)
+                    .flat_map(|triangle| {
+                        vec![
+                            triangle[0],
+                            triangle[1],
+                            triangle[1],
+                            triangle[2],
+                            triangle[2],
+                            triangle[0],
+                        ]
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+            std::mem::size_of::<u16>(),
+            wgpu::BufferUsages::INDEX,
+        );
+        let instance_buffer = GpuBuffer::empty(
+            device,
+            1,
+            std::mem::size_of::<GpuWireframeMeshInstance>(),
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        );
+
+        (index_buffer, instance_buffer)
     }
 
     // TODO: create and cache the default 1x1 textures when the BaseRendererState is created
@@ -2146,9 +2250,11 @@ impl RendererState {
                     let gpu_instances: Vec<_> = scene
                         .nodes()
                         .filter_map(|node| match &node.mesh {
-                            Some(GameNodeMesh::Pbr {
+                            Some(GameNodeMesh {
                                 mesh_indices,
-                                material_override,
+                                mesh_type: GameNodeMeshType::Pbr { material_override },
+                                wireframe: false,
+                                ..
                             }) => mesh_indices
                                 .iter()
                                 .find(|node_mesh_index| **node_mesh_index == binded_pbr_mesh_index)
@@ -2178,7 +2284,7 @@ impl RendererState {
                     );
                     if resized {
                         logger.log(&format!(
-                            "Resized instance buffer capacity from {:?} bytes to {:?}",
+                            "Resized pbr instance buffer capacity from {:?} bytes to {:?}",
                             previous_buffer_capacity_bytes,
                             geometry_buffers.instance_buffer.capacity_bytes()
                         ));
@@ -2199,9 +2305,10 @@ impl RendererState {
                     let gpu_instances: Vec<_> = scene
                         .nodes()
                         .filter_map(|node| match &node.mesh {
-                            Some(GameNodeMesh::Unlit {
+                            Some(GameNodeMesh {
                                 mesh_indices,
-                                color,
+                                mesh_type: GameNodeMeshType::Unlit { color },
+                                wireframe: false,
                             }) => mesh_indices
                                 .iter()
                                 .find(|node_mesh_index| {
@@ -2222,13 +2329,64 @@ impl RendererState {
                         instance_buffer.write(device, queue, bytemuck::cast_slice(&gpu_instances));
                     if resized {
                         logger.log(&format!(
-                            "Resized instance buffer capacity from {:?} bytes to {:?}",
+                            "Resized unlit instance buffer capacity from {:?} bytes to {:?}",
                             previous_buffer_capacity_bytes,
                             instance_buffer.capacity_bytes()
                         ));
                     }
                 },
             );
+        self.buffers.binded_wireframe_meshes.iter_mut().for_each(
+            |BindedWireframeMesh {
+                 source_mesh_type,
+                 source_mesh_index,
+                 instance_buffer,
+                 ..
+             }| {
+                let gpu_instances: Vec<_> = scene
+                    .nodes()
+                    .filter(|node| match &node.mesh {
+                        Some(GameNodeMesh {
+                            mesh_indices,
+                            mesh_type,
+                            wireframe: true,
+                            ..
+                        }) => {
+                            *source_mesh_type == (*mesh_type).into()
+                                && mesh_indices
+                                    .iter()
+                                    .any(|node_mesh_index| *node_mesh_index == *source_mesh_index)
+                        }
+                        _ => false,
+                    })
+                    .map(|node| {
+                        let color = match node.mesh.as_ref().unwrap().mesh_type {
+                            GameNodeMeshType::Unlit { color } => {
+                                Some([color.x, color.y, color.z, 1.0])
+                            }
+                            GameNodeMeshType::Pbr { .. } => None,
+                        }
+                        .unwrap_or(DEFAULT_WIREFRAME_COLOR);
+                        GpuWireframeMeshInstance {
+                            color,
+                            model_transform: GpuMatrix4(
+                                scene.get_global_transform_for_node(node.id()).matrix(),
+                            ),
+                        }
+                    })
+                    .collect();
+                let previous_buffer_capacity_bytes = instance_buffer.capacity_bytes();
+                let resized =
+                    instance_buffer.write(device, queue, bytemuck::cast_slice(&gpu_instances));
+                if resized {
+                    logger.log(&format!(
+                        "Resized wireframe instance buffer capacity from {:?} bytes to {:?}",
+                        previous_buffer_capacity_bytes,
+                        instance_buffer.capacity_bytes()
+                    ));
+                }
+            },
+        );
 
         // let total_instance_buffer_memory_usage = self
         //     .buffers
@@ -2344,7 +2502,7 @@ impl RendererState {
                         0,
                         bytemuck::cast_slice(&[CameraUniform::from(view_proj_matrices)]),
                     );
-                    self.render_scene(
+                    self.render_pbr_meshes(
                         game_state,
                         &shadow_render_pass_desc,
                         &self.directional_shadow_map_pipeline,
@@ -2401,7 +2559,7 @@ impl RendererState {
                                     face_view_proj_matrices,
                                 )]),
                             );
-                            self.render_scene(
+                            self.render_pbr_meshes(
                                 game_state,
                                 &shadow_render_pass_desc,
                                 &self.point_shadow_map_pipeline,
@@ -2456,24 +2614,25 @@ impl RendererState {
             ))]),
         );
 
-        self.render_scene(
+        // TODO: this can use the same render pass as unlit + wireframe
+        self.render_pbr_meshes(
             game_state,
             &shading_render_pass_desc,
             &self.mesh_pipeline,
             false,
         );
 
-        let mut unlit_encoder =
+        let mut unlit_and_wireframe_encoder =
             self.base
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Unlit Encoder"),
+                    label: Some("Unlit And Wireframe Encoder"),
                 });
 
         {
-            let mut unlit_render_pass =
-                unlit_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Unlit Render Pass"),
+            let mut render_pass =
+                unlit_and_wireframe_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Unlit And Wireframe Render Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &self.shading_texture.view,
                         resolve_target: None,
@@ -2492,7 +2651,7 @@ impl RendererState {
                     }),
                 });
 
-            unlit_render_pass.set_pipeline(&self.unlit_mesh_pipeline);
+            render_pass.set_pipeline(&self.unlit_mesh_pipeline);
 
             self.buffers
                 .binded_unlit_meshes
@@ -2500,7 +2659,12 @@ impl RendererState {
                 .enumerate()
                 .filter(|(binded_unlit_mesh_index, _)| {
                     game_state.scene.nodes().any(|node| match &node.mesh {
-                        Some(GameNodeMesh::Unlit { mesh_indices, .. }) => mesh_indices
+                        Some(GameNodeMesh {
+                            mesh_indices,
+                            mesh_type: GameNodeMeshType::Unlit { .. },
+                            wireframe: false,
+                            ..
+                        }) => mesh_indices
                             .iter()
                             .any(|node_mesh_index| node_mesh_index == binded_unlit_mesh_index),
                         _ => false,
@@ -2518,19 +2682,15 @@ impl RendererState {
                         },
                     )| {
                         {
-                            unlit_render_pass.set_bind_group(
-                                0,
-                                &self.camera_and_lights_bind_group,
-                                &[],
-                            );
+                            render_pass.set_bind_group(0, &self.camera_and_lights_bind_group, &[]);
 
-                            unlit_render_pass.set_vertex_buffer(0, vertex_buffer.src().slice(..));
-                            unlit_render_pass.set_vertex_buffer(1, instance_buffer.src().slice(..));
-                            unlit_render_pass.set_index_buffer(
+                            render_pass.set_vertex_buffer(0, vertex_buffer.src().slice(..));
+                            render_pass.set_vertex_buffer(1, instance_buffer.src().slice(..));
+                            render_pass.set_index_buffer(
                                 index_buffer.src().slice(..),
                                 *index_buffer_format,
                             );
-                            unlit_render_pass.draw_indexed(
+                            render_pass.draw_indexed(
                                 0..index_buffer.length() as u32,
                                 0,
                                 0..instance_buffer.length() as u32,
@@ -2538,11 +2698,72 @@ impl RendererState {
                         }
                     },
                 );
+
+            render_pass.set_pipeline(&self.wireframe_pipeline);
+
+            self.buffers
+                .binded_wireframe_meshes
+                .iter()
+                .filter(
+                    |BindedWireframeMesh {
+                         source_mesh_type,
+                         source_mesh_index,
+                         ..
+                     }| {
+                        game_state.scene.nodes().any(|node| match &node.mesh {
+                            Some(GameNodeMesh {
+                                mesh_indices,
+                                mesh_type,
+                                wireframe: true,
+                                ..
+                            }) => {
+                                *source_mesh_type == (*mesh_type).into()
+                                    && mesh_indices.iter().any(|node_mesh_index| {
+                                        *node_mesh_index == *source_mesh_index
+                                    })
+                            }
+                            _ => false,
+                        })
+                    },
+                )
+                .for_each(
+                    |BindedWireframeMesh {
+                         source_mesh_type,
+                         source_mesh_index,
+                         index_buffer,
+                         index_buffer_format,
+                         instance_buffer,
+                         ..
+                     }| {
+                        let vertex_buffer = match source_mesh_type {
+                            MeshType::Pbr => {
+                                &self.buffers.binded_pbr_meshes[*source_mesh_index]
+                                    .geometry_buffers
+                                    .vertex_buffer
+                            }
+                            MeshType::Unlit => {
+                                &self.buffers.binded_unlit_meshes[*source_mesh_index].vertex_buffer
+                            }
+                        };
+
+                        render_pass.set_bind_group(0, &self.camera_and_lights_bind_group, &[]);
+
+                        render_pass.set_vertex_buffer(0, vertex_buffer.src().slice(..));
+                        render_pass.set_vertex_buffer(1, instance_buffer.src().slice(..));
+                        render_pass
+                            .set_index_buffer(index_buffer.src().slice(..), *index_buffer_format);
+                        render_pass.draw_indexed(
+                            0..index_buffer.length() as u32,
+                            0,
+                            0..instance_buffer.length() as u32,
+                        );
+                    },
+                );
         }
 
         self.base
             .queue
-            .submit(std::iter::once(unlit_encoder.finish()));
+            .submit(std::iter::once(unlit_and_wireframe_encoder.finish()));
 
         if self.enable_bloom {
             self.base.queue.write_buffer(
@@ -2756,7 +2977,7 @@ impl RendererState {
         Ok(())
     }
 
-    fn render_scene<'a>(
+    fn render_pbr_meshes<'a>(
         &'a self,
         game_state: &GameState,
         render_pass_descriptor: &wgpu::RenderPassDescriptor<'a, 'a>,
@@ -2766,7 +2987,7 @@ impl RendererState {
         let device = &self.base.device;
         let queue = &self.base.queue;
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("render_scene Encoder"),
+            label: Some("render_pbr_meshes Encoder"),
         });
         {
             let mut render_pass = encoder.begin_render_pass(render_pass_descriptor);
@@ -2777,7 +2998,12 @@ impl RendererState {
                 .enumerate()
                 .filter(|(binded_pbr_mesh_index, _)| {
                     game_state.scene.nodes().any(|node| match &node.mesh {
-                        Some(GameNodeMesh::Pbr { mesh_indices, .. }) => mesh_indices
+                        Some(GameNodeMesh {
+                            mesh_indices,
+                            mesh_type: GameNodeMeshType::Pbr { .. },
+                            wireframe: false,
+                            ..
+                        }) => mesh_indices
                             .iter()
                             .any(|node_mesh_index| node_mesh_index == binded_pbr_mesh_index),
                         _ => false,

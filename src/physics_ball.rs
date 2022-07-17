@@ -2,7 +2,7 @@ use cgmath::Vector3;
 
 use super::*;
 
-const RESTITUTION: f32 = 1.0;
+const RESTITUTION: f32 = 0.1;
 
 #[derive(Clone, Debug)]
 pub struct PhysicsBall {
@@ -76,6 +76,14 @@ impl PhysicsBall {
     pub fn destroy(&self, scene: &mut Scene, physics_state: &mut PhysicsState) {
         scene.remove_node(self.node_id);
         physics_state.remove_rigid_body(self.rigid_body_handle);
+    }
+
+    pub fn toggle_wireframe(&self, scene: &mut Scene) {
+        if let Some(node) = scene.get_node_mut(self.node_id) {
+            if let Some(mesh) = node.mesh.as_mut() {
+                mesh.wireframe = !mesh.wireframe;
+            }
+        }
     }
 
     pub fn rigid_body_handle(&self) -> RigidBodyHandle {

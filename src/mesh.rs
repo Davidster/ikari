@@ -118,6 +118,8 @@ impl GpuUnlitMeshInstance {
     }
 }
 
+pub type GpuWireframeMeshInstance = GpuUnlitMeshInstance;
+
 #[derive(Copy, Clone, Debug)]
 pub struct DynamicPbrParams {
     pub base_color_factor: Vector4<f32>,

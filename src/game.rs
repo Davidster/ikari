@@ -20,7 +20,7 @@ fn get_gltf_path() -> &'static str {
     // let gltf_path = "/home/david/Downloads/free_low_poly_forest/scene.gltf";
     // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
     // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf";
-    let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
+    // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
     // let gltf_path = "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf";
     // let gltf_path = "./src/models/gltf/Sponza/Sponza.gltf";
     // let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
@@ -37,7 +37,7 @@ fn get_gltf_path() -> &'static str {
     // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
     // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
     // let gltf_path = "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
+    let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
     // let gltf_path =
     //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
     // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
@@ -136,15 +136,18 @@ pub fn init_game_state(
     let point_light_unlit_mesh_index = renderer_state.bind_basic_unlit_mesh(&sphere_mesh)?;
     let mut point_light_node_ids: Vec<GameNodeId> = Vec::new();
     let mut point_light_components: Vec<PointLightComponent> = Vec::new();
-    for (transform, color, intensity) in &point_lights {
+    for (transform, color, intensity) in point_lights {
         let node_id = scene
             .add_node(
                 GameNodeDescBuilder::new()
-                    .mesh(Some(GameNodeMesh::Unlit {
+                    .mesh(Some(GameNodeMesh {
                         mesh_indices: vec![point_light_unlit_mesh_index],
-                        color: color * *intensity,
+                        mesh_type: GameNodeMeshType::Unlit {
+                            color: color * intensity,
+                        },
+                        wireframe: false,
                     }))
-                    .transform(*transform)
+                    .transform(transform)
                     .build(),
             )
             .id();
@@ -152,7 +155,7 @@ pub fn init_game_state(
         point_light_components.push(PointLightComponent {
             node_id,
             color: LIGHT_COLOR_A,
-            intensity: *intensity,
+            intensity,
         });
     }
 
@@ -166,7 +169,7 @@ pub fn init_game_state(
         node_0.transform.set_position(Vector3::new(2.0, 0.0, 0.0));
     }
     let node_0_id = scene._get_node_by_index(0).unwrap().id();
-    scene.remove_node(node_0_id);
+    // scene.remove_node(node_0_id);
 
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
     // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
@@ -241,10 +244,9 @@ pub fn init_game_state(
     let test_object_node_id = scene
         .add_node(
             GameNodeDescBuilder::new()
-                .mesh(Some(GameNodeMesh::Pbr {
-                    mesh_indices: vec![test_object_pbr_mesh_index],
-                    material_override: None,
-                }))
+                .mesh(Some(GameNodeMesh::from_pbr_mesh_index(
+                    test_object_pbr_mesh_index,
+                )))
                 .transform(
                     TransformBuilder::new()
                         .position(Vector3::new(4.0, 10.0, 4.0))
@@ -359,10 +361,7 @@ pub fn init_game_state(
     for ball in &balls {
         let node = scene.add_node(
             GameNodeDescBuilder::new()
-                .mesh(Some(GameNodeMesh::Pbr {
-                    mesh_indices: vec![ball_pbr_mesh_index],
-                    material_override: None,
-                }))
+                .mesh(Some(GameNodeMesh::from_pbr_mesh_index(ball_pbr_mesh_index)))
                 .transform(ball.transform)
                 .build(),
         );
@@ -376,10 +375,7 @@ pub fn init_game_state(
             PhysicsBall::new_random(
                 &mut scene,
                 &mut physics_state,
-                GameNodeMesh::Pbr {
-                    mesh_indices: vec![ball_pbr_mesh_index],
-                    material_override: None,
-                },
+                GameNodeMesh::from_pbr_mesh_index(ball_pbr_mesh_index),
             )
         })
         .collect();
@@ -418,10 +414,9 @@ pub fn init_game_state(
     )?;
     let floor_node = scene.add_node(
         GameNodeDescBuilder::new()
-            .mesh(Some(GameNodeMesh::Pbr {
-                mesh_indices: vec![floor_pbr_mesh_index],
-                material_override: None,
-            }))
+            .mesh(Some(GameNodeMesh::from_pbr_mesh_index(
+                floor_pbr_mesh_index,
+            )))
             .transform(
                 TransformBuilder::new()
                     .scale(Vector3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH))
@@ -465,10 +460,9 @@ pub fn init_game_state(
         let bouncing_ball_radius = 0.5;
         let bouncing_ball_node = scene.add_node(
             GameNodeDescBuilder::new()
-                .mesh(Some(GameNodeMesh::Pbr {
-                    mesh_indices: vec![bouncing_ball_pbr_mesh_index],
-                    material_override: None,
-                }))
+                .mesh(Some(GameNodeMesh::from_pbr_mesh_index(
+                    bouncing_ball_pbr_mesh_index,
+                )))
                 .transform(
                     TransformBuilder::new()
                         .scale(Vector3::new(
@@ -587,14 +581,17 @@ pub fn init_game_state(
     let crosshair_node_id = scene
         .add_node(
             GameNodeDescBuilder::new()
-                .mesh(Some(GameNodeMesh::Pbr {
+                .mesh(Some(GameNodeMesh {
                     mesh_indices: vec![pbr_mesh_index],
-                    material_override: Some(DynamicPbrParams {
-                        emissive_factor: crosshair_color,
-                        base_color_factor: Vector4::new(0.0, 0.0, 0.0, 1.0),
-                        alpha_cutoff: 0.5,
-                        ..Default::default()
-                    }),
+                    mesh_type: GameNodeMeshType::Pbr {
+                        material_override: Some(DynamicPbrParams {
+                            emissive_factor: crosshair_color,
+                            base_color_factor: Vector4::new(0.0, 0.0, 0.0, 1.0),
+                            alpha_cutoff: 0.5,
+                            ..Default::default()
+                        }),
+                    },
+                    wireframe: false,
                 }))
                 .build(),
         )
@@ -913,7 +910,10 @@ pub fn update_game_state(
         .iter()
         .zip(game_state.point_lights.iter())
         .for_each(|(node_id, point_light)| {
-            if let Some(GameNodeMesh::Unlit { ref mut color, .. }) = game_state
+            if let Some(GameNodeMesh {
+                mesh_type: GameNodeMeshType::Unlit { ref mut color },
+                ..
+            }) = game_state
                 .scene
                 .get_node_mut(*node_id)
                 .and_then(|node| node.mesh.as_mut())
@@ -1085,6 +1085,7 @@ pub fn update_game_state(
                     //     "Hit physics ball {:?} hit at point {}",
                     //     ball_index, hit_point
                     // ));
+                    // ball.toggle_wireframe(&mut game_state.scene);
                     ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
                     game_state.physics_balls.remove(ball_index);
                 }

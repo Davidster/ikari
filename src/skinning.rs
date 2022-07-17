@@ -40,9 +40,11 @@ pub fn get_all_bone_data(
         .filter_map(|node| {
             scene.get_skeleton_skin_node_id(node.id()).and_then(
                 |skeleton_skin_node_id| match &scene.get_node(skeleton_skin_node_id).unwrap().mesh {
-                    Some(GameNodeMesh::Pbr { mesh_indices, .. }) => {
-                        Some((mesh_indices, skeleton_skin_node_id))
-                    }
+                    Some(GameNodeMesh {
+                        mesh_indices,
+                        mesh_type: GameNodeMeshType::Pbr { .. },
+                        ..
+                    }) => Some((mesh_indices, skeleton_skin_node_id)),
                     _ => None,
                 },
             )
