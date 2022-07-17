@@ -1096,9 +1096,9 @@ pub fn update_game_state(
                     //     "Hit physics ball {:?} hit at point {}",
                     //     ball_index, hit_point
                     // ));
-                    ball.toggle_wireframe(&mut game_state.scene);
-                    // ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
-                    // game_state.physics_balls.remove(ball_index);
+                    // ball.toggle_wireframe(&mut game_state.scene);
+                    ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
+                    game_state.physics_balls.remove(ball_index);
                 }
             }
         }
