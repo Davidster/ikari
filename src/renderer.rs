@@ -483,6 +483,7 @@ pub struct RendererState {
     is_playing_animations: bool,
     enable_bloom: bool,
     enable_shadows: bool,
+    enable_wireframe_mode: bool,
 
     mesh_pipeline: wgpu::RenderPipeline,
     unlit_mesh_pipeline: wgpu::RenderPipeline,
@@ -559,6 +560,7 @@ impl RendererState {
             "Pause/Resume Animations: P",
             "Toggle Bloom Effect:     B",
             "Toggle Shadows:          M",
+            "Toggle Wireframe:        F",
             "Exit:                    Escape",
         ]
         .iter()
@@ -854,7 +856,10 @@ impl RendererState {
         let unlit_mesh_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Unlit Mesh Pipeline Layout"),
-                bind_group_layouts: &[&camera_and_lights_bind_group_layout],
+                bind_group_layouts: &[
+                    &camera_and_lights_bind_group_layout,
+                    bones_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
         let mut unlit_mesh_pipeline_descriptor = mesh_pipeline_descriptor.clone();
@@ -1730,6 +1735,7 @@ impl RendererState {
             is_playing_animations: true,
             enable_bloom: true,
             enable_shadows: true,
+            enable_wireframe_mode: false,
 
             mesh_pipeline,
             unlit_mesh_pipeline,
@@ -2053,6 +2059,10 @@ impl RendererState {
         self.enable_shadows = !self.enable_shadows;
     }
 
+    pub fn toggle_wireframe_mode(&mut self) {
+        self.enable_wireframe_mode = !self.enable_wireframe_mode;
+    }
+
     pub fn resize(&mut self, new_window_size: winit::dpi::PhysicalSize<u32>) {
         let surface = &mut self.base.surface;
         let surface_config = &mut self.base.surface_config;
@@ -2199,7 +2209,7 @@ impl RendererState {
         let time_tracker = game_state.time();
         let frame_time_seconds = time_tracker.last_frame_time_seconds();
 
-        // do animatons
+        // step animatons
         let scene = &mut game_state.scene;
         if self.is_playing_animations {
             self.animation_time_acc += frame_time_seconds;
@@ -2249,6 +2259,7 @@ impl RendererState {
                 )| {
                     let gpu_instances: Vec<_> = scene
                         .nodes()
+                        .filter(|_| !self.enable_wireframe_mode)
                         .filter_map(|node| match &node.mesh {
                             Some(GameNodeMesh {
                                 mesh_indices,
@@ -2304,6 +2315,7 @@ impl RendererState {
                 )| {
                     let gpu_instances: Vec<_> = scene
                         .nodes()
+                        .filter(|_| !self.enable_wireframe_mode)
                         .filter_map(|node| match &node.mesh {
                             Some(GameNodeMesh {
                                 mesh_indices,
@@ -2345,11 +2357,17 @@ impl RendererState {
              }| {
                 let gpu_instances: Vec<_> = scene
                     .nodes()
+                    .filter(|node| {
+                        if self.enable_wireframe_mode {
+                            true
+                        } else {
+                            node.mesh.is_some() && node.mesh.as_ref().unwrap().wireframe
+                        }
+                    })
                     .filter(|node| match &node.mesh {
                         Some(GameNodeMesh {
                             mesh_indices,
                             mesh_type,
-                            wireframe: true,
                             ..
                         }) => {
                             *source_mesh_type == (*mesh_type).into()
@@ -2657,6 +2675,7 @@ impl RendererState {
                 .binded_unlit_meshes
                 .iter()
                 .enumerate()
+                .filter(|_| !self.enable_wireframe_mode)
                 .filter(|(binded_unlit_mesh_index, _)| {
                     game_state.scene.nodes().any(|node| match &node.mesh {
                         Some(GameNodeMesh {
@@ -2683,6 +2702,7 @@ impl RendererState {
                     )| {
                         {
                             render_pass.set_bind_group(0, &self.camera_and_lights_bind_group, &[]);
+                            render_pass.set_bind_group(1, &self.bones_bind_group, &[0]);
 
                             render_pass.set_vertex_buffer(0, vertex_buffer.src().slice(..));
                             render_pass.set_vertex_buffer(1, instance_buffer.src().slice(..));
@@ -2710,20 +2730,21 @@ impl RendererState {
                          source_mesh_index,
                          ..
                      }| {
-                        game_state.scene.nodes().any(|node| match &node.mesh {
-                            Some(GameNodeMesh {
-                                mesh_indices,
-                                mesh_type,
-                                wireframe: true,
-                                ..
-                            }) => {
-                                *source_mesh_type == (*mesh_type).into()
-                                    && mesh_indices.iter().any(|node_mesh_index| {
-                                        *node_mesh_index == *source_mesh_index
-                                    })
-                            }
-                            _ => false,
-                        })
+                        self.enable_wireframe_mode
+                            || game_state.scene.nodes().any(|node| match &node.mesh {
+                                Some(GameNodeMesh {
+                                    mesh_indices,
+                                    mesh_type,
+                                    wireframe: true,
+                                    ..
+                                }) => {
+                                    *source_mesh_type == (*mesh_type).into()
+                                        && mesh_indices.iter().any(|node_mesh_index| {
+                                            *node_mesh_index == *source_mesh_index
+                                        })
+                                }
+                                _ => false,
+                            })
                     },
                 )
                 .for_each(
@@ -2735,18 +2756,40 @@ impl RendererState {
                          instance_buffer,
                          ..
                      }| {
-                        let vertex_buffer = match source_mesh_type {
-                            MeshType::Pbr => {
-                                &self.buffers.binded_pbr_meshes[*source_mesh_index]
-                                    .geometry_buffers
-                                    .vertex_buffer
-                            }
-                            MeshType::Unlit => {
-                                &self.buffers.binded_unlit_meshes[*source_mesh_index].vertex_buffer
-                            }
-                        };
+                        let (vertex_buffer, bone_transforms_buffer_start_index) =
+                            match source_mesh_type {
+                                MeshType::Pbr => {
+                                    let bone_transforms_buffer_start_index = self
+                                        .all_bone_transforms
+                                        .animated_bone_transforms
+                                        .iter()
+                                        .find(|bone_slice| {
+                                            bone_slice.binded_pbr_mesh_index == *source_mesh_index
+                                        })
+                                        .map(|bone_slice| {
+                                            bone_slice.start_index.try_into().unwrap()
+                                        })
+                                        .unwrap_or(0);
+                                    (
+                                        &self.buffers.binded_pbr_meshes[*source_mesh_index]
+                                            .geometry_buffers
+                                            .vertex_buffer,
+                                        bone_transforms_buffer_start_index,
+                                    )
+                                }
+                                MeshType::Unlit => (
+                                    &self.buffers.binded_unlit_meshes[*source_mesh_index]
+                                        .vertex_buffer,
+                                    0,
+                                ),
+                            };
 
                         render_pass.set_bind_group(0, &self.camera_and_lights_bind_group, &[]);
+                        render_pass.set_bind_group(
+                            1,
+                            &self.bones_bind_group,
+                            &[bone_transforms_buffer_start_index],
+                        );
 
                         render_pass.set_vertex_buffer(0, vertex_buffer.src().slice(..));
                         render_pass.set_vertex_buffer(1, instance_buffer.src().slice(..));
@@ -2997,17 +3040,24 @@ impl RendererState {
                 .iter()
                 .enumerate()
                 .filter(|(binded_pbr_mesh_index, _)| {
-                    game_state.scene.nodes().any(|node| match &node.mesh {
-                        Some(GameNodeMesh {
-                            mesh_indices,
-                            mesh_type: GameNodeMeshType::Pbr { .. },
-                            wireframe: false,
-                            ..
-                        }) => mesh_indices
-                            .iter()
-                            .any(|node_mesh_index| node_mesh_index == binded_pbr_mesh_index),
-                        _ => false,
-                    })
+                    game_state
+                        .scene
+                        .nodes()
+                        .filter(|node| {
+                            let mesh_is_wireframe =
+                                node.mesh.is_some() && node.mesh.as_ref().unwrap().wireframe;
+                            is_shadow || (!mesh_is_wireframe && !self.enable_wireframe_mode)
+                        })
+                        .any(|node| match &node.mesh {
+                            Some(GameNodeMesh {
+                                mesh_indices,
+                                mesh_type: GameNodeMeshType::Pbr { .. },
+                                ..
+                            }) => mesh_indices
+                                .iter()
+                                .any(|node_mesh_index| node_mesh_index == binded_pbr_mesh_index),
+                            _ => false,
+                        })
                 })
                 .for_each(
                     |(

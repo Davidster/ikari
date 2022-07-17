@@ -152,7 +152,6 @@ fn vs_main(
         instance.model_transform_3,
     );
 
-    // var bones: array<mat4x4<f32>, MAX_BONES> = bones_uniform.value;
     let bone_indices = vshader_input.bone_indices;
     let bone_weights = vshader_input.bone_weights; // one f32 per weight
     let skin_transform_0 = bone_weights.x * bones_uniform.value[bone_indices.x];

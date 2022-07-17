@@ -164,17 +164,19 @@ pub fn init_game_state(
     }
 
     // rotate the animated character 90 deg
-    if let Some(node_0) = scene._get_node_mut_by_index(0) {
-        // node_0.transform.set_rotation(make_quat_from_axis_angle(
-        //     Vector3::new(0.0, 1.0, 0.0),
-        //     Deg(90.0).into(),
-        // ));
-        // node_0.transform.set_scale(Vector3::new(0.0, 0.0, 0.0));
-        // node_0.transform.set_position(Vector3::new(2.0, 0.0, 0.0));
+    // if let Some(node_0) = scene._get_node_mut_by_index(0) {
+    // node_0.transform.set_rotation(make_quat_from_axis_angle(
+    //     Vector3::new(0.0, 1.0, 0.0),
+    //     Deg(90.0).into(),
+    // ));
+    // node_0.transform.set_scale(Vector3::new(0.0, 0.0, 0.0));
+    // node_0.transform.set_position(Vector3::new(2.0, 0.0, 0.0));
+    // }
+    // let node_0_id = scene._get_node_by_index(0).unwrap().id();
+    if let Some(animation_5) = scene.animations.get_mut(5) {
+        animation_5.state.is_playing = true;
+        animation_5.state.loop_type = LoopType::PingPong;
     }
-    let node_0_id = scene._get_node_by_index(0).unwrap().id();
-    scene.animations[5].state.is_playing = true;
-    scene.animations[5].state.loop_type = LoopType::PingPong;
     // scene.remove_node(node_0_id);
 
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
@@ -758,6 +760,9 @@ pub fn process_window_input(
                 VirtualKeyCode::B => {
                     renderer_state.toggle_bloom();
                 }
+                VirtualKeyCode::F => {
+                    renderer_state.toggle_wireframe_mode();
+                }
                 _ => {}
             }
         }
@@ -1091,9 +1096,9 @@ pub fn update_game_state(
                     //     "Hit physics ball {:?} hit at point {}",
                     //     ball_index, hit_point
                     // ));
-                    // ball.toggle_wireframe(&mut game_state.scene);
-                    ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
-                    game_state.physics_balls.remove(ball_index);
+                    ball.toggle_wireframe(&mut game_state.scene);
+                    // ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
+                    // game_state.physics_balls.remove(ball_index);
                 }
             }
         }

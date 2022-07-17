@@ -9,6 +9,12 @@ struct CameraUniform {
 @group(0) @binding(0)
 var<uniform> camera: CameraUniform;
 
+struct BonesUniform {
+    value: array<mat4x4<f32>>,
+}
+@group(1) @binding(0)
+var<storage, read> bones_uniform: BonesUniform;
+
 struct VertexInput {
     @location(0) object_position: vec3<f32>,
     @location(1) object_normal: vec3<f32>,
@@ -50,11 +56,20 @@ fn vs_main(
         instance.model_transform_3,
     );
 
+    let bone_indices = vshader_input.bone_indices;
+    let bone_weights = vshader_input.bone_weights; // one f32 per weight
+    let skin_transform_0 = bone_weights.x * bones_uniform.value[bone_indices.x];
+    let skin_transform_1 = bone_weights.y * bones_uniform.value[bone_indices.y];
+    let skin_transform_2 = bone_weights.z * bones_uniform.value[bone_indices.z];
+    let skin_transform_3 = bone_weights.w * bones_uniform.value[bone_indices.w];
+    let skin_transform = skin_transform_0 + skin_transform_1 + skin_transform_2 + skin_transform_3;
+    let skinned_model_transform = model_transform * skin_transform;
+
     var out: VertexOutput;
 
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
     let camera_view_proj = camera.proj * camera.view;
-    let model_view_matrix = camera_view_proj * model_transform;
+    let model_view_matrix = camera_view_proj * skinned_model_transform;
     let clip_position = model_view_matrix * object_position;
 
     out.clip_position = clip_position;
