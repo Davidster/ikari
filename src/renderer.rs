@@ -2382,7 +2382,46 @@ impl RendererState {
                             GameNodeMeshType::Unlit { color } => {
                                 Some([color.x, color.y, color.z, 1.0])
                             }
-                            GameNodeMeshType::Pbr { .. } => None,
+                            GameNodeMeshType::Pbr { material_override } => {
+                                let fallback_pbr_params = self.buffers.binded_pbr_meshes
+                                    [*source_mesh_index]
+                                    .dynamic_pbr_params;
+                                let (base_color_factor, emissive_factor) = material_override
+                                    .map(|material_override| {
+                                        (
+                                            material_override.base_color_factor,
+                                            material_override.emissive_factor,
+                                        )
+                                    })
+                                    .unwrap_or((
+                                        fallback_pbr_params.base_color_factor,
+                                        fallback_pbr_params.emissive_factor,
+                                    ));
+                                let should_take_color = |as_slice: &[f32]| {
+                                    let is_all_zero = as_slice.iter().all(|&x| x == 0.0);
+                                    let is_all_one = as_slice.iter().all(|&x| x == 1.0);
+                                    !is_all_zero && !is_all_one
+                                };
+                                let base_color_factor_arr: [f32; 4] = base_color_factor.into();
+                                let emissive_factor_arr: [f32; 3] = emissive_factor.into();
+                                if should_take_color(&base_color_factor_arr[0..3]) {
+                                    Some([
+                                        base_color_factor.x,
+                                        base_color_factor.y,
+                                        base_color_factor.z,
+                                        base_color_factor.w,
+                                    ])
+                                } else if should_take_color(&emissive_factor_arr) {
+                                    Some([
+                                        emissive_factor.x,
+                                        emissive_factor.y,
+                                        emissive_factor.z,
+                                        1.0,
+                                    ])
+                                } else {
+                                    None
+                                }
+                            }
                         }
                         .unwrap_or(DEFAULT_WIREFRAME_COLOR);
                         GpuWireframeMeshInstance {

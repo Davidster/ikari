@@ -71,23 +71,23 @@ pub fn get_skybox_path() -> (
 
     // Newport Loft
     // src: http://www.hdrlabs.com/sibl/archive/
-    // let skybox_background = SkyboxBackground::Equirectangular {
-    //     image_path: "./src/textures/newport_loft/background.jpg",
-    // };
-    // let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-    //     Some(SkyboxHDREnvironment::Equirectangular {
-    //         image_path: "./src/textures/newport_loft/radiance.hdr",
-    //     });
-
-    // My photosphere pic
-    // src: me
     let skybox_background = SkyboxBackground::Equirectangular {
-        image_path: "./src/textures/photosphere_skybox.jpg",
+        image_path: "./src/textures/newport_loft/background.jpg",
     };
     let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
         Some(SkyboxHDREnvironment::Equirectangular {
-            image_path: "./src/textures/photosphere_skybox_small.jpg",
+            image_path: "./src/textures/newport_loft/radiance.hdr",
         });
+
+    // My photosphere pic
+    // src: me
+    // let skybox_background = SkyboxBackground::Equirectangular {
+    //     image_path: "./src/textures/photosphere_skybox.jpg",
+    // };
+    // let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+    //     Some(SkyboxHDREnvironment::Equirectangular {
+    //         image_path: "./src/textures/photosphere_skybox_small.jpg",
+    //     });
 
     (skybox_background, skybox_hdr_environment)
 }
