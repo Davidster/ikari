@@ -313,7 +313,6 @@ fn do_cubic_interpolation<T>(
     interpolation_factor: f32,
 ) -> T
 where
-    f32: Mul<f32, Output = f32> + Add<f32, Output = f32>,
     T: Copy + Mul<f32, Output = T> + Add<T, Output = T>,
 {
     // copy names from math formula:
