@@ -25,7 +25,14 @@ pub struct Channel {
 pub struct AnimationState {
     pub current_time_seconds: f32,
     pub is_playing: bool,
-    pub is_looping: bool,
+    pub loop_type: LoopType,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum LoopType {
+    Once,
+    Loop,
+    PingPong,
 }
 
 impl Default for AnimationState {
@@ -33,7 +40,7 @@ impl Default for AnimationState {
         Self {
             current_time_seconds: 0.0,
             is_playing: false,
-            is_looping: false,
+            loop_type: LoopType::Once,
         }
     }
 }
@@ -57,13 +64,27 @@ pub fn step_animations(scene: &mut Scene, delta_time_seconds: f32) -> Result<()>
         if !state.is_playing {
             continue;
         }
-        if !state.is_looping && state.current_time_seconds > animation.length_seconds {
+        if state.loop_type == LoopType::Once
+            && state.current_time_seconds > animation.length_seconds
+        {
             state.current_time_seconds = 0.0;
             state.is_playing = false;
             continue;
         }
         state.current_time_seconds += delta_time_seconds;
-        let animation_time_seconds = state.current_time_seconds % animation.length_seconds;
+        let animation_time_seconds = match state.loop_type {
+            LoopType::PingPong => {
+                let forwards =
+                    (state.current_time_seconds / animation.length_seconds).floor() as i32 % 2 == 0;
+                if forwards {
+                    state.current_time_seconds % animation.length_seconds
+                } else {
+                    animation.length_seconds - state.current_time_seconds % animation.length_seconds
+                }
+            }
+            _ => state.current_time_seconds % animation.length_seconds,
+        };
+
         for channel in animation.channels.iter() {
             let (previous_key_frame, next_key_frame) =
                 get_nearby_keyframes(&channel.keyframe_timings, animation_time_seconds);

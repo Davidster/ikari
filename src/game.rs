@@ -37,13 +37,17 @@ fn get_gltf_path() -> &'static str {
     // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
     // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
     // let gltf_path = "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf";
-    let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
+    // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
     // let gltf_path =
     //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
     // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
     // let gltf_path = "./src/models/gltf/VC/VC.gltf";
     // let gltf_path =
     //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
+
+    // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
+    let gltf_path = "./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf";
+
     gltf_path
 }
 
@@ -166,9 +170,11 @@ pub fn init_game_state(
         //     Deg(90.0).into(),
         // ));
         // node_0.transform.set_scale(Vector3::new(0.0, 0.0, 0.0));
-        node_0.transform.set_position(Vector3::new(2.0, 0.0, 0.0));
+        // node_0.transform.set_position(Vector3::new(2.0, 0.0, 0.0));
     }
     let node_0_id = scene._get_node_by_index(0).unwrap().id();
+    scene.animations[5].state.is_playing = true;
+    scene.animations[5].state.loop_type = LoopType::PingPong;
     // scene.remove_node(node_0_id);
 
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
