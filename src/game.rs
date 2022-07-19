@@ -9,7 +9,7 @@ pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.5;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
 pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
-pub const ARENA_SIDE_LENGTH: f32 = 25.0;
+pub const ARENA_SIDE_LENGTH: f32 = 10.0;
 pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
 pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 
@@ -37,7 +37,7 @@ fn get_gltf_path() -> &'static str {
     // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
     // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
     // let gltf_path = "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
+    let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
     // let gltf_path =
     //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
     // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
@@ -46,7 +46,7 @@ fn get_gltf_path() -> &'static str {
     //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
 
     // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-    let gltf_path = "./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf";
+    // let gltf_path = "./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf";
 
     gltf_path
 }
@@ -164,19 +164,23 @@ pub fn init_game_state(
     }
 
     // rotate the animated character 90 deg
-    // if let Some(node_0) = scene._get_node_mut_by_index(0) {
-    // node_0.transform.set_rotation(make_quat_from_axis_angle(
-    //     Vector3::new(0.0, 1.0, 0.0),
-    //     Deg(90.0).into(),
-    // ));
-    // node_0.transform.set_scale(Vector3::new(0.0, 0.0, 0.0));
-    // node_0.transform.set_position(Vector3::new(2.0, 0.0, 0.0));
-    // }
-    // let node_0_id = scene._get_node_by_index(0).unwrap().id();
-    if let Some(animation_5) = scene.animations.get_mut(5) {
-        animation_5.state.is_playing = true;
-        animation_5.state.loop_type = LoopType::PingPong;
+    if let Some(node_0) = scene._get_node_mut_by_index(0) {
+        node_0.transform.set_rotation(make_quat_from_axis_angle(
+            Vector3::new(0.0, 1.0, 0.0),
+            Deg(90.0).into(),
+        ));
+        // node_0.transform.set_scale(Vector3::new(0.0, 0.0, 0.0));
+        // node_0.transform.set_position(Vector3::new(2.0, 0.0, 0.0));
     }
+    // let node_0_id = scene._get_node_by_index(0).unwrap().id();
+    if let Some(animation_1) = scene.animations.get_mut(0) {
+        animation_1.state.is_playing = true;
+        // animation_1.state.loop_type = LoopType::PingPong;
+    }
+    // if let Some(animation_5) = scene.animations.get_mut(5) {
+    //     animation_5.state.is_playing = true;
+    //     animation_5.state.loop_type = LoopType::PingPong;
+    // }
     // scene.remove_node(node_0_id);
 
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
@@ -415,7 +419,7 @@ pub fn init_game_state(
     let floor_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
         &plane_mesh,
         &PbrMaterial {
-            base_color: Some(&big_checkerboard_texture),
+            base_color: Some(&small_checkerboard_texture),
             ..Default::default()
         },
         Default::default(),
@@ -1096,9 +1100,9 @@ pub fn update_game_state(
                     //     "Hit physics ball {:?} hit at point {}",
                     //     ball_index, hit_point
                     // ));
-                    // ball.toggle_wireframe(&mut game_state.scene);
-                    ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
-                    game_state.physics_balls.remove(ball_index);
+                    ball.toggle_wireframe(&mut game_state.scene);
+                    // ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
+                    // game_state.physics_balls.remove(ball_index);
                 }
             }
         }
