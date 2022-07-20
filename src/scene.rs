@@ -54,12 +54,16 @@ pub enum GameNodeMeshType {
 pub struct Skin {
     pub bone_node_ids: Vec<GameNodeId>,
     pub bone_inverse_bind_matrices: Vec<Matrix4<f32>>,
+    // each transform moves a 2x2x2 box centered at the origin
+    // such that it surrounds the bone's vertices in bone space
+    pub bone_bounding_box_transforms: Vec<crate::transform::Transform>,
 }
 
 #[derive(Debug, Clone)]
 pub struct IndexedSkin {
     pub bone_node_indices: Vec<usize>,
     pub bone_inverse_bind_matrices: Vec<Matrix4<f32>>,
+    pub bone_bounding_box_transforms: Vec<crate::transform::Transform>,
 }
 
 #[derive(Debug)]
@@ -93,6 +97,7 @@ impl Scene {
                     .map(|node_index| GameNodeId(*node_index, 0))
                     .collect(),
                 bone_inverse_bind_matrices: indexed_skin.bone_inverse_bind_matrices.clone(),
+                bone_bounding_box_transforms: indexed_skin.bone_bounding_box_transforms.clone(),
             })
             .collect();
         let animations: Vec<_> = animations
@@ -295,6 +300,7 @@ impl Scene {
         }
     }
 
+    // TODO: should this return an option?
     pub fn get_global_transform_for_node(
         &self,
         node_id: GameNodeId,
@@ -419,7 +425,7 @@ impl Scene {
     }
 }
 
-fn get_node_ancestry_list(
+pub fn get_node_ancestry_list(
     node_index: usize,
     parent_index_map: &HashMap<usize, usize>,
 ) -> Vec<usize> {

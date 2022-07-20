@@ -4,6 +4,7 @@ pub struct GameState {
     pub scene: Scene,
     pub time_tracker: Option<TimeTracker>,
     pub state_update_time_accumulator: f32,
+    pub is_playing_animations: bool,
 
     pub audio_manager: AudioManager,
     pub bgm_sound_index: usize,
@@ -37,6 +38,8 @@ pub struct GameState {
 
     pub physics_balls: Vec<PhysicsBall>,
     pub mouse_button_pressed: bool,
+
+    pub character: Character,
 }
 
 impl GameState {
@@ -51,5 +54,9 @@ impl GameState {
         self.time_tracker.unwrap_or_else(|| {
             panic!("Must call GameState::on_frame_started at least once before getting the time")
         })
+    }
+
+    pub fn toggle_animations(&mut self) {
+        self.is_playing_animations = !self.is_playing_animations;
     }
 }

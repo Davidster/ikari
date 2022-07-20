@@ -4,6 +4,13 @@ use cgmath::{Matrix3, Matrix4, One, Quaternion, Vector3};
 
 use super::*;
 
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct SimpleTransform {
+    pub position: Vector3<f32>,
+    pub rotation: Quaternion<f32>,
+    pub scale: Vector3<f32>,
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct Transform {
     position: Vector3<f32>,
@@ -96,6 +103,40 @@ impl Transform {
         ));
     }
 
+    pub fn decompose(&self) -> SimpleTransform {
+        let mat = self.matrix();
+        let position = Vector3::new(mat.w.x, mat.w.y, mat.w.z);
+        let scale = Vector3::new(
+            Vector3::new(mat.x.x, mat.x.y, mat.x.z).magnitude(),
+            Vector3::new(mat.y.x, mat.y.y, mat.y.z).magnitude(),
+            Vector3::new(mat.z.x, mat.z.y, mat.z.z).magnitude(),
+        );
+        let rotation = get_quat_from_rotation_matrix(Matrix4::new(
+            mat.x.x / scale.x,
+            mat.x.y / scale.x,
+            mat.x.z / scale.x,
+            0.0,
+            mat.y.x / scale.y,
+            mat.y.y / scale.y,
+            mat.y.z / scale.y,
+            0.0,
+            mat.z.x / scale.z,
+            mat.z.y / scale.z,
+            mat.z.z / scale.z,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+        ));
+
+        SimpleTransform {
+            position,
+            rotation,
+            scale,
+        }
+    }
+
     fn resync_matrix(&mut self) {
         self.matrix = make_translation_matrix(self.position)
             * make_rotation_matrix(self.rotation)
@@ -107,6 +148,17 @@ impl From<Matrix4<f32>> for Transform {
     fn from(matrix: Matrix4<f32>) -> Self {
         let mut transform = Transform::new();
         transform.base_matrix = matrix;
+        transform
+    }
+}
+
+impl From<SimpleTransform> for Transform {
+    fn from(simple_transform: SimpleTransform) -> Self {
+        let mut transform = Transform::new();
+        transform.position = simple_transform.position;
+        transform.rotation = simple_transform.rotation;
+        transform.scale = simple_transform.scale;
+        transform.resync_matrix();
         transform
     }
 }
@@ -198,5 +250,45 @@ impl TransformBuilder {
         result.set_rotation(self.rotation);
         result.set_scale(self.scale);
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use cgmath::{Rad, Vector4};
+
+    use super::*;
+
+    #[test]
+    fn decompose_transform() {
+        let position = -Vector3::new(1.0, 2.0, 3.0);
+        let rotation = make_quat_from_axis_angle(Vector3::new(1.0, 0.2, 3.0).normalize(), Rad(0.2));
+        let scale = Vector3::new(3.0, 2.0, 1.0);
+
+        let expected = SimpleTransform {
+            position,
+            rotation,
+            scale,
+        };
+
+        let transform_1 = TransformBuilder::new()
+            .position(position)
+            .rotation(rotation)
+            .scale(scale)
+            .build();
+
+        let transform_2: crate::transform::Transform = (make_translation_matrix(position)
+            * make_rotation_matrix(rotation)
+            * make_scale_matrix(scale))
+        .into();
+
+        // these fail but they pass in our hearts 💗
+        assert_eq!(transform_1.decompose(), expected);
+        assert_eq!(transform_2.decompose(), expected);
+        assert_eq!(
+            transform_1.matrix() * Vector4::new(2.0, -3.0, 4.0, 1.0),
+            crate::transform::Transform::from(transform_1.decompose()).matrix()
+                * Vector4::new(2.0, -3.0, 4.0, 1.0)
+        );
     }
 }

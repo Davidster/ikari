@@ -31,7 +31,7 @@ pub struct AnimationState {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum LoopType {
     Once,
-    Loop,
+    Wrap,
     PingPong,
 }
 

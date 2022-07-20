@@ -117,41 +117,6 @@ pub fn build_scene(
         })
         .collect();
 
-    let skins: Vec<_> = document
-        .skins()
-        .map(|skin| {
-            let bone_node_indices: Vec<_> = skin.joints().map(|joint| joint.index()).collect();
-            anyhow::Ok(IndexedSkin {
-                bone_inverse_bind_matrices: skin
-                    .inverse_bind_matrices()
-                    .map(|accessor| {
-                        let data_type = accessor.data_type();
-                        let dimensions = accessor.dimensions();
-                        if dimensions != gltf::accessor::Dimensions::Mat4 {
-                            bail!("Expected mat4 data but found: {:?}", dimensions);
-                        }
-                        if data_type != gltf::accessor::DataType::F32 {
-                            bail!("Expected f32 data but found: {:?}", data_type);
-                        }
-                        let matrices_u8 = get_buffer_slice_from_accessor(accessor, buffers);
-                        Ok(bytemuck::cast_slice::<_, [[f32; 4]; 4]>(&matrices_u8)
-                            .to_vec()
-                            .iter()
-                            .cloned()
-                            .map(Matrix4::from)
-                            .collect())
-                    })
-                    .transpose()?
-                    .unwrap_or_else(|| {
-                        (0..bone_node_indices.len())
-                            .map(|_| Matrix4::one())
-                            .collect()
-                    }),
-                bone_node_indices,
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
     let scene_nodes: Vec<_> = get_full_node_list(
         document
             .scenes()
@@ -163,6 +128,7 @@ pub fn build_scene(
 
     let mut binded_pbr_meshes: Vec<BindedPbrMesh> = Vec::new();
     let mut binded_wireframe_meshes: Vec<BindedWireframeMesh> = Vec::new();
+    let mut pbr_mesh_vertices: Vec<Vec<Vertex>> = Vec::new();
     // gltf node index -> game node
     let mut node_mesh_links: HashMap<usize, Vec<usize>> = HashMap::new();
 
@@ -185,6 +151,7 @@ pub fn build_scene(
         )?;
 
         let (
+            vertices,
             vertex_buffer,
             index_buffer,
             index_buffer_format,
@@ -246,6 +213,8 @@ pub fn build_scene(
             index_buffer_format: wireframe_index_buffer_format,
             instance_buffer: wireframe_instance_buffer,
         });
+
+        pbr_mesh_vertices.push(vertices);
     }
 
     // it is important that the node indices from the gltf document are preserved
@@ -268,6 +237,104 @@ pub fn build_scene(
         .collect();
 
     let animations = get_animations(document, buffers)?;
+
+    let skins: Vec<_> = document
+        .skins()
+        .enumerate()
+        .map(|(skin_index, skin)| {
+            let bone_node_indices: Vec<_> = skin.joints().map(|joint| joint.index()).collect();
+            let bone_inverse_bind_matrices: Vec<_> = skin
+                .inverse_bind_matrices()
+                .map(|accessor| {
+                    let data_type = accessor.data_type();
+                    let dimensions = accessor.dimensions();
+                    if dimensions != gltf::accessor::Dimensions::Mat4 {
+                        bail!("Expected mat4 data but found: {:?}", dimensions);
+                    }
+                    if data_type != gltf::accessor::DataType::F32 {
+                        bail!("Expected f32 data but found: {:?}", data_type);
+                    }
+                    let matrices_u8 = get_buffer_slice_from_accessor(accessor, buffers);
+                    Ok(bytemuck::cast_slice::<_, [[f32; 4]; 4]>(&matrices_u8)
+                        .to_vec()
+                        .iter()
+                        .cloned()
+                        .map(Matrix4::from)
+                        .collect())
+                })
+                .transpose()?
+                .unwrap_or_else(|| {
+                    (0..bone_node_indices.len())
+                        .map(|_| Matrix4::one())
+                        .collect()
+                });
+
+            let skeleton_skin_node = nodes
+                .iter()
+                .find(|node| node.skin_index == Some(skin_index))
+                .unwrap();
+            let skeleton_mesh_index = skeleton_skin_node.mesh.as_ref().unwrap().mesh_indices[0];
+            let skeleton_mesh_vertices = &pbr_mesh_vertices[skeleton_mesh_index];
+
+            let bone_bounding_box_transforms: Vec<_> = (0..bone_inverse_bind_matrices.len())
+                .map(|bone_index| {
+                    let bone_inv_bind_matrix = bone_inverse_bind_matrices[bone_index];
+                    let vertex_weight_threshold = 0.5f32;
+                    let vertex_positions_for_node: Vec<_> = skeleton_mesh_vertices
+                        .iter()
+                        .filter(|vertex| {
+                            vertex
+                                .bone_indices
+                                .iter()
+                                .zip(vertex.bone_weights.iter())
+                                .any(|(v_bone_index, v_bone_weight)| {
+                                    *v_bone_index as usize == bone_index
+                                        && *v_bone_weight > vertex_weight_threshold
+                                })
+                        })
+                        .map(|vertex| {
+                            let position = Vector4::new(
+                                vertex.position[0],
+                                vertex.position[1],
+                                vertex.position[2],
+                                1.0,
+                            );
+                            bone_inv_bind_matrix * position
+                        })
+                        .collect();
+                    if vertex_positions_for_node.is_empty() {
+                        return TransformBuilder::new()
+                            .scale(Vector3::new(0.0, 0.0, 0.0))
+                            .build();
+                    }
+                    let mut min_point = Vector3::new(
+                        vertex_positions_for_node[0].x,
+                        vertex_positions_for_node[0].y,
+                        vertex_positions_for_node[0].z,
+                    );
+                    let mut max_point = min_point;
+                    for pos in vertex_positions_for_node {
+                        min_point.x = min_point.x.min(pos.x);
+                        min_point.y = min_point.y.min(pos.y);
+                        min_point.z = min_point.z.min(pos.z);
+                        max_point.x = max_point.x.max(pos.x);
+                        max_point.y = max_point.y.max(pos.y);
+                        max_point.z = max_point.z.max(pos.z);
+                    }
+                    TransformBuilder::new()
+                        .scale((max_point - min_point) / 2.0)
+                        .position((max_point + min_point) / 2.0)
+                        .build()
+                })
+                .collect();
+
+            anyhow::Ok(IndexedSkin {
+                bone_inverse_bind_matrices,
+                bone_node_indices,
+                bone_bounding_box_transforms,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     let scene = Scene::new(nodes, skins, animations, parent_index_map);
 
@@ -617,11 +684,13 @@ pub fn get_buffer_slice_from_accessor(
         .collect()
 }
 
+// TODO: this tuple is getting out of hand lol. return a GeometryBuffers or something
 pub fn build_geometry_buffers(
     device: &wgpu::Device,
     primitive_group: &gltf::mesh::Primitive,
     buffers: &[gltf::buffer::Data],
 ) -> Result<(
+    Vec<Vertex>,
     GpuBuffer,
     GpuBuffer,
     wgpu::IndexFormat,
@@ -1112,6 +1181,7 @@ pub fn build_geometry_buffers(
     );
 
     Ok((
+        vertices_with_all_data,
         vertex_buffer,
         index_buffer,
         index_buffer_format,

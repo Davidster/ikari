@@ -99,7 +99,7 @@ pub fn init_game_state(
 ) -> Result<GameState> {
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
     let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
-    let _cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
+    let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
 
     let mut physics_state = PhysicsState::new();
 
@@ -137,7 +137,7 @@ pub fn init_game_state(
     ];
     // let point_lights: Vec<(transform::Transform, Vector3<f32>)> = vec![];
 
-    let point_light_unlit_mesh_index = renderer_state.bind_basic_unlit_mesh(&sphere_mesh)?;
+    let point_light_unlit_mesh_index = renderer_state.bind_basic_unlit_mesh(&sphere_mesh);
     let mut point_light_node_ids: Vec<GameNodeId> = Vec::new();
     let mut point_light_components: Vec<PointLightComponent> = Vec::new();
     for (transform, color, intensity) in point_lights {
@@ -173,9 +173,9 @@ pub fn init_game_state(
     // node_0.transform.set_position(Vector3::new(2.0, 0.0, 0.0));
     // }
     // let node_0_id = scene._get_node_by_index(0).unwrap().id();
-    if let Some(animation_5) = scene.animations.get_mut(5) {
+    if let Some(animation_5) = scene.animations.get_mut(6) {
         animation_5.state.is_playing = true;
-        animation_5.state.loop_type = LoopType::PingPong;
+        animation_5.state.loop_type = LoopType::Wrap;
     }
     // scene.remove_node(node_0_id);
 
@@ -265,6 +265,22 @@ pub fn init_game_state(
         )
         .id();
     scene.remove_node(test_object_node_id);
+
+    let legendary_robot_root_node_id = scene._get_node_by_index(53).unwrap().id();
+    scene
+        .get_node_mut(legendary_robot_root_node_id)
+        .unwrap()
+        .transform
+        .set_position(Vector3::new(1.0, 0.0, 5.0));
+
+    let legendary_robot_skin_index = 0;
+    let legendary_robot = Character::new(
+        &mut scene,
+        renderer_state,
+        legendary_robot_root_node_id,
+        legendary_robot_skin_index,
+        &cube_mesh,
+    );
 
     // add floor to scene
     let big_checkerboard_texture_img = {
@@ -661,6 +677,7 @@ pub fn init_game_state(
         scene,
         time_tracker: None,
         state_update_time_accumulator: 0.0,
+        is_playing_animations: true,
 
         audio_manager,
         bgm_sound_index,
@@ -693,6 +710,8 @@ pub fn init_game_state(
 
         physics_balls,
         mouse_button_pressed: false,
+
+        character: legendary_robot,
     })
 }
 
@@ -752,7 +771,7 @@ pub fn process_window_input(
                     renderer_state.increment_bloom_threshold(true, logger);
                 }
                 VirtualKeyCode::P => {
-                    renderer_state.toggle_animations();
+                    game_state.toggle_animations();
                 }
                 VirtualKeyCode::M => {
                     renderer_state.toggle_shadows();
@@ -762,6 +781,11 @@ pub fn process_window_input(
                 }
                 VirtualKeyCode::F => {
                     renderer_state.toggle_wireframe_mode();
+                }
+                VirtualKeyCode::C => {
+                    game_state
+                        .character
+                        .toggle_collision_box_display(&mut game_state.scene);
                 }
                 _ => {}
             }
@@ -1103,6 +1127,16 @@ pub fn update_game_state(
             }
         }
     }
+
+    // step animatons
+    let scene = &mut game_state.scene;
+    if game_state.is_playing_animations {
+        if let Err(err) = step_animations(scene, frame_time_seconds) {
+            logger.log(&format!("Error: animation computation failed: {:?}", err));
+        }
+    }
+
+    game_state.character.update(scene);
 }
 
 pub fn init_scene(

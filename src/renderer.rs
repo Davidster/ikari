@@ -479,8 +479,6 @@ pub struct RendererState {
     bloom_threshold: f32,
     bloom_ramp_size: f32,
     render_scale: f32,
-    animation_time_acc: f32,
-    is_playing_animations: bool,
     enable_bloom: bool,
     enable_shadows: bool,
     enable_wireframe_mode: bool,
@@ -561,6 +559,7 @@ impl RendererState {
             "Toggle Bloom Effect:     B",
             "Toggle Shadows:          M",
             "Toggle Wireframe:        F",
+            "Toggle Collision Boxes:  C",
             "Exit:                    Escape",
         ]
         .iter()
@@ -1731,8 +1730,6 @@ impl RendererState {
             bloom_threshold: INITIAL_BLOOM_THRESHOLD,
             bloom_ramp_size: INITIAL_BLOOM_RAMP_SIZE,
             render_scale: initial_render_scale,
-            animation_time_acc: 0.0,
-            is_playing_animations: true,
             enable_bloom: true,
             enable_shadows: true,
             enable_wireframe_mode: false,
@@ -1785,7 +1782,7 @@ impl RendererState {
         })
     }
 
-    pub fn bind_basic_unlit_mesh(&mut self, mesh: &BasicMesh) -> Result<usize> {
+    pub fn bind_basic_unlit_mesh(&mut self, mesh: &BasicMesh) -> usize {
         let geometry_buffers = self.bind_geometry_buffers_for_basic_mesh(mesh);
 
         self.buffers.binded_unlit_meshes.push(geometry_buffers);
@@ -1803,7 +1800,7 @@ impl RendererState {
                 instance_buffer: wireframe_instance_buffer,
             });
 
-        Ok(unlit_mesh_index)
+        unlit_mesh_index
     }
 
     // returns index of mesh in the RenderScene::binded_pbr_meshes list
@@ -2047,10 +2044,6 @@ impl RendererState {
         logger.log(&format!("Bloom Threshold: {:?}", self.bloom_threshold));
     }
 
-    pub fn toggle_animations(&mut self) {
-        self.is_playing_animations = !self.is_playing_animations;
-    }
-
     pub fn toggle_bloom(&mut self) {
         self.enable_bloom = !self.enable_bloom;
     }
@@ -2206,19 +2199,8 @@ impl RendererState {
     }
 
     pub fn update(&mut self, game_state: &mut GameState, logger: &mut Logger) {
-        let time_tracker = game_state.time();
-        let frame_time_seconds = time_tracker.last_frame_time_seconds();
-
-        // step animatons
-        let scene = &mut game_state.scene;
-        if self.is_playing_animations {
-            self.animation_time_acc += frame_time_seconds;
-            if let Err(err) = step_animations(scene, frame_time_seconds) {
-                logger.log(&format!("Error: animation computation failed: {:?}", err));
-            }
-        }
-
         // send data to gpu
+        let scene = &mut game_state.scene;
         let limits = &mut self.base.limits;
         let queue = &mut self.base.queue;
         let device = &self.base.device;

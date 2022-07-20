@@ -66,6 +66,38 @@ pub fn make_rotation_matrix(r: Quaternion<f32>) -> Matrix4<f32> {
     result
 }
 
+// https://d3cw3dd2w32x2b.cloudfront.net/wp-content/uploads/2015/01/matrix-to-quat.pdf
+pub fn get_quat_from_rotation_matrix(mat: Matrix4<f32>) -> Quaternion<f32> {
+    let (t, q): (f32, Quaternion<f32>) = if mat.z.z < 0.0 {
+        if mat.x.x > mat.y.y {
+            let t = 1.0 + mat.x.x - mat.y.y - mat.z.z;
+            (
+                t,
+                Quaternion::new(mat.y.z - mat.z.y, t, mat.x.y + mat.y.x, mat.x.z + mat.z.x),
+            )
+        } else {
+            let t = 1.0 - mat.x.x + mat.y.y - mat.z.z;
+            (
+                t,
+                Quaternion::new(mat.z.x - mat.x.z, mat.x.y + mat.y.x, t, mat.y.z + mat.z.y),
+            )
+        }
+    } else if mat.x.x < -(mat.y.y) {
+        let t = 1.0 - mat.x.x - mat.y.y + mat.z.z;
+        (
+            t,
+            Quaternion::new(mat.x.y - mat.y.x, mat.z.x + mat.x.z, mat.y.z + mat.z.y, t),
+        )
+    } else {
+        let t = 1.0 + mat.x.x + mat.y.y + mat.z.z;
+        (
+            t,
+            Quaternion::new(t, mat.y.z - mat.z.y, mat.z.x - mat.x.z, mat.x.y - mat.y.x),
+        )
+    };
+    q * (0.5 / t.sqrt())
+}
+
 // from https://en.wikipedia.org/wiki/Rotation_matrix
 pub fn _make_rotation_matrix_from_eulers(
     pitch: Rad<f32>,
