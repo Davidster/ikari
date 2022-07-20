@@ -1,4 +1,4 @@
-## Latest screenshots:
+## Screenshots:
 
 ![screenshot_1](https://user-images.githubusercontent.com/2389735/174690197-1761b4ca-3c93-43c2-ba0f-a17470802613.jpg)
 ![screenshot_2](https://user-images.githubusercontent.com/2389735/174689921-9aad3283-171a-48ee-9d3a-c544aed2314e.jpg)
@@ -6,6 +6,8 @@
 https://user-images.githubusercontent.com/2389735/176325053-18c47d31-71b3-4aa4-a1d9-ec3a6356d2c7.mp4
 
 https://user-images.githubusercontent.com/2389735/178186964-c42f44c7-8e3e-475c-8104-48a98be7709f.mp4
+
+https://user-images.githubusercontent.com/2389735/180101651-86ba2084-4196-494b-9a36-3b6847161af1.mp4
 
 ## TODO List
 - [x] basic phong shading 
@@ -71,7 +73,7 @@ https://user-images.githubusercontent.com/2389735/178186964-c42f44c7-8e3e-475c-8
 - [x] add audio
 - [x] add wireframe mode
 - [x] add ping-pong animation support
-- [ ] add skeletal collision detection
+- [x] add skeletal collision detection
 - [ ] shadows are slow as hell, taking like 7ms of frame time 😬
 
 

@@ -104,6 +104,7 @@ impl Scene {
             .iter()
             .map(|indexed_animation| Animation {
                 length_seconds: indexed_animation.length_seconds,
+                speed: 1.0,
                 channels: indexed_animation
                     .channels
                     .iter()

@@ -591,7 +591,7 @@ fn do_fragment_shade(
             continue;
         }
 
-        let from_shadow_vec = world_position - light.position.xyz;
+        // let from_shadow_vec = world_position - light.position.xyz;
         // let shadow_camera_far_plane_distance = 40.0;
         // let current_depth = length(from_shadow_vec) / shadow_camera_far_plane_distance;
         let light_space_position_nopersp = light.world_space_to_light_space * vec4<f32>(world_position, 1.0);

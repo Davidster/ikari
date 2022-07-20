@@ -6,6 +6,7 @@ pub struct Character {
     root_node_id: GameNodeId,
     skin_index: usize,
     collision_box_nodes: Vec<GameNodeId>,
+    collision_box_colliders: Vec<ColliderHandle>,
     collision_debug_mesh_index: usize,
     is_displaying_collision_boxes: bool,
 }
@@ -13,6 +14,7 @@ pub struct Character {
 impl Character {
     pub fn new(
         scene: &mut Scene,
+        physics_state: &mut PhysicsState,
         renderer_state: &mut RendererState,
         root_node_id: GameNodeId,
         skin_index: usize,
@@ -22,23 +24,26 @@ impl Character {
 
         let bone_count = scene.skins[skin_index].bone_node_ids.len();
         let mut collision_box_nodes: Vec<GameNodeId> = Vec::new();
+        let mut collision_box_colliders: Vec<ColliderHandle> = Vec::new();
         (0..bone_count).for_each(|_| {
             collision_box_nodes.push(scene.add_node(Default::default()).id());
         });
 
-        let result = Self {
+        let mut result = Self {
             root_node_id,
             skin_index,
-            collision_box_nodes,
+            collision_box_nodes: vec![],
+            collision_box_colliders: vec![],
             collision_debug_mesh_index,
             is_displaying_collision_boxes: false,
         };
-        result.update(scene);
+        result.update(scene, physics_state);
         result
     }
 
-    pub fn update(&self, scene: &mut Scene) {
+    pub fn update(&mut self, scene: &mut Scene, physics_state: &mut PhysicsState) {
         let root_node_global_transform = scene.get_global_transform_for_node(self.root_node_id);
+        let should_fill_collision_boxes = self.collision_box_colliders.len() == 0;
         if let Some((skin_node_id, first_skin_bounding_box_transforms)) =
             scene.skins.get(self.skin_index).map(|skin| {
                 (
@@ -77,10 +82,69 @@ impl Character {
                         * skeleton_space_transform
                         * bone_bounding_box_transform
                 };
+                let transform_decomposed = transform.decompose();
+
+                if should_fill_collision_boxes {
+                    self.collision_box_nodes
+                        .push(scene.add_node(Default::default()).id());
+                    let box_scale = transform_decomposed.scale;
+                    let the_box =
+                        ColliderBuilder::cuboid(box_scale.x, box_scale.y, box_scale.z).build();
+                    self.collision_box_colliders
+                        .push(physics_state.collider_set.insert(the_box));
+                }
 
                 if let Some(node) = scene.get_node_mut(self.collision_box_nodes[bone_index]) {
                     node.transform = transform;
                 }
+                if let Some(collider) = physics_state
+                    .collider_set
+                    .get_mut(self.collision_box_colliders[bone_index])
+                {
+                    collider.set_position(Isometry::from_parts(
+                        nalgebra::Translation3::new(
+                            transform_decomposed.position.x,
+                            transform_decomposed.position.y,
+                            transform_decomposed.position.z,
+                        ),
+                        nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
+                            transform_decomposed.rotation.s,
+                            transform_decomposed.rotation.v.x,
+                            transform_decomposed.rotation.v.y,
+                            transform_decomposed.rotation.v.z,
+                        )),
+                    ))
+                }
+            }
+        }
+    }
+
+    pub fn handle_hit(&self, scene: &mut Scene, collider_handle: ColliderHandle) {
+        if let Some(bone_index) = self.collision_box_colliders.iter().enumerate().find_map(
+            |(bone_index, bone_collider_handle)| {
+                (*bone_collider_handle == collider_handle).then_some(bone_index)
+            },
+        ) {
+            if let Some(node) = scene.get_node_mut(self.collision_box_nodes[bone_index]) {
+                node.mesh = Some(GameNodeMesh {
+                    mesh_indices: node
+                        .mesh
+                        .as_mut()
+                        .map(|mesh| {
+                            if mesh.mesh_indices.contains(&self.collision_debug_mesh_index) {
+                                mesh.mesh_indices.clone()
+                            } else {
+                                let mut res = mesh.mesh_indices.clone();
+                                res.push(self.collision_debug_mesh_index);
+                                res
+                            }
+                        })
+                        .unwrap_or_else(|| vec![self.collision_debug_mesh_index]),
+                    mesh_type: GameNodeMeshType::Unlit {
+                        color: Vector3::new(1.0, 0.0, 0.0),
+                    },
+                    wireframe: true,
+                })
             }
         }
     }

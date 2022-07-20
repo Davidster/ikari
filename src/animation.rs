@@ -8,6 +8,7 @@ use super::*;
 #[derive(Debug)]
 pub struct Animation {
     pub length_seconds: f32,
+    pub speed: f32,
     pub channels: Vec<Channel>,
     pub state: AnimationState,
 }
@@ -71,7 +72,7 @@ pub fn step_animations(scene: &mut Scene, delta_time_seconds: f32) -> Result<()>
             state.is_playing = false;
             continue;
         }
-        state.current_time_seconds += delta_time_seconds;
+        state.current_time_seconds += delta_time_seconds * animation.speed;
         let animation_time_seconds = match state.loop_type {
             LoopType::PingPong => {
                 let forwards =

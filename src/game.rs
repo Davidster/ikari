@@ -6,12 +6,19 @@ use rapier3d::prelude::*;
 use winit::event::{ElementState, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent};
 
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
-pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.5;
+pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.3;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
 pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
 pub const ARENA_SIDE_LENGTH: f32 = 25.0;
-pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
-pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
+// pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
+// pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
+
+// linear colors, not srgb
+pub const DIRECTIONAL_LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.84922975, 0.81581426, 0.8832506);
+pub const DIRECTIONAL_LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.81115574, 0.77142686, 0.8088144);
+pub const POINT_LIGHT_COLOR: Vector3<f32> = Vector3::new(0.93126976, 0.7402633, 0.49407062);
+// pub const LIGHT_COLOR_C: Vector3<f32> =
+//     Vector3::new(from_srgb(0.631), from_srgb(0.565), from_srgb(0.627));
 
 #[allow(clippy::let_and_return)]
 fn get_gltf_path() -> &'static str {
@@ -71,23 +78,33 @@ pub fn get_skybox_path() -> (
 
     // Newport Loft
     // src: http://www.hdrlabs.com/sibl/archive/
-    let skybox_background = SkyboxBackground::Equirectangular {
+    let _skybox_background = SkyboxBackground::Equirectangular {
         image_path: "./src/textures/newport_loft/background.jpg",
     };
-    let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
         Some(SkyboxHDREnvironment::Equirectangular {
             image_path: "./src/textures/newport_loft/radiance.hdr",
         });
 
+    // Milkyway
+    // src: http://www.hdrlabs.com/sibl/archive/
+    let skybox_background = SkyboxBackground::Equirectangular {
+        image_path: "./src/textures/milkyway/background.jpg",
+    };
+    let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+        Some(SkyboxHDREnvironment::Equirectangular {
+            image_path: "./src/textures/milkyway/radiance.hdr",
+        });
+
     // My photosphere pic
     // src: me
-    // let skybox_background = SkyboxBackground::Equirectangular {
-    //     image_path: "./src/textures/photosphere_skybox.jpg",
-    // };
-    // let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-    //     Some(SkyboxHDREnvironment::Equirectangular {
-    //         image_path: "./src/textures/photosphere_skybox_small.jpg",
-    //     });
+    let _skybox_background = SkyboxBackground::Equirectangular {
+        image_path: "./src/textures/photosphere_skybox.jpg",
+    };
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+        Some(SkyboxHDREnvironment::Equirectangular {
+            image_path: "./src/textures/photosphere_skybox_small.jpg",
+        });
 
     (skybox_background, skybox_hdr_environment)
 }
@@ -109,12 +126,20 @@ pub fn init_game_state(
     let camera_node_id = scene.add_node(GameNodeDesc::default()).id();
 
     // add lights to the scene
-    let directional_lights = vec![DirectionalLightComponent {
-        position: Vector3::new(10.0, 5.0, 0.0) * 10.0,
-        direction: Vector3::new(-1.0, -0.7, 0.0).normalize(),
-        color: LIGHT_COLOR_A,
-        intensity: 1.0,
-    }];
+    let directional_lights = vec![
+        DirectionalLightComponent {
+            position: Vector3::new(1.0, 5.0, -10.0) * 10.0,
+            direction: (-Vector3::new(1.0, 5.0, -10.0)).normalize(),
+            color: DIRECTIONAL_LIGHT_COLOR_A,
+            intensity: 1.0,
+        },
+        DirectionalLightComponent {
+            position: Vector3::new(-1.0, 10.0, 10.0) * 10.0,
+            direction: (-Vector3::new(-1.0, 10.0, 10.0)).normalize(),
+            color: DIRECTIONAL_LIGHT_COLOR_B,
+            intensity: 1.0,
+        },
+    ];
     // let directional_lights: Vec<DirectionalLightComponent> = vec![];
 
     let point_lights: Vec<(transform::Transform, Vector3<f32>, f32)> = vec![
@@ -123,19 +148,19 @@ pub fn init_game_state(
                 .scale(Vector3::new(0.05, 0.05, 0.05))
                 .position(Vector3::new(0.0, 12.0, 0.0))
                 .build(),
-            LIGHT_COLOR_A,
+            POINT_LIGHT_COLOR,
             1.0,
         ),
-        (
-            TransformBuilder::new()
-                .scale(Vector3::new(0.1, 0.1, 0.1))
-                .position(Vector3::new(0.0, 15.0, 0.0))
-                .build(),
-            LIGHT_COLOR_B,
-            1.0,
-        ),
+        // (
+        //     TransformBuilder::new()
+        //         .scale(Vector3::new(0.1, 0.1, 0.1))
+        //         .position(Vector3::new(0.0, 15.0, 0.0))
+        //         .build(),
+        //     LIGHT_COLOR_B,
+        //     1.0,
+        // ),
     ];
-    // let point_lights: Vec<(transform::Transform, Vector3<f32>)> = vec![];
+    // let point_lights: Vec<(transform::Transform, Vector3<f32>, f32)> = vec![];
 
     let point_light_unlit_mesh_index = renderer_state.bind_basic_unlit_mesh(&sphere_mesh);
     let mut point_light_node_ids: Vec<GameNodeId> = Vec::new();
@@ -158,7 +183,7 @@ pub fn init_game_state(
         point_light_node_ids.push(node_id);
         point_light_components.push(PointLightComponent {
             node_id,
-            color: LIGHT_COLOR_A,
+            color: POINT_LIGHT_COLOR,
             intensity,
         });
     }
@@ -173,7 +198,8 @@ pub fn init_game_state(
     // node_0.transform.set_position(Vector3::new(2.0, 0.0, 0.0));
     // }
     // let node_0_id = scene._get_node_by_index(0).unwrap().id();
-    if let Some(animation_5) = scene.animations.get_mut(6) {
+    if let Some(animation_5) = scene.animations.get_mut(11) {
+        animation_5.speed = 0.25;
         animation_5.state.is_playing = true;
         animation_5.state.loop_type = LoopType::Wrap;
     }
@@ -267,15 +293,16 @@ pub fn init_game_state(
     scene.remove_node(test_object_node_id);
 
     let legendary_robot_root_node_id = scene._get_node_by_index(53).unwrap().id();
-    scene
-        .get_node_mut(legendary_robot_root_node_id)
-        .unwrap()
-        .transform
-        .set_position(Vector3::new(1.0, 0.0, 5.0));
+    // scene
+    //     .get_node_mut(legendary_robot_root_node_id)
+    //     .unwrap()
+    //     .transform
+    //     .set_position(Vector3::new(1.0, 0.0, 5.0));
 
     let legendary_robot_skin_index = 0;
     let legendary_robot = Character::new(
         &mut scene,
+        &mut physics_state,
         renderer_state,
         legendary_robot_root_node_id,
         legendary_robot_skin_index,
@@ -392,7 +419,7 @@ pub fn init_game_state(
         ball_node_ids.push(node.id());
     }
 
-    let physics_ball_count = 25;
+    let physics_ball_count = 0;
     let physics_balls: Vec<_> = (0..physics_ball_count)
         .into_iter()
         .map(|_| {
@@ -663,7 +690,7 @@ pub fn init_game_state(
     let bgm_data =
         AudioManager::decode_mp3(audio_manager.device_sample_rate(), "./src/sounds/bgm.mp3")?;
     let bgm_sound_index = audio_manager.add_sound(&bgm_data, 0.5, false, None);
-    audio_manager.play_sound(bgm_sound_index);
+    // audio_manager.play_sound(bgm_sound_index);
 
     let gunshot_sound_data = AudioManager::decode_wav(
         audio_manager.device_sample_rate(),
@@ -911,11 +938,11 @@ pub fn update_game_state(
         });
 
     if let Some(point_light_0) = game_state.point_lights.get_mut(0) {
-        point_light_0.color = lerp_vec(
-            LIGHT_COLOR_A,
-            LIGHT_COLOR_B,
-            (global_time_seconds * 2.0).sin(),
-        );
+        // point_light_0.color = lerp_vec(
+        //     LIGHT_COLOR_A,
+        //     LIGHT_COLOR_B,
+        //     (global_time_seconds * 2.0).sin(),
+        // );
         if let Some(node) = game_state.scene.get_node_mut(point_light_0.node_id) {
             node.transform.set_position(Vector3::new(
                 1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).cos(),
@@ -926,17 +953,11 @@ pub fn update_game_state(
     }
 
     if let Some(point_light_1) = game_state.point_lights.get_mut(1) {
-        point_light_1.color = lerp_vec(
-            LIGHT_COLOR_B,
-            LIGHT_COLOR_A,
-            (global_time_seconds * 2.0).sin(),
-        );
-        // let transform = &mut game_state.scene.nodes[point_light_1.node_id].transform;
-        // transform.set_position(Vector3::new(
-        //     1.1 * (global_time_seconds * 0.25 + std::f32::consts::PI).cos(),
-        //     transform.position().y,
-        //     1.1 * (global_time_seconds * 0.25 + std::f32::consts::PI).sin(),
-        // ));
+        // point_light_1.color = lerp_vec(
+        //     LIGHT_COLOR_B,
+        //     LIGHT_COLOR_A,
+        //     (global_time_seconds * 2.0).sin(),
+        // );
     }
 
     // sync unlit mesh config with point light component
@@ -1125,6 +1146,9 @@ pub fn update_game_state(
                     game_state.physics_balls.remove(ball_index);
                 }
             }
+            game_state
+                .character
+                .handle_hit(&mut game_state.scene, collider_handle);
         }
     }
 
@@ -1136,7 +1160,9 @@ pub fn update_game_state(
         }
     }
 
-    game_state.character.update(scene);
+    game_state
+        .character
+        .update(scene, &mut game_state.physics_state);
 }
 
 pub fn init_scene(

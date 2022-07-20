@@ -1654,9 +1654,9 @@ impl RendererState {
 
         let directional_shadow_map_textures = Texture::create_depth_texture_array(
             device,
-            1024,
+            2048,
             Some("directional_shadow_map_texture"),
-            1, // TODO: this currently puts on hard limit on number of directional lights at a time
+            2, // TODO: this currently puts on hard limit on number of directional lights at a time
         );
 
         let environment_textures_bind_group =
