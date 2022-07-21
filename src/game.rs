@@ -120,8 +120,9 @@ pub fn init_game_state(
 
     let mut physics_state = PhysicsState::new();
 
-    let mut camera = Camera::new((0.0, 16.0, 33.0).into());
-    camera.vertical_rotation = Rad(-0.53);
+    let mut camera = Camera::new((8.0, 30.0, -13.0).into());
+    // camera.vertical_rotation = Rad(-0.53);
+    camera.horizontal_rotation = Deg(180.0).into();
     let camera_controller = CameraController::new(6.0, camera);
     let camera_node_id = scene.add_node(GameNodeDesc::default()).id();
 
@@ -463,30 +464,29 @@ pub fn init_game_state(
         },
         Default::default(),
     )?;
-    let floor_node = scene.add_node(
+    let floor_transform = TransformBuilder::new()
+        .scale(Vector3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH))
+        .build();
+    let _floor_node = scene.add_node(
         GameNodeDescBuilder::new()
             .mesh(Some(GameNodeMesh::from_pbr_mesh_index(
                 floor_pbr_mesh_index,
             )))
-            .transform(
-                TransformBuilder::new()
-                    .scale(Vector3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH))
-                    .build(),
-            )
+            .transform(floor_transform)
             .build(),
     );
     let floor_thickness = 0.1;
     let floor_rigid_body = RigidBodyBuilder::fixed()
         .translation(vector![
-            floor_node.transform.position().x / 2.0,
-            floor_node.transform.position().y - floor_thickness / 2.0,
-            floor_node.transform.position().z / 2.0
+            floor_transform.position().x / 2.0,
+            floor_transform.position().y - floor_thickness / 2.0,
+            floor_transform.position().z / 2.0
         ])
         .build();
     let floor_collider = ColliderBuilder::cuboid(
-        floor_node.transform.scale().x,
+        floor_transform.scale().x,
         floor_thickness / 2.0,
-        floor_node.transform.scale().z,
+        floor_transform.scale().z,
     )
     .friction(1.0)
     .restitution(1.0)
@@ -651,12 +651,14 @@ pub fn init_game_state(
     // merge revolver scene into current scene
     // let (document, buffers, images) =
     //     gltf::import("./src/models/gltf/Revolver/revolver_low_poly.gltf")?;
-    let (document, buffers, images) =
-        gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
-    validate_animation_property_counts(&document, logger);
-    let (other_scene, other_render_buffers) =
-        build_scene(&renderer_state.base, (&document, &buffers, &images))?;
-    scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+    {
+        let (document, buffers, images) =
+            gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
+        validate_animation_property_counts(&document, logger);
+        let (other_scene, other_render_buffers) =
+            build_scene(&renderer_state.base, (&document, &buffers, &images))?;
+        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+    }
 
     let revolver_model_node_id = scene.nodes().last().unwrap().id();
     let animation_index = scene.animations.len() - 1;
@@ -684,6 +686,15 @@ pub fn init_game_state(
             .scale(2.0f32 * Vector3::new(1.0, 1.0, 1.0))
             .build(),
     );
+
+    {
+        let (document, buffers, images) =
+            gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
+        validate_animation_property_counts(&document, logger);
+        let (other_scene, other_render_buffers) =
+            build_scene(&renderer_state.base, (&document, &buffers, &images))?;
+        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+    }
 
     let mut audio_manager = AudioManager::new()?;
 
