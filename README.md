@@ -74,6 +74,11 @@ https://user-images.githubusercontent.com/2389735/180101651-86ba2084-4196-494b-9
 - [x] add wireframe mode
 - [x] add ping-pong animation support
 - [x] add skeletal collision detection
+- [ ] design a level with boxes
+- [ ] create character controller, make sure you cant walk through the walls
+- [ ] spawn enemies, make them follow the character
+- [ ] add UI
+- [ ] track score and health, display on screen, and end game when health reaches 0
 - [ ] shadows are slow as hell, taking like 7ms of frame time 😬
 
 
