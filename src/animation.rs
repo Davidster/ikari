@@ -65,14 +65,13 @@ pub fn step_animations(scene: &mut Scene, delta_time_seconds: f32) -> Result<()>
         if !state.is_playing {
             continue;
         }
+        state.current_time_seconds += delta_time_seconds * animation.speed;
         if state.loop_type == LoopType::Once
             && state.current_time_seconds > animation.length_seconds
         {
             state.current_time_seconds = 0.0;
             state.is_playing = false;
-            continue;
         }
-        state.current_time_seconds += delta_time_seconds * animation.speed;
         let animation_time_seconds = match state.loop_type {
             LoopType::PingPong => {
                 let forwards =
