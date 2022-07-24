@@ -104,7 +104,8 @@ impl AudioManager {
 
     pub fn decode_wav(sample_rate: u32, file_path: &str) -> Result<SoundData> {
         // get metadata from the WAV file
-        let mut reader = WavReader::open(file_path)?;
+        let file_bytes = std::fs::read(file_path)?;
+        let mut reader = WavReader::new(file_bytes.as_slice())?;
         let WavSpec {
             sample_rate: source_sample_rate,
             sample_format,
@@ -140,44 +141,51 @@ impl AudioManager {
         Ok(SoundData(samples))
     }
 
-    pub fn decode_mp3(sample_rate: u32, file_path: &str) -> Result<SoundData> {
-        let file_bytes: &[u8] = &std::fs::read(file_path)?;
-        let mut decoder = minimp3::Decoder::new(file_bytes);
-        let mut mp3_frames: Vec<minimp3::Frame> = Vec::new();
-        loop {
-            match decoder.next_frame() {
-                Ok(frame) => {
-                    mp3_frames.push(frame);
+    // TODO: mp3 doesnt work on the web :(
+    pub fn decode_mp3(sample_rate: u32, file_path: &str) -> Result<Option<SoundData>> {
+        cfg_if::cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                Ok(None)
+            } else {
+                let file_bytes: &[u8] = &std::fs::read(file_path)?;
+                let mut decoder = minimp3::Decoder::new(file_bytes);
+                let mut mp3_frames: Vec<minimp3::Frame> = Vec::new();
+                loop {
+                    match decoder.next_frame() {
+                        Ok(frame) => {
+                            mp3_frames.push(frame);
+                        }
+                        Err(minimp3::Error::Eof) => {
+                            break;
+                        }
+                        Err(err) => anyhow::bail!(err),
+                    }
                 }
-                Err(minimp3::Error::Eof) => {
-                    break;
+
+                let mut samples: Vec<Vec<f32>> = Vec::new();
+                for mp3_frame in mp3_frames {
+                    let source_sample_rate = u32::try_from(mp3_frame.sample_rate).unwrap();
+                    let mut current_samples: Vec<_> = mp3_frame
+                        .data
+                        .chunks(2)
+                        .map(|chunk| {
+                            chunk
+                                .iter()
+                                .map(|channel| *channel as f32 / i16::MAX as f32)
+                                .collect::<Vec<_>>()
+                        })
+                        .collect();
+                    if sample_rate != source_sample_rate {
+                        // resample the sound to the device sample rate using linear interpolation
+                        current_samples =
+                            resample_linear(&current_samples, source_sample_rate, sample_rate);
+                    }
+                    samples.extend(current_samples);
                 }
-                Err(err) => anyhow::bail!(err),
+
+                Ok(Some(SoundData(samples)))
             }
         }
-
-        let mut samples: Vec<Vec<f32>> = Vec::new();
-        for mp3_frame in mp3_frames {
-            let source_sample_rate = u32::try_from(mp3_frame.sample_rate).unwrap();
-            let mut current_samples: Vec<_> = mp3_frame
-                .data
-                .chunks(2)
-                .map(|chunk| {
-                    chunk
-                        .iter()
-                        .map(|channel| *channel as f32 / i16::MAX as f32)
-                        .collect::<Vec<_>>()
-                })
-                .collect();
-            if sample_rate != source_sample_rate {
-                // resample the sound to the device sample rate using linear interpolation
-                current_samples =
-                    resample_linear(&current_samples, source_sample_rate, sample_rate);
-            }
-            samples.extend(current_samples);
-        }
-
-        Ok(SoundData(samples))
     }
 
     pub fn add_sound(

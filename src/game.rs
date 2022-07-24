@@ -719,10 +719,12 @@ pub fn init_game_state(
 
     let mut audio_manager = AudioManager::new()?;
 
-    let bgm_data =
-        AudioManager::decode_mp3(audio_manager.device_sample_rate(), "./src/sounds/bgm.mp3")?;
-    let bgm_sound_index = audio_manager.add_sound(&bgm_data, 0.5, false, None);
-    audio_manager.play_sound(bgm_sound_index);
+    if let Some(bgm_data) =
+        AudioManager::decode_mp3(audio_manager.device_sample_rate(), "./src/sounds/bgm.mp3")?
+    {
+        let bgm_sound_index = audio_manager.add_sound(&bgm_data, 0.5, false, None);
+        audio_manager.play_sound(bgm_sound_index);
+    }
 
     let gunshot_sound_data = AudioManager::decode_wav(
         audio_manager.device_sample_rate(),
@@ -739,7 +741,6 @@ pub fn init_game_state(
         is_playing_animations: true,
 
         audio_manager,
-        bgm_sound_index,
         gunshot_sound_index,
         gunshot_sound_data,
 

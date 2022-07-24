@@ -7,7 +7,6 @@ pub struct GameState {
     pub is_playing_animations: bool,
 
     pub audio_manager: AudioManager,
-    pub bgm_sound_index: usize,
     pub gunshot_sound_index: usize,
     pub gunshot_sound_data: SoundData,
 

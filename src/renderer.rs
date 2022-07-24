@@ -270,7 +270,18 @@ impl BaseRendererState {
                 &wgpu::DeviceDescriptor {
                     label: None,
                     features: wgpu::Features::empty(),
-                    limits: wgpu::Limits::default(),
+                    // limits: wgpu::Limits::default(),
+                    limits: wgpu::Limits {
+                        // TODO: to support the web, I'll probably need to use uniform buffers instead of storage buffers for skeletal animations.
+                        max_dynamic_storage_buffers_per_pipeline_layout: wgpu::Limits::default()
+                            .max_dynamic_storage_buffers_per_pipeline_layout,
+                        max_storage_buffers_per_shader_stage: wgpu::Limits::default()
+                            .max_storage_buffers_per_shader_stage,
+                        max_storage_buffer_binding_size: wgpu::Limits::default()
+                            .max_storage_buffer_binding_size,
+                        ..wgpu::Limits::downlevel_webgl2_defaults()
+                            .using_resolution(adapter.limits())
+                    },
                 },
                 None,
             )
@@ -1514,49 +1525,57 @@ impl RendererState {
             }
         };
 
-        let er_to_cube_texture;
-        let skybox_rad_texture = match skybox_hdr_environment {
-            Some(SkyboxHDREnvironment::Equirectangular { image_path }) => {
-                let skybox_rad_texture_bytes = std::fs::read(image_path)?;
-                let skybox_rad_texture_decoded = stb::image::stbi_loadf_from_memory(
-                    &skybox_rad_texture_bytes,
-                    stb::image::Channels::RgbAlpha,
-                )
-                .ok_or_else(|| anyhow::anyhow!("Failed to decode image: {}", image_path))?;
-                let skybox_rad_texture_decoded_vec = skybox_rad_texture_decoded.1.into_vec();
-                let skybox_rad_texture_decoded_vec: Vec<_> = skybox_rad_texture_decoded_vec
-                    .iter()
-                    .copied()
-                    .map(|v| Float16(half::f16::from_f32(v)))
-                    .collect();
+        #[allow(clippy::needless_late_init)]
+        let skybox_rad_texture;
+        cfg_if::cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                skybox_rad_texture = &skybox_texture
+            } else {
+                let er_to_cube_texture;
+                skybox_rad_texture = match skybox_hdr_environment {
+                    Some(SkyboxHDREnvironment::Equirectangular { image_path }) => {
+                        let skybox_rad_texture_bytes = std::fs::read(image_path)?;
+                        let skybox_rad_texture_decoded = stb::image::stbi_loadf_from_memory(
+                            &skybox_rad_texture_bytes,
+                            stb::image::Channels::RgbAlpha,
+                        )
+                        .ok_or_else(|| anyhow::anyhow!("Failed to decode image: {}", image_path))?;
+                        let skybox_rad_texture_decoded_vec = skybox_rad_texture_decoded.1.into_vec();
+                        let skybox_rad_texture_decoded_vec: Vec<_> = skybox_rad_texture_decoded_vec
+                            .iter()
+                            .copied()
+                            .map(|v| Float16(half::f16::from_f32(v)))
+                            .collect();
 
-                let skybox_rad_texture_er = Texture::from_decoded_image(
-                    device,
-                    queue,
-                    bytemuck::cast_slice(&skybox_rad_texture_decoded_vec),
-                    (
-                        skybox_rad_texture_decoded.0.width as u32,
-                        skybox_rad_texture_decoded.0.height as u32,
-                    ),
-                    image_path.into(),
-                    wgpu::TextureFormat::Rgba16Float.into(),
-                    false,
-                    &Default::default(),
-                )?;
+                        let skybox_rad_texture_er = Texture::from_decoded_image(
+                            device,
+                            queue,
+                            bytemuck::cast_slice(&skybox_rad_texture_decoded_vec),
+                            (
+                                skybox_rad_texture_decoded.0.width as u32,
+                                skybox_rad_texture_decoded.0.height as u32,
+                            ),
+                            image_path.into(),
+                            wgpu::TextureFormat::Rgba16Float.into(),
+                            false,
+                            &Default::default(),
+                        )?;
 
-                er_to_cube_texture = Texture::create_cubemap_from_equirectangular(
-                    device,
-                    queue,
-                    Some(image_path),
-                    &skybox_mesh_buffers,
-                    &equirectangular_to_cubemap_pipeline,
-                    &skybox_rad_texture_er,
-                    false,
-                );
+                        er_to_cube_texture = Texture::create_cubemap_from_equirectangular(
+                            device,
+                            queue,
+                            Some(image_path),
+                            &skybox_mesh_buffers,
+                            &equirectangular_to_cubemap_pipeline,
+                            &skybox_rad_texture_er,
+                            false,
+                        );
 
-                &er_to_cube_texture
+                        &er_to_cube_texture
+                    }
+                    None => &skybox_texture,
+                };
             }
-            None => &skybox_texture,
         };
 
         let diffuse_env_map = Texture::create_diffuse_env_map(

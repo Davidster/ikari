@@ -3,10 +3,12 @@ name = "wgpu-sandbox"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 anyhow = { version = "1.0.52", features = ["backtrace"] }
 image = "0.23.14"
-stb = { version = "0.3.2" }
 half = "1.8.2"
 obj-rs = "0.7.0"
 wavefront_obj = "10.0.0"
@@ -25,7 +27,24 @@ rapier3d = "0.13.0"
 cpal = "0.13.5"
 oddio = { git = "https://github.com/Ralith/oddio" }
 hound = "3.4"
+cfg-if = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+stb = { version = "0.3.2" }
 minimp3 = "0.5.1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1.6"
+console_log = "0.2.0"
+wgpu = { version = "0.13", features = ["webgl"]}
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4.30"
+web-sys = { version = "0.3", features = [
+    "Document",
+    "Window",
+    "Element",
+]}
+getrandom = { version = "0.2", features = [ "js" ] }
 
 [profile.dev.package."*"]
 opt-level = 3
