@@ -58,7 +58,7 @@ impl Revolver {
         }
     }
 
-    pub fn update(&mut self, camera_pose: Camera, scene: &mut Scene) {
+    pub fn update(&mut self, player_view_direction: ControlledViewDirection, scene: &mut Scene) {
         let camera_transform = scene.get_node(self.camera_node_id).unwrap().transform;
 
         // update
@@ -82,17 +82,17 @@ impl Revolver {
         // update sway
         let last_camera_horizontal_rotation = self
             .last_camera_horizontal_rotation
-            .unwrap_or(camera_pose.horizontal_rotation);
+            .unwrap_or(player_view_direction.horizontal);
         let max_sway: Rad<f32> = MAX_SWAY_DEG.into();
         self.sway += Rad(
-            (camera_pose.horizontal_rotation - last_camera_horizontal_rotation)
+            (player_view_direction.horizontal - last_camera_horizontal_rotation)
                 .0
                 .min(max_sway.0)
                 .max(-max_sway.0),
         );
         self.sway = Rad(lerp(self.sway.0, 0.0, WEAPON_SWAY_RESET_LERP_FACTOR));
 
-        self.last_camera_horizontal_rotation = Some(camera_pose.horizontal_rotation);
+        self.last_camera_horizontal_rotation = Some(player_view_direction.horizontal);
         self.current_hand_transform = Some(new_hand_transform);
 
         if let Some(hand_node) = scene.get_node_mut(self.hand_node_id) {

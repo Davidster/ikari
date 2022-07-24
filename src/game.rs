@@ -20,6 +20,10 @@ pub const POINT_LIGHT_COLOR: Vector3<f32> = Vector3::new(0.93126976, 0.7402633, 
 // pub const LIGHT_COLOR_C: Vector3<f32> =
 //     Vector3::new(from_srgb(0.631), from_srgb(0.565), from_srgb(0.627));
 
+pub const COLLISION_GROUP_BASE: u32 = 1;
+pub const COLLISION_GROUP_PLAYER_SHOOTABLE: u32 = COLLISION_GROUP_BASE << 1;
+pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: u32 = COLLISION_GROUP_PLAYER_SHOOTABLE << 1;
+
 #[allow(clippy::let_and_return)]
 fn get_gltf_path() -> &'static str {
     // let gltf_path = "/home/david/Downloads/adamHead/adamHead.gltf";
@@ -120,11 +124,16 @@ pub fn init_game_state(
 
     let mut physics_state = PhysicsState::new();
 
-    let mut camera = Camera::new((8.0, 30.0, -13.0).into());
-    // camera.vertical_rotation = Rad(-0.53);
-    camera.horizontal_rotation = Deg(180.0).into();
-    let camera_controller = CameraController::new(6.0, camera);
-    let camera_node_id = scene.add_node(GameNodeDesc::default()).id();
+    let player_controller = PlayerController::new(
+        &mut physics_state,
+        6.0,
+        Vector3::new(8.0, 30.0, -13.0),
+        ControlledViewDirection {
+            horizontal: Deg(180.0).into(),
+            vertical: Rad(0.0),
+        },
+    );
+    let player_node_id = scene.add_node(GameNodeDesc::default()).id();
 
     // add lights to the scene
     let directional_lights = vec![
@@ -294,11 +303,11 @@ pub fn init_game_state(
     scene.remove_node(test_object_node_id);
 
     let legendary_robot_root_node_id = scene._get_node_by_index(53).unwrap().id();
-    // scene
-    //     .get_node_mut(legendary_robot_root_node_id)
-    //     .unwrap()
-    //     .transform
-    //     .set_position(Vector3::new(1.0, 0.0, 5.0));
+    scene
+        .get_node_mut(legendary_robot_root_node_id)
+        .unwrap()
+        .transform
+        .set_position(Vector3::new(2.0, 0.0, 0.0));
 
     let legendary_robot_skin_index = 0;
     let legendary_robot = Character::new(
@@ -420,7 +429,7 @@ pub fn init_game_state(
         ball_node_ids.push(node.id());
     }
 
-    let physics_ball_count = 0;
+    let physics_ball_count = 500;
     let physics_balls: Vec<_> = (0..physics_ball_count)
         .into_iter()
         .map(|_| {
@@ -476,27 +485,23 @@ pub fn init_game_state(
             .build(),
     );
     let floor_thickness = 0.1;
-    let floor_rigid_body = RigidBodyBuilder::fixed()
-        .translation(vector![
-            floor_transform.position().x / 2.0,
-            floor_transform.position().y - floor_thickness / 2.0,
-            floor_transform.position().z / 2.0
-        ])
-        .build();
     let floor_collider = ColliderBuilder::cuboid(
         floor_transform.scale().x,
         floor_thickness / 2.0,
         floor_transform.scale().z,
     )
+    .translation(vector![
+        floor_transform.position().x / 2.0,
+        floor_transform.position().y - floor_thickness / 2.0,
+        floor_transform.position().z / 2.0
+    ])
+    .collision_groups(
+        InteractionGroups::all().with_memberships(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
+    )
     .friction(1.0)
     .restitution(1.0)
     .build();
-    let floor_body_handle = physics_state.rigid_body_set.insert(floor_rigid_body);
-    physics_state.collider_set.insert_with_parent(
-        floor_collider,
-        floor_body_handle,
-        &mut physics_state.rigid_body_set,
-    );
+    physics_state.collider_set.insert(floor_collider);
 
     // create the checkerboarded bouncing ball and add it to the scene
     let (bouncing_ball_node_id, bouncing_ball_body_handle) = {
@@ -534,6 +539,9 @@ pub fn init_game_state(
             ])
             .build();
         let bouncing_ball_collider = ColliderBuilder::ball(bouncing_ball_radius)
+            .collision_groups(
+                InteractionGroups::all().with_memberships(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
+            )
             .restitution(0.9)
             .build();
         let bouncing_ball_body_handle = physics_state
@@ -664,7 +672,7 @@ pub fn init_game_state(
     let animation_index = scene.animations.len() - 1;
     let revolver = Revolver::new(
         &mut scene,
-        camera_node_id,
+        player_node_id,
         revolver_model_node_id,
         animation_index,
         // revolver model
@@ -688,12 +696,25 @@ pub fn init_game_state(
     );
 
     {
+        let skip_nodes = scene.node_count();
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
         validate_animation_property_counts(&document, logger);
         let (other_scene, other_render_buffers) =
             build_scene(&renderer_state.base, (&document, &buffers, &images))?;
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+
+        let test_level_node_ids: Vec<_> = scene
+            .nodes()
+            .skip(skip_nodes)
+            .map(|node| node.id())
+            .collect();
+        for node_id in test_level_node_ids {
+            if let Some(_mesh) = scene.get_node_mut(node_id).unwrap().mesh.as_mut() {
+                // _mesh.wireframe = true;
+            }
+            physics_state.add_static_box(&scene, renderer_state, node_id);
+        }
     }
 
     let mut audio_manager = AudioManager::new()?;
@@ -701,7 +722,7 @@ pub fn init_game_state(
     let bgm_data =
         AudioManager::decode_mp3(audio_manager.device_sample_rate(), "./src/sounds/bgm.mp3")?;
     let bgm_sound_index = audio_manager.add_sound(&bgm_data, 0.5, false, None);
-    // audio_manager.play_sound(bgm_sound_index);
+    audio_manager.play_sound(bgm_sound_index);
 
     let gunshot_sound_data = AudioManager::decode_wav(
         audio_manager.device_sample_rate(),
@@ -722,8 +743,7 @@ pub fn init_game_state(
         gunshot_sound_index,
         gunshot_sound_data,
 
-        camera_controller,
-        camera_node_id,
+        player_node_id,
 
         point_lights: point_light_components,
         point_light_node_ids,
@@ -750,6 +770,7 @@ pub fn init_game_state(
         mouse_button_pressed: false,
 
         character: legendary_robot,
+        player_controller,
     })
 }
 
@@ -759,7 +780,7 @@ pub fn process_device_input(
     logger: &mut Logger,
 ) {
     game_state
-        .camera_controller
+        .player_controller
         .process_device_events(event, logger);
 }
 
@@ -884,7 +905,7 @@ pub fn process_window_input(
         // ));
     }
     game_state
-        .camera_controller
+        .player_controller
         .process_window_events(event, window, logger);
 }
 
@@ -909,14 +930,20 @@ pub fn update_game_state(
 
     game_state.physics_state.step();
 
-    game_state.camera_controller.update(frame_time_seconds);
+    game_state
+        .player_controller
+        .update(&mut game_state.physics_state);
     // logger.log(&format!(
     //     "camera pose: {:?}",
     //     game_state.camera_controller.current_pose
     // ));
-    let new_camera_transform = game_state.camera_controller.current_pose.to_transform();
-    if let Some(camera_transform) = game_state.scene.get_node_mut(game_state.camera_node_id) {
-        camera_transform.transform = new_camera_transform;
+
+    // TODO: put this into the player controller's update fn?
+    let new_player_transform = game_state
+        .player_controller
+        .transform(&game_state.physics_state);
+    if let Some(player_transform) = game_state.scene.get_node_mut(game_state.player_node_id) {
+        player_transform.transform = new_player_transform;
     }
 
     // update ball positions
@@ -963,8 +990,8 @@ pub fn update_game_state(
         }
     }
 
-    if let Some(point_light_1) = game_state.point_lights.get_mut(1) {
-        // point_light_1.color = lerp_vec(
+    if let Some(_point_light_1) = game_state.point_lights.get_mut(1) {
+        // _point_light_1.color = lerp_vec(
         //     LIGHT_COLOR_B,
         //     LIGHT_COLOR_A,
         //     (global_time_seconds * 2.0).sin(),
@@ -1029,7 +1056,7 @@ pub fn update_game_state(
 
     // remove physics balls over time
     game_state.ball_spawner_acc += frame_time_seconds;
-    let rate = 0.01;
+    let rate = 0.1;
     let prev_ball_count = game_state.physics_balls.len();
     while game_state.ball_spawner_acc > rate {
         // let new_ball = BallComponent::rand();
@@ -1050,11 +1077,16 @@ pub fn update_game_state(
         // if let Some(physics_ball) = game_state.physics_balls.pop() {
         //     physics_ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
         // }
+        game_state.physics_balls.push(PhysicsBall::new_random(
+            &mut game_state.scene,
+            &mut game_state.physics_state,
+            GameNodeMesh::from_pbr_mesh_index(game_state.ball_pbr_mesh_index),
+        ));
         game_state.ball_spawner_acc -= rate;
     }
     let new_ball_count = game_state.physics_balls.len();
     if prev_ball_count != new_ball_count {
-        logger.log(&format!("Ball count: {:?}", new_ball_count));
+        // logger.log(&format!("Ball count: {:?}", new_ball_count));
     }
 
     // let physics_time_step_start = Instant::now();
@@ -1076,7 +1108,7 @@ pub fn update_game_state(
         .for_each(|physics_ball| physics_ball.update(&mut game_state.scene, physics_state));
 
     if let Some(crosshair_node) = game_state.scene.get_node_mut(game_state.crosshair_node_id) {
-        crosshair_node.transform = new_camera_transform
+        crosshair_node.transform = new_player_transform
             * TransformBuilder::new()
                 .position(Vector3::new(0.0, 0.0, -NEAR_PLANE_DISTANCE * 2.0))
                 .rotation(make_quat_from_axis_angle(
@@ -1092,7 +1124,7 @@ pub fn update_game_state(
     }
 
     game_state.revolver.update(
-        game_state.camera_controller.current_pose,
+        game_state.player_controller.view_direction,
         &mut game_state.scene,
     );
 
@@ -1106,13 +1138,15 @@ pub fn update_game_state(
                 .add_sound(&game_state.gunshot_sound_data, 0.75, true, None);
 
         // logger.log("Fired!");
-        let camera_position = game_state.camera_controller.current_pose.position;
+        let player_position = game_state
+            .player_controller
+            .position(&game_state.physics_state);
         let direction_vec = game_state
-            .camera_controller
-            .current_pose
-            .get_direction_vector();
+            .player_controller
+            .view_direction
+            .to_direction_vector();
         let ray = Ray::new(
-            point![camera_position.x, camera_position.y, camera_position.z],
+            point![player_position.x, player_position.y, player_position.z],
             vector![direction_vec.x, direction_vec.y, direction_vec.z],
         );
         let max_distance = ARENA_SIDE_LENGTH * 10.0;
@@ -1123,7 +1157,7 @@ pub fn update_game_state(
                 &ray,
                 max_distance,
                 solid,
-                InteractionGroups::all(),
+                InteractionGroups::all().with_filter(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
                 None,
             )
         {
@@ -1133,7 +1167,7 @@ pub fn update_game_state(
 
             // logger.log(&format!(
             //     "Collider {:?} hit at point {}",
-            //     collider_handle, hit_point
+            //     collider_handle, _hit_point
             // ));
             if let Some(rigid_body_handle) = game_state
                 .physics_state

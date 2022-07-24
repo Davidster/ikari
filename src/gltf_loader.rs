@@ -157,6 +157,7 @@ pub fn build_scene(
             index_buffer_format,
             wireframe_index_buffer,
             wireframe_index_buffer_format,
+            bounding_box,
         ) = build_geometry_buffers(device, &primitive_group, buffers)?;
         let initial_instances: Vec<_> = scene_nodes
             .iter()
@@ -199,6 +200,7 @@ pub fn build_scene(
                 index_buffer,
                 index_buffer_format,
                 instance_buffer,
+                bounding_box,
             },
             dynamic_pbr_params,
             textures_bind_group,
@@ -696,6 +698,7 @@ pub fn build_geometry_buffers(
     wgpu::IndexFormat,
     GpuBuffer,
     wgpu::IndexFormat,
+    (Vector3<f32>, Vector3<f32>),
 )> {
     let vertex_positions: Vec<Vector3<f32>> = {
         let (_, accessor) = primitive_group
@@ -722,35 +725,18 @@ pub fn build_geometry_buffers(
         )
     }?;
     let vertex_position_count = vertex_positions.len();
-    let _bounding_box = {
-        let max_x = vertex_positions
-            .iter()
-            .map(|pos| pos.x)
-            .max_by(|a, b| a.partial_cmp(b).unwrap());
-        let max_y = vertex_positions
-            .iter()
-            .map(|pos| pos.y)
-            .max_by(|a, b| a.partial_cmp(b).unwrap());
-        let max_z = vertex_positions
-            .iter()
-            .map(|pos| pos.z)
-            .max_by(|a, b| a.partial_cmp(b).unwrap());
-        let min_x = vertex_positions
-            .iter()
-            .map(|pos| pos.x)
-            .min_by(|a, b| a.partial_cmp(b).unwrap());
-        let min_y = vertex_positions
-            .iter()
-            .map(|pos| pos.y)
-            .min_by(|a, b| a.partial_cmp(b).unwrap());
-        let min_z = vertex_positions
-            .iter()
-            .map(|pos| pos.z)
-            .min_by(|a, b| a.partial_cmp(b).unwrap());
-        (
-            Vector3::new(min_x, min_y, min_z),
-            Vector3::new(max_x, max_y, max_z),
-        )
+    let bounding_box = {
+        let mut min_point = vertex_positions[0];
+        let mut max_point = min_point;
+        for pos in &vertex_positions {
+            min_point.x = min_point.x.min(pos.x);
+            min_point.y = min_point.y.min(pos.y);
+            min_point.z = min_point.z.min(pos.z);
+            max_point.x = max_point.x.max(pos.x);
+            max_point.y = max_point.y.max(pos.y);
+            max_point.z = max_point.z.max(pos.z);
+        }
+        (min_point, max_point)
     };
 
     let indices: Vec<u32> = primitive_group
@@ -1187,6 +1173,7 @@ pub fn build_geometry_buffers(
         index_buffer_format,
         wireframe_index_buffer,
         wireframe_index_buffer_format,
+        bounding_box,
     ))
 }
 

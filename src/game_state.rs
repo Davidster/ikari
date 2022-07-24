@@ -11,8 +11,7 @@ pub struct GameState {
     pub gunshot_sound_index: usize,
     pub gunshot_sound_data: SoundData,
 
-    pub camera_controller: CameraController,
-    pub camera_node_id: GameNodeId,
+    pub player_node_id: GameNodeId, // TODO: move this into player controller?
 
     pub point_lights: Vec<PointLightComponent>,
     pub point_light_node_ids: Vec<GameNodeId>,
@@ -40,6 +39,7 @@ pub struct GameState {
     pub mouse_button_pressed: bool,
 
     pub character: Character,
+    pub player_controller: PlayerController,
 }
 
 impl GameState {

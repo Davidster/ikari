@@ -192,6 +192,7 @@ pub struct GeometryBuffers {
     pub index_buffer: GpuBuffer,
     pub index_buffer_format: wgpu::IndexFormat,
     pub instance_buffer: GpuBuffer,
+    pub bounding_box: (Vector3<f32>, Vector3<f32>),
 }
 
 pub type BindedUnlitMesh = GeometryBuffers;
@@ -1869,11 +1870,30 @@ impl RendererState {
             wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         );
 
+        let bounding_box = {
+            let mut min_point = Vector3::new(
+                mesh.vertices[0].position[0],
+                mesh.vertices[0].position[1],
+                mesh.vertices[0].position[2],
+            );
+            let mut max_point = min_point;
+            for vertex in &mesh.vertices {
+                min_point.x = min_point.x.min(vertex.position[0]);
+                min_point.y = min_point.y.min(vertex.position[1]);
+                min_point.z = min_point.z.min(vertex.position[2]);
+                max_point.x = max_point.x.max(vertex.position[0]);
+                max_point.y = max_point.y.max(vertex.position[1]);
+                max_point.z = max_point.z.max(vertex.position[2]);
+            }
+            (min_point, max_point)
+        };
+
         GeometryBuffers {
             vertex_buffer,
             index_buffer,
             index_buffer_format: wgpu::IndexFormat::Uint16,
             instance_buffer,
+            bounding_box,
         }
     }
 
@@ -2637,14 +2657,14 @@ impl RendererState {
             }),
         };
 
-        let camera_transform = game_state
+        let player_transform = game_state
             .scene
-            .get_global_transform_for_node(game_state.camera_node_id);
+            .get_global_transform_for_node(game_state.player_node_id);
         self.base.queue.write_buffer(
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[CameraUniform::from(ShaderCameraView::from_transform(
-                camera_transform,
+                player_transform,
                 self.base.window_size.width as f32 / self.base.window_size.height as f32,
                 NEAR_PLANE_DISTANCE,
                 FAR_PLANE_DISTANCE,

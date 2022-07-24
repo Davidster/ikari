@@ -34,6 +34,9 @@ impl PhysicsBall {
             .translation(vector![position.x, position.y, position.z])
             .build();
         let collider = ColliderBuilder::ball(radius)
+            .collision_groups(
+                InteractionGroups::all().with_memberships(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
+            )
             .restitution(RESTITUTION)
             .friction(1.0)
             .density(1.0)
@@ -57,19 +60,22 @@ impl PhysicsBall {
         physics_state: &mut PhysicsState,
         mesh: GameNodeMesh,
     ) -> Self {
-        let radius = 0.1 + (rand::random::<f32>() * 0.5);
+        let radius = 0.02 + (rand::random::<f32>() * 0.1);
         let position = Vector3::new(
             ARENA_SIDE_LENGTH * (rand::random::<f32>() * 2.0 - 1.0),
-            radius * 2.0 + rand::random::<f32>() * 15.0 + 2.0,
+            radius * 2.0 + rand::random::<f32>() * 15.0 + 5.0,
             ARENA_SIDE_LENGTH * (rand::random::<f32>() * 2.0 - 1.0),
         );
         Self::new(scene, physics_state, mesh, position, radius)
     }
 
     pub fn update(&self, scene: &mut Scene, physics_state: &mut PhysicsState) {
-        let rigid_body = &mut physics_state.rigid_body_set[self.rigid_body_handle];
         if let Some(node) = scene.get_node_mut(self.node_id) {
+            let rigid_body = &mut physics_state.rigid_body_set[self.rigid_body_handle];
             node.transform.apply_isometry(*rigid_body.position());
+            if node.transform.decompose().position.y < -1.0 {
+                self.destroy(scene, physics_state);
+            }
         }
     }
 
@@ -78,7 +84,7 @@ impl PhysicsBall {
         physics_state.remove_rigid_body(self.rigid_body_handle);
     }
 
-    pub fn toggle_wireframe(&self, scene: &mut Scene) {
+    pub fn _toggle_wireframe(&self, scene: &mut Scene) {
         if let Some(node) = scene.get_node_mut(self.node_id) {
             if let Some(mesh) = node.mesh.as_mut() {
                 mesh.wireframe = !mesh.wireframe;

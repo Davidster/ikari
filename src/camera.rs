@@ -9,14 +9,6 @@ pub struct Camera {
 }
 
 impl Camera {
-    pub fn new(initial_position: Vector3<f32>) -> Self {
-        Camera {
-            horizontal_rotation: Rad(0.0),
-            vertical_rotation: Rad(0.0),
-            position: initial_position,
-        }
-    }
-
     pub fn to_transform(self) -> crate::transform::Transform {
         TransformBuilder::new()
             .position(self.position)
@@ -25,16 +17,6 @@ impl Camera {
                     * Quaternion::from(Euler::new(self.vertical_rotation, Rad(0.0), Rad(0.0))),
             )
             .build()
-    }
-
-    pub fn get_direction_vector(&self) -> Vector3<f32> {
-        let horizontal_scale = self.vertical_rotation.0.cos();
-        Vector3::new(
-            (self.horizontal_rotation.0 + std::f32::consts::PI).sin() * horizontal_scale,
-            self.vertical_rotation.0.sin(),
-            (self.horizontal_rotation.0 + std::f32::consts::PI).cos() * horizontal_scale,
-        )
-        .normalize()
     }
 }
 

@@ -80,8 +80,12 @@ impl Character {
                     self.collision_box_nodes
                         .push(scene.add_node(Default::default()).id());
                     let box_scale = transform_decomposed.scale;
-                    let the_box =
-                        ColliderBuilder::cuboid(box_scale.x, box_scale.y, box_scale.z).build();
+                    let the_box = ColliderBuilder::cuboid(box_scale.x, box_scale.y, box_scale.z)
+                        .collision_groups(
+                            InteractionGroups::all()
+                                .with_memberships(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
+                        )
+                        .build();
                     self.collision_box_colliders
                         .push(physics_state.collider_set.insert(the_box));
                 }

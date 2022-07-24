@@ -30,7 +30,7 @@ pub struct GameNode {
     id: GameNodeId,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct GameNodeId(usize, usize); // (index into GameScene::nodes array, generation num)
 
 #[derive(Debug, Clone)]
@@ -419,6 +419,10 @@ impl Scene {
             let GameNodeId(parent_node_index, _) = parent_node.id();
             self.parent_index_map.insert(node_index, parent_node_index);
         }
+    }
+
+    pub fn node_count(&self) -> usize {
+        self.nodes.iter().filter(|(node, _)| node.is_some()).count()
     }
 
     pub fn nodes(&self) -> impl Iterator<Item = &GameNode> {
