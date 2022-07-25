@@ -19,7 +19,7 @@ pub struct AllBoneTransformsSlice {
 
 pub fn get_all_bone_data(
     scene: &Scene,
-    min_storage_buffer_offset_alignment: u32,
+    min_uniform_buffer_offset_alignment: u32,
 ) -> AllBoneTransforms {
     let matrix_size_bytes = std::mem::size_of::<GpuMatrix4>();
     let identity_bone_count = 4;
@@ -70,7 +70,7 @@ pub fn get_all_bone_data(
                 }
                 Entry::Vacant(entry) => {
                     let skin = &scene.skins[skin_index];
-                    let bone_transforms: Vec<_> = skin
+                    let mut bone_transforms: Vec<_> = skin
                         .bone_node_ids
                         .iter()
                         .enumerate()
@@ -85,13 +85,20 @@ pub fn get_all_bone_data(
                         })
                         .collect();
 
+                    if bone_transforms.len() < MAX_BONE_COUNT_SHADER {
+                        bone_transforms.extend(
+                            (0..(MAX_BONE_COUNT_SHADER - bone_transforms.len()))
+                                .map(|_| GpuMatrix4(Matrix4::one())),
+                        );
+                    }
+
                     let start_index = buffer.len();
                     let end_index = start_index + bone_transforms.len() * matrix_size_bytes;
                     buffer.append(&mut bytemuck::cast_slice(&bone_transforms).to_vec());
 
                     // add padding
-                    let needed_padding = min_storage_buffer_offset_alignment as usize
-                        - (buffer.len() % min_storage_buffer_offset_alignment as usize);
+                    let needed_padding = min_uniform_buffer_offset_alignment as usize
+                        - (buffer.len() % min_uniform_buffer_offset_alignment as usize);
                     let mut padding: Vec<_> = (0..needed_padding).map(|_| 0u8).collect();
                     buffer.append(&mut padding);
 

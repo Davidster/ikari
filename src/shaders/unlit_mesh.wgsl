@@ -9,11 +9,13 @@ struct CameraUniform {
 @group(0) @binding(0)
 var<uniform> camera: CameraUniform;
 
+let MAX_BONES = 64u;
+
 struct BonesUniform {
-    value: array<mat4x4<f32>>,
+    value: array<mat4x4<f32>, MAX_BONES>,
 }
 @group(1) @binding(0)
-var<storage, read> bones_uniform: BonesUniform;
+var<uniform> bones_uniform: BonesUniform;
 
 struct VertexInput {
     @location(0) object_position: vec3<f32>,

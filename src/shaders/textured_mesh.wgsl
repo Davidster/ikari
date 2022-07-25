@@ -10,7 +10,7 @@ struct CameraUniform {
 var<uniform> camera: CameraUniform;
 
 let MAX_LIGHTS = 32u;
-let MAX_BONES = 512u;
+let MAX_BONES = 64u;
 
 struct PointLight {
     position: vec4<f32>,
@@ -30,7 +30,7 @@ struct DirectionalLightsUniform {
     values: array<DirectionalLight, MAX_LIGHTS>,
 }
 struct BonesUniform {
-    value: array<mat4x4<f32>>,
+    value: array<mat4x4<f32>, MAX_BONES>,
 }
 
 @group(0) @binding(1)
@@ -38,9 +38,9 @@ var<uniform> point_lights: PointLightsUniform;
 @group(0) @binding(2)
 var<uniform> directional_lights: DirectionalLightsUniform;
 @group(3) @binding(0)
-var<storage, read> bones_uniform: BonesUniform;
+var<uniform> bones_uniform: BonesUniform;
 @group(1) @binding(0)
-var<storage, read> shadow_bones_uniform: BonesUniform;
+var<uniform> shadow_bones_uniform: BonesUniform;
 
 struct VertexInput {
     @location(0) object_position: vec3<f32>,

@@ -26,38 +26,38 @@ pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: u32 = COLLISION_GROUP_PLAYER_SHOOT
 
 #[allow(clippy::let_and_return)]
 fn get_gltf_path() -> &'static str {
-    // let gltf_path = "/home/david/Downloads/adamHead/adamHead.gltf";
+    // let gltf_path = "/home/david/Downloads/adamHead/adamHead.glb";
     // let gltf_path = "/home/david/Downloads/free_low_poly_forest/scene_2.glb";
-    // let gltf_path = "/home/david/Downloads/free_low_poly_forest/scene.gltf";
-    // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
-    // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf";
-    // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
-    // let gltf_path = "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf";
-    // let gltf_path = "./src/models/gltf/Sponza/Sponza.gltf";
-    // let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
-    // let gltf_path = "./src/models/gltf/Arrow/Arrow.gltf";
-    // let gltf_path = "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf";
-    // let gltf_path = "./src/models/gltf/VertexColorTest/VertexColorTest.gltf";
-    // let gltf_path = "./src/models/gltf/Revolver/revolver_low_poly.gltf";
+    // let gltf_path = "/home/david/Downloads/free_low_poly_forest/scene.glb";
+    // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.glb";
+    // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.glb";
+    // let gltf_path = "./src/models/gltf/Triangle/Triangle.glb";
+    // let gltf_path = "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.glb";
+    // let gltf_path = "./src/models/gltf/Sponza/Sponza.glb";
+    // let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.glb";
+    // let gltf_path = "./src/models/gltf/Arrow/Arrow.glb";
+    // let gltf_path = "./src/models/gltf/DamagedHelmet/DamagedHelmet.glb";
+    // let gltf_path = "./src/models/gltf/VertexColorTest/VertexColorTest.glb";
+    // let gltf_path = "./src/models/gltf/Revolver/revolver_low_poly.glb";
     // let gltf_path =
-    //     "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf";
+    //     "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.glb";
     // let gltf_path =
     //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb";
-    // let gltf_path = "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
+    // let gltf_path = "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.glb";
+    // let gltf_path = "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.glb";
+    // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.glb";
+    // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.glb";
+    // let gltf_path = "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.glb";
+    // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.glb";
     // let gltf_path =
-    //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
-    // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
-    // let gltf_path = "./src/models/gltf/VC/VC.gltf";
+    //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.glb";
+    // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.glb";
+    // let gltf_path = "./src/models/gltf/VC/VC.glb";
     // let gltf_path =
-    //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
+    //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.glb";
 
     // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-    let gltf_path = "./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf";
+    let gltf_path = "./src/models/gltf/LegendaryRobot/Legendary_Robot.glb";
 
     gltf_path
 }
@@ -113,14 +113,14 @@ pub fn get_skybox_path() -> (
     (skybox_background, skybox_hdr_environment)
 }
 
-pub fn init_game_state(
+pub async fn init_game_state(
     mut scene: Scene,
     renderer_state: &mut RendererState,
     logger: &mut Logger,
 ) -> Result<GameState> {
-    let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
-    let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
-    let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
+    let sphere_mesh = BasicMesh::new("./src/models/sphere.obj").await?;
+    let plane_mesh = BasicMesh::new("./src/models/plane.obj").await?;
+    let cube_mesh = BasicMesh::new("./src/models/cube.obj").await?;
 
     let mut physics_state = PhysicsState::new();
 
@@ -216,7 +216,7 @@ pub fn init_game_state(
     // scene.remove_node(node_0_id);
 
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
-    // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
+    // let simple_normal_map_bytes = file_loader::read(simple_normal_map_path).await?;
     // let simple_normal_map = Texture::from_encoded_image(
     //     &renderer_state.base.device,
     //     &renderer_state.base.queue,
@@ -228,7 +228,7 @@ pub fn init_game_state(
     // )?;
 
     // let brick_normal_map_path = "./src/textures/brick_normal_map.jpg";
-    // let brick_normal_map_bytes = std::fs::read(brick_normal_map_path)?;
+    // let brick_normal_map_bytes = file_loader::read(brick_normal_map_path).await?;
     // let brick_normal_map = Texture::from_encoded_image(
     //     &renderer_state.base.device,
     //     &renderer_state.base.queue,
@@ -241,7 +241,7 @@ pub fn init_game_state(
 
     // add test object to scene
     let earth_texture_path = "./src/textures/8k_earth.jpg";
-    let earth_texture_bytes = std::fs::read(earth_texture_path)?;
+    let earth_texture_bytes = file_loader::read(earth_texture_path).await?;
     let earth_texture = Texture::from_encoded_image(
         &renderer_state.base.device,
         &renderer_state.base.queue,
@@ -253,7 +253,7 @@ pub fn init_game_state(
     )?;
 
     let earth_normal_map_path = "./src/textures/8k_earth_normal_map.jpg";
-    let earth_normal_map_bytes = std::fs::read(earth_normal_map_path)?;
+    let earth_normal_map_bytes = file_loader::read(earth_normal_map_path).await?;
     let earth_normal_map = Texture::from_encoded_image(
         &renderer_state.base.device,
         &renderer_state.base.queue,
@@ -392,7 +392,7 @@ pub fn init_game_state(
 
     // source: https://www.solarsystemscope.com/textures/
     let mars_texture_path = "./src/textures/8k_mars.jpg";
-    let mars_texture_bytes = std::fs::read(mars_texture_path)?;
+    let mars_texture_bytes = file_loader::read(mars_texture_path).await?;
     let mars_texture = Texture::from_encoded_image(
         &renderer_state.base.device,
         &renderer_state.base.queue,
@@ -658,10 +658,11 @@ pub fn init_game_state(
 
     // merge revolver scene into current scene
     // let (document, buffers, images) =
-    //     gltf::import("./src/models/gltf/Revolver/revolver_low_poly.gltf")?;
+    //     gltf::import_slice(file_loader::read("./src/models/gltf/Revolver/revolver_low_poly.glb")?).await?;
     {
-        let (document, buffers, images) =
-            gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
+        let (document, buffers, images) = gltf::import_slice(std::fs::read(
+            "./src/models/gltf/ColtPython/colt_python.glb",
+        )?)?;
         validate_animation_property_counts(&document, logger);
         let (other_scene, other_render_buffers) =
             build_scene(&renderer_state.base, (&document, &buffers, &images))?;
@@ -697,8 +698,9 @@ pub fn init_game_state(
 
     {
         let skip_nodes = scene.node_count();
-        let (document, buffers, images) =
-            gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
+        let (document, buffers, images) = gltf::import_slice(
+            file_loader::read("./src/models/gltf/TestLevel/test_level.glb").await?,
+        )?;
         validate_animation_property_counts(&document, logger);
         let (other_scene, other_render_buffers) =
             build_scene(&renderer_state.base, (&document, &buffers, &images))?;
@@ -720,7 +722,7 @@ pub fn init_game_state(
     let mut audio_manager = AudioManager::new()?;
 
     if let Some(bgm_data) =
-        AudioManager::decode_mp3(audio_manager.device_sample_rate(), "./src/sounds/bgm.mp3")?
+        AudioManager::decode_mp3(audio_manager.device_sample_rate(), "./src/sounds/bgm.mp3").await?
     {
         let bgm_sound_index = audio_manager.add_sound(&bgm_data, 0.5, false, None);
         audio_manager.play_sound(bgm_sound_index);
@@ -729,7 +731,8 @@ pub fn init_game_state(
     let gunshot_sound_data = AudioManager::decode_wav(
         audio_manager.device_sample_rate(),
         "./src/sounds/gunshot.wav",
-    )?;
+    )
+    .await?;
     let gunshot_sound_index = audio_manager.add_sound(&gunshot_sound_data, 0.75, true, None);
 
     // logger.log(&format!("{:?}", &revolver));
@@ -1211,11 +1214,16 @@ pub fn update_game_state(
         .update(scene, &mut game_state.physics_state);
 }
 
-pub fn init_scene(
+pub async fn init_scene(
     base_renderer_state: &mut BaseRendererState,
     logger: &mut Logger,
 ) -> Result<(Scene, RenderBuffers)> {
-    let (document, buffers, images) = gltf::import(get_gltf_path())?;
+    log::info!("init_scene 1");
+    let yo = file_loader::read(get_gltf_path()).await?;
+    log::info!("init_scene 2");
+    let (document, buffers, images) = gltf::import_slice(yo)?;
+    log::info!("init_scene 3");
     validate_animation_property_counts(&document, logger);
+    log::info!("init_scene 4");
     build_scene(base_renderer_state, (&document, &buffers, &images))
 }

@@ -4,6 +4,7 @@ mod ball;
 mod buffer;
 mod camera;
 mod character;
+mod file_loader;
 mod game;
 mod game_state;
 mod gameloop;
@@ -29,6 +30,7 @@ use ball::*;
 use buffer::*;
 use camera::*;
 use character::*;
+use file_loader::*;
 use game::*;
 use game_state::*;
 use gltf_loader::*;
@@ -56,6 +58,7 @@ use wasm_bindgen::prelude::*;
 async fn start() {
     let event_loop = winit::event_loop::EventLoop::new();
     let window = {
+        log::info!("1");
         let window = winit::window::WindowBuilder::new()
             .with_title("David's window name")
             // .with_visible(false)
@@ -68,8 +71,11 @@ async fn start() {
             window.set_inner_size(winit::dpi::PhysicalSize::new(1920.0, 1080.0));
         }
 
+        log::info!("2");
+
         #[cfg(target_arch = "wasm32")]
         {
+            log::info!("3");
             // Winit prevents sizing with CSS, so we have to set
             // the size manually when on web.
             use winit::dpi::PhysicalSize;
@@ -85,6 +91,8 @@ async fn start() {
                     Some(())
                 })
                 .expect("Couldn't append canvas to document body.");
+
+            log::info!("4");
         }
 
         Some(window)
@@ -120,21 +128,32 @@ async fn start() {
         //     }
         // }
     };
+    log::info!("5");
     if let Some(window) = window {
         let mut logger = Logger::new();
+        log::info!("6");
         let mut base_render_state = BaseRendererState::new(&window).await;
-
+        log::info!("7");
         let run_result = async {
-            let (game_scene, render_buffers) = init_scene(&mut base_render_state, &mut logger)?;
+            let (game_scene, render_buffers) =
+                init_scene(&mut base_render_state, &mut logger).await?;
+            log::info!("8");
             let mut renderer_state =
                 RendererState::new(render_buffers, base_render_state, &mut logger).await?;
-            let game_state = init_game_state(game_scene, &mut renderer_state, &mut logger)?;
+            log::info!("9");
+            let game_state = init_game_state(game_scene, &mut renderer_state, &mut logger).await?;
+            log::info!("10");
             gameloop::run(window, event_loop, game_state, renderer_state, logger); // this will block while the game is running
             anyhow::Ok(())
         }
         .await;
 
         if let Err(err) = run_result {
+            log::error!(
+                "Error setting up game / render state: {}\n{}",
+                err,
+                err.backtrace()
+            );
             eprintln!(
                 "Error setting up game / render state: {}\n{}",
                 err,
@@ -145,14 +164,14 @@ async fn start() {
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
-pub fn run() {
+pub async fn run() {
     cfg_if::cfg_if! {
         if #[cfg(target_arch = "wasm32")] {
             std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-            console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
+            console_log::init_with_level(log::Level::Info).expect("Couldn't initialize logger");
         } else {
             env_logger::init();
         }
     }
-    pollster::block_on(start());
+    start().await;
 }

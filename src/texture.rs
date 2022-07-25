@@ -85,6 +85,7 @@ impl Texture {
         generate_mipmaps: bool,
         sampler_descriptor: &SamplerDescriptor,
     ) -> Result<Self> {
+        log::info!("from_decoded_image 1");
         let size = wgpu::Extent3d {
             width: dimensions.0 as u32,
             height: dimensions.1 as u32,
@@ -133,6 +134,8 @@ impl Texture {
             label: Some("mip_encoder"),
         });
 
+        log::info!("from_decoded_image 2");
+
         if generate_mipmaps {
             generate_mipmaps_for_texture(
                 device,
@@ -143,6 +146,8 @@ impl Texture {
                 format,
             )?;
         }
+
+        log::info!("from_decoded_image 3");
 
         Ok(Self {
             texture,
@@ -1170,9 +1175,7 @@ fn generate_mipmaps_for_texture(
 ) -> Result<()> {
     let blit_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
-        source: wgpu::ShaderSource::Wgsl(
-            std::fs::read_to_string("./src/shaders/blit.wgsl")?.into(),
-        ),
+        source: wgpu::ShaderSource::Wgsl(include_str!("./shaders/blit.wgsl").into()),
     });
     let mip_render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("mip_render_pipeline"),

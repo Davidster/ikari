@@ -5,9 +5,13 @@ use super::*;
 use anyhow::Result;
 
 use cgmath::{Deg, Matrix4, One, Vector3};
+use futures::StreamExt;
+use image::DynamicImage;
 use wgpu::util::DeviceExt;
 
 pub const MAX_LIGHT_COUNT: usize = 32;
+pub const MAX_BONE_COUNT: usize = 256; // TODO: remove
+pub const MAX_BONE_COUNT_SHADER: usize = 64;
 pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const FAR_PLANE_DISTANCE: f32 = 100000.0;
 pub const FOV_Y: Deg<f32> = Deg(45.0);
@@ -273,12 +277,12 @@ impl BaseRendererState {
                     // limits: wgpu::Limits::default(),
                     limits: wgpu::Limits {
                         // TODO: to support the web, I'll probably need to use uniform buffers instead of storage buffers for skeletal animations.
-                        max_dynamic_storage_buffers_per_pipeline_layout: wgpu::Limits::default()
-                            .max_dynamic_storage_buffers_per_pipeline_layout,
-                        max_storage_buffers_per_shader_stage: wgpu::Limits::default()
-                            .max_storage_buffers_per_shader_stage,
-                        max_storage_buffer_binding_size: wgpu::Limits::default()
-                            .max_storage_buffer_binding_size,
+                        // max_dynamic_storage_buffers_per_pipeline_layout: wgpu::Limits::default()
+                        //     .max_dynamic_storage_buffers_per_pipeline_layout,
+                        // max_storage_buffers_per_shader_stage: wgpu::Limits::default()
+                        //     .max_storage_buffers_per_shader_stage,
+                        // max_storage_buffer_binding_size: wgpu::Limits::default()
+                        //     .max_storage_buffer_binding_size,
                         ..wgpu::Limits::downlevel_webgl2_defaults()
                             .using_resolution(adapter.limits())
                     },
@@ -457,7 +461,7 @@ impl BaseRendererState {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: true,
                         min_binding_size: None,
                     },
@@ -582,28 +586,36 @@ impl RendererState {
         let unlit_mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Unlit Mesh Shader"),
             source: wgpu::ShaderSource::Wgsl(
-                std::fs::read_to_string("./src/shaders/unlit_mesh.wgsl")?.into(),
+                file_loader::read_to_string("./src/shaders/unlit_mesh.wgsl")
+                    .await?
+                    .into(),
             ),
         });
 
         let blit_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Blit Shader"),
             source: wgpu::ShaderSource::Wgsl(
-                std::fs::read_to_string("./src/shaders/blit.wgsl")?.into(),
+                file_loader::read_to_string("./src/shaders/blit.wgsl")
+                    .await?
+                    .into(),
             ),
         });
 
         let textured_mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Textured Mesh Shader"),
             source: wgpu::ShaderSource::Wgsl(
-                std::fs::read_to_string("./src/shaders/textured_mesh.wgsl")?.into(),
+                file_loader::read_to_string("./src/shaders/textured_mesh.wgsl")
+                    .await?
+                    .into(),
             ),
         });
 
         let skybox_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Skybox Shader"),
             source: wgpu::ShaderSource::Wgsl(
-                std::fs::read_to_string("./src/shaders/skybox.wgsl")?.into(),
+                file_loader::read_to_string("./src/shaders/skybox.wgsl")
+                    .await?
+                    .into(),
             ),
         });
 
@@ -1313,7 +1325,7 @@ impl RendererState {
 
         let initial_render_scale = INITIAL_RENDER_SCALE;
 
-        let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
+        let cube_mesh = BasicMesh::new("./src/models/cube.obj").await?;
 
         let skybox_mesh_buffers =
             Self::bind_geometry_buffers_for_basic_mesh_impl(device, &cube_mesh);
@@ -1481,7 +1493,7 @@ impl RendererState {
 
         let skybox_texture = match skybox_background {
             SkyboxBackground::Equirectangular { image_path } => {
-                let er_skybox_texture_bytes = std::fs::read(image_path)?;
+                let er_skybox_texture_bytes = file_loader::read(image_path).await?;
                 let er_skybox_texture = Texture::from_encoded_image(
                     device,
                     queue,
@@ -1503,10 +1515,14 @@ impl RendererState {
                 )
             }
             SkyboxBackground::Cube { face_image_paths } => {
-                let cubemap_skybox_images = face_image_paths
-                    .iter()
-                    .map(|path| image::load_from_memory(&std::fs::read(path)?))
-                    .collect::<Result<Vec<_>, _>>()?;
+                let mut cubemap_skybox_images: Vec<DynamicImage> = Vec::new();
+                let image_bytes_results = futures::future::join_all(
+                    face_image_paths.iter().map(|path| file_loader::read(path)),
+                )
+                .await;
+                for image_bytes_result in image_bytes_results {
+                    cubemap_skybox_images.push(image::load_from_memory(&image_bytes_result?)?);
+                }
 
                 Texture::create_cubemap(
                     device,
@@ -1534,7 +1550,7 @@ impl RendererState {
                 let er_to_cube_texture;
                 skybox_rad_texture = match skybox_hdr_environment {
                     Some(SkyboxHDREnvironment::Equirectangular { image_path }) => {
-                        let skybox_rad_texture_bytes = std::fs::read(image_path)?;
+                        let skybox_rad_texture_bytes = file_loader::read(image_path).await?;
                         let skybox_rad_texture_decoded = stb::image::stbi_loadf_from_memory(
                             &skybox_rad_texture_bytes,
                             stb::image::Channels::RgbAlpha,
@@ -1647,9 +1663,9 @@ impl RendererState {
 
         let bones_buffer = GpuBuffer::empty(
             device,
-            1,
+            MAX_BONE_COUNT,
             std::mem::size_of::<GpuMatrix4>(),
-            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
 
         let bones_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -2245,7 +2261,7 @@ impl RendererState {
         let device = &self.base.device;
         let bones_bind_group_layout = &self.base.bones_bind_group_layout;
         self.all_bone_transforms =
-            get_all_bone_data(scene, limits.min_storage_buffer_offset_alignment);
+            get_all_bone_data(scene, limits.min_uniform_buffer_offset_alignment);
         self.bones_buffer
             .write(device, queue, &self.all_bone_transforms.buffer);
         // logger.log(&format!("get_all_bone_data length -> {:?}", yo.elapsed()));

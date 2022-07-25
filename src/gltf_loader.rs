@@ -24,6 +24,8 @@ pub fn build_scene(
 
     let materials: Vec<_> = document.materials().collect();
 
+    log::info!("build_scene 1");
+
     let textures = document
         .textures()
         .map(|texture| {
@@ -106,6 +108,8 @@ pub fn build_scene(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    log::info!("build_scene 2");
+
     // node index -> parent node index
     let parent_index_map: HashMap<usize, usize> = document
         .nodes()
@@ -117,12 +121,16 @@ pub fn build_scene(
         })
         .collect();
 
+    log::info!("build_scene 3");
+
     let scene_nodes: Vec<_> = get_full_node_list(
         document
             .scenes()
             .find(|scene| scene.index() == scene_index)
             .ok_or_else(|| anyhow::anyhow!("Expected scene with index: {:?}", scene_index))?,
     );
+
+    log::info!("build_scene 4");
 
     let meshes: Vec<_> = document.meshes().collect();
 

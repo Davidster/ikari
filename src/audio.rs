@@ -10,6 +10,8 @@ use oddio::{
     Stop,
 };
 
+use super::*;
+
 pub struct AudioManager {
     master_volume: f32,
     device_sample_rate: u32,
@@ -102,9 +104,9 @@ impl AudioManager {
         })
     }
 
-    pub fn decode_wav(sample_rate: u32, file_path: &str) -> Result<SoundData> {
+    pub async fn decode_wav(sample_rate: u32, file_path: &str) -> Result<SoundData> {
         // get metadata from the WAV file
-        let file_bytes = std::fs::read(file_path)?;
+        let file_bytes = file_loader::read(file_path).await?;
         let mut reader = WavReader::new(file_bytes.as_slice())?;
         let WavSpec {
             sample_rate: source_sample_rate,
@@ -142,12 +144,12 @@ impl AudioManager {
     }
 
     // TODO: mp3 doesnt work on the web :(
-    pub fn decode_mp3(sample_rate: u32, file_path: &str) -> Result<Option<SoundData>> {
+    pub async fn decode_mp3(sample_rate: u32, file_path: &str) -> Result<Option<SoundData>> {
         cfg_if::cfg_if! {
             if #[cfg(target_arch = "wasm32")] {
                 Ok(None)
             } else {
-                let file_bytes: &[u8] = &std::fs::read(file_path)?;
+                let file_bytes: &[u8] = &file_loader::read(file_path).await?;
                 let mut decoder = minimp3::Decoder::new(file_bytes);
                 let mut mp3_frames: Vec<minimp3::Frame> = Vec::new();
                 loop {
