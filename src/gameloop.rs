@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use winit::{
     event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent},
@@ -33,7 +33,7 @@ pub fn run(
                     if let Err(err) = logger.write_to_term() {
                         eprintln!("Error writing to terminal: {}", err);
                     }
-                    last_log_time = Some(Instant::now());
+                    last_log_time = Some(now());
                 };
 
                 match last_log_time_clone {

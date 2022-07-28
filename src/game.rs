@@ -118,6 +118,8 @@ pub async fn init_game_state(
     renderer_state: &mut RendererState,
     logger: &mut Logger,
 ) -> Result<GameState> {
+    log::info!("init_game_state 1");
+    let mut audio_manager = AudioManager::new()?;
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj").await?;
     let plane_mesh = BasicMesh::new("./src/models/plane.obj").await?;
     let cube_mesh = BasicMesh::new("./src/models/cube.obj").await?;
@@ -171,6 +173,8 @@ pub async fn init_game_state(
         // ),
     ];
     // let point_lights: Vec<(transform::Transform, Vector3<f32>, f32)> = vec![];
+
+    log::info!("init_game_state 2");
 
     let point_light_unlit_mesh_index = renderer_state.bind_basic_unlit_mesh(&sphere_mesh);
     let mut point_light_node_ids: Vec<GameNodeId> = Vec::new();
@@ -274,6 +278,8 @@ pub async fn init_game_state(
             255,
         ],
     )?;
+
+    log::info!("init_game_state 3");
 
     let test_object_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
         &sphere_mesh,
@@ -387,6 +393,8 @@ pub async fn init_game_state(
             ..texture::SamplerDescriptor::default().0
         }),
     )?;
+
+    log::info!("init_game_state 4");
 
     // add balls to scene
 
@@ -502,6 +510,8 @@ pub async fn init_game_state(
     .restitution(1.0)
     .build();
     physics_state.collider_set.insert(floor_collider);
+
+    log::info!("init_game_state 5");
 
     // create the checkerboarded bouncing ball and add it to the scene
     let (bouncing_ball_node_id, bouncing_ball_body_handle) = {
@@ -656,13 +666,15 @@ pub async fn init_game_state(
         )
         .id();
 
+    log::info!("init_game_state 6");
+
     // merge revolver scene into current scene
     // let (document, buffers, images) =
     //     gltf::import_slice(file_loader::read("./src/models/gltf/Revolver/revolver_low_poly.glb")?).await?;
     {
-        let (document, buffers, images) = gltf::import_slice(std::fs::read(
-            "./src/models/gltf/ColtPython/colt_python.glb",
-        )?)?;
+        let (document, buffers, images) = gltf::import_slice(
+            file_loader::read("./src/models/gltf/ColtPython/colt_python.glb").await?,
+        )?;
         validate_animation_property_counts(&document, logger);
         let (other_scene, other_render_buffers) =
             build_scene(&renderer_state.base, (&document, &buffers, &images))?;
@@ -719,7 +731,7 @@ pub async fn init_game_state(
         }
     }
 
-    let mut audio_manager = AudioManager::new()?;
+    log::info!("init_game_state 7");
 
     if let Some(bgm_data) =
         AudioManager::decode_mp3(audio_manager.device_sample_rate(), "./src/sounds/bgm.mp3").await?
@@ -734,6 +746,8 @@ pub async fn init_game_state(
     )
     .await?;
     let gunshot_sound_index = audio_manager.add_sound(&gunshot_sound_data, 0.75, true, None);
+
+    log::info!("init_game_state 8");
 
     // logger.log(&format!("{:?}", &revolver));
 
@@ -1093,7 +1107,7 @@ pub fn update_game_state(
         // logger.log(&format!("Ball count: {:?}", new_ball_count));
     }
 
-    // let physics_time_step_start = Instant::now();
+    // let physics_time_step_start = now();
 
     // logger.log(&format!("Physics step time: {:?}", physics_time_step_start.elapsed()));
     let physics_state = &mut game_state.physics_state;

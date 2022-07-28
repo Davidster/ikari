@@ -714,7 +714,7 @@ impl RendererState {
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::CubeArray,
+                            view_dimension: wgpu::TextureViewDimension::Cube,
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         },
                         count: None,
@@ -1453,7 +1453,7 @@ impl RendererState {
 
         let bloom_config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Bloom Config Buffer"),
-            contents: bytemuck::cast_slice(&[0f32, 0f32, 0f32]),
+            contents: bytemuck::cast_slice(&[0f32, 0f32, 0f32, 0f32]), // needs 4th byte for alignment
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -1469,7 +1469,7 @@ impl RendererState {
         let tone_mapping_config_buffer =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Tone Mapping Config Buffer"),
-                contents: bytemuck::cast_slice(&[0f32]),
+                contents: bytemuck::cast_slice(&[0f32; 8]), // needs 8 floats to satisfy the alignment requirements of the shader
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
@@ -2553,7 +2553,7 @@ impl RendererState {
         queue.write_buffer(
             &self.tone_mapping_config_buffer,
             0,
-            bytemuck::cast_slice(&[self.tone_mapping_exposure]),
+            bytemuck::cast_slice(&[self.tone_mapping_exposure; 8]),
         );
     }
 
@@ -2888,7 +2888,7 @@ impl RendererState {
             self.base.queue.write_buffer(
                 &self.bloom_config_buffer,
                 0,
-                bytemuck::cast_slice(&[0.0f32, self.bloom_threshold, self.bloom_ramp_size]),
+                bytemuck::cast_slice(&[0.0f32, self.bloom_threshold, self.bloom_ramp_size, 0.0f32]),
             );
 
             let mut bloom_threshold_encoder =

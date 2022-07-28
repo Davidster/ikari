@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use cgmath::{Deg, Euler, Quaternion, Rad, Vector3};
 use winit::{
     dpi::PhysicalPosition,
@@ -237,15 +235,14 @@ impl PlayerController {
             let jump_cooldown_seconds = 1.25;
             match self.last_jump_time {
                 Some(last_jump_time) => {
-                    Instant::now().duration_since(last_jump_time).as_secs_f32()
-                        > jump_cooldown_seconds
+                    now().duration_since(*last_jump_time).as_secs_f32() > jump_cooldown_seconds
                 }
                 None => true,
             }
         };
         if self.is_up_pressed && can_jump() {
             rigid_body.apply_impulse(vector![0.0, 3.0, 0.0], true);
-            self.last_jump_time = Some(Instant::now());
+            self.last_jump_time = Some(now());
         }
     }
 

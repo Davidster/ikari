@@ -257,7 +257,7 @@ var brdf_lut_texture: texture_2d<f32>;
 @group(2) @binding(7)
 var brdf_lut_sampler: sampler;
 @group(2) @binding(8)
-var point_shadow_map_textures: texture_cube_array<f32>;
+var point_shadow_map_texture: texture_cube<f32>;
 @group(2) @binding(9)
 var point_shadow_map_sampler: sampler;
 @group(2) @binding(10)
@@ -476,6 +476,40 @@ fn do_fragment_shade(
     );
 
     var total_light_irradiance = vec3<f32>(0.0);
+
+    // first light only!
+    // soft shadows
+    // irregular shadow sampling
+    var shadow_occlusion_acc = 0.0;
+    let sample_count = 4.0;
+    let bias = 0.0001;
+    let from_shadow_vec = world_position - point_lights.values[0].position.xyz;
+    let shadow_camera_far_plane_distance = 1000.0;
+    let current_depth = length(from_shadow_vec) / shadow_camera_far_plane_distance;
+    let max_offset_x = 0.01 + 0.04 * rand(random_seed * 1.0);
+    let max_offset_y = 0.01 + 0.04 * rand(random_seed * 2.0);
+    let max_offset_z = 0.01 + 0.04 * rand(random_seed * 3.0);
+    for (var x = 0.0; x < sample_count; x = x + 1.0) {
+        for (var y = 0.0; y < sample_count; y = y + 1.0) {
+            for (var z = 0.0; z < sample_count; z = z + 1.0) {
+                let irregular_offset = vec3<f32>(
+                    max_offset_x * ((2.0 * x / (sample_count - 1.0)) - 1.0),
+                    max_offset_y * ((2.0 * y / (sample_count - 1.0)) - 1.0),
+                    max_offset_z * ((2.0 * z / (sample_count - 1.0)) - 1.0),
+                );
+                let closest_depth = textureSample(
+                    point_shadow_map_texture,
+                    point_shadow_map_sampler,
+                    world_normal_to_cubemap_vec(from_shadow_vec + irregular_offset)
+                ).r;
+                if (current_depth - bias < closest_depth) {
+                    shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
+                }
+            }
+        }
+    }
+    let first_light_shadow_occlusion_factor = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
+
     for (var light_index = 0u; light_index < MAX_LIGHTS; light_index = light_index + 1u) {
         let light = point_lights.values[light_index];
         let light_color_scaled = light.color.xyz * light.color.w;
@@ -484,39 +518,13 @@ fn do_fragment_shade(
             continue;
         }
 
-        let from_shadow_vec = world_position - light.position.xyz;
-        let shadow_camera_far_plane_distance = 1000.0;
-        let current_depth = length(from_shadow_vec) / shadow_camera_far_plane_distance;
-        let bias = 0.0001;
-
-        // soft shadows
-        // irregular shadow sampling
-        var shadow_occlusion_acc = 0.0;
-        let sample_count = 4.0;
-        let max_offset_x = 0.01 + 0.04 * rand(random_seed * 1.0);
-        let max_offset_y = 0.01 + 0.04 * rand(random_seed * 2.0);
-        let max_offset_z = 0.01 + 0.04 * rand(random_seed * 3.0);
-        for (var x = 0.0; x < sample_count; x = x + 1.0) {
-            for (var y = 0.0; y < sample_count; y = y + 1.0) {
-                for (var z = 0.0; z < sample_count; z = z + 1.0) {
-                    let irregular_offset = vec3<f32>(
-                        max_offset_x * ((2.0 * x / (sample_count - 1.0)) - 1.0),
-                        max_offset_y * ((2.0 * y / (sample_count - 1.0)) - 1.0),
-                        max_offset_z * ((2.0 * z / (sample_count - 1.0)) - 1.0),
-                    );
-                    let closest_depth = textureSample(
-                        point_shadow_map_textures,
-                        point_shadow_map_sampler,
-                        world_normal_to_cubemap_vec(from_shadow_vec + irregular_offset),
-                        i32(light_index)
-                    ).r;
-                    if (current_depth - bias < closest_depth) {
-                        shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
-                    }
-                }
-            }
+        var shadow_occlusion_factor = 0.0;
+        if (light_index == 0u) {
+            shadow_occlusion_factor = first_light_shadow_occlusion_factor;
+        } else {
+            shadow_occlusion_factor = 1.0;
         }
-        let shadow_occlusion_factor = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
+        
 
         // regular shadow sampling
         // var shadow_occlusion_acc = 0.0;

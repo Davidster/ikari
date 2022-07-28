@@ -11,6 +11,7 @@ var<uniform> camera: CameraUniform;
 
 struct RougnessInput {
     value: f32,
+    padding: vec3<f32>, // needs to be 16-byte aligned to support webgl2 downlevel
 }
 @group(1) @binding(1)
 var<uniform> roughness_input: RougnessInput;

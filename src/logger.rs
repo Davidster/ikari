@@ -1,4 +1,6 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use super::*;
 
 const FRAME_TIME_HISTORY_SIZE: usize = 5000;
 
@@ -26,7 +28,7 @@ impl Logger {
                 self.recent_frame_times.remove(0);
             }
         }
-        self.last_update_time = Some(Instant::now());
+        self.last_update_time = Some(now());
     }
 
     pub fn log(&mut self, text: &str) {

@@ -2,12 +2,14 @@ struct BloomConfigUniform {
     direction: f32, // 0,0 or 1.0
     threshold: f32,
     ramp_size: f32,
+    padding: f32, // needs to be 16-byte aligned to support webgl2 downlevel
 }
 @group(1) @binding(0)
 var<uniform> bloom_config: BloomConfigUniform;
 
 struct ToneMappingConfigUniform {
     exposure: f32,
+    padding: vec3<f32>, // needs to be 16-byte aligned to support webgl2 downlevel
 }
 @group(1) @binding(0)
 var<uniform> tone_mapping_config: ToneMappingConfigUniform;

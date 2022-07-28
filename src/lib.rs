@@ -21,6 +21,7 @@ mod revolver;
 mod scene;
 mod skinning;
 mod texture;
+mod time;
 mod time_tracker;
 mod transform;
 
@@ -47,6 +48,7 @@ use revolver::*;
 use scene::*;
 use skinning::*;
 use texture::*;
+use time::*;
 use time_tracker::*;
 use transform::*;
 

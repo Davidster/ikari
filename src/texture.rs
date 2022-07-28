@@ -343,7 +343,7 @@ impl Texture {
         let size = wgpu::Extent3d {
             width: size,
             height: size,
-            depth_or_array_layers: 6 * length,
+            depth_or_array_layers: 6,
         };
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -357,7 +357,7 @@ impl Texture {
         });
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::CubeArray),
+            dimension: Some(wgpu::TextureViewDimension::Cube),
             ..Default::default()
         });
 
@@ -883,7 +883,7 @@ impl Texture {
         });
         let roughness_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Env map Generation Roughness Buffer"),
-            contents: bytemuck::cast_slice(&[0.0f32]),
+            contents: bytemuck::cast_slice(&[0.0f32; 8]), // needs 8 floats to satisfy the alignment requirements of the shader
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         let camera_roughness_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -962,7 +962,7 @@ impl Texture {
                         queue.write_buffer(
                             &roughness_buffer,
                             0,
-                            bytemuck::cast_slice(&[roughness_level]),
+                            bytemuck::cast_slice(&[roughness_level; 8]),
                         );
                         {
                             let mut rpass =

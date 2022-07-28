@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use cgmath::{Deg, Quaternion, Rad, Vector3};
 
 use super::*;
@@ -114,7 +112,7 @@ impl Revolver {
             }
         }
         // if self.last_fired_instant.is_none()
-        self.last_fired_instant = Some(Instant::now());
+        self.last_fired_instant = Some(now());
         scene.animations[self.animation_index].state.is_playing = true;
         scene.animations[self.animation_index]
             .state

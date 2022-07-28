@@ -8,7 +8,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 anyhow = { version = "1.0.52", features = ["backtrace"] }
-image = "0.23.14"
+image = "0.24.3"
 half = "1.8.2"
 obj-rs = "0.7.0"
 wavefront_obj = "10.0.0"
@@ -29,6 +29,8 @@ oddio = { git = "https://github.com/Ralith/oddio" }
 hound = "3.4"
 cfg-if = "1"
 futures = "0.3.21"
+async-std = "1.12.0"
+instant = "0.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 stb = { version = "0.3.2" }
@@ -55,6 +57,8 @@ web-sys = { version = "0.3", features = [
 getrandom = { version = "0.2", features = [ "js" ] }
 serde = { version = "1.0.80", features = ["derive"] }
 serde_derive = "^1.0.59"
+cpal = { version = "0.13.5", features = ["wasm-bindgen"] }
+instant = { version = "0.1", features = [ "stdweb" ] }
 
 [profile.dev.package."*"]
 opt-level = 3
