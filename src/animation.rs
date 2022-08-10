@@ -52,7 +52,7 @@ struct KeyframeTime {
     time: f32,
 }
 
-pub fn step_animations(scene: &mut Scene, delta_time_seconds: f32) -> Result<()> {
+pub fn step_animations(scene: &mut Scene, delta_time_seconds: f32) {
     pub enum Op {
         Translation(Vector3<f32>),
         Scale(Vector3<f32>),
@@ -95,20 +95,20 @@ pub fn step_animations(scene: &mut Scene, delta_time_seconds: f32) -> Result<()>
                         animation_time_seconds,
                         previous_key_frame,
                         next_key_frame,
-                    )?))
+                    )))
                 }
                 gltf::animation::Property::Scale => Some(Op::Scale(get_vec3_at_moment(
                     channel,
                     animation_time_seconds,
                     previous_key_frame,
                     next_key_frame,
-                )?)),
+                ))),
                 gltf::animation::Property::Rotation => Some(Op::Rotation(get_quat_at_moment(
                     channel,
                     animation_time_seconds,
                     previous_key_frame,
                     next_key_frame,
-                )?)),
+                ))),
                 _ => None,
             } {
                 ops.push((channel.node_id, op));
@@ -131,7 +131,6 @@ pub fn step_animations(scene: &mut Scene, delta_time_seconds: f32) -> Result<()>
             }
         }
     }
-    Ok(())
 }
 
 fn get_vec3_at_moment(
@@ -139,7 +138,7 @@ fn get_vec3_at_moment(
     animation_time_seconds: f32,
     previous_keyframe: Option<KeyframeTime>,
     next_keyframe: Option<KeyframeTime>,
-) -> Result<Vector3<f32>> {
+) -> Vector3<f32> {
     let get_basic_keyframe_values = || {
         bytemuck::cast_slice::<_, [f32; 3]>(&channel.keyframe_values_u8)
             .to_vec()
@@ -163,7 +162,7 @@ fn get_vec3_at_moment(
             .collect::<Vec<_>>()
     };
 
-    Ok(match previous_keyframe {
+    match previous_keyframe {
         Some(previous_keyframe) => {
             let (next_keyframe, interpolation_factor) = match next_keyframe {
                 Some(next_keyframe) => (
@@ -209,7 +208,7 @@ fn get_vec3_at_moment(
             gltf::animation::Interpolation::Step => get_basic_keyframe_values()[0],
             gltf::animation::Interpolation::CubicSpline => get_cubic_keyframe_values()[0][1],
         },
-    })
+    }
 }
 
 fn get_quat_at_moment(
@@ -217,7 +216,7 @@ fn get_quat_at_moment(
     animation_time_seconds: f32,
     previous_keyframe: Option<KeyframeTime>,
     next_keyframe: Option<KeyframeTime>,
-) -> Result<Quaternion<f32>> {
+) -> Quaternion<f32> {
     let get_basic_keyframe_values = || {
         bytemuck::cast_slice::<_, [f32; 4]>(&channel.keyframe_values_u8)
             .to_vec()
@@ -243,7 +242,7 @@ fn get_quat_at_moment(
 
     let t = animation_time_seconds;
 
-    Ok(match previous_keyframe {
+    match previous_keyframe {
         Some(previous_keyframe) => {
             let (next_keyframe, interpolation_factor) = match next_keyframe {
                 Some(next_keyframe) => (
@@ -284,7 +283,7 @@ fn get_quat_at_moment(
             gltf::animation::Interpolation::Step => get_basic_keyframe_values()[0],
             gltf::animation::Interpolation::CubicSpline => get_cubic_keyframe_values()[0][1],
         },
-    })
+    }
 }
 
 fn get_nearby_keyframes(

@@ -1200,9 +1200,7 @@ pub fn update_game_state(
     // step animatons
     let scene = &mut game_state.scene;
     if game_state.is_playing_animations {
-        if let Err(err) = step_animations(scene, frame_time_seconds) {
-            logger.log(&format!("Error: animation computation failed: {:?}", err));
-        }
+        step_animations(scene, frame_time_seconds)
     }
 
     game_state
