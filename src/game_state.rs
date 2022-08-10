@@ -39,7 +39,7 @@ pub struct GameState {
     pub mouse_button_pressed: bool,
 
     pub character: Character,
-    pub enemy: Enemy,
+    // pub enemy: Enemy,
     pub player_controller: PlayerController,
 }
 
