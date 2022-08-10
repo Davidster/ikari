@@ -417,8 +417,48 @@ impl Scene {
         {
             let GameNodeId(node_index, _) = node.id();
             let GameNodeId(parent_node_index, _) = parent_node.id();
-            self.parent_index_map.insert(node_index, parent_node_index);
+            self.set_node_parent_by_index(node_index, parent_node_index);
         }
+    }
+
+    fn set_node_parent_by_index(&mut self, node_index: usize, parent_node_index: usize) {
+        self.parent_index_map.insert(node_index, parent_node_index);
+    }
+
+    pub fn clone_node(&mut self, node: GameNodeId) -> Option<GameNodeId> {
+        self.get_node(node)
+            .map(|node| {
+                let desc = GameNodeDesc {
+                    transform: node.transform,
+                    skin_index: node.skin_index,
+                    mesh: node.mesh.clone(),
+                };
+
+                let GameNodeId(node_index, _) = node.id;
+                let parent = self.parent_index_map.get(&node_index).cloned();
+                let children: Vec<usize> = self
+                    .parent_index_map
+                    .iter()
+                    .filter_map(|(child, parent)| (*parent == node_index).then_some(*child))
+                    .collect();
+
+                (desc, parent, children)
+            })
+            .map(
+                |(new_node_desc, parent_node_index, children_node_indices)| {
+                    let new_node = self.add_node(new_node_desc);
+                    let new_node_id = new_node.id();
+                    let GameNodeId(new_node_index, _) = new_node_id;
+                    if let Some(parent_node_index) = parent_node_index {
+                        self.set_node_parent_by_index(new_node_index, parent_node_index);
+                    }
+                    for child_node_index in children_node_indices {
+                        self.set_node_parent_by_index(child_node_index, new_node_index);
+                    }
+
+                    new_node_id
+                },
+            )
     }
 
     pub fn node_count(&self) -> usize {

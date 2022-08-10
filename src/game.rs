@@ -208,11 +208,13 @@ pub fn init_game_state(
     // node_0.transform.set_position(Vector3::new(2.0, 0.0, 0.0));
     // }
     // let node_0_id = scene._get_node_by_index(0).unwrap().id();
-    if let Some(animation_5) = scene.animations.get_mut(11) {
-        animation_5.speed = 0.25;
-        animation_5.state.is_playing = true;
-        animation_5.state.loop_type = LoopType::Wrap;
-    }
+    // idle animation: index 5
+    // walk animation: index 22
+    // if let Some(animation_5) = scene.animations.get_mut(11) {
+    //     animation_5.speed = 0.25;
+    //     animation_5.state.is_playing = true;
+    //     animation_5.state.loop_type = LoopType::Wrap;
+    // }
     // scene.remove_node(node_0_id);
 
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
@@ -316,6 +318,19 @@ pub fn init_game_state(
         renderer_state,
         legendary_robot_root_node_id,
         legendary_robot_skin_index,
+        &cube_mesh,
+    );
+
+    let enemy_root_node_id = scene.clone_node(legendary_robot_root_node_id).unwrap();
+    scene.get_node_mut(enemy_root_node_id).unwrap().transform = crate::transform::Transform::new();
+    let enemy = Enemy::new(
+        &mut scene,
+        &mut physics_state,
+        renderer_state,
+        enemy_root_node_id,
+        legendary_robot_skin_index,
+        5,
+        22,
         &cube_mesh,
     );
 
@@ -770,6 +785,7 @@ pub fn init_game_state(
         mouse_button_pressed: false,
 
         character: legendary_robot,
+        enemy,
         player_controller,
     })
 }
