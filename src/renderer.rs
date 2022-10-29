@@ -3,7 +3,6 @@ use std::num::{NonZeroU32, NonZeroU64};
 use super::*;
 
 use anyhow::Result;
-
 use cgmath::{Deg, Matrix4, One, Vector3};
 use wgpu::util::DeviceExt;
 
@@ -15,7 +14,7 @@ pub const DEFAULT_WIREFRAME_COLOR: [f32; 4] = [0.0, 1.0, 1.0, 1.0];
 
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, Debug)]
-pub struct GpuMatrix4(pub cgmath::Matrix4<f32>);
+pub struct GpuMatrix4(pub Matrix4<f32>);
 
 unsafe impl bytemuck::Pod for GpuMatrix4 {}
 unsafe impl bytemuck::Zeroable for GpuMatrix4 {}
@@ -289,6 +288,7 @@ impl BaseRendererState {
             height: window_size.height,
             present_mode: wgpu::PresentMode::Fifo,
             // present_mode: wgpu::PresentMode::Immediate,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto
         };
 
         surface.configure(&device, &surface_config);

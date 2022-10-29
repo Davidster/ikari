@@ -12,7 +12,6 @@ env_logger = "0.9"
 half = "2"
 log = "0.4"
 pollster = "0.2"
-rand = "0.8"
 
 # assets
 gltf = "1"
@@ -22,11 +21,12 @@ stb = "0.3"
 wavefront_obj = "10"
 
 # surface
-wgpu = "0.13"
+wgpu = "0.14"
 winit = "0.27"
 
 # math
 cgmath = "0.18"
+rand = "0.8"
 rapier3d = "0.13"
 
 # audio
