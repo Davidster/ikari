@@ -8,6 +8,7 @@ use winit::{
     },
     window::Window,
 };
+use winit::window::CursorGrabMode;
 
 use super::*;
 
@@ -163,7 +164,9 @@ impl PlayerController {
             }
             WindowEvent::Focused(focused) => {
                 logger.log(&format!("Window focused: {:?}", focused));
-                if let Err(err) = window.set_cursor_grab(*focused) {
+                let grabbed = window.set_cursor_grab(CursorGrabMode::Confined)
+                    .or_else(|_e| window.set_cursor_grab(CursorGrabMode::Locked));
+                if let Err(err) = grabbed {
                     logger.log(&format!(
                         "Couldn't {:?} cursor: {:?}",
                         if *focused { "grab" } else { "release" },

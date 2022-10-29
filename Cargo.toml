@@ -4,36 +4,36 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = { version = "1.0.52", features = ["backtrace"] }
-bytemuck = { version = "1.7.3", features = ["derive"] }
-console = "0.15.0"
-dialoguer = "0.10.0"
-env_logger = "0.9.0"
-half = "1.8.2"
+anyhow = { version = "1", features = ["backtrace"] }
+bytemuck = { version = "1", features = ["derive"] }
+console = "0.15"
+dialoguer = "0.10"
+env_logger = "0.9"
+half = "2"
 log = "0.4"
-pollster = "0.2.5"
-rand = "0.8.5"
+pollster = "0.2"
+rand = "0.8"
 
 # assets
-gltf = "1.0.0"
-image = "0.23.14"
-obj-rs = "0.7.0"
-stb = "0.3.2"
-wavefront_obj = "10.0.0"
+gltf = "1"
+image = "0.24"
+obj-rs = "0.7"
+stb = "0.3"
+wavefront_obj = "10"
 
 # surface
 wgpu = "0.13"
-winit = "0.26.1"
+winit = "0.27"
 
 # math
-cgmath = "0.18.0"
-rapier3d = "0.13.0"
+cgmath = "0.18"
+rapier3d = "0.13"
 
 # audio
-cpal = "0.13.5"
-hound = "3.4"
-minimp3 = "0.5.1"
-oddio = "0.6.2"
+cpal = "0.14"
+hound = "3"
+minimp3 = "0.5"
+oddio = "0.6"
 
 [profile.dev.package."*"]
 opt-level = 3
