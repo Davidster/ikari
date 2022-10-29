@@ -1153,12 +1153,12 @@ pub fn update_game_state(
         let solid = true;
         if let Some((collider_handle, collision_point_distance)) =
             game_state.physics_state.query_pipeline.cast_ray(
+                &game_state.physics_state.rigid_body_set,
                 &game_state.physics_state.collider_set,
                 &ray,
                 max_distance,
                 solid,
-                InteractionGroups::all().with_filter(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
-                None,
+                QueryFilter::from(InteractionGroups::all().with_filter(!COLLISION_GROUP_PLAYER_UNSHOOTABLE))
             )
         {
             // The first collider hit has the handle `handle` and it hit after
