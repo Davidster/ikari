@@ -5,27 +5,35 @@ edition = "2021"
 
 [dependencies]
 anyhow = { version = "1.0.52", features = ["backtrace"] }
-image = "0.23.14"
-stb = { version = "0.3.2" }
-half = "1.8.2"
-obj-rs = "0.7.0"
-wavefront_obj = "10.0.0"
-wgpu = "0.13"
-winit = "0.26.1"
-log = "0.4"
-pollster = "0.2.5"
-env_logger = "0.9.0"
-bytemuck = { version = "1.7.3", features = [ "derive" ] }
-cgmath = "0.18.0"
+bytemuck = { version = "1.7.3", features = ["derive"] }
 console = "0.15.0"
 dialoguer = "0.10.0"
+env_logger = "0.9.0"
+half = "1.8.2"
+log = "0.4"
+pollster = "0.2.5"
 rand = "0.8.5"
+
+# assets
 gltf = "1.0.0"
+image = "0.23.14"
+obj-rs = "0.7.0"
+stb = "0.3.2"
+wavefront_obj = "10.0.0"
+
+# surface
+wgpu = "0.13"
+winit = "0.26.1"
+
+# math
+cgmath = "0.18.0"
 rapier3d = "0.13.0"
+
+# audio
 cpal = "0.13.5"
-oddio = { git = "https://github.com/Ralith/oddio" }
 hound = "3.4"
 minimp3 = "0.5.1"
+oddio = "0.6.2"
 
 [profile.dev.package."*"]
 opt-level = 3
