@@ -1,6 +1,5 @@
 use std::ops::{Add, Mul};
 
-use anyhow::Result;
 use cgmath::{Quaternion, Vector3};
 
 use super::*;
@@ -33,6 +32,7 @@ pub struct AnimationState {
 pub enum LoopType {
     Once,
     Wrap,
+    #[allow(dead_code)]
     PingPong,
 }
 
