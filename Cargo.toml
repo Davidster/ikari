@@ -27,7 +27,7 @@ winit = "0.27"
 # math
 cgmath = "0.18"
 rand = "0.8"
-rapier3d = "0.14"
+rapier3d = "0.15"
 
 # audio
 cpal = "0.14"
