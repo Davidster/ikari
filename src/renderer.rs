@@ -257,12 +257,15 @@ impl BaseRendererState {
         let surface = unsafe { instance.create_surface(&window) };
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
+                power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
             .await
             .expect("Failed to find an appropriate adapter");
+
+        let adapter_info = adapter.get_info();
+        log::info!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
 
         let (device, queue) = adapter
             .request_device(
@@ -533,7 +536,6 @@ impl RendererState {
         base: BaseRendererState,
         logger: &mut Logger,
     ) -> Result<Self> {
-        let adapter = &base.adapter;
         let device = &base.device;
         let queue = &base.queue;
         let surface_config = &base.surface_config;
@@ -543,11 +545,6 @@ impl RendererState {
         let pbr_textures_bind_group_layout = &base.pbr_textures_bind_group_layout;
         let bones_bind_group_layout = &base.bones_bind_group_layout;
 
-        let adapter_info = adapter.get_info();
-        let adapter_name = adapter_info.name;
-        let adapter_backend = adapter_info.backend;
-        logger.log(&format!("Using {adapter_name} ({adapter_backend:?})"));
-        logger.log(&format!("Using {adapter_name} ({adapter_backend:?})"));
         logger.log("Controls:");
         vec![
             "Move Around:             WASD, Space Bar, Ctrl",
