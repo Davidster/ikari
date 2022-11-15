@@ -20,9 +20,7 @@ pub const POINT_LIGHT_COLOR: Vector3<f32> = Vector3::new(0.93126976, 0.7402633, 
 // pub const LIGHT_COLOR_C: Vector3<f32> =
 //     Vector3::new(from_srgb(0.631), from_srgb(0.565), from_srgb(0.627));
 
-pub const COLLISION_GROUP_BASE: u32 = 1;
-pub const COLLISION_GROUP_PLAYER_SHOOTABLE: u32 = COLLISION_GROUP_BASE << 1;
-pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: u32 = COLLISION_GROUP_PLAYER_SHOOTABLE << 1;
+pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: Group = Group::GROUP_1;
 
 #[allow(clippy::let_and_return)]
 fn get_gltf_path() -> &'static str {
@@ -1153,12 +1151,12 @@ pub fn update_game_state(
         let solid = true;
         if let Some((collider_handle, collision_point_distance)) =
             game_state.physics_state.query_pipeline.cast_ray(
+                &game_state.physics_state.rigid_body_set,
                 &game_state.physics_state.collider_set,
                 &ray,
                 max_distance,
                 solid,
-                InteractionGroups::all().with_filter(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
-                None,
+                QueryFilter::from(InteractionGroups::all().with_filter(!COLLISION_GROUP_PLAYER_UNSHOOTABLE))
             )
         {
             // The first collider hit has the handle `handle` and it hit after
