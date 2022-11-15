@@ -163,10 +163,15 @@ impl PlayerController {
                 }
             }
             WindowEvent::Focused(focused) => {
+                if *focused {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
                 logger.log(&format!("Window focused: {:?}", focused));
-                let grabbed = window.set_cursor_grab(CursorGrabMode::Confined)
-                    .or_else(|_e| window.set_cursor_grab(CursorGrabMode::Locked));
-                if let Err(err) = grabbed {
+                if let Err(err) = window.set_cursor_grab(if *focused {
+                    CursorGrabMode::Confined
+                } else {
+                    CursorGrabMode::None
+                }) {
                     logger.log(&format!(
                         "Couldn't {:?} cursor: {:?}",
                         if *focused { "grab" } else { "release" },

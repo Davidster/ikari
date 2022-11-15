@@ -20,11 +20,7 @@ pub const POINT_LIGHT_COLOR: Vector3<f32> = Vector3::new(0.93126976, 0.7402633, 
 // pub const LIGHT_COLOR_C: Vector3<f32> =
 //     Vector3::new(from_srgb(0.631), from_srgb(0.565), from_srgb(0.627));
 
-#[allow(dead_code)]
-pub const COLLISION_GROUP_BASE: Group = Group::GROUP_2;
-#[allow(dead_code)]
-pub const COLLISION_GROUP_PLAYER_SHOOTABLE: Group = Group::GROUP_3;
-pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: Group = Group::GROUP_4;
+pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: Group = Group::GROUP_1;
 
 #[allow(clippy::let_and_return)]
 fn get_gltf_path() -> &'static str {
