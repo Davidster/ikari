@@ -1156,7 +1156,9 @@ pub fn update_game_state(
                 &ray,
                 max_distance,
                 solid,
-                QueryFilter::from(InteractionGroups::all().with_filter(!COLLISION_GROUP_PLAYER_UNSHOOTABLE))
+                QueryFilter::from(
+                    InteractionGroups::all().with_filter(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
+                ),
             )
         {
             // The first collider hit has the handle `handle` and it hit after

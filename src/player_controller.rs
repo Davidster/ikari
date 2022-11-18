@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use cgmath::{Deg, Euler, Quaternion, Rad, Vector3};
+use winit::window::CursorGrabMode;
 use winit::{
     dpi::PhysicalPosition,
     event::{
@@ -8,7 +9,6 @@ use winit::{
     },
     window::Window,
 };
-use winit::window::CursorGrabMode;
 
 use super::*;
 

@@ -291,7 +291,7 @@ impl BaseRendererState {
             height: window_size.height,
             present_mode: wgpu::PresentMode::Fifo,
             // present_mode: wgpu::PresentMode::Immediate,
-            alpha_mode: wgpu::CompositeAlphaMode::Auto
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
         };
 
         surface.configure(&device, &surface_config);
