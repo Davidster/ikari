@@ -430,6 +430,10 @@ impl Scene {
     pub fn nodes(&self) -> impl Iterator<Item = &GameNode> {
         self.nodes.iter().flat_map(|(node, _)| node)
     }
+
+    pub fn nodes_mut(&mut self) -> impl Iterator<Item = &mut GameNode> {
+        self.nodes.iter_mut().flat_map(|(node, _)| node)
+    }
 }
 
 pub fn get_node_ancestry_list(

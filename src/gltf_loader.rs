@@ -12,6 +12,7 @@ pub fn build_scene(
         &Vec<gltf::buffer::Data>,
         &Vec<gltf::image::Data>,
     ),
+    logger: &mut Logger,
 ) -> Result<(Scene, RenderBuffers)> {
     let device = &base_renderer_state.device;
     let queue = &base_renderer_state.queue;
@@ -339,17 +340,47 @@ pub fn build_scene(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    let render_buffers = RenderBuffers {
+        binded_pbr_meshes,
+        binded_unlit_meshes: vec![],
+        binded_wireframe_meshes,
+        textures,
+    };
+
+    logger.log("Scene loaded:");
+
+    // nodes: Vec<(Option<GameNode>, usize)>, // (node, generation number). None means the node was removed from the scene
+    // pub skins: Vec<Skin>,
+    // pub animations: Vec<Animation>,
+    // // node index -> parent node index
+    // parent_index_map: HashMap<usize, usize>,
+    // // skeleton skin node index -> parent_index_map
+    // skeleton_parent_index_maps: HashMap<usize, HashMap<usize, usize>>,
+
+    logger.log(&format!("  - node count: {:?}", nodes.len()));
+    logger.log(&format!("  - skin count: {:?}", skins.len()));
+    logger.log(&format!("  - animation count: {:?}", animations.len()));
+    logger.log("  Render buffers:");
+    logger.log(&format!(
+        "    - PBR mesh count: {:?}",
+        render_buffers.binded_pbr_meshes.len()
+    ));
+    logger.log(&format!(
+        "    - Unlit mesh count: {:?}",
+        render_buffers.binded_unlit_meshes.len()
+    ));
+    logger.log(&format!(
+        "    - Wireframe mesh count: {:?}",
+        render_buffers.binded_wireframe_meshes.len()
+    ));
+    logger.log(&format!(
+        "    - Texture count: {:?}",
+        render_buffers.textures.len()
+    ));
+
     let scene = Scene::new(nodes, skins, animations, parent_index_map);
 
-    Ok((
-        scene,
-        RenderBuffers {
-            binded_pbr_meshes,
-            binded_unlit_meshes: vec![],
-            binded_wireframe_meshes,
-            textures,
-        },
-    ))
+    Ok((scene, render_buffers))
 }
 
 pub fn get_animations(

@@ -9,7 +9,7 @@ pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.3;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
 pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
-pub const ARENA_SIDE_LENGTH: f32 = 25.0;
+pub const ARENA_SIDE_LENGTH: f32 = 100.0;
 // pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
 // pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 
@@ -25,7 +25,7 @@ pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: Group = Group::GROUP_1;
 #[allow(clippy::let_and_return)]
 fn get_gltf_path() -> &'static str {
     // let gltf_path = "/home/david/Downloads/adamHead/adamHead.gltf";
-    // let gltf_path = "./src/models/gltf/free_low_poly_forest/scene.gltf";
+    let gltf_path = "./src/models/gltf/free_low_poly_forest/scene.gltf";
     // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
     // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf";
     // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
@@ -54,7 +54,7 @@ fn get_gltf_path() -> &'static str {
     //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
 
     // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-    let gltf_path = "./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf";
+    // let gltf_path = "./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf";
 
     gltf_path
 }
@@ -118,6 +118,11 @@ pub fn init_game_state(
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
     let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
     let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
+
+    for node in scene.nodes_mut() {
+        node.transform
+            .set_position(node.transform.position() + Vector3::new(0.0, 27.0, 0.0));
+    }
 
     let mut physics_state = PhysicsState::new();
 
@@ -661,7 +666,7 @@ pub fn init_game_state(
             gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
         validate_animation_property_counts(&document, logger);
         let (other_scene, other_render_buffers) =
-            build_scene(&renderer_state.base, (&document, &buffers, &images))?;
+            build_scene(&renderer_state.base, (&document, &buffers, &images), logger)?;
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
     }
 
@@ -698,7 +703,7 @@ pub fn init_game_state(
             gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
         validate_animation_property_counts(&document, logger);
         let (other_scene, other_render_buffers) =
-            build_scene(&renderer_state.base, (&document, &buffers, &images))?;
+            build_scene(&renderer_state.base, (&document, &buffers, &images), logger)?;
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
 
         let test_level_node_ids: Vec<_> = scene
@@ -719,7 +724,7 @@ pub fn init_game_state(
     let bgm_data =
         AudioManager::decode_mp3(audio_manager.device_sample_rate(), "./src/sounds/bgm.mp3")?;
     let bgm_sound_index = audio_manager.add_sound(&bgm_data, 0.5, false, None);
-    audio_manager.play_sound(bgm_sound_index);
+    // audio_manager.play_sound(bgm_sound_index);
 
     let gunshot_sound_data = AudioManager::decode_wav(
         audio_manager.device_sample_rate(),
@@ -1213,5 +1218,5 @@ pub fn init_scene(
 ) -> Result<(Scene, RenderBuffers)> {
     let (document, buffers, images) = gltf::import(get_gltf_path())?;
     validate_animation_property_counts(&document, logger);
-    build_scene(base_renderer_state, (&document, &buffers, &images))
+    build_scene(base_renderer_state, (&document, &buffers, &images), logger)
 }
