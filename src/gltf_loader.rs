@@ -189,6 +189,7 @@ pub fn build_scene(
         };
 
         for gltf_node in initial_instances.iter() {
+            #[allow(clippy::or_fun_call)]
             let binded_pbr_mesh_indices =
                 node_mesh_links.entry(gltf_node.index()).or_insert(vec![]);
             binded_pbr_mesh_indices.push(binded_pbr_mesh_index);
@@ -681,7 +682,7 @@ pub fn get_buffer_slice_from_accessor(
             let byte_range_start = first_byte_offset + i * stride;
             let byte_range_end = byte_range_start + accessor.size();
             let byte_range = byte_range_start..byte_range_end;
-            (&buffer[byte_range]).to_vec()
+            buffer[byte_range].to_vec()
         })
         .collect()
 }

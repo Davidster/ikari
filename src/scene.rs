@@ -266,7 +266,9 @@ impl Scene {
                     .map(|skin_index| (node.id, &self.skins[skin_index]))
             })
             .find_map(|(skin_node_id, skin)| {
-                skin.bone_node_ids.contains(&node_id).then(|| skin_node_id)
+                skin.bone_node_ids
+                    .contains(&node_id)
+                    .then_some(skin_node_id)
             })
     }
 
@@ -395,7 +397,7 @@ impl Scene {
                 self.parent_index_map
                     .iter()
                     .find_map(|(child_index, parent_index)| {
-                        (*parent_index == node_index).then(|| (*child_index, *parent_index))
+                        (*parent_index == node_index).then_some((*child_index, *parent_index))
                     });
             if let Some((child_index, _)) = child_entry_option {
                 self.parent_index_map.remove(&child_index);

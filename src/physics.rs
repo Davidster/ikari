@@ -73,7 +73,8 @@ impl PhysicsState {
         renderer_state: &RendererState,
         node_id: GameNodeId,
     ) {
-        let collider_handles = self.static_box_set.entry(node_id).or_insert(Vec::new());
+        #[allow(clippy::or_fun_call)]
+        let collider_handles = self.static_box_set.entry(node_id).or_insert(vec![]);
         if let Some(node) = scene.get_node(node_id) {
             if let Some(mesh) = node.mesh.as_ref() {
                 let transform_decomposed = scene.get_global_transform_for_node(node_id).decompose();
