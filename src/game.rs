@@ -25,8 +25,7 @@ pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: Group = Group::GROUP_1;
 #[allow(clippy::let_and_return)]
 fn get_gltf_path() -> &'static str {
     // let gltf_path = "/home/david/Downloads/adamHead/adamHead.gltf";
-    // let gltf_path = "/home/david/Downloads/free_low_poly_forest/scene_2.glb";
-    // let gltf_path = "/home/david/Downloads/free_low_poly_forest/scene.gltf";
+    // let gltf_path = "./src/models/gltf/free_low_poly_forest/scene.gltf";
     // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
     // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf";
     // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
