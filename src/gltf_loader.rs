@@ -143,13 +143,10 @@ pub fn build_scene(
         })
         .enumerate()
     {
-        let (textures_bind_group, dynamic_pbr_params) = build_textures_bind_group(
-            device,
-            queue,
-            &primitive_group.material(),
-            &textures,
-            pbr_textures_bind_group_layout,
-        )?;
+        let dynamic_pbr_params = get_dynamic_pbr_params(&primitive_group.material());
+        let pbr_material = get_pbr_material(&primitive_group.material(), &textures);
+        let textures_bind_group =
+            base_renderer_state.make_pbr_textures_bind_group(&pbr_material, true)?;
 
         let (
             vertices,
@@ -562,123 +559,35 @@ fn get_full_node_list_impl<'a>(
     }
 }
 
-fn build_textures_bind_group(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
+fn get_pbr_material<'a>(
     material: &gltf::material::Material,
-    textures: &[Texture],
-    five_texture_bind_group_layout: &wgpu::BindGroupLayout,
-) -> Result<(wgpu::BindGroup, DynamicPbrParams)> {
+    textures: &'a [Texture],
+) -> PbrMaterial<'a> {
     let pbr_info = material.pbr_metallic_roughness();
 
-    let material_diffuse_texture = pbr_info.base_color_texture().map(|info| info.texture());
-    // material_diffuse_texture = None;
-    let auto_generated_diffuse_texture;
-    let diffuse_texture = match material_diffuse_texture {
-        Some(diffuse_texture) => &textures[diffuse_texture.index()],
-        None => {
-            auto_generated_diffuse_texture =
-                Texture::from_color(device, queue, [255, 255, 255, 255])?;
-            &auto_generated_diffuse_texture
-        }
+    let get_texture = |texture: Option<gltf::texture::Texture>| {
+        texture
+            .map(|texture| texture.index())
+            .map(|texture_index| &textures[texture_index])
     };
 
-    let material_metallic_roughness_map = pbr_info
-        .metallic_roughness_texture()
-        .map(|info| info.texture());
-    // material_metallic_roughness_map = None;
-    let auto_generated_metallic_roughness_map;
-    let metallic_roughness_map = match material_metallic_roughness_map {
-        Some(metallic_roughness_map) => &textures[metallic_roughness_map.index()],
-        None => {
-            auto_generated_metallic_roughness_map =
-                Texture::from_color(device, queue, [255, 255, 255, 255])?;
-            &auto_generated_metallic_roughness_map
-        }
-    };
+    PbrMaterial {
+        base_color: get_texture(pbr_info.base_color_texture().map(|info| info.texture())),
+        normal: get_texture(material.normal_texture().map(|info| info.texture())),
+        metallic_roughness: get_texture(
+            pbr_info
+                .metallic_roughness_texture()
+                .map(|info| info.texture()),
+        ),
+        emissive: get_texture(material.emissive_texture().map(|info| info.texture())),
+        ambient_occlusion: get_texture(material.occlusion_texture().map(|info| info.texture())),
+    }
+}
 
-    let material_normal_map = material.normal_texture().map(|info| info.texture());
-    // material_normal_map = None;
-    let auto_generated_normal_map;
-    let normal_map = match material_normal_map {
-        Some(normal_map) => &textures[normal_map.index()],
-        None => {
-            auto_generated_normal_map = Texture::flat_normal_map(device, queue)?;
-            &auto_generated_normal_map
-        }
-    };
+fn get_dynamic_pbr_params(material: &gltf::material::Material) -> DynamicPbrParams {
+    let pbr_info = material.pbr_metallic_roughness();
 
-    let material_emissive_map = material.emissive_texture().map(|info| info.texture());
-    // material_emissive_map = None;
-    let auto_generated_emissive_map;
-    let emissive_map = match material_emissive_map {
-        Some(emissive_map) => &textures[emissive_map.index()],
-        None => {
-            auto_generated_emissive_map = Texture::from_color(device, queue, [255, 255, 255, 255])?;
-            &auto_generated_emissive_map
-        }
-    };
-
-    let material_ambient_occlusion_map = material.occlusion_texture().map(|info| info.texture());
-    // material_ambient_occlusion_map = None;
-    let auto_generated_ambient_occlusion_map;
-    let ambient_occlusion_map = match material_ambient_occlusion_map {
-        Some(ambient_occlusion_map) => &textures[ambient_occlusion_map.index()],
-        None => {
-            auto_generated_ambient_occlusion_map =
-                Texture::from_color(device, queue, [255, 255, 255, 255])?;
-            &auto_generated_ambient_occlusion_map
-        }
-    };
-
-    let textures_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        layout: five_texture_bind_group_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::TextureView(&normal_map.view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: wgpu::BindingResource::Sampler(&normal_map.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 4,
-                resource: wgpu::BindingResource::TextureView(&metallic_roughness_map.view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 5,
-                resource: wgpu::BindingResource::Sampler(&metallic_roughness_map.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 6,
-                resource: wgpu::BindingResource::TextureView(&emissive_map.view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 7,
-                resource: wgpu::BindingResource::Sampler(&emissive_map.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 8,
-                resource: wgpu::BindingResource::TextureView(&ambient_occlusion_map.view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 9,
-                resource: wgpu::BindingResource::Sampler(&ambient_occlusion_map.sampler),
-            },
-        ],
-        label: Some("InstancedMeshComponent textures_bind_group"),
-    });
-
-    let dynamic_pbr_params = DynamicPbrParams {
+    DynamicPbrParams {
         base_color_factor: Vector4::from(pbr_info.base_color_factor()),
         emissive_factor: Vector3::from(material.emissive_factor()),
         metallic_factor: pbr_info.metallic_factor(),
@@ -695,9 +604,7 @@ fn build_textures_bind_group(
             gltf::material::AlphaMode::Mask => material.alpha_cutoff().unwrap_or(0.5),
             _ => DynamicPbrParams::default().alpha_cutoff,
         },
-    };
-
-    Ok((textures_bind_group, dynamic_pbr_params))
+    }
 }
 
 pub fn get_buffer_slice_from_accessor(

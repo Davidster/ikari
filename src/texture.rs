@@ -607,6 +607,86 @@ impl Texture {
         }
     }
 
+    // each image should have the same dimensions!
+    pub fn create_cubemap(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        images: CreateCubeMapImagesParam,
+        label: Option<&str>,
+        generate_mipmaps: bool,
+    ) -> Self {
+        // order of the images for a cubemap is documented here:
+        // https://www.khronos.org/opengl/wiki/Cubemap_Texture
+        let images_as_rgba = vec![
+            images.pos_x,
+            images.neg_x,
+            images.pos_y,
+            images.neg_y,
+            images.pos_z,
+            images.neg_z,
+        ]
+        .iter()
+        .map(|img| img.to_rgba8())
+        .collect::<Vec<_>>();
+        let dimensions = images_as_rgba[0].dimensions();
+
+        let size = wgpu::Extent3d {
+            width: dimensions.0,
+            height: dimensions.1,
+            depth_or_array_layers: 6,
+        };
+
+        let mip_level_count = if generate_mipmaps {
+            size.max_mips(wgpu::TextureDimension::D2)
+        } else {
+            1
+        };
+
+        let texture = device.create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label,
+                size,
+                mip_level_count,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            },
+            // pack images into one big byte array
+            &images_as_rgba
+                .iter()
+                .flat_map(|image| image.to_vec())
+                .collect::<Vec<_>>(),
+        );
+
+        if generate_mipmaps {
+            todo!("Call generate_mipmaps_for_texture for each side of the cubemap");
+        }
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::Cube),
+            ..Default::default()
+        });
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        Self {
+            texture,
+            view,
+            sampler,
+            size,
+        }
+    }
+
     pub fn create_diffuse_env_map(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -1009,86 +1089,6 @@ impl Texture {
 
         Self {
             texture: env_map,
-            view,
-            sampler,
-            size,
-        }
-    }
-
-    // each image should have the same dimensions!
-    pub fn create_cubemap(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        images: CreateCubeMapImagesParam,
-        label: Option<&str>,
-        generate_mipmaps: bool,
-    ) -> Self {
-        // order of the images for a cubemap is documented here:
-        // https://www.khronos.org/opengl/wiki/Cubemap_Texture
-        let images_as_rgba = vec![
-            images.pos_x,
-            images.neg_x,
-            images.pos_y,
-            images.neg_y,
-            images.pos_z,
-            images.neg_z,
-        ]
-        .iter()
-        .map(|img| img.to_rgba8())
-        .collect::<Vec<_>>();
-        let dimensions = images_as_rgba[0].dimensions();
-
-        let size = wgpu::Extent3d {
-            width: dimensions.0,
-            height: dimensions.1,
-            depth_or_array_layers: 6,
-        };
-
-        let mip_level_count = if generate_mipmaps {
-            size.max_mips(wgpu::TextureDimension::D2)
-        } else {
-            1
-        };
-
-        let texture = device.create_texture_with_data(
-            queue,
-            &wgpu::TextureDescriptor {
-                label,
-                size,
-                mip_level_count,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            },
-            // pack images into one big byte array
-            &images_as_rgba
-                .iter()
-                .flat_map(|image| image.to_vec())
-                .collect::<Vec<_>>(),
-        );
-
-        if generate_mipmaps {
-            todo!("Call generate_mipmaps_for_texture for each side of the cubemap");
-        }
-
-        let view = texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::Cube),
-            ..Default::default()
-        });
-
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-
-        Self {
-            texture,
             view,
             sampler,
             size,

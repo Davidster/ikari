@@ -20,6 +20,7 @@ mod revolver;
 mod scene;
 mod skinning;
 mod texture;
+mod texture_manager;
 mod time_tracker;
 mod transform;
 
@@ -45,6 +46,7 @@ use revolver::*;
 use scene::*;
 use skinning::*;
 use texture::*;
+use texture_manager::*;
 use time_tracker::*;
 use transform::*;
 

@@ -243,6 +243,7 @@ pub struct BaseRendererState {
     pub two_texture_bind_group_layout: wgpu::BindGroupLayout,
     pub bones_bind_group_layout: wgpu::BindGroupLayout,
     pub pbr_textures_bind_group_layout: wgpu::BindGroupLayout,
+    pub texture_manager: TextureManager,
 }
 
 impl BaseRendererState {
@@ -472,7 +473,127 @@ impl BaseRendererState {
             two_texture_bind_group_layout,
             bones_bind_group_layout,
             pbr_textures_bind_group_layout,
+            texture_manager: TextureManager::new(),
         }
+    }
+
+    // TODO: create and cache the default 1x1 textures when the BaseRendererState is created
+    //       so that this doesn't have to return a result anymore.. and cuz efficiency
+    pub fn make_pbr_textures_bind_group(
+        &self,
+        material: &PbrMaterial,
+        use_gltf_defaults: bool,
+    ) -> Result<wgpu::BindGroup> {
+        let device = &self.device;
+        let queue = &self.queue;
+        let pbr_textures_bind_group_layout = &self.pbr_textures_bind_group_layout;
+
+        let default_base_color = [255, 255, 255, 255];
+        let default_metallic_roughness = if use_gltf_defaults {
+            [255, 255, 255, 255]
+        } else {
+            [255, 127, 0, 255]
+        };
+        let default_emissiveness = if use_gltf_defaults {
+            [255, 255, 255, 255]
+        } else {
+            [0, 0, 0, 255]
+        };
+        let defualt_ambient_occlusion = [255, 255, 255, 255];
+
+        let auto_generated_diffuse_texture;
+        let diffuse_texture = match material.base_color {
+            Some(diffuse_texture) => diffuse_texture,
+            None => {
+                auto_generated_diffuse_texture =
+                    Texture::from_color(device, queue, default_base_color)?;
+                &auto_generated_diffuse_texture
+            }
+        };
+        let auto_generated_normal_map;
+        let normal_map = match material.normal {
+            Some(normal_map) => normal_map,
+            None => {
+                auto_generated_normal_map = Texture::flat_normal_map(device, queue)?;
+                &auto_generated_normal_map
+            }
+        };
+        let auto_generated_metallic_roughness_map;
+        let metallic_roughness_map = match material.metallic_roughness {
+            Some(metallic_roughness_map) => metallic_roughness_map,
+            None => {
+                auto_generated_metallic_roughness_map =
+                    Texture::from_color(device, queue, default_metallic_roughness)?;
+                &auto_generated_metallic_roughness_map
+            }
+        };
+        let auto_generated_emissive_map;
+        let emissive_map = match material.emissive {
+            Some(emissive_map) => emissive_map,
+            None => {
+                auto_generated_emissive_map =
+                    Texture::from_color(device, queue, default_emissiveness)?;
+                &auto_generated_emissive_map
+            }
+        };
+        let auto_generated_ambient_occlusion_map;
+        let ambient_occlusion_map = match material.ambient_occlusion {
+            Some(ambient_occlusion_map) => ambient_occlusion_map,
+            None => {
+                auto_generated_ambient_occlusion_map =
+                    Texture::from_color(device, queue, defualt_ambient_occlusion)?;
+                &auto_generated_ambient_occlusion_map
+            }
+        };
+
+        let textures_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: pbr_textures_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&normal_map.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&normal_map.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&metallic_roughness_map.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&metallic_roughness_map.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&emissive_map.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::Sampler(&emissive_map.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: wgpu::BindingResource::TextureView(&ambient_occlusion_map.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 9,
+                    resource: wgpu::BindingResource::Sampler(&ambient_occlusion_map.sampler),
+                },
+            ],
+            label: Some("InstancedMeshComponent textures_bind_group"),
+        });
+
+        Ok(textures_bind_group)
     }
 }
 
@@ -1810,7 +1931,7 @@ impl RendererState {
     ) -> Result<usize> {
         let geometry_buffers = self.bind_geometry_buffers_for_basic_mesh(mesh);
 
-        let textures_bind_group = self.make_pbr_textures_bind_group(material)?;
+        let textures_bind_group = self.base.make_pbr_textures_bind_group(material, false)?;
 
         self.buffers.binded_pbr_meshes.push(BindedPbrMesh {
             geometry_buffers,
@@ -1931,107 +2052,6 @@ impl RendererState {
         );
 
         (index_buffer, instance_buffer)
-    }
-
-    // TODO: create and cache the default 1x1 textures when the BaseRendererState is created
-    //       so that this doesn't have to return a result anymore.. and cuz efficiency
-    fn make_pbr_textures_bind_group(
-        &self,
-        material: &PbrMaterial,
-    ) -> Result<wgpu::BindGroup, anyhow::Error> {
-        let device = &self.base.device;
-        let queue = &self.base.queue;
-
-        let auto_generated_diffuse_texture;
-        let diffuse_texture = match material.base_color {
-            Some(diffuse_texture) => diffuse_texture,
-            None => {
-                auto_generated_diffuse_texture =
-                    Texture::from_color(device, queue, [255, 255, 255, 255])?;
-                &auto_generated_diffuse_texture
-            }
-        };
-        let auto_generated_normal_map;
-        let normal_map = match material.normal {
-            Some(normal_map) => normal_map,
-            None => {
-                auto_generated_normal_map = Texture::flat_normal_map(device, queue)?;
-                &auto_generated_normal_map
-            }
-        };
-        let auto_generated_metallic_roughness_map;
-        let metallic_roughness_map = match material.metallic_roughness {
-            Some(metallic_roughness_map) => metallic_roughness_map,
-            None => {
-                auto_generated_metallic_roughness_map =
-                    Texture::from_color(device, queue, [255, 127, 0, 255])?;
-                &auto_generated_metallic_roughness_map
-            }
-        };
-        let auto_generated_emissive_map;
-        let emissive_map = match material.emissive {
-            Some(emissive_map) => emissive_map,
-            None => {
-                auto_generated_emissive_map = Texture::from_color(device, queue, [0, 0, 0, 255])?;
-                &auto_generated_emissive_map
-            }
-        };
-        let auto_generated_ambient_occlusion_map;
-        let ambient_occlusion_map = match material.ambient_occlusion {
-            Some(ambient_occlusion_map) => ambient_occlusion_map,
-            None => {
-                auto_generated_ambient_occlusion_map =
-                    Texture::from_color(device, queue, [255, 255, 255, 255])?;
-                &auto_generated_ambient_occlusion_map
-            }
-        };
-        let textures_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &self.base.pbr_textures_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&normal_map.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&normal_map.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&metallic_roughness_map.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::Sampler(&metallic_roughness_map.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: wgpu::BindingResource::TextureView(&emissive_map.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: wgpu::BindingResource::Sampler(&emissive_map.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 8,
-                    resource: wgpu::BindingResource::TextureView(&ambient_occlusion_map.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 9,
-                    resource: wgpu::BindingResource::Sampler(&ambient_occlusion_map.sampler),
-                },
-            ],
-            label: Some("InstancedMeshComponent textures_bind_group"),
-        });
-        Ok(textures_bind_group)
     }
 
     pub fn increment_render_scale(&mut self, increase: bool, logger: &mut Logger) {
