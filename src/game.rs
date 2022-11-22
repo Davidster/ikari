@@ -725,18 +725,15 @@ pub fn init_game_state(
         }
     }
 
-    let mut audio_manager = AudioManager::new()?;
+    // let mut audio_manager = AudioManager::new()?;
 
-    let bgm_data =
-        AudioManager::decode_mp3(audio_manager.device_sample_rate(), "./src/sounds/bgm.mp3")?;
-    let bgm_sound_index = audio_manager.add_sound(&bgm_data, 0.5, false, None);
+    // let bgm_data =
+    //     AudioManager::decode_mp3(audio_manager.device_sample_rate(), "./src/sounds/bgm.mp3")?;
+    // let bgm_sound_index = audio_manager.add_sound(&bgm_data, 0.5, false, None);
     // audio_manager.play_sound(bgm_sound_index);
 
-    let gunshot_sound_data = AudioManager::decode_wav(
-        audio_manager.device_sample_rate(),
-        "./src/sounds/gunshot.wav",
-    )?;
-    let gunshot_sound_index = audio_manager.add_sound(&gunshot_sound_data, 0.75, true, None);
+    let gunshot_sound_data = AudioManager::decode_wav(2000, "./src/sounds/gunshot.wav")?;
+    // let gunshot_sound_index = audio_manager.add_sound(&gunshot_sound_data, 0.75, true, None);
 
     // logger.log(&format!("{:?}", &revolver));
 
@@ -746,9 +743,9 @@ pub fn init_game_state(
         state_update_time_accumulator: 0.0,
         is_playing_animations: true,
 
-        audio_manager,
-        bgm_sound_index,
-        gunshot_sound_index,
+        audio_manager: None,
+        bgm_sound_index: 0,
+        gunshot_sound_index: 0,
         gunshot_sound_data,
 
         player_node_id,
@@ -1139,11 +1136,15 @@ pub fn update_game_state(
     if game_state.mouse_button_pressed && game_state.revolver.fire(&mut game_state.scene) {
         game_state
             .audio_manager
-            .play_sound(game_state.gunshot_sound_index);
-        game_state.gunshot_sound_index =
-            game_state
-                .audio_manager
-                .add_sound(&game_state.gunshot_sound_data, 0.75, true, None);
+            .as_mut()
+            .map(|audio_manager| audio_manager.play_sound(game_state.gunshot_sound_index));
+        game_state.gunshot_sound_index = game_state
+            .audio_manager
+            .as_mut()
+            .map(|audio_manager| {
+                audio_manager.add_sound(&game_state.gunshot_sound_data, 0.75, true, None)
+            })
+            .unwrap_or(0);
 
         // logger.log("Fired!");
         let player_position = game_state

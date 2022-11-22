@@ -17,6 +17,7 @@ pub struct AllBoneTransformsSlice {
     pub end_index: usize,
 }
 
+// TODO: this fn is extremely slow
 pub fn get_all_bone_data(
     scene: &Scene,
     min_storage_buffer_offset_alignment: u32,
