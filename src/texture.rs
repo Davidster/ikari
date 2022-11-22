@@ -223,25 +223,7 @@ impl Texture {
     }
 
     pub fn flat_normal_map(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self> {
-        let one_pixel_up_image = {
-            let mut img = image::RgbaImage::new(1, 1);
-            img.put_pixel(0, 0, image::Rgba([127, 127, 255, 255]));
-            img
-        };
-        Texture::from_decoded_image(
-            device,
-            queue,
-            &one_pixel_up_image,
-            one_pixel_up_image.dimensions(),
-            Some("flat_normal_map texture"),
-            wgpu::TextureFormat::Rgba8Unorm.into(),
-            false,
-            &SamplerDescriptor(wgpu::SamplerDescriptor {
-                mag_filter: wgpu::FilterMode::Nearest,
-                min_filter: wgpu::FilterMode::Nearest,
-                ..SamplerDescriptor::default().0
-            }),
-        )
+        Self::from_color(device, queue, [127, 127, 255, 255])
     }
 
     pub fn create_scaled_surface_texture(

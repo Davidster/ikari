@@ -1,4 +1,7 @@
-use std::num::{NonZeroU32, NonZeroU64};
+use std::{
+    num::{NonZeroU32, NonZeroU64},
+    rc::Rc,
+};
 
 use super::*;
 
@@ -243,7 +246,7 @@ pub struct BaseRendererState {
     pub two_texture_bind_group_layout: wgpu::BindGroupLayout,
     pub bones_bind_group_layout: wgpu::BindGroupLayout,
     pub pbr_textures_bind_group_layout: wgpu::BindGroupLayout,
-    pub texture_manager: TextureManager,
+    pub default_textures: DefaultTextures,
 }
 
 impl BaseRendererState {
@@ -473,14 +476,14 @@ impl BaseRendererState {
             two_texture_bind_group_layout,
             bones_bind_group_layout,
             pbr_textures_bind_group_layout,
-            texture_manager: TextureManager::new(),
+            default_textures: DefaultTextures::new(),
         }
     }
 
     // TODO: create and cache the default 1x1 textures when the BaseRendererState is created
     //       so that this doesn't have to return a result anymore.. and cuz efficiency
     pub fn make_pbr_textures_bind_group(
-        &self,
+        &mut self,
         material: &PbrMaterial,
         use_gltf_defaults: bool,
     ) -> Result<wgpu::BindGroup> {
@@ -488,7 +491,7 @@ impl BaseRendererState {
         let queue = &self.queue;
         let pbr_textures_bind_group_layout = &self.pbr_textures_bind_group_layout;
 
-        let default_base_color = [255, 255, 255, 255];
+        // let default_base_color = [255, 255, 255, 255];
         let default_metallic_roughness = if use_gltf_defaults {
             [255, 255, 255, 255]
         } else {
@@ -505,8 +508,11 @@ impl BaseRendererState {
         let diffuse_texture = match material.base_color {
             Some(diffuse_texture) => diffuse_texture,
             None => {
-                auto_generated_diffuse_texture =
-                    Texture::from_color(device, queue, default_base_color)?;
+                auto_generated_diffuse_texture = self.default_textures.get_default_texture(
+                    device,
+                    queue,
+                    DefaultTextureType::BaseColor,
+                )?;
                 &auto_generated_diffuse_texture
             }
         };
@@ -514,7 +520,11 @@ impl BaseRendererState {
         let normal_map = match material.normal {
             Some(normal_map) => normal_map,
             None => {
-                auto_generated_normal_map = Texture::flat_normal_map(device, queue)?;
+                auto_generated_normal_map = self.default_textures.get_default_texture(
+                    device,
+                    queue,
+                    DefaultTextureType::Normal,
+                )?;
                 &auto_generated_normal_map
             }
         };
@@ -522,8 +532,15 @@ impl BaseRendererState {
         let metallic_roughness_map = match material.metallic_roughness {
             Some(metallic_roughness_map) => metallic_roughness_map,
             None => {
-                auto_generated_metallic_roughness_map =
-                    Texture::from_color(device, queue, default_metallic_roughness)?;
+                auto_generated_metallic_roughness_map = self.default_textures.get_default_texture(
+                    device,
+                    queue,
+                    if use_gltf_defaults {
+                        DefaultTextureType::MetallicRoughnessGLTF
+                    } else {
+                        DefaultTextureType::MetallicRoughness
+                    },
+                )?;
                 &auto_generated_metallic_roughness_map
             }
         };
@@ -531,20 +548,29 @@ impl BaseRendererState {
         let emissive_map = match material.emissive {
             Some(emissive_map) => emissive_map,
             None => {
-                auto_generated_emissive_map =
-                    Texture::from_color(device, queue, default_emissiveness)?;
+                auto_generated_emissive_map = self.default_textures.get_default_texture(
+                    device,
+                    queue,
+                    if use_gltf_defaults {
+                        DefaultTextureType::EmissiveGLTF
+                    } else {
+                        DefaultTextureType::Emissive
+                    },
+                )?;
                 &auto_generated_emissive_map
             }
         };
         let auto_generated_ambient_occlusion_map;
-        let ambient_occlusion_map = match material.ambient_occlusion {
-            Some(ambient_occlusion_map) => ambient_occlusion_map,
-            None => {
-                auto_generated_ambient_occlusion_map =
-                    Texture::from_color(device, queue, defualt_ambient_occlusion)?;
-                &auto_generated_ambient_occlusion_map
-            }
-        };
+        let ambient_occlusion_map =
+            match material.ambient_occlusion {
+                Some(ambient_occlusion_map) => ambient_occlusion_map,
+                None => {
+                    auto_generated_ambient_occlusion_map = self
+                        .default_textures
+                        .get_default_texture(device, queue, DefaultTextureType::AmbientOcclusion)?;
+                    &auto_generated_ambient_occlusion_map
+                }
+            };
 
         let textures_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: pbr_textures_bind_group_layout,

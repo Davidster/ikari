@@ -6,7 +6,7 @@ use cgmath::{abs_diff_eq, Matrix4, Vector2, Vector3, Vector4};
 use super::*;
 
 pub fn build_scene(
-    base_renderer_state: &BaseRendererState,
+    base_renderer_state: &mut BaseRendererState,
     (document, buffers, images): (
         &gltf::Document,
         &Vec<gltf::buffer::Data>,
@@ -14,10 +14,6 @@ pub fn build_scene(
     ),
     logger: &mut Logger,
 ) -> Result<(Scene, RenderBuffers)> {
-    let device = &base_renderer_state.device;
-    let queue = &base_renderer_state.queue;
-    let pbr_textures_bind_group_layout = &base_renderer_state.pbr_textures_bind_group_layout;
-
     let scene_index = document
         .default_scene()
         .map(|scene| scene.index())
@@ -79,8 +75,8 @@ pub fn build_scene(
                 .unwrap_or((default_sampler.min_filter, default_sampler.mipmap_filter));
 
             Texture::from_decoded_image(
-                device,
-                queue,
+                &base_renderer_state.device,
+                &base_renderer_state.queue,
                 &image_pixels,
                 (image_data.width, image_data.height),
                 texture.name(),
@@ -156,21 +152,21 @@ pub fn build_scene(
             wireframe_index_buffer,
             wireframe_index_buffer_format,
             bounding_box,
-        ) = build_geometry_buffers(device, &primitive_group, buffers)?;
+        ) = build_geometry_buffers(&base_renderer_state.device, &primitive_group, buffers)?;
         let initial_instances: Vec<_> = scene_nodes
             .iter()
             .filter(|node| node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index())
             .collect();
 
         let instance_buffer = GpuBuffer::empty(
-            device,
+            &base_renderer_state.device,
             initial_instances.len(),
             std::mem::size_of::<GpuPbrMeshInstance>(),
             wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         );
 
         let wireframe_instance_buffer = GpuBuffer::empty(
-            device,
+            &base_renderer_state.device,
             1,
             std::mem::size_of::<GpuWireframeMeshInstance>(),
             wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,

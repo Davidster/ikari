@@ -665,8 +665,11 @@ pub fn init_game_state(
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
         validate_animation_property_counts(&document, logger);
-        let (other_scene, other_render_buffers) =
-            build_scene(&renderer_state.base, (&document, &buffers, &images), logger)?;
+        let (other_scene, other_render_buffers) = build_scene(
+            &mut renderer_state.base,
+            (&document, &buffers, &images),
+            logger,
+        )?;
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
     }
 
@@ -702,8 +705,11 @@ pub fn init_game_state(
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
         validate_animation_property_counts(&document, logger);
-        let (other_scene, other_render_buffers) =
-            build_scene(&renderer_state.base, (&document, &buffers, &images), logger)?;
+        let (other_scene, other_render_buffers) = build_scene(
+            &mut renderer_state.base,
+            (&document, &buffers, &images),
+            logger,
+        )?;
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
 
         let test_level_node_ids: Vec<_> = scene
