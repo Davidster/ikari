@@ -2270,8 +2270,8 @@ impl RendererState {
         let device = &self.base.device;
         let bones_bind_group_layout = &self.base.bones_bind_group_layout;
         // let yo = std::time::Instant::now();
-        // self.all_bone_transforms =
-        //     get_all_bone_data(scene, limits.min_storage_buffer_offset_alignment);
+        self.all_bone_transforms =
+            get_all_bone_data(scene, limits.min_storage_buffer_offset_alignment, logger);
         // logger.log(&format!("get_all_bone_data length -> {:?}", yo.elapsed()));
         let bones_buffer_resized =
             self.bones_buffer
@@ -2296,64 +2296,64 @@ impl RendererState {
             });
         }
 
-        // self.buffers
-        //     .binded_pbr_meshes
-        //     .iter_mut()
-        //     .enumerate()
-        //     .for_each(
-        //         |(
-        //             binded_pbr_mesh_index,
-        //             BindedPbrMesh {
-        //                 geometry_buffers,
-        //                 dynamic_pbr_params,
-        //                 ..
-        //             },
-        //         )| {
-        //             let gpu_instances: Vec<_> = scene
-        //                 .nodes()
-        //                 .filter(|_| !self.enable_wireframe_mode)
-        //                 .filter_map(|node| match &node.mesh {
-        //                     Some(GameNodeMesh {
-        //                         mesh_indices,
-        //                         mesh_type: GameNodeMeshType::Pbr { material_override },
-        //                         wireframe: false,
-        //                         ..
-        //                     }) => mesh_indices
-        //                         .iter()
-        //                         .find(|node_mesh_index| **node_mesh_index == binded_pbr_mesh_index)
-        //                         .map(|_| {
-        //                             (
-        //                                 node.id(),
-        //                                 material_override,
-        //                                 node.skin_index.unwrap_or(usize::MAX),
-        //                             )
-        //                         }),
-        //                     _ => None,
-        //                 })
-        //                 .map(|(node_id, material_override, _)| {
-        //                     let transform = scene.get_global_transform_for_node(node_id);
-        //                     GpuPbrMeshInstance::new(
-        //                         transform,
-        //                         material_override.unwrap_or(*dynamic_pbr_params),
-        //                     )
-        //                 })
-        //                 .collect();
-        //             let previous_buffer_capacity_bytes =
-        //                 geometry_buffers.instance_buffer.capacity_bytes();
-        //             let resized = geometry_buffers.instance_buffer.write(
-        //                 device,
-        //                 queue,
-        //                 bytemuck::cast_slice(&gpu_instances),
-        //             );
-        //             if resized {
-        //                 logger.log(&format!(
-        //                     "Resized pbr instance buffer capacity from {:?} bytes to {:?}",
-        //                     previous_buffer_capacity_bytes,
-        //                     geometry_buffers.instance_buffer.capacity_bytes()
-        //                 ));
-        //             }
-        //         },
-        //     );
+        self.buffers
+            .binded_pbr_meshes
+            .iter_mut()
+            .enumerate()
+            .for_each(
+                |(
+                    binded_pbr_mesh_index,
+                    BindedPbrMesh {
+                        geometry_buffers,
+                        dynamic_pbr_params,
+                        ..
+                    },
+                )| {
+                    let gpu_instances: Vec<_> = scene
+                        .nodes()
+                        .filter(|_| !self.enable_wireframe_mode)
+                        .filter_map(|node| match &node.mesh {
+                            Some(GameNodeMesh {
+                                mesh_indices,
+                                mesh_type: GameNodeMeshType::Pbr { material_override },
+                                wireframe: false,
+                                ..
+                            }) => mesh_indices
+                                .iter()
+                                .find(|node_mesh_index| **node_mesh_index == binded_pbr_mesh_index)
+                                .map(|_| {
+                                    (
+                                        node.id(),
+                                        material_override,
+                                        node.skin_index.unwrap_or(usize::MAX),
+                                    )
+                                }),
+                            _ => None,
+                        })
+                        .map(|(node_id, material_override, _)| {
+                            let transform = scene.get_global_transform_for_node(node_id);
+                            GpuPbrMeshInstance::new(
+                                transform,
+                                material_override.unwrap_or(*dynamic_pbr_params),
+                            )
+                        })
+                        .collect();
+                    let previous_buffer_capacity_bytes =
+                        geometry_buffers.instance_buffer.capacity_bytes();
+                    let resized = geometry_buffers.instance_buffer.write(
+                        device,
+                        queue,
+                        bytemuck::cast_slice(&gpu_instances),
+                    );
+                    if resized {
+                        logger.log(&format!(
+                            "Resized pbr instance buffer capacity from {:?} bytes to {:?}",
+                            previous_buffer_capacity_bytes,
+                            geometry_buffers.instance_buffer.capacity_bytes()
+                        ));
+                    }
+                },
+            );
         let yo = std::time::Instant::now();
         self.buffers
             .binded_unlit_meshes
@@ -2436,54 +2436,54 @@ impl RendererState {
                         _ => false,
                     })
                     .map(|node| {
-                        // let color = match node.mesh.as_ref().unwrap().mesh_type {
-                        //     GameNodeMeshType::Unlit { color } => {
-                        //         Some([color.x, color.y, color.z, 1.0])
-                        //     }
-                        //     GameNodeMeshType::Pbr { material_override } => {
-                        //         let fallback_pbr_params = self.buffers.binded_pbr_meshes
-                        //             [*source_mesh_index]
-                        //             .dynamic_pbr_params;
-                        //         let (base_color_factor, emissive_factor) = material_override
-                        //             .map(|material_override| {
-                        //                 (
-                        //                     material_override.base_color_factor,
-                        //                     material_override.emissive_factor,
-                        //                 )
-                        //             })
-                        //             .unwrap_or((
-                        //                 fallback_pbr_params.base_color_factor,
-                        //                 fallback_pbr_params.emissive_factor,
-                        //             ));
-                        //         let should_take_color = |as_slice: &[f32]| {
-                        //             let is_all_zero = as_slice.iter().all(|&x| x == 0.0);
-                        //             let is_all_one = as_slice.iter().all(|&x| x == 1.0);
-                        //             !is_all_zero && !is_all_one
-                        //         };
-                        //         let base_color_factor_arr: [f32; 4] = base_color_factor.into();
-                        //         let emissive_factor_arr: [f32; 3] = emissive_factor.into();
-                        //         if should_take_color(&base_color_factor_arr[0..3]) {
-                        //             Some([
-                        //                 base_color_factor.x,
-                        //                 base_color_factor.y,
-                        //                 base_color_factor.z,
-                        //                 base_color_factor.w,
-                        //             ])
-                        //         } else if should_take_color(&emissive_factor_arr) {
-                        //             Some([
-                        //                 emissive_factor.x,
-                        //                 emissive_factor.y,
-                        //                 emissive_factor.z,
-                        //                 1.0,
-                        //             ])
-                        //         } else {
-                        //             None
-                        //         }
-                        //     }
-                        // }
-                        // .unwrap_or(DEFAULT_WIREFRAME_COLOR);
+                        let color = match node.mesh.as_ref().unwrap().mesh_type {
+                            GameNodeMeshType::Unlit { color } => {
+                                Some([color.x, color.y, color.z, 1.0])
+                            }
+                            GameNodeMeshType::Pbr { material_override } => {
+                                let fallback_pbr_params = self.buffers.binded_pbr_meshes
+                                    [*source_mesh_index]
+                                    .dynamic_pbr_params;
+                                let (base_color_factor, emissive_factor) = material_override
+                                    .map(|material_override| {
+                                        (
+                                            material_override.base_color_factor,
+                                            material_override.emissive_factor,
+                                        )
+                                    })
+                                    .unwrap_or((
+                                        fallback_pbr_params.base_color_factor,
+                                        fallback_pbr_params.emissive_factor,
+                                    ));
+                                let should_take_color = |as_slice: &[f32]| {
+                                    let is_all_zero = as_slice.iter().all(|&x| x == 0.0);
+                                    let is_all_one = as_slice.iter().all(|&x| x == 1.0);
+                                    !is_all_zero && !is_all_one
+                                };
+                                let base_color_factor_arr: [f32; 4] = base_color_factor.into();
+                                let emissive_factor_arr: [f32; 3] = emissive_factor.into();
+                                if should_take_color(&base_color_factor_arr[0..3]) {
+                                    Some([
+                                        base_color_factor.x,
+                                        base_color_factor.y,
+                                        base_color_factor.z,
+                                        base_color_factor.w,
+                                    ])
+                                } else if should_take_color(&emissive_factor_arr) {
+                                    Some([
+                                        emissive_factor.x,
+                                        emissive_factor.y,
+                                        emissive_factor.z,
+                                        1.0,
+                                    ])
+                                } else {
+                                    None
+                                }
+                            }
+                        }
+                        .unwrap_or(DEFAULT_WIREFRAME_COLOR);
                         GpuWireframeMeshInstance {
-                            color: DEFAULT_WIREFRAME_COLOR,
+                            color,
                             model_transform: GpuMatrix4(
                                 scene.get_global_transform_for_node(node.id()).matrix(),
                             ),

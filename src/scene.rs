@@ -52,6 +52,7 @@ pub enum GameNodeMeshType {
 
 #[derive(Debug, Clone)]
 pub struct Skin {
+    pub node_id: GameNodeId,
     pub bone_node_ids: Vec<GameNodeId>,
     pub bone_inverse_bind_matrices: Vec<Matrix4<f32>>,
     // each transform moves a 2x2x2 box centered at the origin
@@ -84,22 +85,10 @@ pub struct IndexedChannel {
 impl Scene {
     pub fn new(
         nodes_desc: Vec<GameNodeDesc>,
-        skins: Vec<IndexedSkin>,
+        indexed_skins: Vec<IndexedSkin>,
         animations: Vec<IndexedAnimation>,
         parent_index_map: HashMap<usize, usize>,
     ) -> Self {
-        let skins: Vec<_> = skins
-            .iter()
-            .map(|indexed_skin| Skin {
-                bone_node_ids: indexed_skin
-                    .bone_node_indices
-                    .iter()
-                    .map(|node_index| GameNodeId(*node_index, 0))
-                    .collect(),
-                bone_inverse_bind_matrices: indexed_skin.bone_inverse_bind_matrices.clone(),
-                bone_bounding_box_transforms: indexed_skin.bone_bounding_box_transforms.clone(),
-            })
-            .collect();
         let animations: Vec<_> = animations
             .iter()
             .map(|indexed_animation| Animation {
@@ -121,7 +110,7 @@ impl Scene {
             .collect();
         let mut scene = Scene {
             nodes: Vec::new(),
-            skins,
+            skins: Vec::new(),
             animations,
             parent_index_map,
             skeleton_parent_index_maps: HashMap::new(),
@@ -131,6 +120,27 @@ impl Scene {
             scene.add_node(node_desc.clone());
         });
 
+        scene.skins = (0..indexed_skins.len())
+            .map(|skin_index| {
+                let indexed_skin = &indexed_skins[skin_index];
+                let node_id = scene
+                    .nodes()
+                    .find(|node| node.skin_index == Some(skin_index))
+                    .unwrap()
+                    .id;
+                Skin {
+                    node_id,
+                    bone_node_ids: indexed_skin
+                        .bone_node_indices
+                        .iter()
+                        .map(|node_index| GameNodeId(*node_index, 0))
+                        .collect(),
+                    bone_inverse_bind_matrices: indexed_skin.bone_inverse_bind_matrices.clone(),
+                    bone_bounding_box_transforms: indexed_skin.bone_bounding_box_transforms.clone(),
+                }
+            })
+            .collect();
+
         scene.rebuild_skeleton_parent_index_maps();
 
         scene
@@ -138,16 +148,7 @@ impl Scene {
 
     fn rebuild_skeleton_parent_index_maps(&mut self) {
         self.skeleton_parent_index_maps = HashMap::new();
-        let skinned_nodes = self
-            .nodes
-            .iter()
-            .enumerate()
-            .filter_map(|(node_index, node)| node.0.as_ref().map(|node| (node_index, node)))
-            .filter_map(|(node_index, node)| {
-                node.skin_index
-                    .map(|skin_index| (node_index, &self.skins[skin_index]))
-            });
-        for (skin_node_index, skin) in skinned_nodes {
+        for skin in &self.skins {
             let skeleton_parent_index_map: HashMap<usize, usize> = skin
                 .bone_node_ids
                 .iter()
@@ -158,7 +159,7 @@ impl Scene {
                 })
                 .collect();
             self.skeleton_parent_index_maps
-                .insert(skin_node_index, skeleton_parent_index_map);
+                .insert(skin.node_id.0, skeleton_parent_index_map);
         }
     }
 
@@ -257,7 +258,7 @@ impl Scene {
         self.rebuild_skeleton_parent_index_maps();
     }
 
-    pub fn get_skeleton_skin_node_id(&self, node_id: GameNodeId) -> Option<GameNodeId> {
+    pub fn _get_skeleton_skin_node_id(&self, node_id: GameNodeId) -> Option<GameNodeId> {
         self.nodes
             .iter()
             .flat_map(|(node, _)| node)
