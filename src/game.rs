@@ -1082,11 +1082,11 @@ pub fn update_game_state(
         // if let Some(physics_ball) = game_state.physics_balls.pop() {
         //     physics_ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
         // }
-        game_state.physics_balls.push(PhysicsBall::new_random(
-            &mut game_state.scene,
-            &mut game_state.physics_state,
-            GameNodeMesh::from_pbr_mesh_index(game_state.ball_pbr_mesh_index),
-        ));
+        // game_state.physics_balls.push(PhysicsBall::new_random(
+        //     &mut game_state.scene,
+        //     &mut game_state.physics_state,
+        //     GameNodeMesh::from_pbr_mesh_index(game_state.ball_pbr_mesh_index),
+        // ));
         game_state.ball_spawner_acc -= rate;
     }
     let new_ball_count = game_state.physics_balls.len();

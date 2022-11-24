@@ -22,6 +22,16 @@ struct DirectionalLight {
     direction: vec4<f32>,
     color: vec4<f32>,
 }
+struct Instance {
+    model_transform_0: vec4<f32>,
+    model_transform_1: vec4<f32>,
+    model_transform_2: vec4<f32>,
+    model_transform_3: vec4<f32>,
+    base_color_factor: vec4<f32>,
+    emissive_factor: vec4<f32>,
+    mrno: vec4<f32>, // metallicness_factor, roughness_factor, normal scale, occlusion strength
+    alpha_cutoff: f32,
+}
 
 struct PointLightsUniform {
     values: array<PointLight, MAX_LIGHTS>,
@@ -32,15 +42,26 @@ struct DirectionalLightsUniform {
 struct BonesUniform {
     value: array<mat4x4<f32>>,
 }
+struct InstancesUniform {
+    value: array<Instance>,
+}
 
 @group(0) @binding(1)
 var<uniform> point_lights: PointLightsUniform;
 @group(0) @binding(2)
 var<uniform> directional_lights: DirectionalLightsUniform;
+
 @group(2) @binding(0)
 var<storage, read> bones_uniform: BonesUniform;
+@group(2) @binding(1)
+var<storage, read> instances_uniform: InstancesUniform;
+
 @group(1) @binding(0)
 var<storage, read> shadow_bones_uniform: BonesUniform;
+@group(1) @binding(1)
+var<storage, read> shadow_instances_uniform: InstancesUniform;
+
+
 
 struct VertexInput {
     @location(0) object_position: vec3<f32>,
@@ -53,16 +74,16 @@ struct VertexInput {
     @location(7) bone_weights: vec4<f32>,
 }
 
-struct Instance {
-    @location(8)  model_transform_0: vec4<f32>,
-    @location(9)  model_transform_1: vec4<f32>,
-    @location(10) model_transform_2: vec4<f32>,
-    @location(11) model_transform_3: vec4<f32>,
-    @location(12) base_color_factor: vec4<f32>,
-    @location(13) emissive_factor: vec4<f32>,
-    @location(14) mrno: vec4<f32>, // metallicness_factor, roughness_factor, normal scale, occlusion strength
-    @location(15) alpha_cutoff: f32,
-}
+// struct Instance {
+//     @location(8)  model_transform_0: vec4<f32>,
+//     @location(9)  model_transform_1: vec4<f32>,
+//     @location(10) model_transform_2: vec4<f32>,
+//     @location(11) model_transform_3: vec4<f32>,
+//     @location(12) base_color_factor: vec4<f32>,
+//     @location(13) emissive_factor: vec4<f32>,
+//     @location(14) mrno: vec4<f32>, // metallicness_factor, roughness_factor, normal scale, occlusion strength
+//     @location(15) alpha_cutoff: f32,
+// }
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -143,8 +164,10 @@ fn do_vertex_shade(
 @vertex
 fn vs_main(
     vshader_input: VertexInput,
-    instance: Instance,
+    @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
+    let instance = instances_uniform.value[instance_index];
+
     let model_transform = mat4x4<f32>(
         instance.model_transform_0,
         instance.model_transform_1,
@@ -179,8 +202,10 @@ fn vs_main(
 @vertex
 fn shadow_map_vs_main(
     vshader_input: VertexInput,
-    instance: Instance,
+    @builtin(instance_index) instance_index: u32,
 ) -> ShadowMappingVertexOutput {
+    let instance = shadow_instances_uniform.value[instance_index];
+
     let model_transform = mat4x4<f32>(
         instance.model_transform_0,
         instance.model_transform_1,
