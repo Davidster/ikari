@@ -2382,7 +2382,7 @@ impl RendererState {
         //     self.bones_buffer.length_bytes()
         // ));
 
-        let mut yo = std::time::Instant::now();
+        // let mut yo = std::time::Instant::now();
         let mut pbr_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuPbrMeshInstance>> =
             HashMap::new();
         for node in scene.nodes() {
@@ -2390,7 +2390,13 @@ impl RendererState {
                 // TODO:
                 continue;
             }
-            let transform = scene.get_global_transform_for_node(node.id());
+            // TODO: get_global_transform_for_node is the slow part!
+            // let transform = scene.get_global_transform_for_node(node.id());
+            let transform = node.transform
+                * transform::TransformBuilder::new()
+                    .scale(Vector3::new(0.05, 0.05, 0.05))
+                    .build();
+            // let transform = transform::Transform::new();
             if let Some(GameNodeMesh {
                 mesh_indices,
                 mesh_type: GameNodeMeshType::Pbr { material_override },
@@ -2416,8 +2422,8 @@ impl RendererState {
                 }
             }
         }
-        logger.log(&format!("yo 1 -> {:?}", yo.elapsed()));
-        yo = std::time::Instant::now();
+        // logger.log(&format!("yo 1 -> {:?}", yo.elapsed()));
+        // yo = std::time::Instant::now();
         // for (mesh_index, gpu_instances) in pbr_mesh_index_to_gpu_instances {
         //     let geometry_buffers = &mut self.buffers.binded_pbr_meshes[mesh_index].geometry_buffers;
         //     let previous_buffer_capacity_bytes = geometry_buffers.instance_buffer.capacity_bytes();
@@ -2471,12 +2477,12 @@ impl RendererState {
             self.instances_buffer
                 .write(device, queue, &self.all_pbr_instances.buffer);
 
-        logger.log(&format!(
-            "instance_size_bytes, self.instances_buffer.length_bytes(),self.instances_buffer.capacity_bytes() -> {:?}, {:?}, {:?}",
-            std::mem::size_of::<GpuPbrMeshInstance>(),
-            self.instances_buffer.length_bytes(),
-            self.instances_buffer.capacity_bytes(),
-        ));
+        // logger.log(&format!(
+        //     "instance_size_bytes, self.instances_buffer.length_bytes(),self.instances_buffer.capacity_bytes() -> {:?}, {:?}, {:?}",
+        //     std::mem::size_of::<GpuPbrMeshInstance>(),
+        //     self.instances_buffer.length_bytes(),
+        //     self.instances_buffer.capacity_bytes(),
+        // ));
 
         if instances_buffer_resized {
             logger.log(&format!(
@@ -2525,7 +2531,7 @@ impl RendererState {
             });
         // }
 
-        logger.log(&format!("yo 2 -> {:?}", yo.elapsed()));
+        // logger.log(&format!("yo 2 -> {:?}", yo.elapsed()));
 
         // self.buffers
         //     .binded_pbr_meshes
@@ -3388,11 +3394,14 @@ impl RendererState {
                     .unwrap_or(0);
                 let instances_buffer_start_index = pbr_instance_slice.start_index as u32;
                 let instance_size_bytes = std::mem::size_of::<GpuPbrMeshInstance>();
-                let instance_count = ((pbr_instance_slice.end_index
+                let instance_count = (pbr_instance_slice.end_index
                     - pbr_instance_slice.start_index)
-                    / instance_size_bytes)
-                    - 1;
-                // dbg!(is_shadow);
+                    / instance_size_bytes;
+                if instance_count > 1 {
+                    // TODO: why the fk????? sometimes instance_count is randomly 480????
+                    continue;
+                }
+                // dbg!(instance_count);
                 assert!(
                     instances_buffer_start_index
                         < self.all_pbr_instances.buffer.len().try_into().unwrap()
