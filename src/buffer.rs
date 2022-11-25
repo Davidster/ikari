@@ -80,7 +80,7 @@ impl GpuBuffer {
         &self.src
     }
 
-    pub fn _stride(&self) -> usize {
+    pub fn stride(&self) -> usize {
         self.stride
     }
 
@@ -103,6 +103,8 @@ impl GpuBuffer {
     // returns true if the buffer was resized
     pub fn write(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, data: &[u8]) -> bool {
         let new_length = (data.len() as f32 / self.stride as f32).ceil() as usize;
+
+        // dbg!(data.len(), new_length, new_length * self.stride);
 
         if new_length <= self.capacity {
             queue.write_buffer(&self.src, 0, data);

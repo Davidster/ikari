@@ -5,6 +5,7 @@ struct CameraUniform {
     position: vec4<f32>,
     near_plane_distance: f32,
     far_plane_distance: f32,
+    padding: vec2<f32>,
 }
 @group(0) @binding(0)
 var<uniform> camera: CameraUniform;
@@ -31,6 +32,7 @@ struct Instance {
     emissive_factor: vec4<f32>,
     mrno: vec4<f32>, // metallicness_factor, roughness_factor, normal scale, occlusion strength
     alpha_cutoff: vec4<f32>,
+    // padding: vec3<f32>,
 }
 
 struct PointLightsUniform {
@@ -195,7 +197,7 @@ fn vs_main(
         instance.mrno[1],
         instance.mrno[2],
         instance.mrno[3],
-        instance.alpha_cutoff[0]
+        instance.alpha_cutoff[0],
     );
 }
 

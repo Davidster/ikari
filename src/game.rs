@@ -412,7 +412,7 @@ pub fn init_game_state(
         .collect();
 
     let ball_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
-        &sphere_mesh,
+        &cube_mesh,
         &PbrMaterial {
             base_color: Some(&mars_texture),
             ..Default::default()
@@ -1061,7 +1061,7 @@ pub fn update_game_state(
 
     // remove physics balls over time
     game_state.ball_spawner_acc += frame_time_seconds;
-    let rate = 0.1;
+    let rate = 0.01;
     let prev_ball_count = game_state.physics_balls.len();
     while game_state.ball_spawner_acc > rate {
         // let new_ball = BallComponent::rand();
@@ -1084,16 +1084,16 @@ pub fn update_game_state(
         // }
         // TODO: turning this back on throws an error?
         //       Resized pbr instances buffer capacity from 64 bytes to Some(779776) -> print the new size too!
-        // game_state.physics_balls.push(PhysicsBall::new_random(
-        //     &mut game_state.scene,
-        //     &mut game_state.physics_state,
-        //     GameNodeMesh::from_pbr_mesh_index(game_state.ball_pbr_mesh_index),
-        // ));
+        game_state.physics_balls.push(PhysicsBall::new_random(
+            &mut game_state.scene,
+            &mut game_state.physics_state,
+            GameNodeMesh::from_pbr_mesh_index(game_state.ball_pbr_mesh_index),
+        ));
         game_state.ball_spawner_acc -= rate;
     }
     let new_ball_count = game_state.physics_balls.len();
     if prev_ball_count != new_ball_count {
-        // logger.log(&format!("Ball count: {:?}", new_ball_count));
+        logger.log(&format!("Ball count: {:?}", new_ball_count));
     }
 
     // let physics_time_step_start = Instant::now();

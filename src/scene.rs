@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 
 use cgmath::{Matrix4, Vector3};
 
@@ -305,6 +305,102 @@ impl Scene {
             None => Vec::new(),
         }
     }
+
+    pub fn get_global_node_transforms(&self) -> HashMap<GameNodeId, transform::Transform> {
+        let mut global_node_transforms: HashMap<GameNodeId, transform::Transform> = HashMap::new();
+        for node in self.nodes() {
+            if global_node_transforms.contains_key(&node.id) {
+                continue;
+            }
+            let node_ancestry_list: Vec<_> = self
+                .get_node_ancestry_list(node.id)
+                .iter()
+                .copied()
+                .rev()
+                .collect();
+            let mut acc = self.get_node(node_ancestry_list[0]).unwrap().transform;
+            global_node_transforms.insert(node_ancestry_list[0], acc);
+            for node_id in node_ancestry_list.iter().skip(1) {
+                match global_node_transforms.entry(*node_id) {
+                    Entry::Occupied(entry) => {
+                        acc = *entry.get();
+                    }
+                    Entry::Vacant(entry) => {
+                        acc = acc * self.get_node(*node_id).unwrap().transform;
+                        entry.insert(acc);
+                    }
+                }
+                // acc = acc * self.get_node(*node_id).unwrap().transform;
+                // global_node_transforms.insert(*node_id, acc);
+            }
+        }
+        global_node_transforms
+    }
+
+    // pub fn get_global_node_transforms_2(&self) -> Vec<Matrix4<f32>> {
+    //     let global_node_transforms: Vec<Option<Matrix4<f32>>> = self
+    //         .nodes
+    //         .iter()
+    //         .filter(|(node, _)| node.is_some())
+    //         .map(|_| None)
+    //         .collect();
+    //     let local_node_transforms: Vec<_> =
+    //         self.nodes().map(|node| node.transform.matrix()).collect();
+    //     for (node_index, node) in self.nodes().enumerate() {
+    //         if global_node_transforms[node_index].is_some() {
+    //             continue;
+    //         }
+    //         let node_ancestry_list: Vec<_> = self
+    //             .get_node_ancestry_list(node.id)
+    //             .iter()
+    //             .copied()
+    //             .rev()
+    //             .collect();
+    //         let mut acc = self.get_node(node_ancestry_list[0]).unwrap().transform;
+    //         global_node_transforms.insert(node_ancestry_list[0], acc);
+    //         for node_id in node_ancestry_list.iter().skip(1) {
+    //             match global_node_transforms.entry(*node_id) {
+    //                 Entry::Occupied(entry) => {
+    //                     acc = *entry.get();
+    //                 }
+    //                 Entry::Vacant(entry) => {
+    //                     acc = acc * self.get_node(*node_id).unwrap().transform;
+    //                     entry.insert(acc);
+    //                 }
+    //             }
+    //             // acc = acc * self.get_node(*node_id).unwrap().transform;
+    //             // global_node_transforms.insert(*node_id, acc);
+    //         }
+    //     }
+    //     global_node_transforms.iter().map(|x| x.unwrap()).collect()
+    // }
+
+    // pub fn get_global_node_transforms_2(&self) -> Vec<transform::Transform> {
+    //     let global_node_transforms: Vec<Option<transform::Transform>> = self
+    //         .nodes
+    //         .iter()
+    //         .filter(|(node, _)| node.is_some())
+    //         .map(|_| None)
+    //         .collect();
+    //     for (node_index, node) in self.nodes().iter().enumerate() {
+    //         if global_node_transforms[node_index].is_some() {
+    //             continue;
+    //         }
+    //         let node_ancestry_list: Vec<_> = self
+    //             .get_node_ancestry_list(node.id)
+    //             .iter()
+    //             .copied()
+    //             .rev()
+    //             .collect();
+    //         let mut acc = self.get_node(node_ancestry_list[0]).unwrap().transform;
+    //         global_node_transforms.insert(node_ancestry_list[0], acc);
+    //         for node_id in node_ancestry_list.iter().skip(1) {
+    //             acc = acc * self.get_node(*node_id).unwrap().transform;
+    //             global_node_transforms.insert(*node_id, acc);
+    //         }
+    //     }
+    //     global_node_transforms.iter().map(|x| x.unwrap()).collect()
+    // }
 
     // TODO: should this return an option?
     pub fn get_global_transform_for_node(

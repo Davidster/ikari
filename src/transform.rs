@@ -11,13 +11,14 @@ pub struct SimpleTransform {
     pub scale: Vector3<f32>,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Transform {
     position: Vector3<f32>,
     rotation: Quaternion<f32>,
     scale: Vector3<f32>,
     matrix: Matrix4<f32>,
     base_matrix: Matrix4<f32>,
+    is_new: bool,
 }
 
 impl Transform {
@@ -28,6 +29,7 @@ impl Transform {
             scale: Vector3::new(1.0, 1.0, 1.0),
             matrix: Matrix4::one(),
             base_matrix: Matrix4::one(),
+            is_new: true,
         }
     }
 
@@ -52,15 +54,18 @@ impl Transform {
         self.matrix.w.x = new_position.x;
         self.matrix.w.y = new_position.y;
         self.matrix.w.z = new_position.z;
+        self.is_new = false;
     }
 
     pub fn set_rotation(&mut self, new_rotation: Quaternion<f32>) {
         self.rotation = new_rotation;
+        self.is_new = false;
         self.resync_matrix();
     }
 
     pub fn set_scale(&mut self, new_scale: Vector3<f32>) {
         self.scale = new_scale;
+        self.is_new = false;
         self.resync_matrix();
     }
 
@@ -202,7 +207,11 @@ impl Mul for Transform {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self {
-        (self.matrix() * rhs.matrix()).into()
+        if rhs.is_new {
+            self
+        } else {
+            (self.matrix() * rhs.matrix()).into()
+        }
     }
 }
 

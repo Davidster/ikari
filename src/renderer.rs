@@ -1826,7 +1826,7 @@ impl RendererState {
         let instances_buffer = GpuBuffer::empty(
             device,
             1,
-            std::mem::size_of::<GpuMatrix4>(),
+            std::mem::size_of::<GpuPbrMeshInstance>(),
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
@@ -2356,7 +2356,9 @@ impl RendererState {
         self.all_bone_transforms =
             get_all_bone_data(scene, limits.min_storage_buffer_offset_alignment, logger);
         // logger.log(&format!("get_all_bone_data length -> {:?}", yo.elapsed()));
-        let bones_buffer_resized =
+        let bones_buffer_changed_length =
+            self.bones_buffer.length_bytes() != self.all_bone_transforms.buffer.len();
+        let bones_buffer_changed_capacity =
             self.bones_buffer
                 .write(device, queue, &self.all_bone_transforms.buffer);
 
@@ -2382,16 +2384,25 @@ impl RendererState {
         //     self.bones_buffer.length_bytes()
         // ));
 
-        // let mut yo = std::time::Instant::now();
+        let mut yo = std::time::Instant::now();
         let mut pbr_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuPbrMeshInstance>> =
             HashMap::new();
+        let global_node_transforms = scene.get_global_node_transforms();
+        // let mut howmany = 0;
         for node in scene.nodes() {
             // if self.enable_wireframe_mode {
             //     // TODO:
             //     continue;
             // }
             // TODO: get_global_transform_for_node is the slow part!
-            let transform = scene.get_global_transform_for_node(node.id());
+            // let transform = scene.get_global_transform_for_node(node.id());
+            let transform = *global_node_transforms.get(&node.id()).unwrap();
+            // if old_transform != transform {
+            //     dbg!(old_transform, transform, howmany);
+            //     panic!();
+            // }
+            // howmany += 1;
+
             // let transform = node.transform
             //     * transform::TransformBuilder::new()
             //         .scale(Vector3::new(0.05, 0.05, 0.05))
@@ -2427,7 +2438,7 @@ impl RendererState {
                 }
             }
         }
-        // logger.log(&format!("yo 1 -> {:?}", yo.elapsed()));
+        logger.log(&format!("yo 1 -> {:?}", yo.elapsed()));
         // yo = std::time::Instant::now();
         // for (mesh_index, gpu_instances) in pbr_mesh_index_to_gpu_instances {
         //     let geometry_buffers = &mut self.buffers.binded_pbr_meshes[mesh_index].geometry_buffers;
@@ -2451,6 +2462,8 @@ impl RendererState {
         let min_storage_buffer_offset_alignment =
             self.base.limits.min_storage_buffer_offset_alignment;
 
+        let mut max_instances = 0;
+
         self.all_pbr_instances = {
             let instance_size_bytes = std::mem::size_of::<GpuPbrMeshInstance>();
             let mut buffer: Vec<u8> = Vec::new();
@@ -2467,6 +2480,23 @@ impl RendererState {
                 let mut padding: Vec<_> = (0..needed_padding).map(|_| 0u8).collect();
                 buffer.append(&mut padding);
 
+                if gpu_instances.len() > max_instances {
+                    max_instances = gpu_instances.len();
+                }
+
+                // if start_index == 389888 {
+                //     dbg!(
+                //         buffer.len(),
+                //         instances.len(),
+                //         needed_padding,
+                //         instance_size_bytes,
+                //         gpu_instances.len(),
+                //         end_index,
+                //         mesh_index,
+                //     );
+                //     // panic!();
+                // }
+
                 instances.push(AllInstancesSlice {
                     mesh_index,
                     start_index,
@@ -2474,11 +2504,20 @@ impl RendererState {
                 })
             }
 
+            // to avoid 'Dynamic binding at index x with offset y would overrun the buffer' error
+            let mut max_instances_padding: Vec<_> = (0..(max_instances
+                * self.instances_buffer.stride()))
+                .map(|_| 0u8)
+                .collect();
+            buffer.append(&mut max_instances_padding);
+
             AllInstances { buffer, instances }
         };
 
         let previous_buffer_capacity_bytes = self.instances_buffer.capacity_bytes();
-        let instances_buffer_resized =
+        let instances_buffer_changed_length =
+            self.instances_buffer.length_bytes() != self.all_pbr_instances.buffer.len();
+        let instances_buffer_changed_capacity =
             self.instances_buffer
                 .write(device, queue, &self.all_pbr_instances.buffer);
 
@@ -2489,11 +2528,13 @@ impl RendererState {
         //     self.instances_buffer.capacity_bytes(),
         // ));
 
-        if instances_buffer_resized {
+        if instances_buffer_changed_capacity {
             logger.log(&format!(
-                "Resized pbr instances buffer capacity from {:?} bytes to {:?}",
+                "Resized pbr instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
                 previous_buffer_capacity_bytes,
-                NonZeroU64::new(self.instances_buffer.capacity_bytes().try_into().unwrap())
+                self.instances_buffer.capacity_bytes(),
+                self.instances_buffer.length_bytes(),
+                self.all_pbr_instances.buffer.len(),
             ));
         }
 
@@ -2506,7 +2547,7 @@ impl RendererState {
         //     "self.bones_buffer.length_bytes() -> {:?}",
         //     self.bones_buffer.length_bytes()
         // ));
-        // if bones_buffer_resized || instances_buffer_resized {
+        // if bones_buffer_changed_length || instances_buffer_changed_length {
         self.bones_and_instances_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: bones_and_instances_bind_group_layout,
@@ -2527,13 +2568,19 @@ impl RendererState {
                             buffer: self.instances_buffer.src(),
                             offset: 0,
                             size: NonZeroU64::new(
-                                self.instances_buffer.length_bytes().try_into().unwrap(),
+                                (max_instances * self.instances_buffer.stride())
+                                    .try_into()
+                                    .unwrap(),
                             ),
                         }),
                     },
                 ],
                 label: Some("bones_and_instances_bind_group"),
             });
+        // logger.log(&format!(
+        //     "wtffff, {:?}",
+        //     NonZeroU64::new(self.instances_buffer.length_bytes().try_into().unwrap())
+        // ));
         // }
 
         // logger.log(&format!("yo 2 -> {:?}", yo.elapsed()));
@@ -3402,19 +3449,29 @@ impl RendererState {
                 let instance_count = (pbr_instance_slice.end_index
                     - pbr_instance_slice.start_index)
                     / instance_size_bytes;
-                // if instance_count > 1 {
-                //     // TODO: why the fk????? sometimes instance_count is randomly 480????
-                //     continue;
-                // }
-                // dbg!(instance_count);
-                assert!(
-                    instances_buffer_start_index
-                        < self.all_pbr_instances.buffer.len().try_into().unwrap()
-                );
-                assert!(
-                    instances_buffer_start_index
-                        < self.instances_buffer.length_bytes().try_into().unwrap()
-                );
+                // assert!(
+                //     instances_buffer_start_index
+                //         < self.all_pbr_instances.buffer.len().try_into().unwrap()
+                // );
+                // assert!(
+                //     instances_buffer_start_index
+                //         < self.instances_buffer.length_bytes().try_into().unwrap()
+                // );
+                if instances_buffer_start_index
+                    >= self.instances_buffer.length_bytes().try_into().unwrap()
+                {
+                    panic!(
+                        "wtf m8, {:?} >= {:?}",
+                        instances_buffer_start_index,
+                        self.instances_buffer.length_bytes()
+                    );
+                }
+                // dbg!(
+                //     instance_size_bytes,
+                //     instances_buffer_start_index,
+                //     self.instances_buffer.length_bytes(),
+                //     instance_count
+                // );
                 render_pass.set_bind_group(
                     if is_shadow { 1 } else { 2 },
                     &self.bones_and_instances_bind_group,

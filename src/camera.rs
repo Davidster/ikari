@@ -39,7 +39,7 @@ pub struct CameraUniform {
     position: [f32; 4],
     near_plane_distance: f32,
     far_plane_distance: f32,
-    padding: [f32; 2], // TODO: remove
+    padding: [f32; 2],
 }
 
 impl CameraUniform {
