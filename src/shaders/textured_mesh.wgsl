@@ -30,7 +30,7 @@ struct Instance {
     base_color_factor: vec4<f32>,
     emissive_factor: vec4<f32>,
     mrno: vec4<f32>, // metallicness_factor, roughness_factor, normal scale, occlusion strength
-    alpha_cutoff: f32,
+    alpha_cutoff: vec4<f32>,
 }
 
 struct PointLightsUniform {
@@ -195,7 +195,7 @@ fn vs_main(
         instance.mrno[1],
         instance.mrno[2],
         instance.mrno[3],
-        instance.alpha_cutoff
+        instance.alpha_cutoff[0]
     );
 }
 

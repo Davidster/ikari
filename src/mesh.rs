@@ -46,7 +46,7 @@ pub struct GpuPbrMeshInstance {
     base_color_factor: [f32; 4],
     emissive_factor: [f32; 4],
     mrno: [f32; 4], // metallic_factor, roughness_factor, normal scale, occlusion strength
-    alpha_cutoff: f32,
+    alpha_cutoff: [f32; 4],
 }
 
 impl GpuPbrMeshInstance {
@@ -91,7 +91,7 @@ impl GpuPbrMeshInstance {
                 normal_scale,
                 occlusion_strength,
             ],
-            alpha_cutoff,
+            alpha_cutoff: [alpha_cutoff, 0.0, 0.0, 0.0],
         }
     }
 }

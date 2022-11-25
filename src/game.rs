@@ -431,7 +431,7 @@ pub fn init_game_state(
         ball_node_ids.push(node.id());
     }
 
-    let physics_ball_count = 10;
+    let physics_ball_count = 500;
     let physics_balls: Vec<_> = (0..physics_ball_count)
         .into_iter()
         .map(|_| {
@@ -1082,6 +1082,8 @@ pub fn update_game_state(
         // if let Some(physics_ball) = game_state.physics_balls.pop() {
         //     physics_ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
         // }
+        // TODO: turning this back on throws an error?
+        //       Resized pbr instances buffer capacity from 64 bytes to Some(779776) -> print the new size too!
         // game_state.physics_balls.push(PhysicsBall::new_random(
         //     &mut game_state.scene,
         //     &mut game_state.physics_state,
