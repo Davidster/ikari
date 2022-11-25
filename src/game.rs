@@ -912,6 +912,8 @@ pub fn update_game_state(
     renderer_state: &RendererState,
     logger: &mut Logger,
 ) {
+    puffin::profile_function!();
+
     let time_tracker = game_state.time();
     let global_time_seconds = time_tracker.global_time_seconds();
 
