@@ -20,6 +20,7 @@ pub struct GameNodeDesc {
     pub transform: crate::transform::Transform,
     pub skin_index: Option<usize>,
     pub mesh: Option<GameNodeMesh>,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -27,6 +28,7 @@ pub struct GameNode {
     pub transform: crate::transform::Transform,
     pub skin_index: Option<usize>,
     pub mesh: Option<GameNodeMesh>,
+    pub name: Option<String>,
     id: GameNodeId,
 }
 
@@ -323,6 +325,7 @@ impl Scene {
             transform,
             skin_index,
             mesh,
+            name,
         } = node;
         let empty_node = self
             .nodes
@@ -342,6 +345,7 @@ impl Scene {
                     transform,
                     skin_index,
                     mesh,
+                    name,
                     id: GameNodeId(empty_node_index, new_gen),
                 };
                 self.nodes[empty_node_index] = (Some(new_node), new_gen);
@@ -352,6 +356,7 @@ impl Scene {
                     transform,
                     skin_index,
                     mesh,
+                    name,
                     id: GameNodeId(self.nodes.len(), 0),
                 };
                 self.nodes.push((Some(new_node), 0));
@@ -476,6 +481,7 @@ impl Default for GameNodeDesc {
             transform: crate::transform::Transform::new(),
             skin_index: None,
             mesh: None,
+            name: None,
         }
     }
 }
@@ -485,6 +491,7 @@ pub struct GameNodeDescBuilder {
     transform: crate::transform::Transform,
     skin_index: Option<usize>,
     mesh: Option<GameNodeMesh>,
+    name: Option<String>,
 }
 
 impl GameNodeDescBuilder {
@@ -493,11 +500,13 @@ impl GameNodeDescBuilder {
             transform,
             skin_index,
             mesh,
+            name,
         } = GameNodeDesc::default();
         Self {
             transform,
             skin_index,
             mesh,
+            name,
         }
     }
 
@@ -517,11 +526,17 @@ impl GameNodeDescBuilder {
         self
     }
 
+    pub fn name(mut self, name: Option<String>) -> Self {
+        self.name = name;
+        self
+    }
+
     pub fn build(self) -> GameNodeDesc {
         GameNodeDesc {
             transform: self.transform,
             skin_index: self.skin_index,
             mesh: self.mesh,
+            name: self.name,
         }
     }
 }

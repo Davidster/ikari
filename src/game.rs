@@ -431,7 +431,7 @@ pub fn init_game_state(
         ball_node_ids.push(node.id());
     }
 
-    let physics_ball_count = 500;
+    let physics_ball_count = 10;
     let physics_balls: Vec<_> = (0..physics_ball_count)
         .into_iter()
         .map(|_| {

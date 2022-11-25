@@ -2386,16 +2386,16 @@ impl RendererState {
         let mut pbr_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuPbrMeshInstance>> =
             HashMap::new();
         for node in scene.nodes() {
-            if self.enable_wireframe_mode {
-                // TODO:
-                continue;
-            }
+            // if self.enable_wireframe_mode {
+            //     // TODO:
+            //     continue;
+            // }
             // TODO: get_global_transform_for_node is the slow part!
-            // let transform = scene.get_global_transform_for_node(node.id());
-            let transform = node.transform
-                * transform::TransformBuilder::new()
-                    .scale(Vector3::new(0.05, 0.05, 0.05))
-                    .build();
+            let transform = scene.get_global_transform_for_node(node.id());
+            // let transform = node.transform
+            //     * transform::TransformBuilder::new()
+            //         .scale(Vector3::new(0.05, 0.05, 0.05))
+            //         .build();
             // let transform = transform::Transform::new();
             if let Some(GameNodeMesh {
                 mesh_indices,
@@ -2405,12 +2405,17 @@ impl RendererState {
             }) = &node.mesh
             {
                 for mesh_index in mesh_indices.iter().copied() {
-                    let gpu_instance = GpuPbrMeshInstance::new(
+                    // dbg!(mesh_index, &node.name);
+                    // logger.log(&format!("{:?} -> {:?}", mesh_index, node.name));
+                    let mut gpu_instance = GpuPbrMeshInstance::new(
                         transform,
                         material_override.unwrap_or_else(|| {
                             self.buffers.binded_pbr_meshes[mesh_index].dynamic_pbr_params
                         }),
                     );
+                    // if mesh_index == game_state.ball_pbr_mesh_index {
+                    //     dbg!(&gpu_instance);
+                    // }
                     match pbr_mesh_index_to_gpu_instances.entry(mesh_index) {
                         Entry::Occupied(mut entry) => {
                             entry.get_mut().push(gpu_instance);
@@ -3397,10 +3402,10 @@ impl RendererState {
                 let instance_count = (pbr_instance_slice.end_index
                     - pbr_instance_slice.start_index)
                     / instance_size_bytes;
-                if instance_count > 1 {
-                    // TODO: why the fk????? sometimes instance_count is randomly 480????
-                    continue;
-                }
+                // if instance_count > 1 {
+                //     // TODO: why the fk????? sometimes instance_count is randomly 480????
+                //     continue;
+                // }
                 // dbg!(instance_count);
                 assert!(
                     instances_buffer_start_index

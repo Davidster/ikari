@@ -230,6 +230,7 @@ pub fn build_scene(
                     },
                     wireframe: false,
                 }),
+            name: node.name().map(|name| name.to_string()),
         })
         .collect();
 
