@@ -2439,7 +2439,7 @@ impl RendererState {
                 }
             }
         }
-        logger.log(&format!("yo 1 -> {:?}", yo.elapsed()));
+        // logger.log(&format!("yo 1 -> {:?}", yo.elapsed()));
         // yo = std::time::Instant::now();
         // for (mesh_index, gpu_instances) in pbr_mesh_index_to_gpu_instances {
         //     let geometry_buffers = &mut self.buffers.binded_pbr_meshes[mesh_index].geometry_buffers;
