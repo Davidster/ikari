@@ -5,6 +5,7 @@ struct CameraUniform {
     position: vec4<f32>,
     near_plane_distance: f32,
     far_plane_distance: f32,
+    padding: vec2<f32>,
 }
 @group(0) @binding(0)
 var<uniform> camera: CameraUniform;
@@ -22,6 +23,16 @@ struct DirectionalLight {
     direction: vec4<f32>,
     color: vec4<f32>,
 }
+struct Instance {
+    model_transform_0: vec4<f32>,
+    model_transform_1: vec4<f32>,
+    model_transform_2: vec4<f32>,
+    model_transform_3: vec4<f32>,
+    base_color_factor: vec4<f32>,
+    emissive_factor: vec4<f32>,
+    mrno: vec4<f32>, // metallicness_factor, roughness_factor, normal scale, occlusion strength
+    alpha_cutoff: vec4<f32>,
+}
 
 struct PointLightsUniform {
     values: array<PointLight, MAX_LIGHTS>,
@@ -32,15 +43,26 @@ struct DirectionalLightsUniform {
 struct BonesUniform {
     value: array<mat4x4<f32>>,
 }
+struct InstancesUniform {
+    value: array<Instance>,
+}
 
 @group(0) @binding(1)
 var<uniform> point_lights: PointLightsUniform;
 @group(0) @binding(2)
 var<uniform> directional_lights: DirectionalLightsUniform;
-@group(3) @binding(0)
+
+@group(2) @binding(0)
 var<storage, read> bones_uniform: BonesUniform;
+@group(2) @binding(1)
+var<storage, read> instances_uniform: InstancesUniform;
+
 @group(1) @binding(0)
 var<storage, read> shadow_bones_uniform: BonesUniform;
+@group(1) @binding(1)
+var<storage, read> shadow_instances_uniform: InstancesUniform;
+
+
 
 struct VertexInput {
     @location(0) object_position: vec3<f32>,
@@ -53,16 +75,16 @@ struct VertexInput {
     @location(7) bone_weights: vec4<f32>,
 }
 
-struct Instance {
-    @location(8)  model_transform_0: vec4<f32>,
-    @location(9)  model_transform_1: vec4<f32>,
-    @location(10)  model_transform_2: vec4<f32>,
-    @location(11)  model_transform_3: vec4<f32>,
-    @location(12) base_color_factor: vec4<f32>,
-    @location(13) emissive_factor: vec4<f32>,
-    @location(14) mrno: vec4<f32>, // metallicness_factor, roughness_factor, normal scale, occlusion strength
-    @location(15) alpha_cutoff: f32,
-}
+// struct Instance {
+//     @location(8)  model_transform_0: vec4<f32>,
+//     @location(9)  model_transform_1: vec4<f32>,
+//     @location(10) model_transform_2: vec4<f32>,
+//     @location(11) model_transform_3: vec4<f32>,
+//     @location(12) base_color_factor: vec4<f32>,
+//     @location(13) emissive_factor: vec4<f32>,
+//     @location(14) mrno: vec4<f32>, // metallicness_factor, roughness_factor, normal scale, occlusion strength
+//     @location(15) alpha_cutoff: f32,
+// }
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -143,8 +165,10 @@ fn do_vertex_shade(
 @vertex
 fn vs_main(
     vshader_input: VertexInput,
-    instance: Instance,
+    @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
+    let instance = instances_uniform.value[instance_index];
+
     let model_transform = mat4x4<f32>(
         instance.model_transform_0,
         instance.model_transform_1,
@@ -172,15 +196,17 @@ fn vs_main(
         instance.mrno[1],
         instance.mrno[2],
         instance.mrno[3],
-        instance.alpha_cutoff
+        instance.alpha_cutoff[0],
     );
 }
 
 @vertex
 fn shadow_map_vs_main(
     vshader_input: VertexInput,
-    instance: Instance,
+    @builtin(instance_index) instance_index: u32,
 ) -> ShadowMappingVertexOutput {
+    let instance = shadow_instances_uniform.value[instance_index];
+
     let model_transform = mat4x4<f32>(
         instance.model_transform_0,
         instance.model_transform_1,
@@ -219,50 +245,50 @@ fn point_shadow_map_fs_main(
     return out;
 }
 
-@group(1) @binding(0)
+@group(3) @binding(0)
 var diffuse_texture: texture_2d<f32>;
-@group(1) @binding(1)
+@group(3) @binding(1)
 var diffuse_sampler: sampler;
-@group(1) @binding(2)
+@group(3) @binding(2)
 var normal_map_texture: texture_2d<f32>;
-@group(1) @binding(3)
+@group(3) @binding(3)
 var normal_map_sampler: sampler;
-@group(1) @binding(4)
+@group(3) @binding(4)
 var metallic_roughness_map_texture: texture_2d<f32>;
-@group(1) @binding(5)
+@group(3) @binding(5)
 var metallic_roughness_map_sampler: sampler;
-@group(1) @binding(6)
+@group(3) @binding(6)
 var emissive_map_texture: texture_2d<f32>;
-@group(1) @binding(7)
+@group(3) @binding(7)
 var emissive_map_sampler: sampler;
-@group(1) @binding(8)
+@group(3) @binding(8)
 var ambient_occlusion_map_texture: texture_2d<f32>;
-@group(1) @binding(9)
+@group(3) @binding(9)
 var ambient_occlusion_map_sampler: sampler;
 
-@group(2) @binding(0)
+@group(1) @binding(0)
 var skybox_texture: texture_cube<f32>;
-@group(2) @binding(1)
+@group(1) @binding(1)
 var skybox_sampler: sampler;
-@group(2) @binding(2)
+@group(1) @binding(2)
 var diffuse_env_map_texture: texture_cube<f32>;
-@group(2) @binding(3)
+@group(1) @binding(3)
 var diffuse_env_map_sampler: sampler;
-@group(2) @binding(4)
+@group(1) @binding(4)
 var specular_env_map_texture: texture_cube<f32>;
-@group(2) @binding(5)
+@group(1) @binding(5)
 var specular_env_map_sampler: sampler;
-@group(2) @binding(6)
+@group(1) @binding(6)
 var brdf_lut_texture: texture_2d<f32>;
-@group(2) @binding(7)
+@group(1) @binding(7)
 var brdf_lut_sampler: sampler;
-@group(2) @binding(8)
+@group(1) @binding(8)
 var point_shadow_map_textures: texture_cube_array<f32>;
-@group(2) @binding(9)
+@group(1) @binding(9)
 var point_shadow_map_sampler: sampler;
-@group(2) @binding(10)
+@group(1) @binding(10)
 var directional_shadow_map_textures: texture_2d_array<f32>;
-@group(2) @binding(11)
+@group(1) @binding(11)
 var directional_shadow_map_sampler: sampler;
 
 
@@ -462,12 +488,24 @@ fn do_fragment_shade(
         metallicness
     );
 
+    let MAX_REFLECTION_LOD = 4.0;
+    let pre_filtered_color = textureSampleLevel(
+        specular_env_map_texture,
+        specular_env_map_sampler,
+        world_normal_to_cubemap_vec(reflection_vec),
+        roughness * MAX_REFLECTION_LOD
+    ).rgb;
+
     // copy variable names from the math formulas
     let n = world_normal;
     let w0 = to_viewer_vec;
     let v = w0;
     let a = roughness;
     let f0 = surface_reflection_at_zero_incidence;
+
+    let n_dot_v = max(dot(n, v), 0.0);
+    let brdf_lut_res = textureSample(brdf_lut_texture, brdf_lut_sampler, vec2<f32>(n_dot_v, roughness));
+    let env_map_diffuse_irradiance = textureSample(diffuse_env_map_texture, diffuse_env_map_sampler, world_normal_to_cubemap_vec(world_normal)).rgb;
 
 
     let random_seed = vec2<f32>(
@@ -480,7 +518,7 @@ fn do_fragment_shade(
         let light = point_lights.values[light_index];
         let light_color_scaled = light.color.xyz * light.color.w;
 
-        if (light_color_scaled.x < epsilon && light_color_scaled.y < epsilon && light_color_scaled.z < epsilon) {
+        if light_color_scaled.x < epsilon && light_color_scaled.y < epsilon && light_color_scaled.z < epsilon {
             continue;
         }
 
@@ -510,7 +548,7 @@ fn do_fragment_shade(
                         world_normal_to_cubemap_vec(from_shadow_vec + irregular_offset),
                         i32(light_index)
                     ).r;
-                    if (current_depth - bias < closest_depth) {
+                    if current_depth - bias < closest_depth {
                         shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
                     }
                 }
@@ -554,7 +592,7 @@ fn do_fragment_shade(
         //     shadow_occlusion_factor = 1.0;
         // }
 
-        if (shadow_occlusion_factor < epsilon) {
+        if shadow_occlusion_factor < epsilon {
                 continue;
         }
 
@@ -587,7 +625,7 @@ fn do_fragment_shade(
         let light = directional_lights.values[light_index];
         let light_color_scaled = light.color.xyz * light.color.w;
 
-        if (light_color_scaled.x < epsilon && light_color_scaled.y < epsilon && light_color_scaled.z < epsilon) {
+        if light_color_scaled.x < epsilon && light_color_scaled.y < epsilon && light_color_scaled.z < epsilon {
             continue;
         }
 
@@ -620,8 +658,8 @@ fn do_fragment_shade(
                     light_space_position_uv + irregular_offset,
                     i32(light_index)
                 ).r;
-                if (light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0) {
-                    if (current_depth - bias < closest_depth) {
+                if light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0 {
+                    if current_depth - bias < closest_depth {
                         shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
                     }
                 } else {
@@ -648,7 +686,7 @@ fn do_fragment_shade(
         // }
 
 
-        if (shadow_occlusion_factor < epsilon) {
+        if shadow_occlusion_factor < epsilon {
                 continue;
         }
 
@@ -672,27 +710,21 @@ fn do_fragment_shade(
 
 
 
-    let n_dot_v = max(dot(n, v), 0.0);
+
 
     let fresnel_ambient = fresnel_func_schlick_with_roughness(n_dot_v, f0, a);
     // mip level count - 1
-    let MAX_REFLECTION_LOD = 4.0;
-    let pre_filtered_color = textureSampleLevel(
-        specular_env_map_texture,
-        specular_env_map_sampler,
-        world_normal_to_cubemap_vec(reflection_vec),
-        roughness * MAX_REFLECTION_LOD
-    ).rgb;
+    
     // let pre_filtered_color = textureSample(
     //     specular_env_map_texture,
     //     specular_env_map_sampler,
     //     world_normal_to_cubemap_vec(reflection_vec)
     // ).rgb;
-    let brdf_lut_res = textureSample(brdf_lut_texture, brdf_lut_sampler, vec2<f32>(n_dot_v, roughness));
+
     let ambient_specular_irradiance = pre_filtered_color * (fresnel_ambient * brdf_lut_res.r + brdf_lut_res.g);
 
     let kd_ambient = (vec3<f32>(1.0) - fresnel_ambient) * (1.0 - metallicness);
-    let env_map_diffuse_irradiance = textureSample(diffuse_env_map_texture, diffuse_env_map_sampler, world_normal_to_cubemap_vec(world_normal)).rgb;
+
     let ambient_diffuse_irradiance = env_map_diffuse_irradiance * base_color;
 
     let ambient_irradiance_pre_ao = (kd_ambient * ambient_diffuse_irradiance + ambient_specular_irradiance);
@@ -712,7 +744,7 @@ fn do_fragment_shade(
     // let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
     let final_color = vec4<f32>(combined_irradiance_hdr, 1.0);
 
-    if (base_color_t.a <= alpha_cutoff) {
+    if base_color_t.a <= alpha_cutoff {
         discard;
     }
 

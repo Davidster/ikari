@@ -20,6 +20,7 @@ pub struct AllBoneTransformsSlice {
 pub fn get_all_bone_data(
     scene: &Scene,
     min_storage_buffer_offset_alignment: u32,
+    _logger: &mut Logger,
 ) -> AllBoneTransforms {
     let matrix_size_bytes = std::mem::size_of::<GpuMatrix4>();
     let identity_bone_count = 4;
@@ -35,72 +36,61 @@ pub fn get_all_bone_data(
     let mut animated_bone_transforms: Vec<AllBoneTransformsSlice> = Vec::new();
     let mut skin_index_to_slice_map: HashMap<usize, (usize, usize)> = HashMap::new();
 
-    let skinned_nodes: Vec<_> = scene
-        .nodes()
-        .filter_map(|node| {
-            scene.get_skeleton_skin_node_id(node.id()).and_then(
-                |skeleton_skin_node_id| match &scene.get_node(skeleton_skin_node_id).unwrap().mesh {
-                    Some(GameNodeMesh {
-                        mesh_indices,
-                        mesh_type: GameNodeMeshType::Pbr { .. },
-                        ..
-                    }) => Some((mesh_indices, skeleton_skin_node_id)),
-                    _ => None,
-                },
-            )
-        })
-        .collect();
+    for skin in &scene.skins {
+        if let Some(GameNodeMesh {
+            mesh_indices,
+            mesh_type: GameNodeMeshType::Pbr { .. },
+            ..
+        }) = &scene
+            .get_node(skin.node_id)
+            .and_then(|skin_node| skin_node.mesh.as_ref())
+        {
+            for binded_pbr_mesh_index in mesh_indices.iter().copied() {
+                let skin_index = scene.get_node(skin.node_id).unwrap().skin_index.unwrap();
 
-    for (binded_pbr_mesh_indices, skeleton_skin_node_id) in skinned_nodes {
-        for binded_pbr_mesh_index in binded_pbr_mesh_indices.iter().copied() {
-            let skin_index = scene
-                .get_node(skeleton_skin_node_id)
-                .unwrap()
-                .skin_index
-                .unwrap();
+                match skin_index_to_slice_map.entry(skin_index) {
+                    Entry::Occupied(entry) => {
+                        let (start_index, end_index) = *entry.get();
+                        animated_bone_transforms.push(AllBoneTransformsSlice {
+                            binded_pbr_mesh_index,
+                            start_index,
+                            end_index,
+                        });
+                    }
+                    Entry::Vacant(entry) => {
+                        let skin = &scene.skins[skin_index];
+                        let bone_transforms: Vec<_> = skin
+                            .bone_node_ids
+                            .iter()
+                            .enumerate()
+                            .map(|(bone_index, bone_node_id)| {
+                                GpuMatrix4(get_bone_skeleton_space_transform(
+                                    scene,
+                                    skin,
+                                    skin.node_id,
+                                    bone_index,
+                                    *bone_node_id,
+                                ))
+                            })
+                            .collect();
 
-            match skin_index_to_slice_map.entry(skin_index) {
-                Entry::Occupied(entry) => {
-                    let (start_index, end_index) = *entry.get();
-                    animated_bone_transforms.push(AllBoneTransformsSlice {
-                        binded_pbr_mesh_index,
-                        start_index,
-                        end_index,
-                    });
-                }
-                Entry::Vacant(entry) => {
-                    let skin = &scene.skins[skin_index];
-                    let bone_transforms: Vec<_> = skin
-                        .bone_node_ids
-                        .iter()
-                        .enumerate()
-                        .map(|(bone_index, bone_node_id)| {
-                            GpuMatrix4(get_bone_skeleton_space_transform(
-                                scene,
-                                skin,
-                                skeleton_skin_node_id,
-                                bone_index,
-                                *bone_node_id,
-                            ))
-                        })
-                        .collect();
+                        let start_index = buffer.len();
+                        let end_index = start_index + bone_transforms.len() * matrix_size_bytes;
+                        buffer.append(&mut bytemuck::cast_slice(&bone_transforms).to_vec());
 
-                    let start_index = buffer.len();
-                    let end_index = start_index + bone_transforms.len() * matrix_size_bytes;
-                    buffer.append(&mut bytemuck::cast_slice(&bone_transforms).to_vec());
+                        // add padding
+                        let needed_padding = min_storage_buffer_offset_alignment as usize
+                            - (buffer.len() % min_storage_buffer_offset_alignment as usize);
+                        let mut padding: Vec<_> = (0..needed_padding).map(|_| 0u8).collect();
+                        buffer.append(&mut padding);
 
-                    // add padding
-                    let needed_padding = min_storage_buffer_offset_alignment as usize
-                        - (buffer.len() % min_storage_buffer_offset_alignment as usize);
-                    let mut padding: Vec<_> = (0..needed_padding).map(|_| 0u8).collect();
-                    buffer.append(&mut padding);
-
-                    animated_bone_transforms.push(AllBoneTransformsSlice {
-                        binded_pbr_mesh_index,
-                        start_index,
-                        end_index,
-                    });
-                    entry.insert((start_index, end_index));
+                        animated_bone_transforms.push(AllBoneTransformsSlice {
+                            binded_pbr_mesh_index,
+                            start_index,
+                            end_index,
+                        });
+                        entry.insert((start_index, end_index));
+                    }
                 }
             }
         }

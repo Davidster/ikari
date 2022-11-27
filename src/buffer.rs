@@ -80,7 +80,7 @@ impl GpuBuffer {
         &self.src
     }
 
-    pub fn _stride(&self) -> usize {
+    pub fn stride(&self) -> usize {
         self.stride
     }
 
