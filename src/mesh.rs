@@ -67,7 +67,7 @@ impl GpuPbrMeshInstance {
         }
     }
 
-    pub fn new(transform: crate::transform::Transform, pbr_params: DynamicPbrParams) -> Self {
+    pub fn new(transform: cgmath::Matrix4<f32>, pbr_params: DynamicPbrParams) -> Self {
         let DynamicPbrParams {
             base_color_factor,
             emissive_factor,
@@ -78,7 +78,7 @@ impl GpuPbrMeshInstance {
             alpha_cutoff,
         } = pbr_params;
         Self {
-            model_transform: GpuMatrix4(transform.matrix()),
+            model_transform: GpuMatrix4(transform),
             base_color_factor: base_color_factor.into(),
             emissive_factor: [
                 emissive_factor[0],

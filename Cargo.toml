@@ -12,6 +12,7 @@ env_logger = "0.9"
 half = "2"
 log = "0.4"
 pollster = "0.2"
+twox-hash = "1.6.3"
 
 # assets
 gltf = "1"

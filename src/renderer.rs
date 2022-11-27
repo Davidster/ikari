@@ -2387,6 +2387,7 @@ impl RendererState {
         let mut yo = std::time::Instant::now();
         let mut pbr_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuPbrMeshInstance>> =
             HashMap::new();
+        scene.recompute_node_transforms();
         // let global_node_transforms = scene.get_global_node_transforms();
         // let mut howmany = 0;
         for node in scene.nodes() {

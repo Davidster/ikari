@@ -46,7 +46,15 @@ impl Transform {
     }
 
     pub fn matrix(&self) -> Matrix4<f32> {
-        self.matrix * self.base_matrix
+        if self.is_new {
+            Matrix4::identity()
+        } else {
+            self.matrix * self.base_matrix
+        }
+    }
+
+    pub fn is_new(&self) -> bool {
+        self.is_new
     }
 
     pub fn set_position(&mut self, new_position: Vector3<f32>) {
@@ -153,6 +161,7 @@ impl From<Matrix4<f32>> for Transform {
     fn from(matrix: Matrix4<f32>) -> Self {
         let mut transform = Transform::new();
         transform.base_matrix = matrix;
+        transform.is_new = false;
         transform
     }
 }
@@ -160,9 +169,9 @@ impl From<Matrix4<f32>> for Transform {
 impl From<SimpleTransform> for Transform {
     fn from(simple_transform: SimpleTransform) -> Self {
         let mut transform = Transform::new();
-        transform.position = simple_transform.position;
-        transform.rotation = simple_transform.rotation;
-        transform.scale = simple_transform.scale;
+        transform.set_position(simple_transform.position);
+        transform.set_rotation(simple_transform.rotation);
+        transform.set_scale(simple_transform.scale);
         transform.resync_matrix();
         transform
     }
@@ -258,6 +267,7 @@ impl TransformBuilder {
         result.set_position(self.position);
         result.set_rotation(self.rotation);
         result.set_scale(self.scale);
+        result.is_new = false;
         result
     }
 }
