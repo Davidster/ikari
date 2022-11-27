@@ -12,6 +12,8 @@ env_logger = "0.9"
 half = "2"
 log = "0.4"
 pollster = "0.2"
+puffin = "0.14"
+puffin_http = "0.11"
 
 # assets
 gltf = "1"
