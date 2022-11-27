@@ -39,7 +39,7 @@ pub struct CameraUniform {
     position: [f32; 4],
     near_plane_distance: f32,
     far_plane_distance: f32,
-    padding: [f32; 2], // TODO: remove
+    padding: [f32; 2],
 }
 
 impl CameraUniform {
@@ -58,7 +58,7 @@ impl CameraUniform {
 
 impl ShaderCameraView {
     pub fn from_transform(
-        transform: crate::transform::Transform,
+        transform: Matrix4<f32>,
         aspect_ratio: f32,
         near_plane_distance: f32,
         far_plane_distance: f32,
@@ -72,10 +72,10 @@ impl ShaderCameraView {
             aspect_ratio,
             reverse_z,
         );
-        let rotation_only_matrix = clear_translation_from_matrix(transform.matrix());
+        let rotation_only_matrix = clear_translation_from_matrix(transform);
         let rotation_only_view = rotation_only_matrix.inverse_transform().unwrap();
-        let view = transform.matrix().inverse_transform().unwrap();
-        let position = get_translation_from_matrix(transform.matrix());
+        let view = transform.inverse_transform().unwrap();
+        let position = get_translation_from_matrix(transform);
         Self {
             proj,
             view,
@@ -142,7 +142,7 @@ pub fn build_cubemap_face_camera_views(
     )
     .map(|camera| {
         ShaderCameraView::from_transform(
-            camera.to_transform(),
+            camera.to_transform().matrix(),
             1.0,
             near_plane_distance,
             far_plane_distance,

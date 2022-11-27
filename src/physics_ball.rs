@@ -27,6 +27,7 @@ impl PhysicsBall {
             GameNodeDescBuilder::new()
                 .mesh(Some(mesh))
                 .transform(transform)
+                .name(Some("physics_ball".to_string()))
                 .build(),
         );
 
