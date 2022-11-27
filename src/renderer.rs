@@ -2387,7 +2387,7 @@ impl RendererState {
         let mut yo = std::time::Instant::now();
         let mut pbr_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuPbrMeshInstance>> =
             HashMap::new();
-        let global_node_transforms = scene.get_global_node_transforms();
+        // let global_node_transforms = scene.get_global_node_transforms();
         // let mut howmany = 0;
         for node in scene.nodes() {
             // if self.enable_wireframe_mode {
@@ -2395,8 +2395,8 @@ impl RendererState {
             //     continue;
             // }
             // TODO: get_global_transform_for_node is the slow part!
-            // let transform = scene.get_global_transform_for_node(node.id());
-            let transform = *global_node_transforms.get(&node.id()).unwrap();
+            let transform = scene.get_global_transform_for_node_new(node.id());
+            // let transform = *global_node_transforms.get(&node.id()).unwrap();
             // if old_transform != transform {
             //     dbg!(old_transform, transform, howmany);
             //     panic!();

@@ -11,6 +11,7 @@ pub struct Scene {
     pub animations: Vec<Animation>,
     // node index -> parent node index
     parent_index_map: HashMap<usize, usize>,
+    child_index_map: HashMap<usize, usize>,
     // skeleton skin node index -> parent_index_map
     skeleton_parent_index_maps: HashMap<usize, HashMap<usize, usize>>,
 }
@@ -84,6 +85,8 @@ pub struct IndexedChannel {
     pub keyframe_values_u8: Vec<u8>,
 }
 
+const MAX_NODE_ANCESTRY_LIST_LENGTH: usize = 8;
+
 impl Scene {
     pub fn new(
         nodes_desc: Vec<GameNodeDesc>,
@@ -91,6 +94,10 @@ impl Scene {
         animations: Vec<IndexedAnimation>,
         parent_index_map: HashMap<usize, usize>,
     ) -> Self {
+        let child_index_map: HashMap<usize, usize> = parent_index_map
+            .iter()
+            .map(|(&child, &parent)| (parent, child))
+            .collect();
         let animations: Vec<_> = animations
             .iter()
             .map(|indexed_animation| Animation {
@@ -115,6 +122,7 @@ impl Scene {
             skins: Vec::new(),
             animations,
             parent_index_map,
+            child_index_map,
             skeleton_parent_index_maps: HashMap::new(),
         };
 
@@ -236,6 +244,8 @@ impl Scene {
                 if let Some(parent_index) = other_scene.parent_index_map.get(&old_index) {
                     self.parent_index_map
                         .insert(new_index, parent_index + node_index_offset);
+                    self.child_index_map
+                        .insert(parent_index + node_index_offset, new_index);
                 }
                 node.id.0 = new_index;
             }
@@ -282,6 +292,15 @@ impl Scene {
             .copied()
             .map(|node_index| GameNodeId(node_index, self.nodes[node_index].1))
             .collect()
+    }
+
+    pub fn get_node_ancestry_list_new(
+        &self,
+        node_id: GameNodeId,
+    ) -> impl Iterator<Item = GameNodeId> + '_ {
+        let GameNodeId(node_index, _) = node_id;
+        get_node_ancestry_list_iterator(node_index, &self.parent_index_map)
+            .map(|node_index| GameNodeId(node_index, self.nodes[node_index].1))
     }
 
     pub fn get_skeleton_node_ancestry_list(
@@ -416,6 +435,33 @@ impl Scene {
             })
     }
 
+    pub fn get_global_transform_for_node_new(
+        &self,
+        node_id: GameNodeId,
+    ) -> crate::transform::Transform {
+        let GameNodeId(node_index, _) = node_id;
+        let mut node_ancestry_list: [usize; MAX_NODE_ANCESTRY_LIST_LENGTH] =
+            [0; MAX_NODE_ANCESTRY_LIST_LENGTH];
+        let mut ancestry_length = 0;
+        for (i, node_index) in
+            get_node_ancestry_list_iterator(node_index, &self.parent_index_map).enumerate()
+        {
+            node_ancestry_list[i] = node_index;
+            ancestry_length += 1;
+        }
+        let mut acc = crate::transform::Transform::new();
+        for ancestry_list_index in (0..ancestry_length).rev() {
+            let node_index = node_ancestry_list[ancestry_list_index];
+            let (node, _) = &self.nodes[node_index];
+            acc = acc * node.as_ref().unwrap().transform;
+        }
+        acc
+        // self.get_node_ancestry_list_new(node_id)
+        //     .fold(crate::transform::Transform::new(), |acc, node_id| {
+        //         acc * self.get_node(node_id).unwrap().transform
+        //     })
+    }
+
     pub fn add_node(&mut self, node: GameNodeDesc) -> &GameNode {
         let GameNodeDesc {
             transform,
@@ -494,6 +540,10 @@ impl Scene {
         if let Some(node) = self.get_node(node_id) {
             let GameNodeId(node_index, _) = node.id;
             self.nodes[node_index].0.take();
+
+            // TODO: probs dont need the find_map calls. can use the other maps to find the index
+
+            // update parent index map
             self.parent_index_map.remove(&node_index);
             let child_entry_option =
                 self.parent_index_map
@@ -504,6 +554,19 @@ impl Scene {
             if let Some((child_index, _)) = child_entry_option {
                 self.parent_index_map.remove(&child_index);
             }
+
+            // update child index map
+            self.child_index_map.remove(&node_index);
+            let parent_entry_option =
+                self.child_index_map
+                    .iter()
+                    .find_map(|(parent_index, child_index)| {
+                        (*child_index == node_index).then_some((*parent_index, *child_index))
+                    });
+            if let Some((parent_index, _)) = parent_entry_option {
+                self.child_index_map.remove(&parent_index);
+            }
+
             self.rebuild_skeleton_parent_index_maps();
         }
     }
@@ -522,6 +585,7 @@ impl Scene {
             let GameNodeId(node_index, _) = node.id();
             let GameNodeId(parent_node_index, _) = parent_node.id();
             self.parent_index_map.insert(node_index, parent_node_index);
+            self.child_index_map.insert(parent_node_index, node_index);
         }
     }
 
@@ -557,6 +621,15 @@ fn get_node_ancestry_list_impl(
         }
         None => with_self,
     }
+}
+
+fn get_node_ancestry_list_iterator(
+    node_index: usize,
+    parent_index_map: &HashMap<usize, usize>,
+) -> impl Iterator<Item = usize> + '_ {
+    std::iter::successors(Some(node_index), |node_index| {
+        parent_index_map.get(node_index).copied()
+    })
 }
 
 impl GameNode {
