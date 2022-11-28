@@ -258,7 +258,6 @@ pub struct BaseRendererState {
     pub window_size: winit::dpi::PhysicalSize<u32>,
     pub single_texture_bind_group_layout: wgpu::BindGroupLayout,
     pub two_texture_bind_group_layout: wgpu::BindGroupLayout,
-    pub bones_bind_group_layout: wgpu::BindGroupLayout,
     pub bones_and_instances_bind_group_layout: wgpu::BindGroupLayout,
     pub pbr_textures_bind_group_layout: wgpu::BindGroupLayout,
     pub default_textures: DefaultTextures,
@@ -462,21 +461,6 @@ impl BaseRendererState {
                 label: Some("four_texture_bind_group_layout"),
             });
 
-        let bones_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: true,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some("bones_and_instances_bind_group_layout"),
-            });
-
         let bones_and_instances_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -516,7 +500,6 @@ impl BaseRendererState {
             window_size,
             single_texture_bind_group_layout,
             two_texture_bind_group_layout,
-            bones_bind_group_layout,
             bones_and_instances_bind_group_layout,
             pbr_textures_bind_group_layout,
             default_textures: DefaultTextures::new(),
@@ -674,8 +657,9 @@ pub struct RendererState {
     bloom_blur_pipeline: wgpu::RenderPipeline,
 
     camera_and_lights_bind_group: wgpu::BindGroup,
-    // bones_bind_group: wgpu::BindGroup,
-    bones_and_instances_bind_group: wgpu::BindGroup,
+    bones_and_pbr_instances_bind_group: wgpu::BindGroup,
+    bones_and_unlit_instances_bind_group: wgpu::BindGroup,
+    bones_and_wireframe_instances_bind_group: wgpu::BindGroup,
     bloom_config_bind_group: wgpu::BindGroup,
     tone_mapping_config_bind_group: wgpu::BindGroup,
 
@@ -689,7 +673,9 @@ pub struct RendererState {
     point_lights_buffer: wgpu::Buffer,
     directional_lights_buffer: wgpu::Buffer,
     bones_buffer: GpuBuffer,
-    instances_buffer: GpuBuffer,
+    pbr_instances_buffer: GpuBuffer,
+    unlit_instances_buffer: GpuBuffer,
+    wireframe_instances_buffer: GpuBuffer,
     bloom_config_buffer: wgpu::Buffer,
     tone_mapping_config_buffer: wgpu::Buffer,
 
@@ -702,6 +688,8 @@ pub struct RendererState {
 
     all_bone_transforms: AllBoneTransforms,
     all_pbr_instances: AllInstances,
+    all_unlit_instances: AllInstances,
+    all_wireframe_instances: AllInstances,
 
     pub skybox_mesh_buffers: GeometryBuffers,
 
@@ -721,7 +709,6 @@ impl RendererState {
         let single_texture_bind_group_layout = &base.single_texture_bind_group_layout;
         let two_texture_bind_group_layout = &base.two_texture_bind_group_layout;
         let pbr_textures_bind_group_layout = &base.pbr_textures_bind_group_layout;
-        let bones_bind_group_layout = &base.bones_bind_group_layout;
         let bones_and_instances_bind_group_layout = &base.bones_and_instances_bind_group_layout;
 
         logger.log("Controls:");
@@ -1034,14 +1021,14 @@ impl RendererState {
                 label: Some("Unlit Mesh Pipeline Layout"),
                 bind_group_layouts: &[
                     &camera_and_lights_bind_group_layout,
-                    bones_bind_group_layout,
+                    bones_and_instances_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
         let mut unlit_mesh_pipeline_descriptor = mesh_pipeline_descriptor.clone();
         unlit_mesh_pipeline_descriptor.label = Some("Unlit Mesh Render Pipeline");
         unlit_mesh_pipeline_descriptor.layout = Some(&unlit_mesh_pipeline_layout);
-        let unlit_mesh_pipeline_v_buffers = &[Vertex::desc(), GpuUnlitMeshInstance::desc()];
+        let unlit_mesh_pipeline_v_buffers = &[Vertex::desc()];
         unlit_mesh_pipeline_descriptor.vertex = wgpu::VertexState {
             module: &unlit_mesh_shader,
             entry_point: "vs_main",
@@ -1056,7 +1043,7 @@ impl RendererState {
 
         let mut wireframe_pipeline_descriptor = unlit_mesh_pipeline_descriptor.clone();
         wireframe_pipeline_descriptor.label = Some("Wireframe Render Pipeline");
-        let wireframe_mesh_pipeline_v_buffers = &[Vertex::desc(), GpuWireframeMeshInstance::desc()];
+        let wireframe_mesh_pipeline_v_buffers = &[Vertex::desc()];
         wireframe_pipeline_descriptor.vertex.buffers = wireframe_mesh_pipeline_v_buffers;
         wireframe_pipeline_descriptor.primitive = wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::LineList,
@@ -1809,48 +1796,107 @@ impl RendererState {
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
-        let instances_buffer = GpuBuffer::empty(
+        let pbr_instances_buffer = GpuBuffer::empty(
             device,
             1,
             std::mem::size_of::<GpuPbrMeshInstance>(),
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
-        // let bones_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        //     layout: bones_bind_group_layout,
-        //     entries: &[wgpu::BindGroupEntry {
-        //         binding: 0,
-        //         resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-        //             buffer: bones_buffer.src(),
-        //             offset: 0,
-        //             size: NonZeroU64::new(bones_buffer.capacity_bytes().try_into().unwrap()),
-        //         }),
-        //     }],
-        //     label: Some("bones_bind_group"),
-        // });
+        let unlit_instances_buffer = GpuBuffer::empty(
+            device,
+            1,
+            std::mem::size_of::<GpuUnlitMeshInstance>(),
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
 
-        let bones_and_instances_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: bones_and_instances_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: bones_buffer.src(),
-                        offset: 0,
-                        size: NonZeroU64::new(bones_buffer.length_bytes().try_into().unwrap()),
-                    }),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: instances_buffer.src(),
-                        offset: 0,
-                        size: NonZeroU64::new(instances_buffer.length_bytes().try_into().unwrap()),
-                    }),
-                },
-            ],
-            label: Some("bones_and_instances_bind_group"),
-        });
+        let wireframe_instances_buffer = GpuBuffer::empty(
+            device,
+            1,
+            std::mem::size_of::<GpuUnlitMeshInstance>(),
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
+
+        let bones_and_pbr_instances_bind_group =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: bones_and_instances_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: bones_buffer.src(),
+                            offset: 0,
+                            size: NonZeroU64::new(bones_buffer.length_bytes().try_into().unwrap()),
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: pbr_instances_buffer.src(),
+                            offset: 0,
+                            size: NonZeroU64::new(
+                                pbr_instances_buffer.length_bytes().try_into().unwrap(),
+                            ),
+                        }),
+                    },
+                ],
+                label: Some("bones_and_pbr_instances_bind_group"),
+            });
+
+        let bones_and_unlit_instances_bind_group =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: bones_and_instances_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: bones_buffer.src(),
+                            offset: 0,
+                            size: NonZeroU64::new(bones_buffer.length_bytes().try_into().unwrap()),
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: unlit_instances_buffer.src(),
+                            offset: 0,
+                            size: NonZeroU64::new(
+                                unlit_instances_buffer.length_bytes().try_into().unwrap(),
+                            ),
+                        }),
+                    },
+                ],
+                label: Some("bones_and_unlit_instances_bind_group"),
+            });
+
+        let bones_and_wireframe_instances_bind_group =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: bones_and_instances_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: bones_buffer.src(),
+                            offset: 0,
+                            size: NonZeroU64::new(bones_buffer.length_bytes().try_into().unwrap()),
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: wireframe_instances_buffer.src(),
+                            offset: 0,
+                            size: NonZeroU64::new(
+                                wireframe_instances_buffer
+                                    .length_bytes()
+                                    .try_into()
+                                    .unwrap(),
+                            ),
+                        }),
+                    },
+                ],
+                label: Some("bones_and_wireframe_instances_bind_group"),
+            });
 
         let point_shadow_map_textures = Texture::create_cube_depth_texture_array(
             device,
@@ -1953,8 +1999,9 @@ impl RendererState {
             bloom_blur_pipeline,
 
             camera_and_lights_bind_group,
-            // bones_bind_group,
-            bones_and_instances_bind_group,
+            bones_and_pbr_instances_bind_group,
+            bones_and_unlit_instances_bind_group,
+            bones_and_wireframe_instances_bind_group,
             bloom_config_bind_group,
             tone_mapping_config_bind_group,
 
@@ -1968,7 +2015,9 @@ impl RendererState {
             point_lights_buffer,
             directional_lights_buffer,
             bones_buffer,
-            instances_buffer,
+            pbr_instances_buffer,
+            unlit_instances_buffer,
+            wireframe_instances_buffer,
             bloom_config_buffer,
             tone_mapping_config_buffer,
 
@@ -1989,6 +2038,14 @@ impl RendererState {
                 identity_slice: (0, 0),
             },
             all_pbr_instances: AllInstances {
+                buffer: vec![],
+                instances: vec![],
+            },
+            all_unlit_instances: AllInstances {
+                buffer: vec![],
+                instances: vec![],
+            },
+            all_wireframe_instances: AllInstances {
                 buffer: vec![],
                 instances: vec![],
             },
@@ -2360,28 +2417,106 @@ impl RendererState {
 
         let mut pbr_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuPbrMeshInstance>> =
             HashMap::new();
+        let mut unlit_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuUnlitMeshInstance>> =
+            HashMap::new();
+        let mut wireframe_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuUnlitMeshInstance>> =
+            HashMap::new();
         for node in scene.nodes() {
             let transform = scene.get_global_transform_for_node_opt(node.id());
             if let Some(GameNodeMesh {
                 mesh_indices,
-                mesh_type: GameNodeMeshType::Pbr { material_override },
-                wireframe: false,
+                mesh_type,
+                wireframe,
                 ..
             }) = &node.mesh
             {
                 for mesh_index in mesh_indices.iter().copied() {
-                    let gpu_instance = GpuPbrMeshInstance::new(
-                        transform,
-                        material_override.unwrap_or_else(|| {
-                            self.buffers.binded_pbr_meshes[mesh_index].dynamic_pbr_params
-                        }),
-                    );
-                    match pbr_mesh_index_to_gpu_instances.entry(mesh_index) {
-                        Entry::Occupied(mut entry) => {
-                            entry.get_mut().push(gpu_instance);
+                    match (mesh_type, self.enable_wireframe_mode, *wireframe) {
+                        (GameNodeMeshType::Pbr { material_override }, false, false) => {
+                            let gpu_instance = GpuPbrMeshInstance::new(
+                                transform,
+                                material_override.unwrap_or_else(|| {
+                                    self.buffers.binded_pbr_meshes[mesh_index].dynamic_pbr_params
+                                }),
+                            );
+                            match pbr_mesh_index_to_gpu_instances.entry(mesh_index) {
+                                Entry::Occupied(mut entry) => {
+                                    entry.get_mut().push(gpu_instance);
+                                }
+                                Entry::Vacant(entry) => {
+                                    entry.insert(vec![gpu_instance]);
+                                }
+                            }
                         }
-                        Entry::Vacant(entry) => {
-                            entry.insert(vec![gpu_instance]);
+                        (mesh_type, is_wireframe_mode_on, is_node_wireframe) => {
+                            let color = match mesh_type {
+                                GameNodeMeshType::Unlit { color } => {
+                                    [color.x, color.y, color.z, 1.0]
+                                }
+                                GameNodeMeshType::Pbr { material_override } => {
+                                    let fallback_pbr_params = self.buffers.binded_pbr_meshes
+                                        [mesh_index]
+                                        .dynamic_pbr_params;
+                                    let (base_color_factor, emissive_factor) = material_override
+                                        .map(|material_override| {
+                                            (
+                                                material_override.base_color_factor,
+                                                material_override.emissive_factor,
+                                            )
+                                        })
+                                        .unwrap_or((
+                                            fallback_pbr_params.base_color_factor,
+                                            fallback_pbr_params.emissive_factor,
+                                        ));
+                                    let should_take_color = |as_slice: &[f32]| {
+                                        let is_all_zero = as_slice.iter().all(|&x| x == 0.0);
+                                        let is_all_one = as_slice.iter().all(|&x| x == 1.0);
+                                        !is_all_zero && !is_all_one
+                                    };
+                                    let base_color_factor_arr: [f32; 4] = base_color_factor.into();
+                                    let emissive_factor_arr: [f32; 3] = emissive_factor.into();
+                                    if should_take_color(&base_color_factor_arr[0..3]) {
+                                        [
+                                            base_color_factor.x,
+                                            base_color_factor.y,
+                                            base_color_factor.z,
+                                            base_color_factor.w,
+                                        ]
+                                    } else if should_take_color(&emissive_factor_arr) {
+                                        [
+                                            emissive_factor.x,
+                                            emissive_factor.y,
+                                            emissive_factor.z,
+                                            1.0,
+                                        ]
+                                    } else {
+                                        DEFAULT_WIREFRAME_COLOR
+                                    }
+                                }
+                            };
+                            let gpu_instance = GpuUnlitMeshInstance {
+                                color,
+                                model_transform: GpuMatrix4(transform),
+                            };
+                            if is_wireframe_mode_on || is_node_wireframe {
+                                match wireframe_mesh_index_to_gpu_instances.entry(mesh_index) {
+                                    Entry::Occupied(mut entry) => {
+                                        entry.get_mut().push(gpu_instance);
+                                    }
+                                    Entry::Vacant(entry) => {
+                                        entry.insert(vec![gpu_instance]);
+                                    }
+                                }
+                            } else {
+                                match unlit_mesh_index_to_gpu_instances.entry(mesh_index) {
+                                    Entry::Occupied(mut entry) => {
+                                        entry.get_mut().push(gpu_instance);
+                                    }
+                                    Entry::Vacant(entry) => {
+                                        entry.insert(vec![gpu_instance]);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -2391,8 +2526,8 @@ impl RendererState {
         let min_storage_buffer_offset_alignment =
             self.base.limits.min_storage_buffer_offset_alignment;
 
-        let mut max_instances = 0;
-
+        // TODO: DRY!
+        let mut max_pbr_instances = 0;
         self.all_pbr_instances = {
             let instance_size_bytes = std::mem::size_of::<GpuPbrMeshInstance>();
             let mut buffer: Vec<u8> = Vec::new();
@@ -2409,8 +2544,8 @@ impl RendererState {
                 let mut padding: Vec<_> = (0..needed_padding).map(|_| 0u8).collect();
                 buffer.append(&mut padding);
 
-                if gpu_instances.len() > max_instances {
-                    max_instances = gpu_instances.len();
+                if gpu_instances.len() > max_pbr_instances {
+                    max_pbr_instances = gpu_instances.len();
                 }
 
                 instances.push(AllInstancesSlice {
@@ -2421,8 +2556,8 @@ impl RendererState {
             }
 
             // to avoid 'Dynamic binding at index x with offset y would overrun the buffer' error
-            let mut max_instances_padding: Vec<_> = (0..(max_instances
-                * self.instances_buffer.stride()))
+            let mut max_instances_padding: Vec<_> = (0..(max_pbr_instances
+                * self.pbr_instances_buffer.stride()))
                 .map(|_| 0u8)
                 .collect();
             buffer.append(&mut max_instances_padding);
@@ -2430,22 +2565,133 @@ impl RendererState {
             AllInstances { buffer, instances }
         };
 
-        let previous_instances_buffer_capacity_bytes = self.instances_buffer.capacity_bytes();
-        let instances_buffer_changed_capacity =
-            self.instances_buffer
+        let previous_pbr_instances_buffer_capacity_bytes =
+            self.pbr_instances_buffer.capacity_bytes();
+        let pbr_instances_buffer_changed_capacity =
+            self.pbr_instances_buffer
                 .write(device, queue, &self.all_pbr_instances.buffer);
 
-        if instances_buffer_changed_capacity {
+        if pbr_instances_buffer_changed_capacity {
             logger.log(&format!(
                 "Resized pbr instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
-                previous_instances_buffer_capacity_bytes,
-                self.instances_buffer.capacity_bytes(),
-                self.instances_buffer.length_bytes(),
+                previous_pbr_instances_buffer_capacity_bytes,
+                self.pbr_instances_buffer.capacity_bytes(),
+                self.pbr_instances_buffer.length_bytes(),
                 self.all_pbr_instances.buffer.len(),
             ));
         }
 
-        self.bones_and_instances_bind_group =
+        let mut max_unlit_instances = 0;
+        self.all_unlit_instances = {
+            let instance_size_bytes = std::mem::size_of::<GpuUnlitMeshInstance>();
+            let mut buffer: Vec<u8> = Vec::new();
+            let mut instances: Vec<AllInstancesSlice> = Vec::new();
+
+            for (mesh_index, gpu_instances) in unlit_mesh_index_to_gpu_instances {
+                let start_index = buffer.len();
+                let end_index = start_index + gpu_instances.len() * instance_size_bytes;
+                buffer.append(&mut bytemuck::cast_slice(&gpu_instances).to_vec());
+
+                // add padding
+                let needed_padding = min_storage_buffer_offset_alignment as usize
+                    - (buffer.len() % min_storage_buffer_offset_alignment as usize);
+                let mut padding: Vec<_> = (0..needed_padding).map(|_| 0u8).collect();
+                buffer.append(&mut padding);
+
+                if gpu_instances.len() > max_unlit_instances {
+                    max_unlit_instances = gpu_instances.len();
+                }
+
+                instances.push(AllInstancesSlice {
+                    mesh_index,
+                    start_index,
+                    end_index,
+                })
+            }
+
+            // to avoid 'Dynamic binding at index x with offset y would overrun the buffer' error
+            let mut max_instances_padding: Vec<_> = (0..(max_unlit_instances
+                * self.unlit_instances_buffer.stride()))
+                .map(|_| 0u8)
+                .collect();
+            buffer.append(&mut max_instances_padding);
+
+            AllInstances { buffer, instances }
+        };
+
+        let previous_unlit_instances_buffer_capacity_bytes =
+            self.unlit_instances_buffer.capacity_bytes();
+        let unlit_instances_buffer_changed_capacity =
+            self.unlit_instances_buffer
+                .write(device, queue, &self.all_unlit_instances.buffer);
+
+        if unlit_instances_buffer_changed_capacity {
+            logger.log(&format!(
+                "Resized unlit instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
+                previous_unlit_instances_buffer_capacity_bytes,
+                self.unlit_instances_buffer.capacity_bytes(),
+                self.unlit_instances_buffer.length_bytes(),
+                self.all_unlit_instances.buffer.len(),
+            ));
+        }
+
+        let mut max_wireframe_instances = 0;
+        self.all_wireframe_instances = {
+            let instance_size_bytes = std::mem::size_of::<GpuUnlitMeshInstance>();
+            let mut buffer: Vec<u8> = Vec::new();
+            let mut instances: Vec<AllInstancesSlice> = Vec::new();
+
+            for (mesh_index, gpu_instances) in wireframe_mesh_index_to_gpu_instances {
+                let start_index = buffer.len();
+                let end_index = start_index + gpu_instances.len() * instance_size_bytes;
+                buffer.append(&mut bytemuck::cast_slice(&gpu_instances).to_vec());
+
+                // add padding
+                let needed_padding = min_storage_buffer_offset_alignment as usize
+                    - (buffer.len() % min_storage_buffer_offset_alignment as usize);
+                let mut padding: Vec<_> = (0..needed_padding).map(|_| 0u8).collect();
+                buffer.append(&mut padding);
+
+                if gpu_instances.len() > max_wireframe_instances {
+                    max_wireframe_instances = gpu_instances.len();
+                }
+
+                instances.push(AllInstancesSlice {
+                    mesh_index,
+                    start_index,
+                    end_index,
+                })
+            }
+
+            // to avoid 'Dynamic binding at index x with offset y would overrun the buffer' error
+            let mut max_instances_padding: Vec<_> = (0..(max_wireframe_instances
+                * self.wireframe_instances_buffer.stride()))
+                .map(|_| 0u8)
+                .collect();
+            buffer.append(&mut max_instances_padding);
+
+            AllInstances { buffer, instances }
+        };
+
+        let previous_wireframe_instances_buffer_capacity_bytes =
+            self.wireframe_instances_buffer.capacity_bytes();
+        let wireframe_instances_buffer_changed_capacity = self.wireframe_instances_buffer.write(
+            device,
+            queue,
+            &self.all_wireframe_instances.buffer,
+        );
+
+        if wireframe_instances_buffer_changed_capacity {
+            logger.log(&format!(
+                "Resized wireframe instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
+                previous_wireframe_instances_buffer_capacity_bytes,
+                self.wireframe_instances_buffer.capacity_bytes(),
+                self.wireframe_instances_buffer.length_bytes(),
+                self.all_wireframe_instances.buffer.len(),
+            ));
+        }
+
+        self.bones_and_pbr_instances_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: bones_and_instances_bind_group_layout,
                 entries: &[
@@ -2462,282 +2708,108 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: self.instances_buffer.src(),
+                            buffer: self.pbr_instances_buffer.src(),
                             offset: 0,
                             size: NonZeroU64::new(
-                                (max_instances * self.instances_buffer.stride())
+                                (max_pbr_instances * self.pbr_instances_buffer.stride())
                                     .try_into()
                                     .unwrap(),
                             ),
                         }),
                     },
                 ],
-                label: Some("bones_and_instances_bind_group"),
+                label: Some("bones_and_pbr_instances_bind_group"),
             });
 
-        // self.buffers
-        //     .binded_pbr_meshes
-        //     .iter_mut()
-        //     .enumerate()
-        //     .for_each(
-        //         |(
-        //             binded_pbr_mesh_index,
-        //             BindedPbrMesh {
-        //                 geometry_buffers,
-        //                 dynamic_pbr_params,
-        //                 ..
-        //             },
-        //         )| {
-        //             let gpu_instances: Vec<_> = scene
-        //                 .nodes()
-        //                 .filter(|_| !self.enable_wireframe_mode)
-        //                 .filter_map(|node| match &node.mesh {
-        //                     Some(GameNodeMesh {
-        //                         mesh_indices,
-        //                         mesh_type: GameNodeMeshType::Pbr { material_override },
-        //                         wireframe: false,
-        //                         ..
-        //                     }) => mesh_indices
-        //                         .iter()
-        //                         .find(|node_mesh_index| **node_mesh_index == binded_pbr_mesh_index)
-        //                         .map(|_| {
-        //                             (
-        //                                 node.id(),
-        //                                 material_override,
-        //                                 node.skin_index.unwrap_or(usize::MAX),
-        //                             )
-        //                         }),
-        //                     _ => None,
-        //                 })
-        //                 .map(|(node_id, material_override, _)| {
-        //                     let transform = scene.get_global_transform_for_node(node_id);
-        //                     GpuPbrMeshInstance::new(
-        //                         transform,
-        //                         material_override.unwrap_or(*dynamic_pbr_params),
-        //                     )
-        //                 })
-        //                 .collect();
-        //             let previous_buffer_capacity_bytes =
-        //                 geometry_buffers.instance_buffer.capacity_bytes();
-        //             let resized = geometry_buffers.instance_buffer.write(
-        //                 device,
-        //                 queue,
-        //                 bytemuck::cast_slice(&gpu_instances),
-        //             );
-        //             if resized {
-        //                 logger.log(&format!(
-        //                     "Resized pbr instance buffer capacity from {:?} bytes to {:?}",
-        //                     previous_buffer_capacity_bytes,
-        //                     geometry_buffers.instance_buffer.capacity_bytes()
-        //                 ));
-        //             }
-        //         },
-        //     );
+        self.bones_and_unlit_instances_bind_group =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: bones_and_instances_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: self.bones_buffer.src(),
+                            offset: 0,
+                            size: NonZeroU64::new(
+                                self.bones_buffer.length_bytes().try_into().unwrap(),
+                            ),
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: self.unlit_instances_buffer.src(),
+                            offset: 0,
+                            size: NonZeroU64::new(
+                                (max_unlit_instances * self.unlit_instances_buffer.stride())
+                                    .try_into()
+                                    .unwrap(),
+                            ),
+                        }),
+                    },
+                ],
+                label: Some("bones_and_unlit_instances_bind_group"),
+            });
 
-        // self.buffers
-        //     .binded_unlit_meshes
-        //     .iter_mut()
-        //     .enumerate()
-        //     .for_each(
-        //         |(
-        //             binded_unlit_mesh_index,
-        //             BindedUnlitMesh {
-        //                 instance_buffer, ..
-        //             },
-        //         )| {
-        //             let gpu_instances: Vec<_> = scene
-        //                 .nodes()
-        //                 .filter(|_| !self.enable_wireframe_mode)
-        //                 .filter_map(|node| match &node.mesh {
-        //                     Some(GameNodeMesh {
-        //                         mesh_indices,
-        //                         mesh_type: GameNodeMeshType::Unlit { color },
-        //                         wireframe: false,
-        //                     }) => mesh_indices
-        //                         .iter()
-        //                         .find(|node_mesh_index| {
-        //                             **node_mesh_index == binded_unlit_mesh_index
-        //                         })
-        //                         .map(|_| (node.id(), color)),
-        //                     _ => None,
-        //                 })
-        //                 .map(|(node_id, color)| GpuUnlitMeshInstance {
-        //                     color: [color.x, color.y, color.z, 1.0],
-        //                     model_transform: GpuMatrix4(
-        //                         scene.get_global_transform_for_node(node_id).matrix(),
-        //                     ),
-        //                 })
-        //                 .collect();
-        //             let previous_buffer_capacity_bytes = instance_buffer.capacity_bytes();
-        //             let resized =
-        //                 instance_buffer.write(device, queue, bytemuck::cast_slice(&gpu_instances));
-        //             if resized {
-        //                 logger.log(&format!(
-        //                     "Resized unlit instance buffer capacity from {:?} bytes to {:?}",
-        //                     previous_buffer_capacity_bytes,
-        //                     instance_buffer.capacity_bytes()
-        //                 ));
-        //             }
-        //         },
-        //     );
-        // log the number of binded wireframemeshes:
-        // logger.log(&format!(
-        //     "self.buffers.binded_wireframe_meshes.len() -> {:?}",
-        //     self.buffers.binded_wireframe_meshes.len()
-        // ));
-        // self.buffers.binded_wireframe_meshes.iter_mut().for_each(
-        //     |BindedWireframeMesh {
-        //          source_mesh_type,
-        //          source_mesh_index,
-        //          instance_buffer,
-        //          ..
-        //      }| {
-        //         let gpu_instances: Vec<_> = scene
-        //             .nodes()
-        //             .filter(|node| {
-        //                 if self.enable_wireframe_mode {
-        //                     true
-        //                 } else {
-        //                     node.mesh.is_some() && node.mesh.as_ref().unwrap().wireframe
-        //                 }
-        //             })
-        //             .filter(|node| match &node.mesh {
-        //                 Some(GameNodeMesh {
-        //                     mesh_indices,
-        //                     mesh_type,
-        //                     ..
-        //                 }) => {
-        //                     *source_mesh_type == (*mesh_type).into()
-        //                         && mesh_indices
-        //                             .iter()
-        //                             .any(|node_mesh_index| *node_mesh_index == *source_mesh_index)
-        //                 }
-        //                 _ => false,
-        //             })
-        //             .map(|node| {
-        //                 let color = match node.mesh.as_ref().unwrap().mesh_type {
-        //                     GameNodeMeshType::Unlit { color } => {
-        //                         Some([color.x, color.y, color.z, 1.0])
-        //                     }
-        //                     GameNodeMeshType::Pbr { material_override } => {
-        //                         let fallback_pbr_params = self.buffers.binded_pbr_meshes
-        //                             [*source_mesh_index]
-        //                             .dynamic_pbr_params;
-        //                         let (base_color_factor, emissive_factor) = material_override
-        //                             .map(|material_override| {
-        //                                 (
-        //                                     material_override.base_color_factor,
-        //                                     material_override.emissive_factor,
-        //                                 )
-        //                             })
-        //                             .unwrap_or((
-        //                                 fallback_pbr_params.base_color_factor,
-        //                                 fallback_pbr_params.emissive_factor,
-        //                             ));
-        //                         let should_take_color = |as_slice: &[f32]| {
-        //                             let is_all_zero = as_slice.iter().all(|&x| x == 0.0);
-        //                             let is_all_one = as_slice.iter().all(|&x| x == 1.0);
-        //                             !is_all_zero && !is_all_one
-        //                         };
-        //                         let base_color_factor_arr: [f32; 4] = base_color_factor.into();
-        //                         let emissive_factor_arr: [f32; 3] = emissive_factor.into();
-        //                         if should_take_color(&base_color_factor_arr[0..3]) {
-        //                             Some([
-        //                                 base_color_factor.x,
-        //                                 base_color_factor.y,
-        //                                 base_color_factor.z,
-        //                                 base_color_factor.w,
-        //                             ])
-        //                         } else if should_take_color(&emissive_factor_arr) {
-        //                             Some([
-        //                                 emissive_factor.x,
-        //                                 emissive_factor.y,
-        //                                 emissive_factor.z,
-        //                                 1.0,
-        //                             ])
-        //                         } else {
-        //                             None
-        //                         }
-        //                     }
-        //                 }
-        //                 .unwrap_or(DEFAULT_WIREFRAME_COLOR);
-        //                 GpuWireframeMeshInstance {
-        //                     color,
-        //                     model_transform: GpuMatrix4(
-        //                         scene.get_global_transform_for_node(node.id()).matrix(),
-        //                     ),
-        //                 }
-        //             })
-        //             .collect();
-        //         let previous_buffer_capacity_bytes = instance_buffer.capacity_bytes();
-        //         let resized =
-        //             instance_buffer.write(device, queue, bytemuck::cast_slice(&gpu_instances));
-        //         if resized {
-        //             logger.log(&format!(
-        //                 "Resized wireframe instance buffer capacity from {:?} bytes to {:?}",
-        //                 previous_buffer_capacity_bytes,
-        //                 instance_buffer.capacity_bytes()
-        //             ));
-        //         }
-        //     },
-        // );
+        self.bones_and_wireframe_instances_bind_group =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: bones_and_instances_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: self.bones_buffer.src(),
+                            offset: 0,
+                            size: NonZeroU64::new(
+                                self.bones_buffer.length_bytes().try_into().unwrap(),
+                            ),
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: self.wireframe_instances_buffer.src(),
+                            offset: 0,
+                            size: NonZeroU64::new(
+                                (max_wireframe_instances
+                                    * self.wireframe_instances_buffer.stride())
+                                .try_into()
+                                .unwrap(),
+                            ),
+                        }),
+                    },
+                ],
+                label: Some("bones_and_wireframe_instances_bind_group"),
+            });
 
-        // let total_instance_buffer_memory_usage = self
-        //     .buffers
-        //     .binded_pbr_meshes
-        //     .iter()
-        //     .map(|mesh| mesh.geometry_buffers.instance_buffer._length_bytes())
-        //     .chain(
-        //         self.buffers
-        //             .binded_unlit_meshes
-        //             .iter()
-        //             .map(|mesh| mesh.instance_buffer._length_bytes()),
-        //     )
-        //     .reduce(|acc, val| acc + val);
-        // let total_instance_buffer_count =
-        //     self.buffers.binded_pbr_meshes.len() + self.buffers.binded_pbr_meshes.len();
-        // logger.log(&format!(
-        //     "total_instance_buffer_memory_usage={:?}",
-        //     total_instance_buffer_memory_usage
-        // ));
-        // logger.log(&format!(
-        //     "total_instance_buffer_count={:?}",
-        //     total_instance_buffer_count
-        // ));
+        let _total_instance_buffer_memory_usage = self.pbr_instances_buffer.length_bytes()
+            + self.unlit_instances_buffer.length_bytes()
+            + self.wireframe_instances_buffer.length_bytes();
+        let _total_index_buffer_memory_usage = self
+            .buffers
+            .binded_pbr_meshes
+            .iter()
+            .map(|mesh| mesh.geometry_buffers.index_buffer.length_bytes())
+            .chain(
+                self.buffers
+                    .binded_unlit_meshes
+                    .iter()
+                    .map(|mesh| mesh.index_buffer.length_bytes()),
+            )
+            .reduce(|acc, val| acc + val);
+        let _total_vertex_buffer_memory_usage = self
+            .buffers
+            .binded_pbr_meshes
+            .iter()
+            .map(|mesh| mesh.geometry_buffers.vertex_buffer.length_bytes())
+            .chain(
+                self.buffers
+                    .binded_unlit_meshes
+                    .iter()
+                    .map(|mesh| mesh.vertex_buffer.length_bytes()),
+            )
+            .reduce(|acc, val| acc + val);
 
-        // let total_index_buffer_memory_usage = self
-        //     .buffers
-        //     .binded_pbr_meshes
-        //     .iter()
-        //     .map(|mesh| mesh.geometry_buffers.index_buffer._length_bytes())
-        //     .chain(
-        //         self.buffers
-        //             .binded_unlit_meshes
-        //             .iter()
-        //             .map(|mesh| mesh.index_buffer._length_bytes()),
-        //     )
-        //     .reduce(|acc, val| acc + val);
-        // logger.log(&format!(
-        //     "total_index_buffer_memory_usage={:?}",
-        //     total_index_buffer_memory_usage
-        // ));
-
-        // let total_vertex_buffer_memory_usage = self
-        //     .buffers
-        //     .binded_pbr_meshes
-        //     .iter()
-        //     .map(|mesh| mesh.geometry_buffers.vertex_buffer._length_bytes())
-        //     .chain(
-        //         self.buffers
-        //             .binded_unlit_meshes
-        //             .iter()
-        //             .map(|mesh| mesh.vertex_buffer._length_bytes()),
-        //     )
-        //     .reduce(|acc, val| acc + val);
-        // logger.log(&format!(
-        //     "total_vertex_buffer_memory_usage={:?}",
-        //     total_vertex_buffer_memory_usage
-        // ));
         queue.write_buffer(
             &self.point_lights_buffer,
             0,
@@ -2910,173 +2982,126 @@ impl RendererState {
 
         self.render_pbr_meshes(&shading_render_pass_desc, &self.mesh_pipeline, false);
 
-        // let mut unlit_and_wireframe_encoder =
-        //     self.base
-        //         .device
-        //         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        //             label: Some("Unlit And Wireframe Encoder"),
-        //         });
+        let mut unlit_and_wireframe_encoder =
+            self.base
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Unlit And Wireframe Encoder"),
+                });
 
-        // {
-        //     let mut render_pass =
-        //         unlit_and_wireframe_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        //             label: Some("Unlit And Wireframe Render Pass"),
-        //             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-        //                 view: &self.shading_texture.view,
-        //                 resolve_target: None,
-        //                 ops: wgpu::Operations {
-        //                     load: wgpu::LoadOp::Load,
-        //                     store: true,
-        //                 },
-        //             })],
-        //             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-        //                 view: &self.depth_texture.view,
-        //                 depth_ops: Some(wgpu::Operations {
-        //                     load: wgpu::LoadOp::Load,
-        //                     store: true,
-        //                 }),
-        //                 stencil_ops: None,
-        //             }),
-        //         });
+        {
+            let mut render_pass =
+                unlit_and_wireframe_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Unlit And Wireframe Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.shading_texture.view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: true,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &self.depth_texture.view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: true,
+                        }),
+                        stencil_ops: None,
+                    }),
+                });
 
-        //     render_pass.set_pipeline(&self.unlit_mesh_pipeline);
+            render_pass.set_pipeline(&self.unlit_mesh_pipeline);
+            render_pass.set_bind_group(0, &self.camera_and_lights_bind_group, &[]);
+            for unlit_instance_slice in &self.all_unlit_instances.instances {
+                let binded_unlit_mesh_index = unlit_instance_slice.mesh_index;
+                let instances_buffer_start_index = unlit_instance_slice.start_index as u32;
+                let instance_size_bytes = std::mem::size_of::<GpuUnlitMeshInstance>();
+                let instance_count = (unlit_instance_slice.end_index
+                    - unlit_instance_slice.start_index)
+                    / instance_size_bytes;
 
-        //     self.buffers
-        //         .binded_unlit_meshes
-        //         .iter()
-        //         .enumerate()
-        //         .filter(|_| !self.enable_wireframe_mode)
-        //         .filter(|(binded_unlit_mesh_index, _)| {
-        //             game_state.scene.nodes().any(|node| match &node.mesh {
-        //                 Some(GameNodeMesh {
-        //                     mesh_indices,
-        //                     mesh_type: GameNodeMeshType::Unlit { .. },
-        //                     wireframe: false,
-        //                     ..
-        //                 }) => mesh_indices
-        //                     .iter()
-        //                     .any(|node_mesh_index| node_mesh_index == binded_unlit_mesh_index),
-        //                 _ => false,
-        //             })
-        //         })
-        //         .for_each(
-        //             |(
-        //                 _,
-        //                 BindedUnlitMesh {
-        //                     vertex_buffer,
-        //                     index_buffer,
-        //                     index_buffer_format,
-        //                     instance_buffer,
-        //                     ..
-        //                 },
-        //             )| {
-        //                 {
-        //                     render_pass.set_bind_group(0, &self.camera_and_lights_bind_group, &[]);
-        //                     render_pass.set_bind_group(1, &self.bones_bind_group, &[0]);
+                let geometry_buffers = &self.buffers.binded_unlit_meshes[binded_unlit_mesh_index];
 
-        //                     render_pass.set_vertex_buffer(0, vertex_buffer.src().slice(..));
-        //                     render_pass.set_vertex_buffer(1, instance_buffer.src().slice(..));
-        //                     render_pass.set_index_buffer(
-        //                         index_buffer.src().slice(..),
-        //                         *index_buffer_format,
-        //                     );
-        //                     render_pass.draw_indexed(
-        //                         0..index_buffer.length() as u32,
-        //                         0,
-        //                         0..instance_buffer.length() as u32,
-        //                     );
-        //                 }
-        //             },
-        //         );
+                render_pass.set_bind_group(
+                    1,
+                    &self.bones_and_unlit_instances_bind_group,
+                    &[0, instances_buffer_start_index],
+                );
+                render_pass.set_vertex_buffer(0, geometry_buffers.vertex_buffer.src().slice(..));
+                render_pass.set_index_buffer(
+                    geometry_buffers.index_buffer.src().slice(..),
+                    geometry_buffers.index_buffer_format,
+                );
+                render_pass.draw_indexed(
+                    0..geometry_buffers.index_buffer.length() as u32,
+                    0,
+                    0..instance_count as u32,
+                );
+            }
 
-        //     render_pass.set_pipeline(&self.wireframe_pipeline);
+            render_pass.set_pipeline(&self.wireframe_pipeline);
 
-        //     self.buffers
-        //         .binded_wireframe_meshes
-        //         .iter()
-        //         .filter(
-        //             |BindedWireframeMesh {
-        //                  source_mesh_type,
-        //                  source_mesh_index,
-        //                  ..
-        //              }| {
-        //                 self.enable_wireframe_mode
-        //                     || game_state.scene.nodes().any(|node| match &node.mesh {
-        //                         Some(GameNodeMesh {
-        //                             mesh_indices,
-        //                             mesh_type,
-        //                             wireframe: true,
-        //                             ..
-        //                         }) => {
-        //                             *source_mesh_type == (*mesh_type).into()
-        //                                 && mesh_indices.iter().any(|node_mesh_index| {
-        //                                     *node_mesh_index == *source_mesh_index
-        //                                 })
-        //                         }
-        //                         _ => false,
-        //                     })
-        //             },
-        //         )
-        //         .for_each(
-        //             |BindedWireframeMesh {
-        //                  source_mesh_type,
-        //                  source_mesh_index,
-        //                  index_buffer,
-        //                  index_buffer_format,
-        //                  instance_buffer,
-        //                  ..
-        //              }| {
-        //                 let (vertex_buffer, bone_transforms_buffer_start_index) =
-        //                     match source_mesh_type {
-        //                         MeshType::Pbr => {
-        //                             let bone_transforms_buffer_start_index = self
-        //                                 .all_bone_transforms
-        //                                 .animated_bone_transforms
-        //                                 .iter()
-        //                                 .find(|bone_slice| {
-        //                                     bone_slice.binded_pbr_mesh_index == *source_mesh_index
-        //                                 })
-        //                                 .map(|bone_slice| {
-        //                                     bone_slice.start_index.try_into().unwrap()
-        //                                 })
-        //                                 .unwrap_or(0);
-        //                             (
-        //                                 &self.buffers.binded_pbr_meshes[*source_mesh_index]
-        //                                     .geometry_buffers
-        //                                     .vertex_buffer,
-        //                                 bone_transforms_buffer_start_index,
-        //                             )
-        //                         }
-        //                         MeshType::Unlit => (
-        //                             &self.buffers.binded_unlit_meshes[*source_mesh_index]
-        //                                 .vertex_buffer,
-        //                             0,
-        //                         ),
-        //                     };
+            for wireframe_instance_slice in &self.all_wireframe_instances.instances {
+                let binded_wireframe_mesh_index = wireframe_instance_slice.mesh_index;
+                let instances_buffer_start_index = wireframe_instance_slice.start_index as u32;
+                let instance_size_bytes = std::mem::size_of::<GpuUnlitMeshInstance>();
+                let instance_count = (wireframe_instance_slice.end_index
+                    - wireframe_instance_slice.start_index)
+                    / instance_size_bytes;
 
-        //                 render_pass.set_bind_group(0, &self.camera_and_lights_bind_group, &[]);
-        //                 render_pass.set_bind_group(
-        //                     1,
-        //                     &self.bones_bind_group,
-        //                     &[bone_transforms_buffer_start_index],
-        //                 );
+                let BindedWireframeMesh {
+                    source_mesh_type,
+                    source_mesh_index,
+                    index_buffer,
+                    index_buffer_format,
+                    ..
+                } = &self.buffers.binded_wireframe_meshes[binded_wireframe_mesh_index];
 
-        //                 render_pass.set_vertex_buffer(0, vertex_buffer.src().slice(..));
-        //                 render_pass.set_vertex_buffer(1, instance_buffer.src().slice(..));
-        //                 render_pass
-        //                     .set_index_buffer(index_buffer.src().slice(..), *index_buffer_format);
-        //                 render_pass.draw_indexed(
-        //                     0..index_buffer.length() as u32,
-        //                     0,
-        //                     0..instance_buffer.length() as u32,
-        //                 );
-        //             },
-        //         );
-        // }
+                let (vertex_buffer, bone_transforms_buffer_start_index) = match source_mesh_type {
+                    MeshType::Pbr => {
+                        let bone_transforms_buffer_start_index = self
+                            .all_bone_transforms
+                            .animated_bone_transforms
+                            .iter()
+                            .find(|bone_slice| {
+                                bone_slice.binded_pbr_mesh_index == *source_mesh_index
+                            })
+                            .map(|bone_slice| bone_slice.start_index.try_into().unwrap())
+                            .unwrap_or(0);
+                        (
+                            &self.buffers.binded_pbr_meshes[*source_mesh_index]
+                                .geometry_buffers
+                                .vertex_buffer,
+                            bone_transforms_buffer_start_index,
+                        )
+                    }
+                    MeshType::Unlit => (
+                        &self.buffers.binded_unlit_meshes[*source_mesh_index].vertex_buffer,
+                        0,
+                    ),
+                };
+                render_pass.set_bind_group(
+                    1,
+                    &self.bones_and_wireframe_instances_bind_group,
+                    &[
+                        bone_transforms_buffer_start_index,
+                        instances_buffer_start_index,
+                    ],
+                );
+                render_pass.set_vertex_buffer(0, vertex_buffer.src().slice(..));
+                render_pass.set_index_buffer(index_buffer.src().slice(..), *index_buffer_format);
+                render_pass.draw_indexed(
+                    0..index_buffer.length() as u32,
+                    0,
+                    0..instance_count as u32,
+                );
+            }
+        }
 
-        // self.base
-        //     .queue
-        //     .submit(std::iter::once(unlit_and_wireframe_encoder.finish()));
+        self.base
+            .queue
+            .submit(std::iter::once(unlit_and_wireframe_encoder.finish()));
 
         if self.enable_bloom {
             self.base.queue.write_buffer(
@@ -3308,13 +3333,9 @@ impl RendererState {
             if !is_shadow {
                 render_pass.set_bind_group(1, &self.environment_textures_bind_group, &[]);
             }
+            // TODO: dry!
             for pbr_instance_slice in &self.all_pbr_instances.instances {
                 let binded_pbr_mesh_index = pbr_instance_slice.mesh_index;
-                let BindedPbrMesh {
-                    geometry_buffers,
-                    textures_bind_group,
-                    ..
-                } = &self.buffers.binded_pbr_meshes[binded_pbr_mesh_index];
                 let bone_transforms_buffer_start_index = self
                     .all_bone_transforms
                     .animated_bone_transforms
@@ -3327,9 +3348,16 @@ impl RendererState {
                 let instance_count = (pbr_instance_slice.end_index
                     - pbr_instance_slice.start_index)
                     / instance_size_bytes;
+
+                let BindedPbrMesh {
+                    geometry_buffers,
+                    textures_bind_group,
+                    ..
+                } = &self.buffers.binded_pbr_meshes[binded_pbr_mesh_index];
+
                 render_pass.set_bind_group(
                     if is_shadow { 1 } else { 2 },
-                    &self.bones_and_instances_bind_group,
+                    &self.bones_and_pbr_instances_bind_group,
                     &[
                         bone_transforms_buffer_start_index,
                         instances_buffer_start_index,
