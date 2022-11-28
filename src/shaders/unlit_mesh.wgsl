@@ -9,11 +9,25 @@ struct CameraUniform {
 @group(0) @binding(0)
 var<uniform> camera: CameraUniform;
 
+struct Instance {
+    model_transform_0: vec4<f32>,
+    model_transform_1: vec4<f32>,
+    model_transform_2: vec4<f32>,
+    model_transform_3: vec4<f32>,
+    color: vec4<f32>,
+}
+
 struct BonesUniform {
     value: array<mat4x4<f32>>,
 }
+struct InstancesUniform {
+    value: array<Instance>,
+}
+
 @group(1) @binding(0)
 var<storage, read> bones_uniform: BonesUniform;
+@group(1) @binding(1)
+var<storage, read> instances_uniform: InstancesUniform;
 
 struct VertexInput {
     @location(0) object_position: vec3<f32>,
@@ -24,14 +38,6 @@ struct VertexInput {
     @location(5) object_color: vec4<f32>,
     @location(6) bone_indices: vec4<u32>,
     @location(7) bone_weights: vec4<f32>,
-}
-
-struct Instance {
-    @location(8)   model_transform_0: vec4<f32>,
-    @location(9)   model_transform_1: vec4<f32>,
-    @location(10)  model_transform_2: vec4<f32>,
-    @location(11)  model_transform_3: vec4<f32>,
-    @location(12)  color: vec4<f32>,
 }
 
 struct VertexOutput {
@@ -47,8 +53,10 @@ struct FragmentOutput {
 @vertex
 fn vs_main(
     vshader_input: VertexInput,
-    instance: Instance,
+    @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
+    let instance = instances_uniform.value[instance_index];
+
     let model_transform = mat4x4<f32>(
         instance.model_transform_0,
         instance.model_transform_1,

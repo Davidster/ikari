@@ -12,7 +12,7 @@ pub struct GpuBuffer {
 impl GpuBuffer {
     pub fn empty(
         device: &wgpu::Device,
-        capacity: usize,
+        capacity: usize, // TODO: make this optional?
         stride: usize,
         usage: wgpu::BufferUsages,
     ) -> Self {
