@@ -41,7 +41,11 @@ impl Revolver {
         scene.set_node_parent(model_node_id, node_id);
 
         // let cooldown = scene.animations[animation_index].length_seconds;
-        let cooldown = scene.animations[animation_index].length_seconds + 0.1;
+        let cooldown = scene
+            .animations
+            .get(animation_index)
+            .map(|animation| animation.length_seconds + 0.1)
+            .unwrap_or(0.1);
 
         Self {
             animation_index,
@@ -115,10 +119,11 @@ impl Revolver {
         }
         // if self.last_fired_instant.is_none()
         self.last_fired_instant = Some(Instant::now());
-        scene.animations[self.animation_index].state.is_playing = true;
-        scene.animations[self.animation_index]
-            .state
-            .current_time_seconds = 0.0;
+        if let Some(animation) = scene.animations.get_mut(self.animation_index) {
+            animation.state.is_playing = true;
+            animation.state.current_time_seconds = 0.0;
+        }
+
         true
     }
 }

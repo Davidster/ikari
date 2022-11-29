@@ -38,7 +38,7 @@ pub struct GameState {
     pub physics_balls: Vec<PhysicsBall>,
     pub mouse_button_pressed: bool,
 
-    pub character: Character,
+    // pub character: Character,
     pub player_controller: PlayerController,
 }
 

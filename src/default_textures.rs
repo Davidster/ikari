@@ -39,6 +39,8 @@ impl DefaultTextures {
                     DefaultTextureType::Normal => [127, 127, 255, 255],
                     DefaultTextureType::MetallicRoughness => [255, 255, 255, 255],
                     DefaultTextureType::MetallicRoughnessGLTF => [255, 127, 0, 255],
+                    // DefaultTextureType::MetallicRoughness => [255, 255, 0, 255],
+                    // DefaultTextureType::MetallicRoughnessGLTF => [255, 255, 0, 255],
                     DefaultTextureType::Emissive => [0, 0, 0, 255],
                     DefaultTextureType::EmissiveGLTF => [255, 255, 255, 255],
                     DefaultTextureType::AmbientOcclusion => [255, 255, 255, 255],

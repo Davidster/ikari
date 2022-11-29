@@ -19,6 +19,7 @@ pub const DIRECTIONAL_LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.81115574, 0.7
 pub const POINT_LIGHT_COLOR: Vector3<f32> = Vector3::new(0.93126976, 0.7402633, 0.49407062);
 // pub const LIGHT_COLOR_C: Vector3<f32> =
 //     Vector3::new(from_srgb(0.631), from_srgb(0.565), from_srgb(0.627));
+pub const ENABLE_AUDIO: bool = false; // useful for disabling in nvidia nsight
 
 pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: Group = Group::GROUP_1;
 
@@ -89,20 +90,20 @@ pub fn get_skybox_path() -> (
 
     // Milkyway
     // src: http://www.hdrlabs.com/sibl/archive/
-    let skybox_background = SkyboxBackground::Equirectangular {
+    let _skybox_background = SkyboxBackground::Equirectangular {
         image_path: "./src/textures/milkyway/background.jpg",
     };
-    let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
         Some(SkyboxHDREnvironment::Equirectangular {
             image_path: "./src/textures/milkyway/radiance.hdr",
         });
 
     // My photosphere pic
     // src: me
-    let _skybox_background = SkyboxBackground::Equirectangular {
-        image_path: "./src/textures/photosphere_skybox.jpg",
+    let skybox_background = SkyboxBackground::Equirectangular {
+        image_path: "./src/textures/photosphere_skybox_small.jpg",
     };
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+    let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
         Some(SkyboxHDREnvironment::Equirectangular {
             image_path: "./src/textures/photosphere_skybox_small.jpg",
         });
@@ -243,47 +244,47 @@ pub fn init_game_state(
     // )?;
 
     // add test object to scene
-    let earth_texture_path = "./src/textures/8k_earth.jpg";
-    let earth_texture_bytes = std::fs::read(earth_texture_path)?;
-    let earth_texture = Texture::from_encoded_image(
-        &renderer_state.base.device,
-        &renderer_state.base.queue,
-        &earth_texture_bytes,
-        earth_texture_path,
-        None,
-        true,
-        &Default::default(),
-    )?;
+    // let earth_texture_path = "./src/textures/8k_earth.jpg";
+    // let earth_texture_bytes = std::fs::read(earth_texture_path)?;
+    // let earth_texture = Texture::from_encoded_image(
+    //     &renderer_state.base.device,
+    //     &renderer_state.base.queue,
+    //     &earth_texture_bytes,
+    //     earth_texture_path,
+    //     None,
+    //     true,
+    //     &Default::default(),
+    // )?;
 
-    let earth_normal_map_path = "./src/textures/8k_earth_normal_map.jpg";
-    let earth_normal_map_bytes = std::fs::read(earth_normal_map_path)?;
-    let earth_normal_map = Texture::from_encoded_image(
-        &renderer_state.base.device,
-        &renderer_state.base.queue,
-        &earth_normal_map_bytes,
-        earth_normal_map_path,
-        wgpu::TextureFormat::Rgba8Unorm.into(),
-        false,
-        &Default::default(),
-    )?;
+    // let earth_normal_map_path = "./src/textures/8k_earth_normal_map.jpg";
+    // let earth_normal_map_bytes = std::fs::read(earth_normal_map_path)?;
+    // let earth_normal_map = Texture::from_encoded_image(
+    //     &renderer_state.base.device,
+    //     &renderer_state.base.queue,
+    //     &earth_normal_map_bytes,
+    //     earth_normal_map_path,
+    //     wgpu::TextureFormat::Rgba8Unorm.into(),
+    //     false,
+    //     &Default::default(),
+    // )?;
 
-    let test_object_metallic_roughness_map = Texture::from_color(
-        &renderer_state.base.device,
-        &renderer_state.base.queue,
-        [
-            255,
-            (0.12 * 255.0f32).round() as u8,
-            (0.8 * 255.0f32).round() as u8,
-            255,
-        ],
-    )?;
+    // let test_object_metallic_roughness_map = Texture::from_color(
+    //     &renderer_state.base.device,
+    //     &renderer_state.base.queue,
+    //     [
+    //         255,
+    //         (0.12 * 255.0f32).round() as u8,
+    //         (0.8 * 255.0f32).round() as u8,
+    //         255,
+    //     ],
+    // )?;
 
     let test_object_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
         &sphere_mesh,
         &PbrMaterial {
-            base_color: Some(&earth_texture),
-            normal: Some(&earth_normal_map),
-            metallic_roughness: Some(&test_object_metallic_roughness_map),
+            // base_color: Some(&earth_texture),
+            // normal: Some(&earth_normal_map),
+            // metallic_roughness: Some(&test_object_metallic_roughness_map),
             ..Default::default()
         },
         Default::default(),
@@ -305,106 +306,106 @@ pub fn init_game_state(
         .id();
     scene.remove_node(test_object_node_id);
 
-    let legendary_robot_root_node_id = scene._get_node_by_index(53).unwrap().id();
-    scene
-        .get_node_mut(legendary_robot_root_node_id)
-        .unwrap()
-        .transform
-        .set_position(Vector3::new(2.0, 0.0, 0.0));
+    // let legendary_robot_root_node_id = scene._get_node_by_index(53).unwrap().id();
+    // scene
+    //     .get_node_mut(legendary_robot_root_node_id)
+    //     .unwrap()
+    //     .transform
+    //     .set_position(Vector3::new(2.0, 0.0, 0.0));
 
-    let legendary_robot_skin_index = 0;
-    let legendary_robot = Character::new(
-        &mut scene,
-        &mut physics_state,
-        renderer_state,
-        legendary_robot_root_node_id,
-        legendary_robot_skin_index,
-        &cube_mesh,
-    );
+    // let legendary_robot_skin_index = 0;
+    // let legendary_robot = Character::new(
+    //     &mut scene,
+    //     &mut physics_state,
+    //     renderer_state,
+    //     legendary_robot_root_node_id,
+    //     legendary_robot_skin_index,
+    //     &cube_mesh,
+    // );
 
     // add floor to scene
-    let big_checkerboard_texture_img = {
-        let mut img = image::RgbaImage::new(4096, 4096);
-        for x in 0..img.width() {
-            for y in 0..img.height() {
-                let scale = 10;
-                let x_scaled = x / scale;
-                let y_scaled = y / scale;
-                img.put_pixel(
-                    x,
-                    y,
-                    if (x_scaled + y_scaled) % 2 == 0 {
-                        [100, 100, 100, 100].into()
-                    } else {
-                        [150, 150, 150, 150].into()
-                    },
-                );
-            }
-        }
-        img
-    };
-    let big_checkerboard_texture = Texture::from_decoded_image(
-        &renderer_state.base.device,
-        &renderer_state.base.queue,
-        &big_checkerboard_texture_img,
-        big_checkerboard_texture_img.dimensions(),
-        Some("big_checkerboard_texture"),
-        None,
-        true,
-        &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
-            mag_filter: wgpu::FilterMode::Nearest,
-            ..texture::SamplerDescriptor::default().0
-        }),
-    )?;
+    // let big_checkerboard_texture_img = {
+    //     let mut img = image::RgbaImage::new(4096, 4096);
+    //     for x in 0..img.width() {
+    //         for y in 0..img.height() {
+    //             let scale = 10;
+    //             let x_scaled = x / scale;
+    //             let y_scaled = y / scale;
+    //             img.put_pixel(
+    //                 x,
+    //                 y,
+    //                 if (x_scaled + y_scaled) % 2 == 0 {
+    //                     [100, 100, 100, 100].into()
+    //                 } else {
+    //                     [150, 150, 150, 150].into()
+    //                 },
+    //             );
+    //         }
+    //     }
+    //     img
+    // };
+    // let big_checkerboard_texture = Texture::from_decoded_image(
+    //     &renderer_state.base.device,
+    //     &renderer_state.base.queue,
+    //     &big_checkerboard_texture_img,
+    //     big_checkerboard_texture_img.dimensions(),
+    //     Some("big_checkerboard_texture"),
+    //     None,
+    //     true,
+    //     &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
+    //         mag_filter: wgpu::FilterMode::Nearest,
+    //         ..texture::SamplerDescriptor::default().0
+    //     }),
+    // )?;
 
-    let small_checkerboard_texture_img = {
-        let mut img = image::RgbaImage::new(1080, 1080);
-        for x in 0..img.width() {
-            for y in 0..img.height() {
-                let scale = 25;
-                let x_scaled = x / scale;
-                let y_scaled = y / scale;
-                img.put_pixel(
-                    x,
-                    y,
-                    if (x_scaled + y_scaled) % 2 == 0 {
-                        [100, 100, 100, 100].into()
-                    } else {
-                        [150, 150, 150, 150].into()
-                    },
-                );
-            }
-        }
-        img
-    };
-    let small_checkerboard_texture = Texture::from_decoded_image(
-        &renderer_state.base.device,
-        &renderer_state.base.queue,
-        &small_checkerboard_texture_img,
-        small_checkerboard_texture_img.dimensions(),
-        Some("small_checkerboard_texture"),
-        None,
-        true,
-        &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
-            mag_filter: wgpu::FilterMode::Nearest,
-            ..texture::SamplerDescriptor::default().0
-        }),
-    )?;
+    // let small_checkerboard_texture_img = {
+    //     let mut img = image::RgbaImage::new(1080, 1080);
+    //     for x in 0..img.width() {
+    //         for y in 0..img.height() {
+    //             let scale = 25;
+    //             let x_scaled = x / scale;
+    //             let y_scaled = y / scale;
+    //             img.put_pixel(
+    //                 x,
+    //                 y,
+    //                 if (x_scaled + y_scaled) % 2 == 0 {
+    //                     [100, 100, 100, 100].into()
+    //                 } else {
+    //                     [150, 150, 150, 150].into()
+    //                 },
+    //             );
+    //         }
+    //     }
+    //     img
+    // };
+    // let small_checkerboard_texture = Texture::from_decoded_image(
+    //     &renderer_state.base.device,
+    //     &renderer_state.base.queue,
+    //     &small_checkerboard_texture_img,
+    //     small_checkerboard_texture_img.dimensions(),
+    //     Some("small_checkerboard_texture"),
+    //     None,
+    //     true,
+    //     &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
+    //         mag_filter: wgpu::FilterMode::Nearest,
+    //         ..texture::SamplerDescriptor::default().0
+    //     }),
+    // )?;
 
     // add balls to scene
 
     // source: https://www.solarsystemscope.com/textures/
-    let mars_texture_path = "./src/textures/8k_mars.jpg";
-    let mars_texture_bytes = std::fs::read(mars_texture_path)?;
-    let mars_texture = Texture::from_encoded_image(
-        &renderer_state.base.device,
-        &renderer_state.base.queue,
-        &mars_texture_bytes,
-        mars_texture_path,
-        None,
-        true,
-        &Default::default(),
-    )?;
+    // let mars_texture_path = "./src/textures/8k_mars.jpg";
+    // let mars_texture_bytes = std::fs::read(mars_texture_path)?;
+    // let mars_texture = Texture::from_encoded_image(
+    //     &renderer_state.base.device,
+    //     &renderer_state.base.queue,
+    //     &mars_texture_bytes,
+    //     mars_texture_path,
+    //     None,
+    //     true,
+    //     &Default::default(),
+    // )?;
 
     let ball_count = 0;
     let balls: Vec<_> = (0..ball_count)
@@ -415,7 +416,7 @@ pub fn init_game_state(
     let ball_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
         &sphere_mesh,
         &PbrMaterial {
-            base_color: Some(&mars_texture),
+            // base_color: Some(&mars_texture),
             ..Default::default()
         },
         Default::default(),
@@ -471,7 +472,7 @@ pub fn init_game_state(
     let floor_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
         &plane_mesh,
         &PbrMaterial {
-            base_color: Some(&big_checkerboard_texture),
+            // base_color: Some(&big_checkerboard_texture),
             ..Default::default()
         },
         Default::default(),
@@ -511,7 +512,7 @@ pub fn init_game_state(
         let bouncing_ball_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
             &sphere_mesh,
             &PbrMaterial {
-                base_color: Some(&small_checkerboard_texture),
+                // base_color: Some(&small_checkerboard_texture),
                 ..Default::default()
             },
             Default::default(),
@@ -620,7 +621,7 @@ pub fn init_game_state(
             .collect(),
         indices: vec![0, 2, 1, 0, 3, 2],
     };
-    let pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
+    let crosshair_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
         &crosshair_quad,
         &PbrMaterial {
             ambient_occlusion: Some(&Texture::from_color(
@@ -644,7 +645,7 @@ pub fn init_game_state(
         .add_node(
             GameNodeDescBuilder::new()
                 .mesh(Some(GameNodeMesh {
-                    mesh_indices: vec![pbr_mesh_index],
+                    mesh_indices: vec![crosshair_pbr_mesh_index],
                     mesh_type: GameNodeMeshType::Pbr {
                         material_override: Some(DynamicPbrParams {
                             emissive_factor: crosshair_color,
@@ -662,17 +663,17 @@ pub fn init_game_state(
     // merge revolver scene into current scene
     // let (document, buffers, images) =
     //     gltf::import("./src/models/gltf/Revolver/revolver_low_poly.gltf")?;
-    {
-        let (document, buffers, images) =
-            gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
-        validate_animation_property_counts(&document, logger);
-        let (other_scene, other_render_buffers) = build_scene(
-            &mut renderer_state.base,
-            (&document, &buffers, &images),
-            logger,
-        )?;
-        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
-    }
+    // {
+    //     let (document, buffers, images) =
+    //         gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
+    //     validate_animation_property_counts(&document, logger);
+    //     let (other_scene, other_render_buffers) = build_scene(
+    //         &mut renderer_state.base,
+    //         (&document, &buffers, &images),
+    //         logger,
+    //     )?;
+    //     scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+    // }
 
     let revolver_model_node_id = scene.nodes().last().unwrap().id();
     let animation_index = scene.animations.len() - 1;
@@ -726,18 +727,36 @@ pub fn init_game_state(
         }
     }
 
-    let mut audio_manager = AudioManager::new()?;
-
-    let bgm_data =
-        AudioManager::decode_mp3(audio_manager.device_sample_rate(), "./src/sounds/bgm.mp3")?;
-    let bgm_sound_index = audio_manager.add_sound(&bgm_data, 0.5, false, None);
-    audio_manager.play_sound(bgm_sound_index);
+    let mut audio_manager = if ENABLE_AUDIO {
+        Some(AudioManager::new()?)
+    } else {
+        None
+    };
 
     let gunshot_sound_data = AudioManager::decode_wav(
-        audio_manager.device_sample_rate(),
+        audio_manager
+            .as_ref()
+            .map(|audio_manager| audio_manager.device_sample_rate())
+            .unwrap_or(2000),
         "./src/sounds/gunshot.wav",
     )?;
-    let gunshot_sound_index = audio_manager.add_sound(&gunshot_sound_data, 0.75, true, None);
+
+    let (bgm_sound_index, gunshot_sound_index) = match audio_manager.as_mut() {
+        Some(audio_manager) => {
+            let bgm_data = AudioManager::decode_mp3(
+                audio_manager.device_sample_rate(),
+                "./src/sounds/bgm.mp3",
+            )?;
+            let bgm_sound_index = audio_manager.add_sound(&bgm_data, 0.5, false, None);
+            audio_manager.play_sound(bgm_sound_index);
+
+            let gunshot_sound_index =
+                audio_manager.add_sound(&gunshot_sound_data, 0.75, true, None);
+
+            (bgm_sound_index, gunshot_sound_index)
+        }
+        None => (0, 0),
+    };
 
     // logger.log(&format!("{:?}", &revolver));
 
@@ -747,7 +766,7 @@ pub fn init_game_state(
         state_update_time_accumulator: 0.0,
         is_playing_animations: true,
 
-        audio_manager: Some(audio_manager),
+        audio_manager,
         bgm_sound_index,
         gunshot_sound_index,
         gunshot_sound_data,
@@ -778,7 +797,7 @@ pub fn init_game_state(
         physics_balls,
         mouse_button_pressed: false,
 
-        character: legendary_robot,
+        // character: legendary_robot,
         player_controller,
     })
 }
@@ -851,9 +870,9 @@ pub fn process_window_input(
                     renderer_state.toggle_wireframe_mode();
                 }
                 VirtualKeyCode::C => {
-                    game_state
-                        .character
-                        .toggle_collision_box_display(&mut game_state.scene);
+                    // game_state
+                    //     .character
+                    //     .toggle_collision_box_display(&mut game_state.scene);
                 }
                 _ => {}
             }
@@ -1209,9 +1228,9 @@ pub fn update_game_state(
                     game_state.physics_balls.remove(ball_index);
                 }
             }
-            game_state
-                .character
-                .handle_hit(&mut game_state.scene, collider_handle);
+            // game_state
+            //     .character
+            //     .handle_hit(&mut game_state.scene, collider_handle);
         }
     }
 
@@ -1221,9 +1240,9 @@ pub fn update_game_state(
         step_animations(scene, frame_time_seconds)
     }
 
-    game_state
-        .character
-        .update(scene, &mut game_state.physics_state);
+    // game_state
+    //     .character
+    //     .update(scene, &mut game_state.physics_state);
 }
 
 pub fn init_scene(
