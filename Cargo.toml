@@ -16,7 +16,7 @@ puffin_http = "0.11"
 
 # assets
 gltf = "1"
-image = "0.24"
+image = { version = "0.23.14", default-features=false, features = ["hdr", "jpeg"] } # Save version used by gltf
 obj-rs = "0.7"
 stb = "0.3"
 wavefront_obj = "10"
