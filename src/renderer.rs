@@ -268,7 +268,8 @@ impl BaseRendererState {
         let backends = if cfg!(target_os = "linux") {
             wgpu::Backends::from(wgpu::Backend::Vulkan)
         } else {
-            wgpu::Backends::all()
+            wgpu::Backends::from(wgpu::Backend::Vulkan)
+            // wgpu::Backends::all()
         };
         let instance = wgpu::Instance::new(backends);
         let window_size = window.inner_size();

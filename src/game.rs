@@ -26,13 +26,13 @@ pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: Group = Group::GROUP_1;
 #[allow(clippy::let_and_return)]
 fn get_gltf_path() -> &'static str {
     // let gltf_path = "/home/david/Downloads/adamHead/adamHead.gltf";
-    let gltf_path = "./src/models/gltf/free_low_poly_forest/scene.gltf";
+    // let gltf_path = "./src/models/gltf/free_low_poly_forest/scene.gltf";
     // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
     // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf";
     // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
     // let gltf_path = "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf";
     // let gltf_path = "./src/models/gltf/Sponza/Sponza.gltf";
-    // let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
+    let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
     // let gltf_path = "./src/models/gltf/Arrow/Arrow.gltf";
     // let gltf_path = "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf";
     // let gltf_path = "./src/models/gltf/VertexColorTest/VertexColorTest.gltf";
@@ -80,10 +80,10 @@ pub fn get_skybox_path() -> (
 
     // Newport Loft
     // src: http://www.hdrlabs.com/sibl/archive/
-    let _skybox_background = SkyboxBackground::Equirectangular {
+    let skybox_background = SkyboxBackground::Equirectangular {
         image_path: "./src/textures/newport_loft/background.jpg",
     };
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+    let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
         Some(SkyboxHDREnvironment::Equirectangular {
             image_path: "./src/textures/newport_loft/radiance.hdr",
         });
@@ -100,10 +100,10 @@ pub fn get_skybox_path() -> (
 
     // My photosphere pic
     // src: me
-    let skybox_background = SkyboxBackground::Equirectangular {
+    let _skybox_background = SkyboxBackground::Equirectangular {
         image_path: "./src/textures/photosphere_skybox_small.jpg",
     };
-    let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
         Some(SkyboxHDREnvironment::Equirectangular {
             image_path: "./src/textures/photosphere_skybox_small.jpg",
         });
@@ -121,10 +121,10 @@ pub fn init_game_state(
     let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
 
     // hack to get the free_low_poly_forest scene nodes to be at the same height as the ground.
-    for node in scene.nodes_mut() {
-        node.transform
-            .set_position(node.transform.position() + Vector3::new(0.0, 27.0, 0.0));
-    }
+    // for node in scene.nodes_mut() {
+    //     node.transform
+    //         .set_position(node.transform.position() + Vector3::new(0.0, 27.0, 0.0));
+    // }
 
     let mut physics_state = PhysicsState::new();
 
@@ -324,39 +324,39 @@ pub fn init_game_state(
     // );
 
     // add floor to scene
-    // let big_checkerboard_texture_img = {
-    //     let mut img = image::RgbaImage::new(4096, 4096);
-    //     for x in 0..img.width() {
-    //         for y in 0..img.height() {
-    //             let scale = 10;
-    //             let x_scaled = x / scale;
-    //             let y_scaled = y / scale;
-    //             img.put_pixel(
-    //                 x,
-    //                 y,
-    //                 if (x_scaled + y_scaled) % 2 == 0 {
-    //                     [100, 100, 100, 100].into()
-    //                 } else {
-    //                     [150, 150, 150, 150].into()
-    //                 },
-    //             );
-    //         }
-    //     }
-    //     img
-    // };
-    // let big_checkerboard_texture = Texture::from_decoded_image(
-    //     &renderer_state.base.device,
-    //     &renderer_state.base.queue,
-    //     &big_checkerboard_texture_img,
-    //     big_checkerboard_texture_img.dimensions(),
-    //     Some("big_checkerboard_texture"),
-    //     None,
-    //     true,
-    //     &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
-    //         mag_filter: wgpu::FilterMode::Nearest,
-    //         ..texture::SamplerDescriptor::default().0
-    //     }),
-    // )?;
+    let big_checkerboard_texture_img = {
+        let mut img = image::RgbaImage::new(4096, 4096);
+        for x in 0..img.width() {
+            for y in 0..img.height() {
+                let scale = 10;
+                let x_scaled = x / scale;
+                let y_scaled = y / scale;
+                img.put_pixel(
+                    x,
+                    y,
+                    if (x_scaled + y_scaled) % 2 == 0 {
+                        [100, 100, 100, 100].into()
+                    } else {
+                        [150, 150, 150, 150].into()
+                    },
+                );
+            }
+        }
+        img
+    };
+    let big_checkerboard_texture = Texture::from_decoded_image(
+        &renderer_state.base.device,
+        &renderer_state.base.queue,
+        &big_checkerboard_texture_img,
+        big_checkerboard_texture_img.dimensions(),
+        Some("big_checkerboard_texture"),
+        None,
+        true,
+        &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
+            mag_filter: wgpu::FilterMode::Nearest,
+            ..texture::SamplerDescriptor::default().0
+        }),
+    )?;
 
     // let small_checkerboard_texture_img = {
     //     let mut img = image::RgbaImage::new(1080, 1080);
@@ -472,7 +472,7 @@ pub fn init_game_state(
     let floor_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
         &plane_mesh,
         &PbrMaterial {
-            // base_color: Some(&big_checkerboard_texture),
+            base_color: Some(&big_checkerboard_texture),
             ..Default::default()
         },
         Default::default(),
@@ -702,30 +702,30 @@ pub fn init_game_state(
             .build(),
     );
 
-    {
-        let skip_nodes = scene.node_count();
-        let (document, buffers, images) =
-            gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
-        validate_animation_property_counts(&document, logger);
-        let (other_scene, other_render_buffers) = build_scene(
-            &mut renderer_state.base,
-            (&document, &buffers, &images),
-            logger,
-        )?;
-        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+    // {
+    //     let skip_nodes = scene.node_count();
+    //     let (document, buffers, images) =
+    //         gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
+    //     validate_animation_property_counts(&document, logger);
+    //     let (other_scene, other_render_buffers) = build_scene(
+    //         &mut renderer_state.base,
+    //         (&document, &buffers, &images),
+    //         logger,
+    //     )?;
+    //     scene.merge_scene(renderer_state, other_scene, other_render_buffers);
 
-        let test_level_node_ids: Vec<_> = scene
-            .nodes()
-            .skip(skip_nodes)
-            .map(|node| node.id())
-            .collect();
-        for node_id in test_level_node_ids {
-            if let Some(_mesh) = scene.get_node_mut(node_id).unwrap().mesh.as_mut() {
-                // _mesh.wireframe = true;
-            }
-            physics_state.add_static_box(&scene, renderer_state, node_id);
-        }
-    }
+    //     let test_level_node_ids: Vec<_> = scene
+    //         .nodes()
+    //         .skip(skip_nodes)
+    //         .map(|node| node.id())
+    //         .collect();
+    //     for node_id in test_level_node_ids {
+    //         if let Some(_mesh) = scene.get_node_mut(node_id).unwrap().mesh.as_mut() {
+    //             // _mesh.wireframe = true;
+    //         }
+    //         physics_state.add_static_box(&scene, renderer_state, node_id);
+    //     }
+    // }
 
     let mut audio_manager = if ENABLE_AUDIO {
         Some(AudioManager::new()?)
