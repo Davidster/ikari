@@ -1,3 +1,5 @@
+use std::fs::File;
+use std::io::BufReader;
 use std::num::{NonZeroU32, NonZeroU64};
 
 use super::*;
@@ -1514,27 +1516,28 @@ impl RendererState {
         let er_to_cube_texture;
         let skybox_rad_texture = match skybox_hdr_environment {
             Some(SkyboxHDREnvironment::Equirectangular { image_path }) => {
-                let skybox_rad_texture_bytes = std::fs::read(image_path)?;
-                let skybox_rad_texture_decoded = stb::image::stbi_loadf_from_memory(
-                    &skybox_rad_texture_bytes,
-                    stb::image::Channels::RgbAlpha,
-                )
-                .ok_or_else(|| anyhow::anyhow!("Failed to decode image: {}", image_path))?;
-                let skybox_rad_texture_decoded_vec = skybox_rad_texture_decoded.1.into_vec();
-                let skybox_rad_texture_decoded_vec: Vec<_> = skybox_rad_texture_decoded_vec
-                    .iter()
-                    .copied()
-                    .map(|v| Float16(half::f16::from_f32(v)))
-                    .collect();
+                let skybox_rad_texture_decoder = {
+                    let reader = BufReader::new(File::open(image_path)?);
+                    image::codecs::hdr::HdrDecoder::new(reader)?
+                };
+                let skybox_rad_texture_decoded: Vec<Float16> = {
+                    let rgb_values = skybox_rad_texture_decoder.read_image_hdr()?;
+                    rgb_values
+                        .iter()
+                        .copied()
+                        .flat_map(|rbg| rbg.0.into_iter().map(|c| Float16(half::f16::from_f32(c))).collect::<Float16>())
+                        .collect()
+                };
+                let skybox_rad_texture_dimensions = {
+                    let md = skybox_rad_texture_decoder.metadata();
+                    (md.width, md.height)
+                };
 
                 let skybox_rad_texture_er = Texture::from_decoded_image(
                     device,
                     queue,
-                    bytemuck::cast_slice(&skybox_rad_texture_decoded_vec),
-                    (
-                        skybox_rad_texture_decoded.0.width as u32,
-                        skybox_rad_texture_decoded.0.height as u32,
-                    ),
+                    bytemuck::cast_slice(&skybox_rad_texture_decoded),
+                    skybox_rad_texture_dimensions,
                     image_path.into(),
                     wgpu::TextureFormat::Rgba16Float.into(),
                     false,
