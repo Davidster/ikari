@@ -6,6 +6,7 @@ use super::*;
 
 use anyhow::Result;
 use cgmath::{Deg, Matrix4, One, Vector3};
+use image::Pixel;
 use wgpu::util::DeviceExt;
 
 pub const MAX_LIGHT_COUNT: usize = 32;
@@ -1520,17 +1521,17 @@ impl RendererState {
                     let reader = BufReader::new(File::open(image_path)?);
                     image::codecs::hdr::HdrDecoder::new(reader)?
                 };
+                let skybox_rad_texture_dimensions = {
+                    let md = skybox_rad_texture_decoder.metadata();
+                    (md.width, md.height)
+                };
                 let skybox_rad_texture_decoded: Vec<Float16> = {
                     let rgb_values = skybox_rad_texture_decoder.read_image_hdr()?;
                     rgb_values
                         .iter()
                         .copied()
-                        .flat_map(|rbg| rbg.0.into_iter().map(|c| Float16(half::f16::from_f32(c))).collect::<Float16>())
+                        .flat_map(|rbg| rbg.to_rgba().0.into_iter().map(|c| Float16(half::f16::from_f32(c))))
                         .collect()
-                };
-                let skybox_rad_texture_dimensions = {
-                    let md = skybox_rad_texture_decoder.metadata();
-                    (md.width, md.height)
                 };
 
                 let skybox_rad_texture_er = Texture::from_decoded_image(
