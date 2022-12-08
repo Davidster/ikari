@@ -25,7 +25,7 @@ pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: Group = Group::GROUP_1;
 #[allow(clippy::let_and_return)]
 fn get_gltf_path() -> &'static str {
     // let gltf_path = "/home/david/Downloads/adamHead/adamHead.gltf";
-    let gltf_path = "./src/models/gltf/free_low_poly_forest/scene.gltf";
+    // let gltf_path = "./src/models/gltf/free_low_poly_forest/scene.gltf";
     // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
     // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf";
     // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
@@ -54,7 +54,7 @@ fn get_gltf_path() -> &'static str {
     //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
 
     // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-    // let gltf_path = "./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf";
+    let gltf_path = "./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf";
 
     gltf_path
 }
@@ -115,15 +115,69 @@ pub fn init_game_state(
     renderer_state: &mut RendererState,
     logger: &mut Logger,
 ) -> Result<GameState> {
+    // load in gltf files
+
+    // revolver
+    // let (document, buffers, images) =
+    //     gltf::import("./src/models/gltf/Revolver/revolver_low_poly.gltf")?;
+    #[allow(unused_assignments)]
+    let mut revolver_indices: Option<(GameNodeId, usize)> = None;
+    {
+        let (document, buffers, images) =
+            gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
+        validate_animation_property_counts(&document, logger);
+        let (other_scene, other_render_buffers) = build_scene(
+            &mut renderer_state.base,
+            (&document, &buffers, &images),
+            logger,
+        )?;
+        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+
+        let revolver_model_node_id = scene.nodes().last().unwrap().id();
+        let animation_index = scene.animations.len() - 1;
+        revolver_indices = Some((revolver_model_node_id, animation_index));
+    }
+
+    // forest
+    {
+        let (document, buffers, images) =
+            gltf::import("./src/models/gltf/free_low_poly_forest/scene.gltf")?;
+        validate_animation_property_counts(&document, logger);
+        let (mut other_scene, other_render_buffers) = build_scene(
+            &mut renderer_state.base,
+            (&document, &buffers, &images),
+            logger,
+        )?;
+        // hack to get the terrain to be at the same height as the ground.
+        let node_has_parent: Vec<_> = other_scene
+            .nodes()
+            .map(|node| other_scene.get_node_parent(node.id()).is_some())
+            .collect();
+        for (i, node) in other_scene.nodes_mut().enumerate() {
+            if node_has_parent[i] {
+                continue;
+            }
+            node.transform
+                .set_position(node.transform.position() + Vector3::new(0.0, 29.0, 0.0));
+        }
+        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+    }
+
+    // other gltfs
+    {
+        let (document, buffers, images) = gltf::import(get_gltf_path())?;
+        validate_animation_property_counts(&document, logger);
+        let (other_scene, other_render_buffers) = build_scene(
+            &mut renderer_state.base,
+            (&document, &buffers, &images),
+            logger,
+        )?;
+        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+    }
+
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
     let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
     let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
-
-    // hack to get the free_low_poly_forest scene nodes to be at the same height as the ground.
-    for node in scene.nodes_mut() {
-        node.transform
-            .set_position(node.transform.position() + Vector3::new(0.0, 27.0, 0.0));
-    }
 
     let mut physics_state = PhysicsState::new();
 
@@ -137,6 +191,33 @@ pub fn init_game_state(
         },
     );
     let player_node_id = scene.add_node(GameNodeDesc::default()).id();
+
+    let revolver = revolver_indices.map(|(node_id, animation_index)| {
+        Revolver::new(
+            &mut scene,
+            player_node_id,
+            node_id,
+            animation_index,
+            // revolver model
+            // TransformBuilder::new()
+            //     .position(Vector3::new(0.21, -0.09, -1.0))
+            //     .rotation(make_quat_from_axis_angle(
+            //         Vector3::new(0.0, 1.0, 0.0),
+            //         Deg(180.0).into(),
+            //     ))
+            //     .scale(0.17f32 * Vector3::new(1.0, 1.0, 1.0))
+            //     .build(),
+            // colt python model
+            TransformBuilder::new()
+                .position(Vector3::new(0.21, -0.13, -1.0))
+                .rotation(
+                    make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(180.0).into())
+                        * make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(0.1)),
+                )
+                .scale(2.0f32 * Vector3::new(1.0, 1.0, 1.0))
+                .build(),
+        )
+    });
 
     // add lights to the scene
     let directional_lights = vec![
@@ -305,7 +386,11 @@ pub fn init_game_state(
         .id();
     scene.remove_node(test_object_node_id);
 
-    let legendary_robot_root_node_id = scene._get_node_by_index(53).unwrap().id();
+    let legendary_robot_root_node_id = scene
+        .nodes()
+        .find(|node| node.name == Some(String::from("robot")))
+        .unwrap()
+        .id();
     scene
         .get_node_mut(legendary_robot_root_node_id)
         .unwrap()
@@ -658,48 +743,6 @@ pub fn init_game_state(
                 .build(),
         )
         .id();
-
-    // merge revolver scene into current scene
-    // let (document, buffers, images) =
-    //     gltf::import("./src/models/gltf/Revolver/revolver_low_poly.gltf")?;
-    {
-        let (document, buffers, images) =
-            gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
-        validate_animation_property_counts(&document, logger);
-        let (other_scene, other_render_buffers) = build_scene(
-            &mut renderer_state.base,
-            (&document, &buffers, &images),
-            logger,
-        )?;
-        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
-    }
-
-    let revolver_model_node_id = scene.nodes().last().unwrap().id();
-    let animation_index = scene.animations.len() - 1;
-    let revolver = Revolver::new(
-        &mut scene,
-        player_node_id,
-        revolver_model_node_id,
-        animation_index,
-        // revolver model
-        // TransformBuilder::new()
-        //     .position(Vector3::new(0.21, -0.09, -1.0))
-        //     .rotation(make_quat_from_axis_angle(
-        //         Vector3::new(0.0, 1.0, 0.0),
-        //         Deg(180.0).into(),
-        //     ))
-        //     .scale(0.17f32 * Vector3::new(1.0, 1.0, 1.0))
-        //     .build(),
-        // colt python model
-        TransformBuilder::new()
-            .position(Vector3::new(0.21, -0.13, -1.0))
-            .rotation(
-                make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(180.0).into())
-                    * make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(0.1)),
-            )
-            .scale(2.0f32 * Vector3::new(1.0, 1.0, 1.0))
-            .build(),
-    );
 
     {
         let skip_nodes = scene.node_count();
@@ -1134,84 +1177,86 @@ pub fn update_game_state(
                 .build();
     }
 
-    game_state.revolver.update(
-        game_state.player_controller.view_direction,
-        &mut game_state.scene,
-    );
-
-    if game_state.mouse_button_pressed && game_state.revolver.fire(&mut game_state.scene) {
-        if let Some(audio_manager) = game_state.audio_manager.as_mut() {
-            audio_manager.play_sound(game_state.gunshot_sound_index)
-        }
-        // setting gunshot_sound_index to 0 is a hacky way to deal with the audio_manager not being initialized
-        // such as when we dont want to play audio
-        game_state.gunshot_sound_index = game_state
-            .audio_manager
-            .as_mut()
-            .map(|audio_manager| {
-                audio_manager.add_sound(&game_state.gunshot_sound_data, 0.75, true, None)
-            })
-            .unwrap_or(0);
-
-        // logger.log("Fired!");
-        let player_position = game_state
-            .player_controller
-            .position(&game_state.physics_state);
-        let direction_vec = game_state
-            .player_controller
-            .view_direction
-            .to_direction_vector();
-        let ray = Ray::new(
-            point![player_position.x, player_position.y, player_position.z],
-            vector![direction_vec.x, direction_vec.y, direction_vec.z],
+    if let Some(revolver) = game_state.revolver.as_mut() {
+        revolver.update(
+            game_state.player_controller.view_direction,
+            &mut game_state.scene,
         );
-        let max_distance = ARENA_SIDE_LENGTH * 10.0;
-        let solid = true;
-        if let Some((collider_handle, collision_point_distance)) =
-            game_state.physics_state.query_pipeline.cast_ray(
-                &game_state.physics_state.rigid_body_set,
-                &game_state.physics_state.collider_set,
-                &ray,
-                max_distance,
-                solid,
-                QueryFilter::from(
-                    InteractionGroups::all().with_filter(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
-                ),
-            )
-        {
-            // The first collider hit has the handle `handle` and it hit after
-            // the ray travelled a distance equal to `ray.dir * toi`.
-            let _hit_point = ray.point_at(collision_point_distance); // Same as: `ray.origin + ray.dir * toi`
 
-            // logger.log(&format!(
-            //     "Collider {:?} hit at point {}",
-            //     collider_handle, _hit_point
-            // ));
-            if let Some(rigid_body_handle) = game_state
-                .physics_state
-                .collider_set
-                .get(collider_handle)
-                .unwrap()
-                .parent()
-            {
-                if let Some((ball_index, ball)) = game_state
-                    .physics_balls
-                    .iter()
-                    .enumerate()
-                    .find(|(_, ball)| ball.rigid_body_handle() == rigid_body_handle)
-                {
-                    // logger.log(&format!(
-                    //     "Hit physics ball {:?} hit at point {}",
-                    //     ball_index, hit_point
-                    // ));
-                    // ball.toggle_wireframe(&mut game_state.scene);
-                    ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
-                    game_state.physics_balls.remove(ball_index);
-                }
+        if game_state.mouse_button_pressed && revolver.fire(&mut game_state.scene) {
+            if let Some(audio_manager) = game_state.audio_manager.as_mut() {
+                audio_manager.play_sound(game_state.gunshot_sound_index)
             }
-            game_state
-                .character
-                .handle_hit(&mut game_state.scene, collider_handle);
+            // setting gunshot_sound_index to 0 is a hacky way to deal with the audio_manager not being initialized
+            // such as when we dont want to play audio
+            game_state.gunshot_sound_index = game_state
+                .audio_manager
+                .as_mut()
+                .map(|audio_manager| {
+                    audio_manager.add_sound(&game_state.gunshot_sound_data, 0.75, true, None)
+                })
+                .unwrap_or(0);
+
+            // logger.log("Fired!");
+            let player_position = game_state
+                .player_controller
+                .position(&game_state.physics_state);
+            let direction_vec = game_state
+                .player_controller
+                .view_direction
+                .to_direction_vector();
+            let ray = Ray::new(
+                point![player_position.x, player_position.y, player_position.z],
+                vector![direction_vec.x, direction_vec.y, direction_vec.z],
+            );
+            let max_distance = ARENA_SIDE_LENGTH * 10.0;
+            let solid = true;
+            if let Some((collider_handle, collision_point_distance)) =
+                game_state.physics_state.query_pipeline.cast_ray(
+                    &game_state.physics_state.rigid_body_set,
+                    &game_state.physics_state.collider_set,
+                    &ray,
+                    max_distance,
+                    solid,
+                    QueryFilter::from(
+                        InteractionGroups::all().with_filter(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
+                    ),
+                )
+            {
+                // The first collider hit has the handle `handle` and it hit after
+                // the ray travelled a distance equal to `ray.dir * toi`.
+                let _hit_point = ray.point_at(collision_point_distance); // Same as: `ray.origin + ray.dir * toi`
+
+                // logger.log(&format!(
+                //     "Collider {:?} hit at point {}",
+                //     collider_handle, _hit_point
+                // ));
+                if let Some(rigid_body_handle) = game_state
+                    .physics_state
+                    .collider_set
+                    .get(collider_handle)
+                    .unwrap()
+                    .parent()
+                {
+                    if let Some((ball_index, ball)) = game_state
+                        .physics_balls
+                        .iter()
+                        .enumerate()
+                        .find(|(_, ball)| ball.rigid_body_handle() == rigid_body_handle)
+                    {
+                        // logger.log(&format!(
+                        //     "Hit physics ball {:?} hit at point {}",
+                        //     ball_index, hit_point
+                        // ));
+                        // ball.toggle_wireframe(&mut game_state.scene);
+                        ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
+                        game_state.physics_balls.remove(ball_index);
+                    }
+                }
+                game_state
+                    .character
+                    .handle_hit(&mut game_state.scene, collider_handle);
+            }
         }
     }
 
@@ -1224,13 +1269,4 @@ pub fn update_game_state(
     game_state
         .character
         .update(scene, &mut game_state.physics_state);
-}
-
-pub fn init_scene(
-    base_renderer_state: &mut BaseRendererState,
-    logger: &mut Logger,
-) -> Result<(Scene, RenderBuffers)> {
-    let (document, buffers, images) = gltf::import(get_gltf_path())?;
-    validate_animation_property_counts(&document, logger);
-    build_scene(base_renderer_state, (&document, &buffers, &images), logger)
 }

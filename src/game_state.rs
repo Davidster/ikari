@@ -28,7 +28,7 @@ pub struct GameState {
 
     pub test_object_node_id: GameNodeId,
     pub crosshair_node_id: GameNodeId,
-    pub revolver: Revolver,
+    pub revolver: Option<Revolver>,
 
     pub bouncing_ball_node_id: GameNodeId,
     pub bouncing_ball_body_handle: RigidBodyHandle,

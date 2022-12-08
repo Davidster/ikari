@@ -173,7 +173,7 @@ pub enum SkyboxHDREnvironment<'a> {
     Equirectangular { image_path: &'a str },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct RenderBuffers {
     pub binded_pbr_meshes: Vec<BindedPbrMesh>,
     pub binded_unlit_meshes: Vec<BindedUnlitMesh>,
@@ -2508,7 +2508,21 @@ impl RendererState {
                                 model_transform: GpuMatrix4(transform),
                             };
                             if is_wireframe_mode_on || is_node_wireframe {
-                                match wireframe_mesh_index_to_gpu_instances.entry(mesh_index) {
+                                let wireframe_mesh_index = self
+                                    .buffers
+                                    .binded_wireframe_meshes
+                                    .iter()
+                                    .enumerate()
+                                    .find(|(_, wireframe_mesh)| {
+                                        wireframe_mesh.source_mesh_index == mesh_index
+                                            && MeshType::from(*mesh_type)
+                                                == wireframe_mesh.source_mesh_type
+                                    })
+                                    .unwrap()
+                                    .0;
+                                match wireframe_mesh_index_to_gpu_instances
+                                    .entry(wireframe_mesh_index)
+                                {
                                     Entry::Occupied(mut entry) => {
                                         entry.get_mut().push(gpu_instance);
                                     }

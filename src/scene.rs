@@ -1,14 +1,11 @@
-use std::{
-    collections::{HashMap},
-    hash::BuildHasherDefault,
-};
+use std::{collections::HashMap, hash::BuildHasherDefault};
 
 use cgmath::{Matrix4, Vector3};
 use twox_hash::XxHash64;
 
 use super::*;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Scene {
     nodes: Vec<(Option<GameNode>, usize)>, // (node, generation number). None means the node was removed from the scene
     node_transforms: Vec<Matrix4<f32>>,
@@ -287,6 +284,8 @@ impl Scene {
                     GameNodeId(node_index + node_index_offset as u32, 0)
                 })
                 .collect();
+            let GameNodeId(node_index, _) = skin.node_id;
+            skin.node_id = GameNodeId(node_index + node_index_offset as u32, 0);
         }
         for animation in &mut other_scene.animations {
             for channel in &mut animation.channels {
@@ -474,7 +473,7 @@ impl Scene {
         }
     }
 
-    pub fn _get_node_parent(&self, node_id: GameNodeId) -> Option<GameNodeId> {
+    pub fn get_node_parent(&self, node_id: GameNodeId) -> Option<GameNodeId> {
         let GameNodeId(node_index, _) = node_id;
         self.parent_index_map
             .get(&node_index)
