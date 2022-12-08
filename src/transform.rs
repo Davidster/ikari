@@ -53,7 +53,7 @@ impl Transform {
         }
     }
 
-    pub fn is_new(&self) -> bool {
+    pub fn _is_new(&self) -> bool {
         self.is_new
     }
 

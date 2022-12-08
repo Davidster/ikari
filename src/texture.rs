@@ -222,7 +222,7 @@ impl Texture {
         )
     }
 
-    pub fn flat_normal_map(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self> {
+    pub fn _flat_normal_map(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self> {
         Self::from_color(device, queue, [127, 127, 255, 255])
     }
 

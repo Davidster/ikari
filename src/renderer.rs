@@ -4,7 +4,6 @@ use std::num::{NonZeroU32, NonZeroU64};
 use std::{
     collections::{hash_map::Entry, HashMap},
     num::{NonZeroU32, NonZeroU64},
-    rc::Rc,
 };
 
 use super::*;

@@ -80,7 +80,7 @@ impl PhysicsState {
         if let Some(node) = scene.get_node(node_id) {
             if let Some(mesh) = node.mesh.as_ref() {
                 let transform: crate::transform::Transform =
-                    scene.get_global_transform_for_node(node_id).into();
+                    scene.get_global_transform_for_node(node_id);
                 let transform_decomposed = transform.decompose();
                 for mesh_index in mesh.mesh_indices.iter() {
                     let bounding_box = match mesh.mesh_type {
