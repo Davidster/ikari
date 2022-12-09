@@ -4,6 +4,7 @@ mod ball;
 mod buffer;
 mod camera;
 mod character;
+mod default_textures;
 mod game;
 mod game_state;
 mod gameloop;
@@ -29,6 +30,7 @@ use ball::*;
 use buffer::*;
 use camera::*;
 use character::*;
+use default_textures::*;
 use game::*;
 use game_state::*;
 use gltf_loader::*;
@@ -74,10 +76,11 @@ async fn start() {
     };
     if let Some(window) = window {
         let mut logger = Logger::new();
-        let mut base_render_state = BaseRendererState::new(&window).await;
+        let base_render_state = BaseRendererState::new(&window).await;
 
         let run_result = async {
-            let (game_scene, render_buffers) = init_scene(&mut base_render_state, &mut logger)?;
+            let game_scene = Scene::default();
+            let render_buffers = RenderBuffers::default();
             let mut renderer_state =
                 RendererState::new(render_buffers, base_render_state, &mut logger).await?;
             let game_state = init_game_state(game_scene, &mut renderer_state, &mut logger)?;

@@ -45,6 +45,8 @@ impl PhysicsState {
     }
 
     pub fn step(&mut self) {
+        puffin::profile_function!();
+
         self.physics_pipeline.step(
             &self.gravity,
             &self.integration_parameters,
@@ -77,7 +79,9 @@ impl PhysicsState {
         let collider_handles = self.static_box_set.entry(node_id).or_insert(vec![]);
         if let Some(node) = scene.get_node(node_id) {
             if let Some(mesh) = node.mesh.as_ref() {
-                let transform_decomposed = scene.get_global_transform_for_node(node_id).decompose();
+                let transform: crate::transform::Transform =
+                    scene.get_global_transform_for_node(node_id);
+                let transform_decomposed = transform.decompose();
                 for mesh_index in mesh.mesh_indices.iter() {
                     let bounding_box = match mesh.mesh_type {
                         GameNodeMeshType::Pbr { .. } => {

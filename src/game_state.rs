@@ -6,7 +6,7 @@ pub struct GameState {
     pub state_update_time_accumulator: f32,
     pub is_playing_animations: bool,
 
-    pub audio_manager: AudioManager,
+    pub audio_manager: Option<AudioManager>,
     pub bgm_sound_index: usize,
     pub gunshot_sound_index: usize,
     pub gunshot_sound_data: SoundData,
@@ -28,7 +28,7 @@ pub struct GameState {
 
     pub test_object_node_id: GameNodeId,
     pub crosshair_node_id: GameNodeId,
-    pub revolver: Revolver,
+    pub revolver: Option<Revolver>,
 
     pub bouncing_ball_node_id: GameNodeId,
     pub bouncing_ball_body_handle: RigidBodyHandle,

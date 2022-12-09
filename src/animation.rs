@@ -6,6 +6,7 @@ use super::*;
 
 #[derive(Debug)]
 pub struct Animation {
+    pub name: Option<String>,
     pub length_seconds: f32,
     pub speed: f32,
     pub channels: Vec<Channel>,

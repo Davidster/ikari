@@ -9,7 +9,7 @@ pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.3;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
 pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
-pub const ARENA_SIDE_LENGTH: f32 = 25.0;
+pub const ARENA_SIDE_LENGTH: f32 = 100.0;
 // pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
 // pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 
@@ -21,44 +21,6 @@ pub const POINT_LIGHT_COLOR: Vector3<f32> = Vector3::new(0.93126976, 0.7402633, 
 //     Vector3::new(from_srgb(0.631), from_srgb(0.565), from_srgb(0.627));
 
 pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: Group = Group::GROUP_1;
-
-#[allow(clippy::let_and_return)]
-fn get_gltf_path() -> &'static str {
-    // let gltf_path = "/home/david/Downloads/adamHead/adamHead.gltf";
-    // let gltf_path = "/home/david/Downloads/free_low_poly_forest/scene_2.glb";
-    // let gltf_path = "/home/david/Downloads/free_low_poly_forest/scene.gltf";
-    // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
-    // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf";
-    // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
-    // let gltf_path = "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf";
-    // let gltf_path = "./src/models/gltf/Sponza/Sponza.gltf";
-    // let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
-    // let gltf_path = "./src/models/gltf/Arrow/Arrow.gltf";
-    // let gltf_path = "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf";
-    // let gltf_path = "./src/models/gltf/VertexColorTest/VertexColorTest.gltf";
-    // let gltf_path = "./src/models/gltf/Revolver/revolver_low_poly.gltf";
-    // let gltf_path =
-    //     "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf";
-    // let gltf_path =
-    //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb";
-    // let gltf_path = "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
-    // let gltf_path =
-    //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
-    // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
-    // let gltf_path = "./src/models/gltf/VC/VC.gltf";
-    // let gltf_path =
-    //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
-
-    // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-    let gltf_path = "./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf";
-
-    gltf_path
-}
 
 pub fn get_skybox_path() -> (
     SkyboxBackground<'static>,
@@ -116,12 +78,10 @@ pub fn init_game_state(
     renderer_state: &mut RendererState,
     logger: &mut Logger,
 ) -> Result<GameState> {
-    let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
-    let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
-    let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
-
     let mut physics_state = PhysicsState::new();
 
+    // create player
+    let player_node_id = scene.add_node(GameNodeDesc::default()).id();
     let player_controller = PlayerController::new(
         &mut physics_state,
         6.0,
@@ -131,7 +91,170 @@ pub fn init_game_state(
             vertical: Rad(0.0),
         },
     );
-    let player_node_id = scene.add_node(GameNodeDesc::default()).id();
+
+    // load in gltf files
+
+    // player's revolver
+    #[allow(unused_assignments)]
+    let mut revolver: Option<Revolver> = None;
+    {
+        // or ./src/models/gltf/Revolver/revolver_low_poly.gltf
+        let (document, buffers, images) =
+            gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
+        validate_animation_property_counts(&document, logger);
+        let (other_scene, other_render_buffers) = build_scene(
+            &mut renderer_state.base,
+            (&document, &buffers, &images),
+            logger,
+        )?;
+        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+
+        let node_id = scene.nodes().last().unwrap().id();
+        let animation_index = scene.animations.len() - 1;
+        // revolver_indices = Some((revolver_model_node_id, animation_index));
+        revolver = Some(Revolver::new(
+            &mut scene,
+            player_node_id,
+            node_id,
+            animation_index,
+            // revolver model
+            // TransformBuilder::new()
+            //     .position(Vector3::new(0.21, -0.09, -1.0))
+            //     .rotation(make_quat_from_axis_angle(
+            //         Vector3::new(0.0, 1.0, 0.0),
+            //         Deg(180.0).into(),
+            //     ))
+            //     .scale(0.17f32 * Vector3::new(1.0, 1.0, 1.0))
+            //     .build(),
+            // colt python model
+            TransformBuilder::new()
+                .position(Vector3::new(0.21, -0.13, -1.0))
+                .rotation(
+                    make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(180.0).into())
+                        * make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(0.1)),
+                )
+                .scale(2.0f32 * Vector3::new(1.0, 1.0, 1.0))
+                .build(),
+        ));
+    }
+
+    // forest
+    {
+        let (document, buffers, images) =
+            gltf::import("./src/models/gltf/free_low_poly_forest/scene.gltf")?;
+        validate_animation_property_counts(&document, logger);
+        let (mut other_scene, other_render_buffers) = build_scene(
+            &mut renderer_state.base,
+            (&document, &buffers, &images),
+            logger,
+        )?;
+        // hack to get the terrain to be at the same height as the ground.
+        let node_has_parent: Vec<_> = other_scene
+            .nodes()
+            .map(|node| other_scene.get_node_parent(node.id()).is_some())
+            .collect();
+        for (i, node) in other_scene.nodes_mut().enumerate() {
+            if node_has_parent[i] {
+                continue;
+            }
+            node.transform
+                .set_position(node.transform.position() + Vector3::new(0.0, 29.0, 0.0));
+        }
+        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+    }
+
+    // robot
+    // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
+    {
+        let (document, buffers, images) =
+            gltf::import("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf")?;
+        validate_animation_property_counts(&document, logger);
+        let (mut other_scene, other_render_buffers) = build_scene(
+            &mut renderer_state.base,
+            (&document, &buffers, &images),
+            logger,
+        )?;
+        if let Some(jump_up_animation) = other_scene
+            .animations
+            .iter_mut()
+            .find(|animation| animation.name == Some(String::from("jump_up_root_motion")))
+        {
+            jump_up_animation.speed = 0.25;
+            jump_up_animation.state.is_playing = true;
+            jump_up_animation.state.loop_type = LoopType::Wrap;
+        }
+        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+    }
+
+    // maze
+    {
+        let skip_nodes = scene.node_count();
+        let (document, buffers, images) =
+            gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
+        validate_animation_property_counts(&document, logger);
+        let (other_scene, other_render_buffers) = build_scene(
+            &mut renderer_state.base,
+            (&document, &buffers, &images),
+            logger,
+        )?;
+        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+
+        let test_level_node_ids: Vec<_> = scene
+            .nodes()
+            .skip(skip_nodes)
+            .map(|node| node.id())
+            .collect();
+        for node_id in test_level_node_ids {
+            if let Some(_mesh) = scene.get_node_mut(node_id).unwrap().mesh.as_mut() {
+                // _mesh.wireframe = true;
+            }
+            physics_state.add_static_box(&scene, renderer_state, node_id);
+        }
+    }
+
+    // other
+    {
+        // let gltf_path = "/home/david/Downloads/adamHead/adamHead.gltf";
+        // let gltf_path = "./src/models/gltf/free_low_poly_forest/scene.gltf";
+        // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
+        // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf";
+        // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
+        // let gltf_path = "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf";
+        // let gltf_path = "./src/models/gltf/Sponza/Sponza.gltf";
+        // let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
+        // let gltf_path = "./src/models/gltf/Arrow/Arrow.gltf";
+        // let gltf_path = "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf";
+        // let gltf_path = "./src/models/gltf/VertexColorTest/VertexColorTest.gltf";
+        // let gltf_path = "./src/models/gltf/Revolver/revolver_low_poly.gltf";
+        // let gltf_path =
+        //     "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf";
+        // let gltf_path =
+        //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb";
+        // let gltf_path = "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.gltf";
+        // let gltf_path = "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
+        // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
+        // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
+        // let gltf_path = "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf";
+        // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
+        // let gltf_path =
+        //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
+        // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
+        // let gltf_path = "./src/models/gltf/VC/VC.gltf";
+        // let gltf_path =
+        //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
+        // let (document, buffers, images) = gltf::import(gltf_path)?;
+        // validate_animation_property_counts(&document, logger);
+        // let (other_scene, other_render_buffers) = build_scene(
+        //     &mut renderer_state.base,
+        //     (&document, &buffers, &images),
+        //     logger,
+        // )?;
+        // scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+    }
+
+    let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
+    let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
+    let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
 
     // add lights to the scene
     let directional_lights = vec![
@@ -195,23 +318,6 @@ pub fn init_game_state(
             intensity,
         });
     }
-
-    // rotate the animated character 90 deg
-    // if let Some(node_0) = scene._get_node_mut_by_index(0) {
-    // node_0.transform.set_rotation(make_quat_from_axis_angle(
-    //     Vector3::new(0.0, 1.0, 0.0),
-    //     Deg(90.0).into(),
-    // ));
-    // node_0.transform.set_scale(Vector3::new(0.0, 0.0, 0.0));
-    // node_0.transform.set_position(Vector3::new(2.0, 0.0, 0.0));
-    // }
-    // let node_0_id = scene._get_node_by_index(0).unwrap().id();
-    if let Some(animation_5) = scene.animations.get_mut(11) {
-        animation_5.speed = 0.25;
-        animation_5.state.is_playing = true;
-        animation_5.state.loop_type = LoopType::Wrap;
-    }
-    // scene.remove_node(node_0_id);
 
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
     // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
@@ -300,7 +406,11 @@ pub fn init_game_state(
         .id();
     scene.remove_node(test_object_node_id);
 
-    let legendary_robot_root_node_id = scene._get_node_by_index(53).unwrap().id();
+    let legendary_robot_root_node_id = scene
+        .nodes()
+        .find(|node| node.name == Some(String::from("robot")))
+        .unwrap()
+        .id();
     scene
         .get_node_mut(legendary_robot_root_node_id)
         .unwrap()
@@ -654,67 +764,6 @@ pub fn init_game_state(
         )
         .id();
 
-    // merge revolver scene into current scene
-    // let (document, buffers, images) =
-    //     gltf::import("./src/models/gltf/Revolver/revolver_low_poly.gltf")?;
-    {
-        let (document, buffers, images) =
-            gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
-        validate_animation_property_counts(&document, logger);
-        let (other_scene, other_render_buffers) =
-            build_scene(&renderer_state.base, (&document, &buffers, &images))?;
-        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
-    }
-
-    let revolver_model_node_id = scene.nodes().last().unwrap().id();
-    let animation_index = scene.animations.len() - 1;
-    let revolver = Revolver::new(
-        &mut scene,
-        player_node_id,
-        revolver_model_node_id,
-        animation_index,
-        // revolver model
-        // TransformBuilder::new()
-        //     .position(Vector3::new(0.21, -0.09, -1.0))
-        //     .rotation(make_quat_from_axis_angle(
-        //         Vector3::new(0.0, 1.0, 0.0),
-        //         Deg(180.0).into(),
-        //     ))
-        //     .scale(0.17f32 * Vector3::new(1.0, 1.0, 1.0))
-        //     .build(),
-        // colt python model
-        TransformBuilder::new()
-            .position(Vector3::new(0.21, -0.13, -1.0))
-            .rotation(
-                make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(180.0).into())
-                    * make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(0.1)),
-            )
-            .scale(2.0f32 * Vector3::new(1.0, 1.0, 1.0))
-            .build(),
-    );
-
-    {
-        let skip_nodes = scene.node_count();
-        let (document, buffers, images) =
-            gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
-        validate_animation_property_counts(&document, logger);
-        let (other_scene, other_render_buffers) =
-            build_scene(&renderer_state.base, (&document, &buffers, &images))?;
-        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
-
-        let test_level_node_ids: Vec<_> = scene
-            .nodes()
-            .skip(skip_nodes)
-            .map(|node| node.id())
-            .collect();
-        for node_id in test_level_node_ids {
-            if let Some(_mesh) = scene.get_node_mut(node_id).unwrap().mesh.as_mut() {
-                // _mesh.wireframe = true;
-            }
-            physics_state.add_static_box(&scene, renderer_state, node_id);
-        }
-    }
-
     let mut audio_manager = AudioManager::new()?;
 
     let bgm_data =
@@ -736,7 +785,7 @@ pub fn init_game_state(
         state_update_time_accumulator: 0.0,
         is_playing_animations: true,
 
-        audio_manager,
+        audio_manager: Some(audio_manager),
         bgm_sound_index,
         gunshot_sound_index,
         gunshot_sound_data,
@@ -1077,11 +1126,11 @@ pub fn update_game_state(
         // if let Some(physics_ball) = game_state.physics_balls.pop() {
         //     physics_ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
         // }
-        game_state.physics_balls.push(PhysicsBall::new_random(
-            &mut game_state.scene,
-            &mut game_state.physics_state,
-            GameNodeMesh::from_pbr_mesh_index(game_state.ball_pbr_mesh_index),
-        ));
+        // game_state.physics_balls.push(PhysicsBall::new_random(
+        //     &mut game_state.scene,
+        //     &mut game_state.physics_state,
+        //     GameNodeMesh::from_pbr_mesh_index(game_state.ball_pbr_mesh_index),
+        // ));
         game_state.ball_spawner_acc -= rate;
     }
     let new_ball_count = game_state.physics_balls.len();
@@ -1123,79 +1172,86 @@ pub fn update_game_state(
                 .build();
     }
 
-    game_state.revolver.update(
-        game_state.player_controller.view_direction,
-        &mut game_state.scene,
-    );
-
-    if game_state.mouse_button_pressed && game_state.revolver.fire(&mut game_state.scene) {
-        game_state
-            .audio_manager
-            .play_sound(game_state.gunshot_sound_index);
-        game_state.gunshot_sound_index =
-            game_state
-                .audio_manager
-                .add_sound(&game_state.gunshot_sound_data, 0.75, true, None);
-
-        // logger.log("Fired!");
-        let player_position = game_state
-            .player_controller
-            .position(&game_state.physics_state);
-        let direction_vec = game_state
-            .player_controller
-            .view_direction
-            .to_direction_vector();
-        let ray = Ray::new(
-            point![player_position.x, player_position.y, player_position.z],
-            vector![direction_vec.x, direction_vec.y, direction_vec.z],
+    if let Some(revolver) = game_state.revolver.as_mut() {
+        revolver.update(
+            game_state.player_controller.view_direction,
+            &mut game_state.scene,
         );
-        let max_distance = ARENA_SIDE_LENGTH * 10.0;
-        let solid = true;
-        if let Some((collider_handle, collision_point_distance)) =
-            game_state.physics_state.query_pipeline.cast_ray(
-                &game_state.physics_state.rigid_body_set,
-                &game_state.physics_state.collider_set,
-                &ray,
-                max_distance,
-                solid,
-                QueryFilter::from(
-                    InteractionGroups::all().with_filter(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
-                ),
-            )
-        {
-            // The first collider hit has the handle `handle` and it hit after
-            // the ray travelled a distance equal to `ray.dir * toi`.
-            let _hit_point = ray.point_at(collision_point_distance); // Same as: `ray.origin + ray.dir * toi`
 
-            // logger.log(&format!(
-            //     "Collider {:?} hit at point {}",
-            //     collider_handle, _hit_point
-            // ));
-            if let Some(rigid_body_handle) = game_state
-                .physics_state
-                .collider_set
-                .get(collider_handle)
-                .unwrap()
-                .parent()
-            {
-                if let Some((ball_index, ball)) = game_state
-                    .physics_balls
-                    .iter()
-                    .enumerate()
-                    .find(|(_, ball)| ball.rigid_body_handle() == rigid_body_handle)
-                {
-                    // logger.log(&format!(
-                    //     "Hit physics ball {:?} hit at point {}",
-                    //     ball_index, hit_point
-                    // ));
-                    // ball.toggle_wireframe(&mut game_state.scene);
-                    ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
-                    game_state.physics_balls.remove(ball_index);
-                }
+        if game_state.mouse_button_pressed && revolver.fire(&mut game_state.scene) {
+            if let Some(audio_manager) = game_state.audio_manager.as_mut() {
+                audio_manager.play_sound(game_state.gunshot_sound_index)
             }
-            game_state
-                .character
-                .handle_hit(&mut game_state.scene, collider_handle);
+            // setting gunshot_sound_index to 0 is a hacky way to deal with the audio_manager not being initialized
+            // such as when we dont want to play audio
+            game_state.gunshot_sound_index = game_state
+                .audio_manager
+                .as_mut()
+                .map(|audio_manager| {
+                    audio_manager.add_sound(&game_state.gunshot_sound_data, 0.75, true, None)
+                })
+                .unwrap_or(0);
+
+            // logger.log("Fired!");
+            let player_position = game_state
+                .player_controller
+                .position(&game_state.physics_state);
+            let direction_vec = game_state
+                .player_controller
+                .view_direction
+                .to_direction_vector();
+            let ray = Ray::new(
+                point![player_position.x, player_position.y, player_position.z],
+                vector![direction_vec.x, direction_vec.y, direction_vec.z],
+            );
+            let max_distance = ARENA_SIDE_LENGTH * 10.0;
+            let solid = true;
+            if let Some((collider_handle, collision_point_distance)) =
+                game_state.physics_state.query_pipeline.cast_ray(
+                    &game_state.physics_state.rigid_body_set,
+                    &game_state.physics_state.collider_set,
+                    &ray,
+                    max_distance,
+                    solid,
+                    QueryFilter::from(
+                        InteractionGroups::all().with_filter(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
+                    ),
+                )
+            {
+                // The first collider hit has the handle `handle` and it hit after
+                // the ray travelled a distance equal to `ray.dir * toi`.
+                let _hit_point = ray.point_at(collision_point_distance); // Same as: `ray.origin + ray.dir * toi`
+
+                // logger.log(&format!(
+                //     "Collider {:?} hit at point {}",
+                //     collider_handle, _hit_point
+                // ));
+                if let Some(rigid_body_handle) = game_state
+                    .physics_state
+                    .collider_set
+                    .get(collider_handle)
+                    .unwrap()
+                    .parent()
+                {
+                    if let Some((ball_index, ball)) = game_state
+                        .physics_balls
+                        .iter()
+                        .enumerate()
+                        .find(|(_, ball)| ball.rigid_body_handle() == rigid_body_handle)
+                    {
+                        // logger.log(&format!(
+                        //     "Hit physics ball {:?} hit at point {}",
+                        //     ball_index, hit_point
+                        // ));
+                        // ball.toggle_wireframe(&mut game_state.scene);
+                        ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
+                        game_state.physics_balls.remove(ball_index);
+                    }
+                }
+                game_state
+                    .character
+                    .handle_hit(&mut game_state.scene, collider_handle);
+            }
         }
     }
 
@@ -1208,13 +1264,4 @@ pub fn update_game_state(
     game_state
         .character
         .update(scene, &mut game_state.physics_state);
-}
-
-pub fn init_scene(
-    base_renderer_state: &mut BaseRendererState,
-    logger: &mut Logger,
-) -> Result<(Scene, RenderBuffers)> {
-    let (document, buffers, images) = gltf::import(get_gltf_path())?;
-    validate_animation_property_counts(&document, logger);
-    build_scene(base_renderer_state, (&document, &buffers, &images))
 }

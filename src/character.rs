@@ -34,7 +34,8 @@ impl Character {
     }
 
     pub fn update(&mut self, scene: &mut Scene, physics_state: &mut PhysicsState) {
-        let root_node_global_transform = scene.get_global_transform_for_node(self.root_node_id);
+        let root_node_global_transform: crate::transform::Transform = scene
+            .get_global_transform_for_node(self.root_node_id);
         let should_fill_collision_boxes = self.collision_box_colliders.is_empty();
         if let Some((skin_node_id, first_skin_bounding_box_transforms)) =
             scene.skins.get(self.skin_index).map(|skin| {
@@ -55,6 +56,7 @@ impl Character {
             {
                 let transform = {
                     let skin = &scene.skins[self.skin_index];
+                    // TODO: optimize this like get_global_transform_for_node
                     let skeleton_space_transform = {
                         let node_ancestry_list = scene.get_skeleton_node_ancestry_list(
                             skin.bone_node_ids[bone_index],

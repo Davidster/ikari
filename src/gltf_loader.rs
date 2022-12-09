@@ -6,17 +6,14 @@ use cgmath::{abs_diff_eq, Matrix4, Vector2, Vector3, Vector4};
 use super::*;
 
 pub fn build_scene(
-    base_renderer_state: &BaseRendererState,
+    base_renderer_state: &mut BaseRendererState,
     (document, buffers, images): (
         &gltf::Document,
         &Vec<gltf::buffer::Data>,
         &Vec<gltf::image::Data>,
     ),
+    logger: &mut Logger,
 ) -> Result<(Scene, RenderBuffers)> {
-    let device = &base_renderer_state.device;
-    let queue = &base_renderer_state.queue;
-    let pbr_textures_bind_group_layout = &base_renderer_state.pbr_textures_bind_group_layout;
-
     let scene_index = document
         .default_scene()
         .map(|scene| scene.index())
@@ -78,8 +75,8 @@ pub fn build_scene(
                 .unwrap_or((default_sampler.min_filter, default_sampler.mipmap_filter));
 
             Texture::from_decoded_image(
-                device,
-                queue,
+                &base_renderer_state.device,
+                &base_renderer_state.queue,
                 &image_pixels,
                 (image_data.width, image_data.height),
                 texture.name(),
@@ -142,13 +139,10 @@ pub fn build_scene(
         })
         .enumerate()
     {
-        let (textures_bind_group, dynamic_pbr_params) = build_textures_bind_group(
-            device,
-            queue,
-            &primitive_group.material(),
-            &textures,
-            pbr_textures_bind_group_layout,
-        )?;
+        let dynamic_pbr_params = get_dynamic_pbr_params(&primitive_group.material());
+        let pbr_material = get_pbr_material(&primitive_group.material(), &textures);
+        let textures_bind_group =
+            base_renderer_state.make_pbr_textures_bind_group(&pbr_material, true)?;
 
         let (
             vertices,
@@ -158,25 +152,11 @@ pub fn build_scene(
             wireframe_index_buffer,
             wireframe_index_buffer_format,
             bounding_box,
-        ) = build_geometry_buffers(device, &primitive_group, buffers)?;
+        ) = build_geometry_buffers(&base_renderer_state.device, &primitive_group, buffers)?;
         let initial_instances: Vec<_> = scene_nodes
             .iter()
             .filter(|node| node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index())
             .collect();
-
-        let instance_buffer = GpuBuffer::empty(
-            device,
-            initial_instances.len(),
-            std::mem::size_of::<GpuPbrMeshInstance>(),
-            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        );
-
-        let wireframe_instance_buffer = GpuBuffer::empty(
-            device,
-            1,
-            std::mem::size_of::<GpuWireframeMeshInstance>(),
-            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        );
 
         let primitive_mode = crate::renderer::PrimitiveMode::Triangles;
 
@@ -200,7 +180,6 @@ pub fn build_scene(
                 vertex_buffer,
                 index_buffer,
                 index_buffer_format,
-                instance_buffer,
                 bounding_box,
             },
             dynamic_pbr_params,
@@ -214,7 +193,6 @@ pub fn build_scene(
             source_mesh_index: binded_pbr_mesh_index,
             index_buffer: wireframe_index_buffer,
             index_buffer_format: wireframe_index_buffer_format,
-            instance_buffer: wireframe_instance_buffer,
         });
 
         pbr_mesh_vertices.push(vertices);
@@ -236,6 +214,7 @@ pub fn build_scene(
                     },
                     wireframe: false,
                 }),
+            name: node.name().map(|name| name.to_string()),
         })
         .collect();
 
@@ -339,17 +318,39 @@ pub fn build_scene(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    let render_buffers = RenderBuffers {
+        binded_pbr_meshes,
+        binded_unlit_meshes: vec![],
+        binded_wireframe_meshes,
+        textures,
+    };
+
+    logger.log("Scene loaded:");
+
+    logger.log(&format!("  - node count: {:?}", nodes.len()));
+    logger.log(&format!("  - skin count: {:?}", skins.len()));
+    logger.log(&format!("  - animation count: {:?}", animations.len()));
+    logger.log("  Render buffers:");
+    logger.log(&format!(
+        "    - PBR mesh count: {:?}",
+        render_buffers.binded_pbr_meshes.len()
+    ));
+    logger.log(&format!(
+        "    - Unlit mesh count: {:?}",
+        render_buffers.binded_unlit_meshes.len()
+    ));
+    logger.log(&format!(
+        "    - Wireframe mesh count: {:?}",
+        render_buffers.binded_wireframe_meshes.len()
+    ));
+    logger.log(&format!(
+        "    - Texture count: {:?}",
+        render_buffers.textures.len()
+    ));
+
     let scene = Scene::new(nodes, skins, animations, parent_index_map);
 
-    Ok((
-        scene,
-        RenderBuffers {
-            binded_pbr_meshes,
-            binded_unlit_meshes: vec![],
-            binded_wireframe_meshes,
-            textures,
-        },
-    ))
+    Ok((scene, render_buffers))
 }
 
 pub fn get_animations(
@@ -385,6 +386,7 @@ pub fn get_animations(
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             anyhow::Ok(IndexedAnimation {
+                name: animation.name().map(String::from),
                 length_seconds,
                 channels,
             })
@@ -531,123 +533,32 @@ fn get_full_node_list_impl<'a>(
     }
 }
 
-fn build_textures_bind_group(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
+fn get_pbr_material<'a>(
     material: &gltf::material::Material,
-    textures: &[Texture],
-    five_texture_bind_group_layout: &wgpu::BindGroupLayout,
-) -> Result<(wgpu::BindGroup, DynamicPbrParams)> {
+    textures: &'a [Texture],
+) -> PbrMaterial<'a> {
     let pbr_info = material.pbr_metallic_roughness();
 
-    let material_diffuse_texture = pbr_info.base_color_texture().map(|info| info.texture());
-    // material_diffuse_texture = None;
-    let auto_generated_diffuse_texture;
-    let diffuse_texture = match material_diffuse_texture {
-        Some(diffuse_texture) => &textures[diffuse_texture.index()],
-        None => {
-            auto_generated_diffuse_texture =
-                Texture::from_color(device, queue, [255, 255, 255, 255])?;
-            &auto_generated_diffuse_texture
-        }
-    };
+    let get_texture =
+        |texture: Option<gltf::texture::Texture>| texture.map(|texture| &textures[texture.index()]);
 
-    let material_metallic_roughness_map = pbr_info
-        .metallic_roughness_texture()
-        .map(|info| info.texture());
-    // material_metallic_roughness_map = None;
-    let auto_generated_metallic_roughness_map;
-    let metallic_roughness_map = match material_metallic_roughness_map {
-        Some(metallic_roughness_map) => &textures[metallic_roughness_map.index()],
-        None => {
-            auto_generated_metallic_roughness_map =
-                Texture::from_color(device, queue, [255, 255, 255, 255])?;
-            &auto_generated_metallic_roughness_map
-        }
-    };
+    PbrMaterial {
+        base_color: get_texture(pbr_info.base_color_texture().map(|info| info.texture())),
+        normal: get_texture(material.normal_texture().map(|info| info.texture())),
+        emissive: get_texture(material.emissive_texture().map(|info| info.texture())),
+        ambient_occlusion: get_texture(material.occlusion_texture().map(|info| info.texture())),
+        metallic_roughness: get_texture(
+            pbr_info
+                .metallic_roughness_texture()
+                .map(|info| info.texture()),
+        ),
+    }
+}
 
-    let material_normal_map = material.normal_texture().map(|info| info.texture());
-    // material_normal_map = None;
-    let auto_generated_normal_map;
-    let normal_map = match material_normal_map {
-        Some(normal_map) => &textures[normal_map.index()],
-        None => {
-            auto_generated_normal_map = Texture::flat_normal_map(device, queue)?;
-            &auto_generated_normal_map
-        }
-    };
+fn get_dynamic_pbr_params(material: &gltf::material::Material) -> DynamicPbrParams {
+    let pbr_info = material.pbr_metallic_roughness();
 
-    let material_emissive_map = material.emissive_texture().map(|info| info.texture());
-    // material_emissive_map = None;
-    let auto_generated_emissive_map;
-    let emissive_map = match material_emissive_map {
-        Some(emissive_map) => &textures[emissive_map.index()],
-        None => {
-            auto_generated_emissive_map = Texture::from_color(device, queue, [255, 255, 255, 255])?;
-            &auto_generated_emissive_map
-        }
-    };
-
-    let material_ambient_occlusion_map = material.occlusion_texture().map(|info| info.texture());
-    // material_ambient_occlusion_map = None;
-    let auto_generated_ambient_occlusion_map;
-    let ambient_occlusion_map = match material_ambient_occlusion_map {
-        Some(ambient_occlusion_map) => &textures[ambient_occlusion_map.index()],
-        None => {
-            auto_generated_ambient_occlusion_map =
-                Texture::from_color(device, queue, [255, 255, 255, 255])?;
-            &auto_generated_ambient_occlusion_map
-        }
-    };
-
-    let textures_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        layout: five_texture_bind_group_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::TextureView(&normal_map.view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: wgpu::BindingResource::Sampler(&normal_map.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 4,
-                resource: wgpu::BindingResource::TextureView(&metallic_roughness_map.view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 5,
-                resource: wgpu::BindingResource::Sampler(&metallic_roughness_map.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 6,
-                resource: wgpu::BindingResource::TextureView(&emissive_map.view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 7,
-                resource: wgpu::BindingResource::Sampler(&emissive_map.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 8,
-                resource: wgpu::BindingResource::TextureView(&ambient_occlusion_map.view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 9,
-                resource: wgpu::BindingResource::Sampler(&ambient_occlusion_map.sampler),
-            },
-        ],
-        label: Some("InstancedMeshComponent textures_bind_group"),
-    });
-
-    let dynamic_pbr_params = DynamicPbrParams {
+    DynamicPbrParams {
         base_color_factor: Vector4::from(pbr_info.base_color_factor()),
         emissive_factor: Vector3::from(material.emissive_factor()),
         metallic_factor: pbr_info.metallic_factor(),
@@ -664,9 +575,7 @@ fn build_textures_bind_group(
             gltf::material::AlphaMode::Mask => material.alpha_cutoff().unwrap_or(0.5),
             _ => DynamicPbrParams::default().alpha_cutoff,
         },
-    };
-
-    Ok((textures_bind_group, dynamic_pbr_params))
+    }
 }
 
 pub fn get_buffer_slice_from_accessor(

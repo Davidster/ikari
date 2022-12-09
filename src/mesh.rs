@@ -47,26 +47,11 @@ pub struct GpuPbrMeshInstance {
     emissive_factor: [f32; 4],
     mrno: [f32; 4], // metallic_factor, roughness_factor, normal scale, occlusion strength
     alpha_cutoff: f32,
+    padding: [f32; 3],
 }
 
 impl GpuPbrMeshInstance {
-    const ATTRIBS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
-        8 => Float32x4,  9 => Float32x4,  10 => Float32x4,  11 => Float32x4, // transform
-        12 => Float32x4,
-        13 => Float32x4,
-        14 => Float32x4,
-        15 => Float32,
-    ];
-
-    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<GpuPbrMeshInstance>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &Self::ATTRIBS,
-        }
-    }
-
-    pub fn new(transform: crate::transform::Transform, pbr_params: DynamicPbrParams) -> Self {
+    pub fn new(transform: cgmath::Matrix4<f32>, pbr_params: DynamicPbrParams) -> Self {
         let DynamicPbrParams {
             base_color_factor,
             emissive_factor,
@@ -77,7 +62,7 @@ impl GpuPbrMeshInstance {
             alpha_cutoff,
         } = pbr_params;
         Self {
-            model_transform: GpuMatrix4(transform.matrix()),
+            model_transform: GpuMatrix4(transform),
             base_color_factor: base_color_factor.into(),
             emissive_factor: [
                 emissive_factor[0],
@@ -92,6 +77,7 @@ impl GpuPbrMeshInstance {
                 occlusion_strength,
             ],
             alpha_cutoff,
+            padding: [0.0, 0.0, 0.0],
         }
     }
 }
@@ -101,21 +87,6 @@ impl GpuPbrMeshInstance {
 pub struct GpuUnlitMeshInstance {
     pub model_transform: GpuMatrix4,
     pub color: [f32; 4],
-}
-
-impl GpuUnlitMeshInstance {
-    const ATTRIBS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
-        8 => Float32x4,  9 => Float32x4,  10 => Float32x4,  11 => Float32x4,
-        12 => Float32x4,
-    ];
-
-    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<GpuUnlitMeshInstance>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &Self::ATTRIBS,
-        }
-    }
 }
 
 pub type GpuWireframeMeshInstance = GpuUnlitMeshInstance;
