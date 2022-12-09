@@ -402,6 +402,7 @@ pub fn get_animations(
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             anyhow::Ok(IndexedAnimation {
+                name: animation.name().map(String::from),
                 length_seconds,
                 channels,
             })

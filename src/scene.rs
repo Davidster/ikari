@@ -74,6 +74,7 @@ pub struct IndexedSkin {
 
 #[derive(Debug)]
 pub struct IndexedAnimation {
+    pub name: Option<String>,
     pub length_seconds: f32,
     pub channels: Vec<IndexedChannel>,
 }
@@ -104,6 +105,7 @@ impl Scene {
         let animations: Vec<_> = animations
             .iter()
             .map(|indexed_animation| Animation {
+                name: indexed_animation.name.clone(),
                 length_seconds: indexed_animation.length_seconds,
                 speed: 1.0,
                 channels: indexed_animation

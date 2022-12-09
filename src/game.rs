@@ -22,43 +22,6 @@ pub const POINT_LIGHT_COLOR: Vector3<f32> = Vector3::new(0.93126976, 0.7402633, 
 
 pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: Group = Group::GROUP_1;
 
-#[allow(clippy::let_and_return)]
-fn get_gltf_path() -> &'static str {
-    // let gltf_path = "/home/david/Downloads/adamHead/adamHead.gltf";
-    // let gltf_path = "./src/models/gltf/free_low_poly_forest/scene.gltf";
-    // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
-    // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf";
-    // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
-    // let gltf_path = "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf";
-    // let gltf_path = "./src/models/gltf/Sponza/Sponza.gltf";
-    // let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
-    // let gltf_path = "./src/models/gltf/Arrow/Arrow.gltf";
-    // let gltf_path = "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf";
-    // let gltf_path = "./src/models/gltf/VertexColorTest/VertexColorTest.gltf";
-    // let gltf_path = "./src/models/gltf/Revolver/revolver_low_poly.gltf";
-    // let gltf_path =
-    //     "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf";
-    // let gltf_path =
-    //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb";
-    // let gltf_path = "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf";
-    // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
-    // let gltf_path =
-    //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
-    // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
-    // let gltf_path = "./src/models/gltf/VC/VC.gltf";
-    // let gltf_path =
-    //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
-
-    // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-    let gltf_path = "./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf";
-
-    gltf_path
-}
-
 pub fn get_skybox_path() -> (
     SkyboxBackground<'static>,
     Option<SkyboxHDREnvironment<'static>>,
@@ -115,14 +78,27 @@ pub fn init_game_state(
     renderer_state: &mut RendererState,
     logger: &mut Logger,
 ) -> Result<GameState> {
+    let mut physics_state = PhysicsState::new();
+
+    // create player
+    let player_node_id = scene.add_node(GameNodeDesc::default()).id();
+    let player_controller = PlayerController::new(
+        &mut physics_state,
+        6.0,
+        Vector3::new(8.0, 30.0, -13.0),
+        ControlledViewDirection {
+            horizontal: Deg(180.0).into(),
+            vertical: Rad(0.0),
+        },
+    );
+
     // load in gltf files
 
-    // revolver
-    // let (document, buffers, images) =
-    //     gltf::import("./src/models/gltf/Revolver/revolver_low_poly.gltf")?;
+    // player's revolver
     #[allow(unused_assignments)]
-    let mut revolver_indices: Option<(GameNodeId, usize)> = None;
+    let mut revolver: Option<Revolver> = None;
     {
+        // or ./src/models/gltf/Revolver/revolver_low_poly.gltf
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
         validate_animation_property_counts(&document, logger);
@@ -133,9 +109,33 @@ pub fn init_game_state(
         )?;
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
 
-        let revolver_model_node_id = scene.nodes().last().unwrap().id();
+        let node_id = scene.nodes().last().unwrap().id();
         let animation_index = scene.animations.len() - 1;
-        revolver_indices = Some((revolver_model_node_id, animation_index));
+        // revolver_indices = Some((revolver_model_node_id, animation_index));
+        revolver = Some(Revolver::new(
+            &mut scene,
+            player_node_id,
+            node_id,
+            animation_index,
+            // revolver model
+            // TransformBuilder::new()
+            //     .position(Vector3::new(0.21, -0.09, -1.0))
+            //     .rotation(make_quat_from_axis_angle(
+            //         Vector3::new(0.0, 1.0, 0.0),
+            //         Deg(180.0).into(),
+            //     ))
+            //     .scale(0.17f32 * Vector3::new(1.0, 1.0, 1.0))
+            //     .build(),
+            // colt python model
+            TransformBuilder::new()
+                .position(Vector3::new(0.21, -0.13, -1.0))
+                .rotation(
+                    make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(180.0).into())
+                        * make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(0.1)),
+                )
+                .scale(2.0f32 * Vector3::new(1.0, 1.0, 1.0))
+                .build(),
+        ));
     }
 
     // forest
@@ -163,9 +163,34 @@ pub fn init_game_state(
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
     }
 
-    // other gltfs
+    // robot
+    // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
     {
-        let (document, buffers, images) = gltf::import(get_gltf_path())?;
+        let (document, buffers, images) =
+            gltf::import("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf")?;
+        validate_animation_property_counts(&document, logger);
+        let (mut other_scene, other_render_buffers) = build_scene(
+            &mut renderer_state.base,
+            (&document, &buffers, &images),
+            logger,
+        )?;
+        if let Some(jump_up_animation) = other_scene
+            .animations
+            .iter_mut()
+            .find(|animation| animation.name == Some(String::from("jump_up_root_motion")))
+        {
+            jump_up_animation.speed = 0.25;
+            jump_up_animation.state.is_playing = true;
+            jump_up_animation.state.loop_type = LoopType::Wrap;
+        }
+        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+    }
+
+    // maze
+    {
+        let skip_nodes = scene.node_count();
+        let (document, buffers, images) =
+            gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
         validate_animation_property_counts(&document, logger);
         let (other_scene, other_render_buffers) = build_scene(
             &mut renderer_state.base,
@@ -173,51 +198,63 @@ pub fn init_game_state(
             logger,
         )?;
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+
+        let test_level_node_ids: Vec<_> = scene
+            .nodes()
+            .skip(skip_nodes)
+            .map(|node| node.id())
+            .collect();
+        for node_id in test_level_node_ids {
+            if let Some(_mesh) = scene.get_node_mut(node_id).unwrap().mesh.as_mut() {
+                // _mesh.wireframe = true;
+            }
+            physics_state.add_static_box(&scene, renderer_state, node_id);
+        }
+    }
+
+    // other
+    {
+        // let gltf_path = "/home/david/Downloads/adamHead/adamHead.gltf";
+        // let gltf_path = "./src/models/gltf/free_low_poly_forest/scene.gltf";
+        // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
+        // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf";
+        // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
+        // let gltf_path = "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf";
+        // let gltf_path = "./src/models/gltf/Sponza/Sponza.gltf";
+        // let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
+        // let gltf_path = "./src/models/gltf/Arrow/Arrow.gltf";
+        // let gltf_path = "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf";
+        // let gltf_path = "./src/models/gltf/VertexColorTest/VertexColorTest.gltf";
+        // let gltf_path = "./src/models/gltf/Revolver/revolver_low_poly.gltf";
+        // let gltf_path =
+        //     "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf";
+        // let gltf_path =
+        //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb";
+        // let gltf_path = "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.gltf";
+        // let gltf_path = "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
+        // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
+        // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
+        // let gltf_path = "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf";
+        // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
+        // let gltf_path =
+        //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
+        // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
+        // let gltf_path = "./src/models/gltf/VC/VC.gltf";
+        // let gltf_path =
+        //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
+        // let (document, buffers, images) = gltf::import(gltf_path)?;
+        // validate_animation_property_counts(&document, logger);
+        // let (other_scene, other_render_buffers) = build_scene(
+        //     &mut renderer_state.base,
+        //     (&document, &buffers, &images),
+        //     logger,
+        // )?;
+        // scene.merge_scene(renderer_state, other_scene, other_render_buffers);
     }
 
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
     let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
     let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
-
-    let mut physics_state = PhysicsState::new();
-
-    let player_controller = PlayerController::new(
-        &mut physics_state,
-        6.0,
-        Vector3::new(8.0, 30.0, -13.0),
-        ControlledViewDirection {
-            horizontal: Deg(180.0).into(),
-            vertical: Rad(0.0),
-        },
-    );
-    let player_node_id = scene.add_node(GameNodeDesc::default()).id();
-
-    let revolver = revolver_indices.map(|(node_id, animation_index)| {
-        Revolver::new(
-            &mut scene,
-            player_node_id,
-            node_id,
-            animation_index,
-            // revolver model
-            // TransformBuilder::new()
-            //     .position(Vector3::new(0.21, -0.09, -1.0))
-            //     .rotation(make_quat_from_axis_angle(
-            //         Vector3::new(0.0, 1.0, 0.0),
-            //         Deg(180.0).into(),
-            //     ))
-            //     .scale(0.17f32 * Vector3::new(1.0, 1.0, 1.0))
-            //     .build(),
-            // colt python model
-            TransformBuilder::new()
-                .position(Vector3::new(0.21, -0.13, -1.0))
-                .rotation(
-                    make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(180.0).into())
-                        * make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(0.1)),
-                )
-                .scale(2.0f32 * Vector3::new(1.0, 1.0, 1.0))
-                .build(),
-        )
-    });
 
     // add lights to the scene
     let directional_lights = vec![
@@ -281,23 +318,6 @@ pub fn init_game_state(
             intensity,
         });
     }
-
-    // rotate the animated character 90 deg
-    // if let Some(node_0) = scene._get_node_mut_by_index(0) {
-    // node_0.transform.set_rotation(make_quat_from_axis_angle(
-    //     Vector3::new(0.0, 1.0, 0.0),
-    //     Deg(90.0).into(),
-    // ));
-    // node_0.transform.set_scale(Vector3::new(0.0, 0.0, 0.0));
-    // node_0.transform.set_position(Vector3::new(2.0, 0.0, 0.0));
-    // }
-    // let node_0_id = scene._get_node_by_index(0).unwrap().id();
-    if let Some(animation_5) = scene.animations.get_mut(11) {
-        animation_5.speed = 0.25;
-        animation_5.state.is_playing = true;
-        animation_5.state.loop_type = LoopType::Wrap;
-    }
-    // scene.remove_node(node_0_id);
 
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
     // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
@@ -743,31 +763,6 @@ pub fn init_game_state(
                 .build(),
         )
         .id();
-
-    {
-        let skip_nodes = scene.node_count();
-        let (document, buffers, images) =
-            gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
-        validate_animation_property_counts(&document, logger);
-        let (other_scene, other_render_buffers) = build_scene(
-            &mut renderer_state.base,
-            (&document, &buffers, &images),
-            logger,
-        )?;
-        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
-
-        let test_level_node_ids: Vec<_> = scene
-            .nodes()
-            .skip(skip_nodes)
-            .map(|node| node.id())
-            .collect();
-        for node_id in test_level_node_ids {
-            if let Some(_mesh) = scene.get_node_mut(node_id).unwrap().mesh.as_mut() {
-                // _mesh.wireframe = true;
-            }
-            physics_state.add_static_box(&scene, renderer_state, node_id);
-        }
-    }
 
     let mut audio_manager = AudioManager::new()?;
 
