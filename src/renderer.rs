@@ -1,10 +1,7 @@
+use std::collections::{hash_map::Entry, HashMap};
 use std::fs::File;
 use std::io::BufReader;
 use std::num::{NonZeroU32, NonZeroU64};
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    num::{NonZeroU32, NonZeroU64},
-};
 
 use super::*;
 
