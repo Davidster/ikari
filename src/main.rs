@@ -71,37 +71,6 @@ async fn start() {
             .expect("Failed to create window");
 
         Some(window)
-        // for selecting video modes!
-        // if cfg!(target_os = "macos") {
-        //     Some(window)
-        // } else {
-        //     let monitor = window.current_monitor().unwrap();
-        //     let video_modes: Vec<winit::monitor::VideoMode> = monitor.video_modes().collect();
-        //     let video_mode_labels: Vec<String> = video_modes
-        //         .iter()
-        //         .map(|video_mode| format!("{:}", video_mode))
-        //         .collect();
-        //     // println!("{:}", video_modes[0]);
-
-        //     let selected_video_mode_index = dialoguer::Select::new()
-        //         .items(&video_mode_labels)
-        //         .default(0)
-        //         .interact_opt()
-        //         .expect("Dialoguer failed");
-
-        //     match selected_video_mode_index {
-        //         Some(selected_video_mode_index) => {
-        //             window.set_fullscreen(Some(winit::window::Fullscreen::Exclusive(
-        //                 video_modes[selected_video_mode_index].clone(),
-        //             )));
-        //             Some(window)
-        //         }
-        //         None => {
-        //             println!("No video mode selected");
-        //             None
-        //         }
-        //     }
-        // }
     };
     if let Some(window) = window {
         let mut logger = Logger::new();
