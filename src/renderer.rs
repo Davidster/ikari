@@ -197,7 +197,6 @@ pub struct GeometryBuffers {
     pub vertex_buffer: GpuBuffer,
     pub index_buffer: GpuBuffer,
     pub index_buffer_format: wgpu::IndexFormat,
-    pub instance_buffer: GpuBuffer,
     pub bounding_box: (Vector3<f32>, Vector3<f32>),
 }
 
@@ -224,7 +223,6 @@ pub struct BindedWireframeMesh {
     pub source_mesh_index: usize,
     pub index_buffer: GpuBuffer,
     pub index_buffer_format: wgpu::IndexFormat,
-    pub instance_buffer: GpuBuffer,
 }
 
 #[derive(Debug)]
@@ -2067,8 +2065,7 @@ impl RendererState {
         self.buffers.binded_unlit_meshes.push(geometry_buffers);
         let unlit_mesh_index = self.buffers.binded_unlit_meshes.len() - 1;
 
-        let (wireframe_index_buffer, wireframe_instance_buffer) =
-            self.bind_wireframe_buffers_for_basic_mesh(mesh);
+        let wireframe_index_buffer = self.make_wireframe_index_buffer_for_basic_mesh(mesh);
         self.buffers
             .binded_wireframe_meshes
             .push(BindedWireframeMesh {
@@ -2076,7 +2073,6 @@ impl RendererState {
                 source_mesh_index: unlit_mesh_index,
                 index_buffer: wireframe_index_buffer,
                 index_buffer_format: wgpu::IndexFormat::Uint16,
-                instance_buffer: wireframe_instance_buffer,
             });
 
         unlit_mesh_index
@@ -2102,8 +2098,7 @@ impl RendererState {
         });
         let pbr_mesh_index = self.buffers.binded_pbr_meshes.len() - 1;
 
-        let (wireframe_index_buffer, wireframe_instance_buffer) =
-            self.bind_wireframe_buffers_for_basic_mesh(mesh);
+        let wireframe_index_buffer = self.make_wireframe_index_buffer_for_basic_mesh(mesh);
         self.buffers
             .binded_wireframe_meshes
             .push(BindedWireframeMesh {
@@ -2111,7 +2106,6 @@ impl RendererState {
                 source_mesh_index: pbr_mesh_index,
                 index_buffer: wireframe_index_buffer,
                 index_buffer_format: wgpu::IndexFormat::Uint16,
-                instance_buffer: wireframe_instance_buffer,
             });
 
         Ok(pbr_mesh_index)
@@ -2139,15 +2133,6 @@ impl RendererState {
             wgpu::BufferUsages::INDEX,
         );
 
-        let instance_buffer = GpuBuffer::empty(
-            device,
-            // start with space for 1 instance.
-            // TODO: add optional instance_count_hint param to start the buffer with a larger size to avoid too many buffer re-creations?
-            1,
-            std::mem::size_of::<GpuPbrMeshInstance>(),
-            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        );
-
         let bounding_box = {
             let mut min_point = Vector3::new(
                 mesh.vertices[0].position[0],
@@ -2170,19 +2155,18 @@ impl RendererState {
             vertex_buffer,
             index_buffer,
             index_buffer_format: wgpu::IndexFormat::Uint16,
-            instance_buffer,
             bounding_box,
         }
     }
 
-    fn bind_wireframe_buffers_for_basic_mesh(&self, mesh: &BasicMesh) -> (GpuBuffer, GpuBuffer) {
-        Self::bind_wireframe_buffers_for_basic_mesh_impl(&self.base.device, mesh)
+    fn make_wireframe_index_buffer_for_basic_mesh(&self, mesh: &BasicMesh) -> GpuBuffer {
+        Self::make_wireframe_index_buffer_for_basic_mesh_impl(&self.base.device, mesh)
     }
 
-    fn bind_wireframe_buffers_for_basic_mesh_impl(
+    fn make_wireframe_index_buffer_for_basic_mesh_impl(
         device: &wgpu::Device,
         mesh: &BasicMesh,
-    ) -> (GpuBuffer, GpuBuffer) {
+    ) -> GpuBuffer {
         let index_buffer = GpuBuffer::from_bytes(
             device,
             bytemuck::cast_slice(
@@ -2204,14 +2188,8 @@ impl RendererState {
             std::mem::size_of::<u16>(),
             wgpu::BufferUsages::INDEX,
         );
-        let instance_buffer = GpuBuffer::empty(
-            device,
-            1,
-            std::mem::size_of::<GpuWireframeMeshInstance>(),
-            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        );
 
-        (index_buffer, instance_buffer)
+        index_buffer
     }
 
     pub fn increment_render_scale(&mut self, increase: bool, logger: &mut Logger) {

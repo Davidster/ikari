@@ -158,20 +158,6 @@ pub fn build_scene(
             .filter(|node| node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index())
             .collect();
 
-        let instance_buffer = GpuBuffer::empty(
-            &base_renderer_state.device,
-            initial_instances.len(),
-            std::mem::size_of::<GpuPbrMeshInstance>(),
-            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        );
-
-        let wireframe_instance_buffer = GpuBuffer::empty(
-            &base_renderer_state.device,
-            1,
-            std::mem::size_of::<GpuWireframeMeshInstance>(),
-            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        );
-
         let primitive_mode = crate::renderer::PrimitiveMode::Triangles;
 
         let alpha_mode = match primitive_group.material().alpha_mode() {
@@ -194,7 +180,6 @@ pub fn build_scene(
                 vertex_buffer,
                 index_buffer,
                 index_buffer_format,
-                instance_buffer,
                 bounding_box,
             },
             dynamic_pbr_params,
@@ -208,7 +193,6 @@ pub fn build_scene(
             source_mesh_index: binded_pbr_mesh_index,
             index_buffer: wireframe_index_buffer,
             index_buffer_format: wireframe_index_buffer_format,
-            instance_buffer: wireframe_instance_buffer,
         });
 
         pbr_mesh_vertices.push(vertices);
