@@ -56,9 +56,7 @@ pub fn run(
                         renderer_state.resize(renderer_state.base.window_size)
                     }
                     // The system is out of memory, we should probably quit
-                    Err(wgpu::SurfaceError::OutOfMemory) => {
-                        *control_flow = ControlFlow::Exit
-                    }
+                    Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
                     // All other errors (Outdated, Timeout) should be resolved by the next frame
                     Err(e) => logger.log(&format!("{:?}", e)),
                 }
