@@ -77,11 +77,13 @@ https://user-images.githubusercontent.com/2389735/180101651-86ba2084-4196-494b-9
 - [x] fix bug where Loop::Once animations can get stuck without reaching their end state
 - [x] design a level with boxes
 - [x] create character controller, make sure you cant walk through the walls
+- [ ] frustum culling
+- [ ] make the logger be a global variable, no need to pass it around everywhere
+- [ ] is there a bug with From<Mat4> for Transform? Seems the base matrix should be updatable?
+- [ ] [optimize shadows](https://github.com/Davidster/wgpu-sandbox/discussions/6)
 - [ ] spawn enemies, make them follow the character
 - [ ] add UI
 - [ ] track score and health, display on screen, and end game when health reaches 0
-- [ ] shadows are slow as hell, taking like 7ms of frame time 😬
-
 
 ## Low priority
 - [ ] move renderer state into game state?
