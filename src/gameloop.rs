@@ -15,7 +15,6 @@ pub fn run(
     event_loop: EventLoop<()>,
     mut game_state: GameState,
     mut renderer_state: RendererState,
-    mut logger: Logger,
 ) {
     let mut last_log_time: Option<Instant> = None;
     event_loop.run(move |event, _, control_flow| {
@@ -25,14 +24,14 @@ pub fn run(
                 puffin::GlobalProfiler::lock().new_frame();
 
                 game_state.on_frame_started();
-                logger.on_frame_completed();
+                LOGGER.lock().unwrap().on_frame_completed();
 
-                update_game_state(&mut game_state, &renderer_state, &mut logger);
-                renderer_state.update(&mut game_state, &mut logger);
+                update_game_state(&mut game_state, &renderer_state);
+                renderer_state.update(&mut game_state);
 
                 let last_log_time_clone = last_log_time;
                 let mut write_logs = || {
-                    if let Err(err) = logger.write_to_term() {
+                    if let Err(err) = LOGGER.lock().unwrap().write_to_term() {
                         eprintln!("Error writing to terminal: {}", err);
                     }
                     last_log_time = Some(Instant::now());
@@ -58,7 +57,7 @@ pub fn run(
                     // The system is out of memory, we should probably quit
                     Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
                     // All other errors (Outdated, Timeout) should be resolved by the next frame
-                    Err(e) => logger.log(&format!("{:?}", e)),
+                    Err(e) => logger_log(&format!("{:?}", e)),
                 }
             }
             Event::MainEventsCleared => {
@@ -67,18 +66,12 @@ pub fn run(
                 window.request_redraw();
             }
             Event::DeviceEvent { event, .. } => {
-                process_device_input(&mut game_state, &event, &mut logger);
+                process_device_input(&mut game_state, &event);
             }
             Event::WindowEvent {
                 event, window_id, ..
             } if window_id == window.id() => {
-                process_window_input(
-                    &mut game_state,
-                    &mut renderer_state,
-                    &event,
-                    &mut window,
-                    &mut logger,
-                );
+                process_window_input(&mut game_state, &mut renderer_state, &event, &mut window);
                 match event {
                     WindowEvent::Resized(size) => {
                         if size.width > 0 && size.height > 0 {

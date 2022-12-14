@@ -75,16 +75,14 @@ async fn start() {
         Some(window)
     };
     if let Some(window) = window {
-        let mut logger = Logger::new();
         let base_render_state = BaseRendererState::new(&window).await;
 
         let run_result = async {
             let game_scene = Scene::default();
             let render_buffers = RenderBuffers::default();
-            let mut renderer_state =
-                RendererState::new(render_buffers, base_render_state, &mut logger).await?;
-            let game_state = init_game_state(game_scene, &mut renderer_state, &mut logger)?;
-            gameloop::run(window, event_loop, game_state, renderer_state, logger); // this will block while the game is running
+            let mut renderer_state = RendererState::new(render_buffers, base_render_state).await?;
+            let game_state = init_game_state(game_scene, &mut renderer_state)?;
+            gameloop::run(window, event_loop, game_state, renderer_state); // this will block while the game is running
             anyhow::Ok(())
         }
         .await;

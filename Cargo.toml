@@ -22,6 +22,7 @@ pollster = "0.2"
 puffin = "0.14"
 puffin_http = "0.11"
 twox-hash = "1.6"
+lazy_static = "1.4.0"
 
 # assets
 gltf = "1"
