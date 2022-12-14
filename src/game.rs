@@ -956,13 +956,12 @@ pub fn process_window_input(
         .process_window_events(event, window, logger);
 }
 
+#[profiling::function]
 pub fn update_game_state(
     game_state: &mut GameState,
     renderer_state: &RendererState,
     logger: &mut Logger,
 ) {
-    puffin::profile_function!();
-
     let time_tracker = game_state.time();
     let global_time_seconds = time_tracker.global_time_seconds();
 

@@ -44,9 +44,8 @@ impl PhysicsState {
         }
     }
 
+    #[profiling::function]
     pub fn step(&mut self) {
-        puffin::profile_function!();
-
         self.physics_pipeline.step(
             &self.gravity,
             &self.integration_parameters,

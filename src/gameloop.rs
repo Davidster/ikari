@@ -22,9 +22,8 @@ pub fn run(
         *control_flow = ControlFlow::Poll;
         match event {
             Event::RedrawRequested(_) => {
-                puffin::GlobalProfiler::lock().new_frame();
-
                 game_state.on_frame_started();
+                profiling::finish_frame!();
                 logger.on_frame_completed();
 
                 update_game_state(&mut game_state, &renderer_state, &mut logger);

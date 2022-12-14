@@ -11,21 +11,33 @@ keywords = ["renderer", "first person shooter", "3D", "rust", "wgpu", "game"]
 categories = ["rendering", "game framework", "gamedev"]
 publish = false
 
+[features]
+default = []
+#profile-with-puffin = ["profiling/profile-with-puffin", "puffin_http"]
+#Not supported at this time #profile-with-optick = ["profiling/profile-with-optick"]
+#Not supported at this time #profile-with-superluminal = ["profiling/profile-with-superluminal"]
+#Not supported at this time #profile-with-tracing = ["profiling/profile-with-tracing"]
+profile-with-tracy = ["profiling/profile-with-tracy"]
+
 [dependencies]
-anyhow = { version = "1", features = ["backtrace"] }
 bytemuck = { version = "1", features = ["derive"] }
-console = "0.15"
-env_logger = { version = "0.10", default-features=false, features = ["auto-color", "humantime"] }
 half = "2"
-log = "0.4"
 pollster = "0.2"
-puffin = "0.14"
-puffin_http = "0.11"
 twox-hash = "1.6"
+
+# log
+anyhow = { version = "1", features = ["backtrace"] }
+console = "0.15"
+env_logger = { version = "0.10", default-features = false, features = ["auto-color", "humantime"] }
+log = "0.4"
+
+# profile
+profiling = "1"
+puffin_http = { version = "0.11", optional = true }
 
 # assets
 gltf = "1"
-image = { version = "0.23.14", default-features=false, features = ["hdr", "jpeg"] } # The version must be the one used by gltf crate
+image = { version = "0.23.14", default-features = false, features = ["hdr", "jpeg"] } # The version must be the one used by gltf crate
 obj-rs = "0.7"
 wavefront_obj = "10"
 
