@@ -55,9 +55,7 @@ pub fn run(
                         renderer_state.resize(renderer_state.base.window_size)
                     }
                     // The system is out of memory, we should probably quit
-                    Err(wgpu::SurfaceError::OutOfMemory) => {
-                        *control_flow = winit::event_loop::ControlFlow::Exit
-                    }
+                    Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
                     // All other errors (Outdated, Timeout) should be resolved by the next frame
                     Err(e) => logger_log(&format!("{:?}", e)),
                 }
@@ -76,10 +74,14 @@ pub fn run(
                 process_window_input(&mut game_state, &mut renderer_state, &event, &mut window);
                 match event {
                     WindowEvent::Resized(size) => {
-                        renderer_state.resize(size);
+                        if size.width > 0 && size.height > 0 {
+                            renderer_state.resize(size);
+                        }
                     }
                     WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                        renderer_state.resize(*new_inner_size);
+                        if new_inner_size.width > 0 && new_inner_size.height > 0 {
+                            renderer_state.resize(*new_inner_size);
+                        }
                     }
                     WindowEvent::CloseRequested
                     | WindowEvent::KeyboardInput {
@@ -90,7 +92,7 @@ pub fn run(
                                 ..
                             },
                         ..
-                    } => *control_flow = winit::event_loop::ControlFlow::Exit,
+                    } => *control_flow = ControlFlow::Exit,
                     _ => {}
                 };
             }

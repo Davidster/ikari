@@ -1,7 +1,15 @@
 [package]
 name = "wgpu-sandbox"
 version = "0.1.0"
+authors = ["https://github.com/Davidster/wgpu-sandbox/graphs/contributors"]
 edition = "2021"
+rust-version = "1.65"
+description = "3D renderer that will be used to make a simple first person shooter"
+repository = "https://github.com/Davidster/wgpu-sandbox"
+license = "MIT"
+keywords = ["renderer", "first person shooter", "3D", "rust", "wgpu", "game"]
+categories = ["rendering", "game framework", "gamedev"]
+publish = false
 
 [dependencies]
 anyhow = { version = "1", features = ["backtrace"] }
@@ -13,7 +21,7 @@ log = "0.4"
 pollster = "0.2"
 puffin = "0.14"
 puffin_http = "0.11"
-twox-hash = "1.6.3"
+twox-hash = "1.6"
 lazy_static = "1.4.0"
 
 # assets
@@ -29,7 +37,7 @@ winit = "0.27"
 # math
 cgmath = "0.18"
 rand = "0.8"
-rapier3d = "0.15"
+rapier3d = "0.16"
 
 # audio
 cpal = "0.14"
