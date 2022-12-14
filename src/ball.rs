@@ -43,7 +43,7 @@ impl BallComponent {
         )
     }
 
-    pub fn update(&mut self, dt: f32, _logger: &mut Logger) {
+    pub fn update(&mut self, dt: f32) {
         // update position
         let curr_position = self.transform.position();
         let displacement = self.direction * self.speed * dt;
@@ -63,7 +63,7 @@ impl BallComponent {
         self.transform.set_rotation(new_rotation);
 
         // nice log thingy
-        // logger.log(&format!(
+        // logger_log(&format!(
         //     "[{}:{}] {} = {:#?}",
         //     file!(),
         //     line!(),

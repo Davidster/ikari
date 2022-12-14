@@ -73,11 +73,7 @@ pub fn get_skybox_path() -> (
     (skybox_background, skybox_hdr_environment)
 }
 
-pub fn init_game_state(
-    mut scene: Scene,
-    renderer_state: &mut RendererState,
-    logger: &mut Logger,
-) -> Result<GameState> {
+pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> Result<GameState> {
     let mut physics_state = PhysicsState::new();
 
     // create player
@@ -101,12 +97,9 @@ pub fn init_game_state(
         // or ./src/models/gltf/Revolver/revolver_low_poly.gltf
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
-        validate_animation_property_counts(&document, logger);
-        let (other_scene, other_render_buffers) = build_scene(
-            &mut renderer_state.base,
-            (&document, &buffers, &images),
-            logger,
-        )?;
+        validate_animation_property_counts(&document);
+        let (other_scene, other_render_buffers) =
+            build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
 
         let node_id = scene.nodes().last().unwrap().id();
@@ -142,12 +135,9 @@ pub fn init_game_state(
     {
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/free_low_poly_forest/scene.gltf")?;
-        validate_animation_property_counts(&document, logger);
-        let (mut other_scene, other_render_buffers) = build_scene(
-            &mut renderer_state.base,
-            (&document, &buffers, &images),
-            logger,
-        )?;
+        validate_animation_property_counts(&document);
+        let (mut other_scene, other_render_buffers) =
+            build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
         // hack to get the terrain to be at the same height as the ground.
         let node_has_parent: Vec<_> = other_scene
             .nodes()
@@ -168,12 +158,9 @@ pub fn init_game_state(
     {
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf")?;
-        validate_animation_property_counts(&document, logger);
-        let (mut other_scene, other_render_buffers) = build_scene(
-            &mut renderer_state.base,
-            (&document, &buffers, &images),
-            logger,
-        )?;
+        validate_animation_property_counts(&document);
+        let (mut other_scene, other_render_buffers) =
+            build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
         if let Some(jump_up_animation) = other_scene
             .animations
             .iter_mut()
@@ -191,12 +178,9 @@ pub fn init_game_state(
         let skip_nodes = scene.node_count();
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
-        validate_animation_property_counts(&document, logger);
-        let (other_scene, other_render_buffers) = build_scene(
-            &mut renderer_state.base,
-            (&document, &buffers, &images),
-            logger,
-        )?;
+        validate_animation_property_counts(&document);
+        let (other_scene, other_render_buffers) =
+            build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
 
         let test_level_node_ids: Vec<_> = scene
@@ -777,7 +761,7 @@ pub fn init_game_state(
     )?;
     let gunshot_sound_index = audio_manager.add_sound(&gunshot_sound_data, 0.75, true, None);
 
-    // logger.log(&format!("{:?}", &revolver));
+    // logger_log(&format!("{:?}", &revolver));
 
     Ok(GameState {
         scene,
@@ -821,14 +805,8 @@ pub fn init_game_state(
     })
 }
 
-pub fn process_device_input(
-    game_state: &mut GameState,
-    event: &winit::event::DeviceEvent,
-    logger: &mut Logger,
-) {
-    game_state
-        .player_controller
-        .process_device_events(event, logger);
+pub fn process_device_input(game_state: &mut GameState, event: &winit::event::DeviceEvent) {
+    game_state.player_controller.process_device_events(event);
 }
 
 pub fn process_window_input(
@@ -836,7 +814,6 @@ pub fn process_window_input(
     renderer_state: &mut RendererState,
     event: &winit::event::WindowEvent,
     window: &mut winit::window::Window,
-    logger: &mut Logger,
 ) {
     if let WindowEvent::MouseInput {
         state,
@@ -859,22 +836,22 @@ pub fn process_window_input(
         if *state == ElementState::Released {
             match keycode {
                 VirtualKeyCode::Z => {
-                    renderer_state.increment_render_scale(false, logger);
+                    renderer_state.increment_render_scale(false);
                 }
                 VirtualKeyCode::X => {
-                    renderer_state.increment_render_scale(true, logger);
+                    renderer_state.increment_render_scale(true);
                 }
                 VirtualKeyCode::E => {
-                    renderer_state.increment_exposure(false, logger);
+                    renderer_state.increment_exposure(false);
                 }
                 VirtualKeyCode::R => {
-                    renderer_state.increment_exposure(true, logger);
+                    renderer_state.increment_exposure(true);
                 }
                 VirtualKeyCode::T => {
-                    renderer_state.increment_bloom_threshold(false, logger);
+                    renderer_state.increment_bloom_threshold(false);
                 }
                 VirtualKeyCode::Y => {
-                    renderer_state.increment_bloom_threshold(true, logger);
+                    renderer_state.increment_bloom_threshold(true);
                 }
                 VirtualKeyCode::P => {
                     game_state.toggle_animations();
@@ -943,7 +920,7 @@ pub fn process_window_input(
         //         _ => {}
         //     }
         // }
-        // logger.log(&format!(
+        // logger_log(&format!(
         //     "{:?}",
         //     game_state
         //         .scene
@@ -953,14 +930,10 @@ pub fn process_window_input(
     }
     game_state
         .player_controller
-        .process_window_events(event, window, logger);
+        .process_window_events(event, window);
 }
 
-pub fn update_game_state(
-    game_state: &mut GameState,
-    renderer_state: &RendererState,
-    logger: &mut Logger,
-) {
+pub fn update_game_state(game_state: &mut GameState, renderer_state: &RendererState) {
     puffin::profile_function!();
 
     let time_tracker = game_state.time();
@@ -982,7 +955,7 @@ pub fn update_game_state(
     game_state
         .player_controller
         .update(&mut game_state.physics_state);
-    // logger.log(&format!(
+    // logger_log(&format!(
     //     "camera pose: {:?}",
     //     game_state.camera_controller.current_pose
     // ));
@@ -1004,7 +977,7 @@ pub fn update_game_state(
         game_state
             .next_balls
             .iter_mut()
-            .for_each(|ball| ball.update(min_update_timestep_seconds, logger));
+            .for_each(|ball| ball.update(min_update_timestep_seconds));
         game_state.state_update_time_accumulator -= min_update_timestep_seconds;
     }
     let alpha = game_state.state_update_time_accumulator / min_update_timestep_seconds;
@@ -1097,8 +1070,8 @@ pub fn update_game_state(
             .set_rotation(rotational_displacement * node.transform.rotation());
     }
 
-    // logger.log(&format!("Frame time: {:?}", frame_time_seconds));
-    // logger.log(&format!(
+    // logger_log(&format!("Frame time: {:?}", frame_time_seconds));
+    // logger_log(&format!(
     //     "state_update_time_accumulator: {:?}",
     //     game_state.state_update_time_accumulator
     // ));
@@ -1135,12 +1108,12 @@ pub fn update_game_state(
     }
     let new_ball_count = game_state.physics_balls.len();
     if prev_ball_count != new_ball_count {
-        // logger.log(&format!("Ball count: {:?}", new_ball_count));
+        // logger_log(&format!("Ball count: {:?}", new_ball_count));
     }
 
     // let physics_time_step_start = Instant::now();
 
-    // logger.log(&format!("Physics step time: {:?}", physics_time_step_start.elapsed()));
+    // logger_log(&format!("Physics step time: {:?}", physics_time_step_start.elapsed()));
     let physics_state = &mut game_state.physics_state;
     let ball_body = &physics_state.rigid_body_set[game_state.bouncing_ball_body_handle];
     if let Some(node) = game_state
@@ -1192,7 +1165,7 @@ pub fn update_game_state(
                 })
                 .unwrap_or(0);
 
-            // logger.log("Fired!");
+            // logger_log("Fired!");
             let player_position = game_state
                 .player_controller
                 .position(&game_state.physics_state);
@@ -1222,7 +1195,7 @@ pub fn update_game_state(
                 // the ray travelled a distance equal to `ray.dir * toi`.
                 let _hit_point = ray.point_at(collision_point_distance); // Same as: `ray.origin + ray.dir * toi`
 
-                // logger.log(&format!(
+                // logger_log(&format!(
                 //     "Collider {:?} hit at point {}",
                 //     collider_handle, _hit_point
                 // ));
@@ -1239,7 +1212,7 @@ pub fn update_game_state(
                         .enumerate()
                         .find(|(_, ball)| ball.rigid_body_handle() == rigid_body_handle)
                     {
-                        // logger.log(&format!(
+                        // logger_log(&format!(
                         //     "Hit physics ball {:?} hit at point {}",
                         //     ball_index, hit_point
                         // ));

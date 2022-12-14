@@ -99,7 +99,7 @@ impl PlayerController {
         }
     }
 
-    pub fn process_device_events(&mut self, event: &DeviceEvent, logger: &mut Logger) {
+    pub fn process_device_events(&mut self, event: &DeviceEvent) {
         match event {
             DeviceEvent::MouseMotion { delta: (d_x, d_y) } if self.window_focused => {
                 self.unprocessed_delta = match self.unprocessed_delta {
@@ -117,18 +117,13 @@ impl PlayerController {
                 self.speed = (self.speed - (scroll_direction * scroll_speed))
                     .max(0.5)
                     .min(300.0);
-                logger.log(&format!("Speed: {:?}", self.speed));
+                logger_log(&format!("Speed: {:?}", self.speed));
             }
             _ => {}
         };
     }
 
-    pub fn process_window_events(
-        &mut self,
-        event: &WindowEvent,
-        window: &mut Window,
-        logger: &mut Logger,
-    ) {
+    pub fn process_window_events(&mut self, event: &WindowEvent, window: &mut Window) {
         match event {
             WindowEvent::KeyboardInput {
                 input:
@@ -166,13 +161,13 @@ impl PlayerController {
                 if *focused {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                 }
-                logger.log(&format!("Window focused: {:?}", focused));
+                logger_log(&format!("Window focused: {:?}", focused));
                 if let Err(err) = window.set_cursor_grab(if *focused {
                     CursorGrabMode::Confined
                 } else {
                     CursorGrabMode::None
                 }) {
-                    logger.log(&format!(
+                    logger_log(&format!(
                         "Couldn't {:?} cursor: {:?}",
                         if *focused { "grab" } else { "release" },
                         err

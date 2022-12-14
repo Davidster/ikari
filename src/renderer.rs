@@ -695,11 +695,7 @@ pub struct RendererState {
 }
 
 impl RendererState {
-    pub async fn new(
-        buffers: RenderBuffers,
-        base: BaseRendererState,
-        logger: &mut Logger,
-    ) -> Result<Self> {
+    pub async fn new(buffers: RenderBuffers, base: BaseRendererState) -> Result<Self> {
         let device = &base.device;
         let queue = &base.queue;
         let surface_config = &base.surface_config;
@@ -709,7 +705,7 @@ impl RendererState {
         let pbr_textures_bind_group_layout = &base.pbr_textures_bind_group_layout;
         let bones_and_instances_bind_group_layout = &base.bones_and_instances_bind_group_layout;
 
-        logger.log("Controls:");
+        logger_log("Controls:");
         vec![
             "Move Around:             WASD, Space Bar, Ctrl",
             "Look Around:             Mouse",
@@ -726,7 +722,7 @@ impl RendererState {
         ]
         .iter()
         .for_each(|line| {
-            logger.log(&format!("  {line}"));
+            logger_log(&format!("  {line}"));
         });
 
         let unlit_mesh_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -2189,11 +2185,11 @@ impl RendererState {
         index_buffer
     }
 
-    pub fn increment_render_scale(&mut self, increase: bool, logger: &mut Logger) {
+    pub fn increment_render_scale(&mut self, increase: bool) {
         let delta = 0.1;
         let change = if increase { delta } else { -delta };
         self.render_scale = (self.render_scale + change).max(0.1).min(4.0);
-        logger.log(&format!(
+        logger_log(&format!(
             "Render scale: {:?} ({:?}x{:?})",
             self.render_scale,
             (self.base.surface_config.width as f32 * self.render_scale.sqrt()).round() as u32,
@@ -2202,18 +2198,18 @@ impl RendererState {
         self.resize(self.base.window_size);
     }
 
-    pub fn increment_exposure(&mut self, increase: bool, logger: &mut Logger) {
+    pub fn increment_exposure(&mut self, increase: bool) {
         let delta = 0.05;
         let change = if increase { delta } else { -delta };
         self.tone_mapping_exposure = (self.tone_mapping_exposure + change).max(0.0).min(20.0);
-        logger.log(&format!("Exposure: {:?}", self.tone_mapping_exposure));
+        logger_log(&format!("Exposure: {:?}", self.tone_mapping_exposure));
     }
 
-    pub fn increment_bloom_threshold(&mut self, increase: bool, logger: &mut Logger) {
+    pub fn increment_bloom_threshold(&mut self, increase: bool) {
         let delta = 0.05;
         let change = if increase { delta } else { -delta };
         self.bloom_threshold = (self.bloom_threshold + change).max(0.0).min(20.0);
-        logger.log(&format!("Bloom Threshold: {:?}", self.bloom_threshold));
+        logger_log(&format!("Bloom Threshold: {:?}", self.bloom_threshold));
     }
 
     pub fn toggle_bloom(&mut self) {
@@ -2370,7 +2366,7 @@ impl RendererState {
         ];
     }
 
-    pub fn update(&mut self, game_state: &mut GameState, logger: &mut Logger) {
+    pub fn update(&mut self, game_state: &mut GameState) {
         puffin::profile_function!();
 
         // send data to gpu
@@ -2384,13 +2380,13 @@ impl RendererState {
         scene.recompute_node_transforms();
 
         self.all_bone_transforms =
-            get_all_bone_data(scene, limits.min_storage_buffer_offset_alignment, logger);
+            get_all_bone_data(scene, limits.min_storage_buffer_offset_alignment);
         let previous_bones_buffer_capacity_bytes = self.bones_buffer.capacity_bytes();
         let bones_buffer_changed_capacity =
             self.bones_buffer
                 .write(device, queue, &self.all_bone_transforms.buffer);
         if bones_buffer_changed_capacity {
-            logger.log(&format!(
+            logger_log(&format!(
                 "Resized bones instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
                 previous_bones_buffer_capacity_bytes,
                 self.bones_buffer.capacity_bytes(),
@@ -2570,7 +2566,7 @@ impl RendererState {
                 .write(device, queue, &self.all_pbr_instances.buffer);
 
         if pbr_instances_buffer_changed_capacity {
-            logger.log(&format!(
+            logger_log(&format!(
                 "Resized pbr instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
                 previous_pbr_instances_buffer_capacity_bytes,
                 self.pbr_instances_buffer.capacity_bytes(),
@@ -2624,7 +2620,7 @@ impl RendererState {
                 .write(device, queue, &self.all_unlit_instances.buffer);
 
         if unlit_instances_buffer_changed_capacity {
-            logger.log(&format!(
+            logger_log(&format!(
                 "Resized unlit instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
                 previous_unlit_instances_buffer_capacity_bytes,
                 self.unlit_instances_buffer.capacity_bytes(),
@@ -2680,7 +2676,7 @@ impl RendererState {
         );
 
         if wireframe_instances_buffer_changed_capacity {
-            logger.log(&format!(
+            logger_log(&format!(
                 "Resized wireframe instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
                 previous_wireframe_instances_buffer_capacity_bytes,
                 self.wireframe_instances_buffer.capacity_bytes(),

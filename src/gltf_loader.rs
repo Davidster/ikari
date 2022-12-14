@@ -12,7 +12,6 @@ pub fn build_scene(
         &Vec<gltf::buffer::Data>,
         &Vec<gltf::image::Data>,
     ),
-    logger: &mut Logger,
 ) -> Result<(Scene, RenderBuffers)> {
     let scene_index = document
         .default_scene()
@@ -325,25 +324,25 @@ pub fn build_scene(
         textures,
     };
 
-    logger.log("Scene loaded:");
+    logger_log("Scene loaded:");
 
-    logger.log(&format!("  - node count: {:?}", nodes.len()));
-    logger.log(&format!("  - skin count: {:?}", skins.len()));
-    logger.log(&format!("  - animation count: {:?}", animations.len()));
-    logger.log("  Render buffers:");
-    logger.log(&format!(
+    logger_log(&format!("  - node count: {:?}", nodes.len()));
+    logger_log(&format!("  - skin count: {:?}", skins.len()));
+    logger_log(&format!("  - animation count: {:?}", animations.len()));
+    logger_log("  Render buffers:");
+    logger_log(&format!(
         "    - PBR mesh count: {:?}",
         render_buffers.binded_pbr_meshes.len()
     ));
-    logger.log(&format!(
+    logger_log(&format!(
         "    - Unlit mesh count: {:?}",
         render_buffers.binded_unlit_meshes.len()
     ));
-    logger.log(&format!(
+    logger_log(&format!(
         "    - Wireframe mesh count: {:?}",
         render_buffers.binded_wireframe_meshes.len()
     ));
-    logger.log(&format!(
+    logger_log(&format!(
         "    - Texture count: {:?}",
         render_buffers.textures.len()
     ));
@@ -1101,7 +1100,7 @@ impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
     }
 }
 
-pub fn validate_animation_property_counts(gltf_document: &gltf::Document, logger: &mut Logger) {
+pub fn validate_animation_property_counts(gltf_document: &gltf::Document) {
     let property_counts: HashMap<(usize, ChannelPropertyStr), usize> = gltf_document
         .animations()
         .flat_map(|animation| animation.channels())
@@ -1117,7 +1116,7 @@ pub fn validate_animation_property_counts(gltf_document: &gltf::Document, logger
         });
     for ((node_index, property), count) in property_counts {
         if count > 1 {
-            logger.log(&format!(
+            logger_log(&format!(
                 "Warning: expected no more than 1 animated property but found {:?} (node_index={:?}, node_name={:?}, property={:?})",
                 count,
                 node_index,
