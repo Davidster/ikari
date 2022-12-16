@@ -13,9 +13,11 @@ publish = false
 
 [features]
 default = []
-tracy = ["profiling/profile-with-tracy"]
-tracy-gpu = ["tracy"]
-tracy-alloc = ["tracy"]
+#profile-with-puffin = ["profiling/profile-with-puffin", "puffin_http"]
+#Not supported at this time #profile-with-optick = ["profiling/profile-with-optick"]
+#Not supported at this time #profile-with-superluminal = ["profiling/profile-with-superluminal"]
+#Not supported at this time #profile-with-tracing = ["profiling/profile-with-tracing"]
+profile-with-tracy = ["profiling/profile-with-tracy"]
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
@@ -28,7 +30,10 @@ anyhow = { version = "1", features = ["backtrace"] }
 console = "0.15"
 env_logger = { version = "0.10", default-features = false, features = ["auto-color", "humantime"] }
 log = "0.4"
+
+# profile
 profiling = "1.0.7" # The version better be the one used by wgpu-core/hal
+puffin_http = { version = "0.11", optional = true }
 
 # assets
 gltf = "1"
