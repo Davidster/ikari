@@ -52,21 +52,9 @@ use transform::*;
 
 use cgmath::prelude::*;
 
-#[cfg(feature = "profile-with-puffin")]
-use puffin_http;
-
 async fn start() {
-    #[cfg(feature = "profile-with-tracy")]
+    #[cfg(feature = "tracy")]
     profiling::tracy_client::Client::start();
-
-    #[cfg(feature = "profile-with-puffin")]
-    let _puffin_server = {
-        let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
-        eprintln!("Serving demo profile data on {}", server_addr);
-        let server = puffin_http::Server::new(&server_addr).unwrap();
-        profiling::puffin::set_scopes_on(true);
-        server
-    };
 
     let event_loop = winit::event_loop::EventLoop::new();
     let window = {
