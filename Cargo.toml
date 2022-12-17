@@ -38,7 +38,7 @@ puffin_http = { version = "0.11", optional = true }
 
 # assets
 gltf = "1"
-image = { version = "0.23.14", default-features = false, features = ["hdr", "jpeg"] } # The version better be the one used by gltf crate
+image = { version = "0.23.14", default-features = false, features = ["hdr", "jpeg"] } # The version should be the one used by gltf crate
 obj-rs = "0.7"
 wavefront_obj = "10"
 
