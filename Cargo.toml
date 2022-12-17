@@ -33,7 +33,7 @@ env_logger = { version = "0.10", default-features = false, features = ["auto-col
 log = "0.4"
 
 # profile
-profiling = "1.0.7" # The version better be the one used by wgpu-core/hal
+profiling = "1.0.7" # The version should be the one used by wgpu-core/hal
 puffin_http = { version = "0.11", optional = true }
 
 # assets
