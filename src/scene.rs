@@ -1,6 +1,6 @@
 use std::{collections::HashMap, hash::BuildHasherDefault};
 
-use cgmath::{Matrix4, Vector3};
+use cgmath::{Matrix4, Vector3, Vector4};
 use twox_hash::XxHash64;
 
 use super::*;
@@ -299,6 +299,82 @@ impl Scene {
         self.skins.append(&mut other_scene.skins);
         self.animations.append(&mut other_scene.animations);
         self.rebuild_skeleton_parent_index_maps();
+    }
+
+    pub fn get_node_bounding_sphere(
+        &self,
+        node_id: GameNodeId,
+        renderer_state: &RendererState,
+    ) -> Option<Sphere> {
+        self.get_node(node_id)
+            .and_then(|node| node.mesh.as_ref())
+            .map(|mesh| {
+                let global_transform = self.get_global_transform_for_node_opt(node_id);
+                let global_node_position = Vector3::new(
+                    global_transform.w.x,
+                    global_transform.w.y,
+                    global_transform.w.z,
+                );
+                let global_node_scale = Vector3::new(
+                    Vector3::new(
+                        global_transform.x.x,
+                        global_transform.x.y,
+                        global_transform.x.z,
+                    )
+                    .magnitude(),
+                    Vector3::new(
+                        global_transform.y.x,
+                        global_transform.y.y,
+                        global_transform.y.z,
+                    )
+                    .magnitude(),
+                    Vector3::new(
+                        global_transform.z.x,
+                        global_transform.z.y,
+                        global_transform.z.z,
+                    )
+                    .magnitude(),
+                );
+                let largest_axis_scale = global_node_scale
+                    .x
+                    .max(global_node_scale.y)
+                    .max(global_node_scale.z);
+
+                let mut mesh_aabbs = mesh
+                    .mesh_indices
+                    .iter()
+                    .copied()
+                    .map(|mesh_index| match mesh.mesh_type {
+                        GameNodeMeshType::Pbr { .. } => {
+                            renderer_state.buffers.binded_pbr_meshes[mesh_index]
+                                .geometry_buffers
+                                .bounding_box
+                        }
+                        GameNodeMeshType::Unlit { .. } => {
+                            renderer_state.buffers.binded_unlit_meshes[mesh_index].bounding_box
+                        }
+                    });
+
+                let mut merged_aabb = mesh_aabbs.next().unwrap();
+                for aabb in mesh_aabbs {
+                    for i in 0..3 {
+                        merged_aabb.min[i] = aabb.min.x.min(merged_aabb.min[i]);
+                        merged_aabb.max[i] = aabb.max.x.max(merged_aabb.max[i]);
+                    }
+                }
+                // let transform_point = |point: Vector3<f32>| {
+                //     let transformed = global_transform * Vector4::new(point.x, point.y, point.z, 1.0);
+                //     Vector3::new(transformed.x, transformed.y, transformed.z);
+                // };
+                // merged_aabb.min = transform_point();
+
+                let origin = global_node_position + (merged_aabb.max + merged_aabb.min) / 2.0;
+
+                let half_length = (merged_aabb.max - merged_aabb.min) / 2.0;
+                let radius = largest_axis_scale * half_length.magnitude();
+
+                Sphere { origin, radius }
+            })
     }
 
     pub fn _get_skeleton_skin_node_id(&self, node_id: GameNodeId) -> Option<GameNodeId> {

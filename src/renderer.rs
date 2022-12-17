@@ -194,7 +194,7 @@ pub struct GeometryBuffers {
     pub vertex_buffer: GpuBuffer,
     pub index_buffer: GpuBuffer,
     pub index_buffer_format: wgpu::IndexFormat,
-    pub bounding_box: (Vector3<f32>, Vector3<f32>),
+    pub bounding_box: crate::scene_tree::Aabb,
 }
 
 pub type BindedUnlitMesh = GeometryBuffers;
@@ -2141,7 +2141,10 @@ impl RendererState {
                 max_point.y = max_point.y.max(vertex.position[1]);
                 max_point.z = max_point.z.max(vertex.position[2]);
             }
-            (min_point, max_point)
+            crate::scene_tree::Aabb {
+                min: min_point,
+                max: max_point,
+            }
         };
 
         GeometryBuffers {
@@ -2366,17 +2369,33 @@ impl RendererState {
         ];
     }
 
+    // send data to gpu
     #[profiling::function]
     pub fn update(&mut self, game_state: &mut GameState) {
-        // send data to gpu
         let scene = &mut game_state.scene;
+
+        scene.recompute_node_transforms();
+        let scene_tree = build_scene_tree(scene, self);
+
+        // dbg!(&scene_tree);
+
         let limits = &mut self.base.limits;
         let queue = &mut self.base.queue;
         let device = &self.base.device;
         let bones_and_instances_bind_group_layout =
             &self.base.bones_and_instances_bind_group_layout;
 
-        scene.recompute_node_transforms();
+        match scene_tree {
+            Ok(scene_tree) => {
+                logger_log(&format!(
+                    "node_count: {:?}",
+                    scene_tree.get_non_empty_node_count()
+                ));
+            }
+            Err(err) => {
+                logger_log(&format!("{:?}", err));
+            }
+        }
 
         self.all_bone_transforms =
             get_all_bone_data(scene, limits.min_storage_buffer_offset_alignment);

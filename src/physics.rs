@@ -92,9 +92,8 @@ impl PhysicsState {
                             renderer_state.buffers.binded_unlit_meshes[*mesh_index].bounding_box
                         }
                     };
-                    let bounding_box = (bounding_box.0, bounding_box.1);
-                    let base_scale = (bounding_box.1 - bounding_box.0) / 2.0;
-                    let base_position = (bounding_box.1 + bounding_box.0) / 2.0;
+                    let base_scale = (bounding_box.max - bounding_box.min) / 2.0;
+                    let base_position = (bounding_box.max + bounding_box.min) / 2.0;
                     let scale = Vector3::new(
                         base_scale.x * transform_decomposed.scale.x,
                         base_scale.y * transform_decomposed.scale.y,
