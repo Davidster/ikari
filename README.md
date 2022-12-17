@@ -97,3 +97,12 @@ https://user-images.githubusercontent.com/2389735/180101651-86ba2084-4196-494b-9
 - [ ] add adaptive exposure based on histogram
 - [ ] make sure the skybox rad texture resolution is capped at a sane level; it causes the renderer to break on my m1.
 - [ ] use limit constraints at device creation time to try to lower the min_storage_buffer_offset_alignment number cuz smaller buffer = more cache hits
+
+## Profiling
+You can profile wgpu-sandbox with [tracy](https://github.com/wolfpld/tracy) via [profiling](https://github.com/aclysma/profiling) crate.
+To do that you have to:
+- Download [tracy 0.9](https://github.com/wolfpld/tracy/releases/tag/v0.9)
+- Build wgpu-sandbox by adding --features="profile-with-tracy" to the cargo command
+- Run wgpubox and tracy (in any order), when the game is loading tracy will start profiling
+
+If something does not work it is possible that the crate profiling has been updated and is no longer aligned with the tracy version and a more recent one must be used.
