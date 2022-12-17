@@ -1,12 +1,24 @@
-use std::time::{Duration, Instant};
+use lazy_static::lazy_static;
+use std::{
+    sync::Mutex,
+    time::{Duration, Instant},
+};
 
 const FRAME_TIME_HISTORY_SIZE: usize = 5000;
+
+lazy_static! {
+    pub static ref LOGGER: Mutex<Logger> = Mutex::new(Logger::new());
+}
 
 pub struct Logger {
     recent_frame_times: Vec<Duration>,
     last_update_time: Option<Instant>,
     log_buffer: Vec<String>,
     terminal: console::Term,
+}
+
+pub fn logger_log(text: &str) {
+    LOGGER.lock().unwrap().log(text);
 }
 
 impl Logger {

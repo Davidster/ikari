@@ -20,7 +20,6 @@ pub struct AllBoneTransformsSlice {
 pub fn get_all_bone_data(
     scene: &Scene,
     min_storage_buffer_offset_alignment: u32,
-    _logger: &mut Logger,
 ) -> AllBoneTransforms {
     let matrix_size_bytes = std::mem::size_of::<GpuMatrix4>();
     let identity_bone_count = 4;

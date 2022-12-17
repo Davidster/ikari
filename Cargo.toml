@@ -24,6 +24,7 @@ bytemuck = { version = "1", features = ["derive"] }
 half = "2"
 pollster = "0.2"
 twox-hash = "1.6"
+lazy_static = "1.4.0"
 
 # log
 anyhow = { version = "1", features = ["backtrace"] }
