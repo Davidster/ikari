@@ -13,7 +13,6 @@ publish = false
 
 [features]
 default = []
-#Doesn't work anymore, client version not aligned? #profile-with-puffin = ["profiling/profile-with-puffin", "puffin_http"]
 #Not supported at this time #profile-with-optick = ["profiling/profile-with-optick"]
 #Not supported at this time #profile-with-superluminal = ["profiling/profile-with-superluminal"]
 #Not supported at this time #profile-with-tracing = ["profiling/profile-with-tracing"]
@@ -34,7 +33,6 @@ log = "0.4"
 
 # profile
 profiling = "1.0.7" # The version should be the one used by wgpu-core/hal
-puffin_http = { version = "0.11", optional = true }
 
 # assets
 gltf = "1"
