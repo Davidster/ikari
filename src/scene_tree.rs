@@ -49,14 +49,14 @@ impl Default for Aabb {
 }
 
 impl Aabb {
-    fn volume(&self) -> f32 {
+    fn _volume(&self) -> f32 {
         let size = self.max - self.min;
         size.x * size.y * size.z
     }
 
     // taken from https://gamedev.stackexchange.com/questions/156870/how-do-i-implement-a-aabb-sphere-collision
     // ClosestPtPointAABB
-    fn find_closest_surface_point(&self, p: Vector3<f32>) -> Vector3<f32> {
+    fn _find_closest_surface_point(&self, p: Vector3<f32>) -> Vector3<f32> {
         let mut q: Vector3<f32> = Vector3::zero();
         for i in 0..3 {
             let mut v = p[i];
@@ -81,12 +81,12 @@ impl Aabb {
     }
 
     // true if fully contains or partially contains
-    fn partially_contains_sphere(&self, sphere: Sphere) -> bool {
+    fn _partially_contains_sphere(&self, sphere: Sphere) -> bool {
         if self.contains_point(sphere.origin) {
             return true;
         }
 
-        let closest_surface_point = self.find_closest_surface_point(sphere.origin);
+        let closest_surface_point = self._find_closest_surface_point(sphere.origin);
         let delta = closest_surface_point - sphere.origin;
         let distance = delta.magnitude();
         distance < sphere.radius
@@ -125,6 +125,7 @@ impl Aabb {
     }
 }
 
+#[profiling::function]
 pub fn build_scene_tree(scene: &Scene, renderer_state: &RendererState) -> Result<SceneTree> {
     let offset = BASE_AABB_SIZE * 0.02 * std::f32::consts::PI * Vector3::new(1.0, 1.0, 1.0);
     let base_aabb_max = BASE_AABB_SIZE * Vector3::new(1.0, 1.0, 1.0);
@@ -136,8 +137,6 @@ pub fn build_scene_tree(scene: &Scene, renderer_state: &RendererState) -> Result
         ..Default::default()
     };
 
-    let mut inserted_node_count = 0;
-
     for node in scene.nodes() {
         if node.mesh.is_none() || !node.mesh.as_ref().unwrap().cullable {
             continue;
@@ -146,11 +145,8 @@ pub fn build_scene_tree(scene: &Scene, renderer_state: &RendererState) -> Result
             scene.get_node_bounding_sphere(node.id(), renderer_state)
         {
             tree.insert(node.id(), node_bounding_sphere)?;
-            inserted_node_count += 1;
         }
     }
-
-    logger_log(&format!("inserted_node_count={:?}", inserted_node_count));
 
     Ok(tree)
 }
@@ -164,48 +160,52 @@ impl SceneTree {
         Ok(())
     }
 
-    pub fn get_non_empty_node_count(&self) -> u32 {
+    #[profiling::function]
+    pub fn _get_non_empty_node_count(&self) -> u32 {
         let mut total = 0_u32;
         if !self.nodes.is_empty() {
             total += 1;
         }
         if let Some(sub_trees) = self.children.as_ref() {
             for sub_tree in sub_trees.iter() {
-                total += Self::get_non_empty_node_count(sub_tree);
+                total += Self::_get_non_empty_node_count(sub_tree);
             }
         }
         total
     }
 
-    pub fn get_node_count(&self) -> u32 {
+    #[profiling::function]
+    pub fn _get_node_count(&self) -> u32 {
         let mut total = 0_u32;
         total += 1;
         if let Some(sub_trees) = self.children.as_ref() {
             for sub_tree in sub_trees.iter() {
-                total += Self::get_node_count(sub_tree);
+                total += Self::_get_node_count(sub_tree);
             }
         }
         total
     }
 
-    pub fn get_game_node_count(&self) -> u32 {
+    #[profiling::function]
+    pub fn _get_game_node_count(&self) -> u32 {
         let mut total = 0_u32;
         total += self.nodes.len() as u32;
         if let Some(sub_trees) = self.children.as_ref() {
             for sub_tree in sub_trees.iter() {
-                total += Self::get_game_node_count(sub_tree);
+                total += Self::_get_game_node_count(sub_tree);
             }
         }
         total
     }
 
+    #[profiling::function]
     pub fn to_aabb_list(&self) -> Vec<Aabb> {
         let mut list: Vec<Aabb> = Vec::new();
-        self.to_aabb_list_impl_2(&mut list);
+        self.to_aabb_list_impl(&mut list);
         list
     }
 
-    // only includes branch nodes and leaf nodes with game nodes inside them
+    // includes all branch nodes and nodes that contain game nodes
     fn to_aabb_list_impl(&self, acc: &mut Vec<Aabb>) {
         if !self.nodes.is_empty() {
             acc.push(self.aabb);
@@ -218,106 +218,13 @@ impl SceneTree {
         }
     }
 
-    // only includes nodes with game nodes in them
-    fn to_aabb_list_impl_2(&self, acc: &mut Vec<Aabb>) {
-        if !self.nodes.is_empty() {
-            acc.push(self.aabb);
-        }
-        if let Some(children) = self.children.as_ref() {
-            for child in children.iter() {
-                child.to_aabb_list_impl_2(acc);
-            }
-        }
-    }
-
-    // fn subdivide(&mut self, new_depth: u8) {
-    //     if let Some(Nodes(nodes)) = self.children.as_mut() {
-    //         let mut new_subtrees: [SceneTree; 8] = Default::default();
-    //         let min = self.aabb.min;
-    //         let new_size = (self.aabb.max - min) / 2.0;
-    //         // dbg!(new_size);
-    //         let mut count = 0;
-    //         for i in 0..2 {
-    //             for j in 0..2 {
-    //                 for k in 0..2 {
-    //                     let offset = Vector3::new(
-    //                         min.x + i as f32 * new_size.x,
-    //                         min.y + j as f32 * new_size.y,
-    //                         min.z + k as f32 * new_size.z,
-    //                     );
-    //                     let subtree = &mut new_subtrees[count];
-    //                     subtree.aabb = Aabb {
-    //                         min: offset,
-    //                         max: offset + new_size,
-    //                     };
-    //                     // dbg!(count, subtree.aabb);
-
-    //                     for entry in nodes.iter().cloned() {
-    //                         let (node_id, node_bounding_sphere) = entry;
-    //                         if subtree.aabb.contains_sphere(node_bounding_sphere) {
-    //                             subtree.insert_internal(node_id, node_bounding_sphere, new_depth);
-    //                         }
-    //                     }
-
-    //                     count += 1;
-    //                 }
-    //             }
-    //         }
-    //         self.children = Some(SubTrees(Box::new(new_subtrees)));
-    //     }
-    // }
-
     fn insert_internal(&mut self, node_id: GameNodeId, node_bounding_sphere: Sphere, depth: u8) {
-        // logger_log("1");
-        // dbg!(node_id, node_bounding_sphere, depth);
-
         let entry = (node_id, node_bounding_sphere);
 
         if depth >= MAX_DEPTH {
             self.nodes.push(entry);
             return;
         }
-
-        // logger_log("2");
-
-        // let child_aabbs = self
-        //     .children
-        //     .as_ref()
-        //     .map(|children| {
-        //         let mut aabbs: [Aabb; 8] = Default::default();
-        //         for (i, child) in children.iter().enumerate() {
-        //             aabbs[i] = child.aabb;
-        //         }
-        //         aabbs
-        //     })
-        //     .unwrap_or_else(|| self.aabb.subdivide());
-
-        // let fully_contained_index = child_aabbs
-        //     .iter()
-        //     .enumerate()
-        //     .find_map(|(i, aabb)| aabb.fully_contains_sphere(node_bounding_sphere).then(|| i));
-
-        // match (fully_contained_index, self.children.as_mut()) {
-        //     (Some(fully_contained_index)) => {
-        //         let mut new_children: [SceneTree; 8] = Default::default();
-        //         for (i, aabb) in child_aabbs.iter().copied().enumerate() {
-        //             new_children[i].aabb = aabb;
-        //         }
-        //         let child_iterator = match self.children.as_ref() {
-        //             Some(children) => children.iter(),
-        //             None => new_children.iter(),
-        //         };
-
-        //         new_children[fully_contained_index].insert_internal(
-        //             node_id,
-        //             node_bounding_sphere,
-        //             depth + 1,
-        //         )
-        //     }
-        //     (None, _) => {
-        //         self.nodes.push(entry);
-        //     }
-        // }
 
         match self.children.as_mut() {
             None => {
@@ -328,7 +235,6 @@ impl SceneTree {
                 });
                 match fully_contained_index {
                     Some(fully_contained_index) => {
-                        // logger_log("3");
                         let mut new_children: [SceneTree; 8] = Default::default();
                         for (i, aabb) in subdivided.iter().copied().enumerate() {
                             new_children[i].aabb = aabb;
@@ -341,7 +247,6 @@ impl SceneTree {
                         self.children = Some(Box::new(new_children));
                     }
                     None => {
-                        // logger_log("4");
                         self.nodes.push(entry);
                     }
                 }
@@ -354,7 +259,6 @@ impl SceneTree {
                 });
                 match fully_contained_index {
                     Some(fully_contained_index) => {
-                        // logger_log("5");
                         children[fully_contained_index].insert_internal(
                             node_id,
                             node_bounding_sphere,
@@ -362,7 +266,6 @@ impl SceneTree {
                         );
                     }
                     None => {
-                        // logger_log("6");
                         self.nodes.push(entry);
                     }
                 }

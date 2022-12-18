@@ -635,13 +635,15 @@ impl BaseRendererState {
 pub struct RendererState {
     pub base: BaseRendererState,
 
-    tone_mapping_exposure: f32,
-    bloom_threshold: f32,
-    bloom_ramp_size: f32,
-    render_scale: f32,
-    enable_bloom: bool,
-    enable_shadows: bool,
-    enable_wireframe_mode: bool,
+    pub tone_mapping_exposure: f32,
+    pub bloom_threshold: f32,
+    pub bloom_ramp_size: f32,
+    pub render_scale: f32,
+    pub enable_bloom: bool,
+    pub enable_shadows: bool,
+    pub enable_wireframe_mode: bool,
+    pub draw_node_bounding_spheres: bool,
+    pub draw_scene_tree_aabbs: bool,
 
     mesh_pipeline: wgpu::RenderPipeline,
     unlit_mesh_pipeline: wgpu::RenderPipeline,
@@ -691,7 +693,7 @@ pub struct RendererState {
 
     box_mesh_index: i32,
     sphere_mesh_index: i32,
-    scene_tree_debug_nodes: Vec<GameNodeId>,
+    debug_nodes: Vec<GameNodeId>,
 
     pub skybox_mesh_buffers: GeometryBuffers,
 
@@ -722,6 +724,8 @@ impl RendererState {
             "Toggle Shadows:          M",
             "Toggle Wireframe:        F",
             "Toggle Collision Boxes:  C",
+            "Draw Bounding Spheres:   J",
+            "Draw Scene SP Tree:      K",
             "Exit:                    Escape",
         ]
         .iter()
@@ -1980,7 +1984,7 @@ impl RendererState {
                 label: Some("skybox_texture_bind_group"),
             });
 
-        Ok(Self {
+        let mut renderer_state = Self {
             base,
 
             tone_mapping_exposure: INITIAL_TONE_MAPPING_EXPOSURE,
@@ -1990,6 +1994,8 @@ impl RendererState {
             enable_bloom: true,
             enable_shadows: true,
             enable_wireframe_mode: false,
+            draw_node_bounding_spheres: false,
+            draw_scene_tree_aabbs: false,
 
             mesh_pipeline,
             unlit_mesh_pipeline,
@@ -2034,7 +2040,7 @@ impl RendererState {
 
             box_mesh_index: -1,
             sphere_mesh_index: -1,
-            scene_tree_debug_nodes: vec![],
+            debug_nodes: vec![],
 
             skybox_mesh_buffers,
 
@@ -2057,7 +2063,21 @@ impl RendererState {
                 buffer: vec![],
                 instances: vec![],
             },
-        })
+        };
+
+        let cube_mesh = BasicMesh::new("./src/models/cube.obj").unwrap();
+        renderer_state.box_mesh_index = renderer_state
+            .bind_basic_unlit_mesh(&cube_mesh)
+            .try_into()
+            .unwrap();
+
+        let sphere_mesh = BasicMesh::new("./src/models/sphere.obj").unwrap();
+        renderer_state.sphere_mesh_index = renderer_state
+            .bind_basic_unlit_mesh(&sphere_mesh)
+            .try_into()
+            .unwrap();
+
+        Ok(renderer_state)
     }
 
     pub fn bind_basic_unlit_mesh(&mut self, mesh: &BasicMesh) -> usize {
@@ -2194,45 +2214,6 @@ impl RendererState {
         );
 
         index_buffer
-    }
-
-    pub fn increment_render_scale(&mut self, increase: bool) {
-        let delta = 0.1;
-        let change = if increase { delta } else { -delta };
-        self.render_scale = (self.render_scale + change).clamp(0.1, 4.0);
-        logger_log(&format!(
-            "Render scale: {:?} ({:?}x{:?})",
-            self.render_scale,
-            (self.base.surface_config.width as f32 * self.render_scale.sqrt()).round() as u32,
-            (self.base.surface_config.height as f32 * self.render_scale.sqrt()).round() as u32,
-        ));
-        self.resize(self.base.window_size);
-    }
-
-    pub fn increment_exposure(&mut self, increase: bool) {
-        let delta = 0.05;
-        let change = if increase { delta } else { -delta };
-        self.tone_mapping_exposure = (self.tone_mapping_exposure + change).clamp(0.0, 20.0);
-        logger_log(&format!("Exposure: {:?}", self.tone_mapping_exposure));
-    }
-
-    pub fn increment_bloom_threshold(&mut self, increase: bool) {
-        let delta = 0.05;
-        let change = if increase { delta } else { -delta };
-        self.bloom_threshold = (self.bloom_threshold + change).clamp(0.0, 20.0);
-        logger_log(&format!("Bloom Threshold: {:?}", self.bloom_threshold));
-    }
-
-    pub fn toggle_bloom(&mut self) {
-        self.enable_bloom = !self.enable_bloom;
-    }
-
-    pub fn toggle_shadows(&mut self) {
-        self.enable_shadows = !self.enable_shadows;
-    }
-
-    pub fn toggle_wireframe_mode(&mut self) {
-        self.enable_wireframe_mode = !self.enable_wireframe_mode;
     }
 
     pub fn resize(&mut self, new_window_size: winit::dpi::PhysicalSize<u32>) {
@@ -2377,119 +2358,106 @@ impl RendererState {
         ];
     }
 
+    pub fn clear_debug_nodes(&mut self, scene: &mut Scene) {
+        for node_id in self.debug_nodes.iter().copied() {
+            scene.remove_node(node_id);
+        }
+        self.debug_nodes = Vec::new();
+    }
+
+    pub fn add_debug_nodes(&mut self, scene: &mut Scene, scene_tree: &SceneTree) {
+        if !self.draw_node_bounding_spheres && !self.draw_scene_tree_aabbs {
+            return;
+        }
+        if self.draw_node_bounding_spheres {
+            // super slow, but who cares for now
+            let nodes: Vec<_> = scene.nodes().cloned().collect();
+            for node in nodes {
+                if let Some(bounding_sphere) = scene.get_node_bounding_sphere(node.id(), self) {
+                    self.debug_nodes.push(
+                        scene
+                            .add_node(
+                                GameNodeDescBuilder::new()
+                                    .transform(
+                                        TransformBuilder::new()
+                                            .scale(
+                                                bounding_sphere.radius
+                                                    * Vector3::new(1.0, 1.0, 1.0),
+                                            )
+                                            .position(bounding_sphere.origin)
+                                            .build(),
+                                    )
+                                    .mesh(Some(GameNodeMesh {
+                                        mesh_type: GameNodeMeshType::Unlit {
+                                            color: Vector3::new(0.0, 1.0, 0.0),
+                                        },
+                                        mesh_indices: vec![self
+                                            .sphere_mesh_index
+                                            .try_into()
+                                            .unwrap()],
+                                        wireframe: true,
+                                        cullable: false,
+                                    }))
+                                    .build(),
+                            )
+                            .id(),
+                    );
+                }
+            }
+        }
+
+        if self.draw_scene_tree_aabbs {
+            let aabb_list = scene_tree.to_aabb_list();
+            for aabb in &aabb_list {
+                let scale = (aabb.max - aabb.min) / 2.0;
+                let position = (aabb.max + aabb.min) / 2.0;
+                self.debug_nodes.push(
+                    scene
+                        .add_node(
+                            GameNodeDescBuilder::new()
+                                .transform(
+                                    TransformBuilder::new()
+                                        .scale(scale)
+                                        .position(position)
+                                        .build(),
+                                )
+                                .mesh(Some(GameNodeMesh {
+                                    mesh_type: GameNodeMeshType::Unlit {
+                                        color: Vector3::new(1.0, 0.0, 0.0),
+                                    },
+                                    mesh_indices: vec![self.box_mesh_index.try_into().unwrap()],
+                                    wireframe: true,
+                                    cullable: false,
+                                }))
+                                .build(),
+                        )
+                        .id(),
+                );
+            }
+        }
+
+        scene.recompute_node_transforms();
+    }
+
     // send data to gpu
     #[profiling::function]
     pub fn update(&mut self, game_state: &mut GameState) {
-        let scene = &mut game_state.scene;
+        self.clear_debug_nodes(&mut game_state.scene);
 
-        scene.recompute_node_transforms();
+        game_state.scene.recompute_node_transforms();
 
-        if self.box_mesh_index == -1 {
-            let cube_mesh = BasicMesh::new("./src/models/cube.obj").unwrap();
-            self.box_mesh_index = self.bind_basic_unlit_mesh(&cube_mesh).try_into().unwrap();
+        let scene_tree = build_scene_tree(&game_state.scene, self);
 
-            let sphere_mesh = BasicMesh::new("./src/models/sphere.obj").unwrap();
-            self.sphere_mesh_index = self.bind_basic_unlit_mesh(&sphere_mesh).try_into().unwrap();
-        } else {
-            let scene_tree = build_scene_tree(scene, self);
-
-            // for
-
-            for node_id in self.scene_tree_debug_nodes.iter().copied() {
-                scene.remove_node(node_id);
+        match scene_tree {
+            Ok(scene_tree) => {
+                self.add_debug_nodes(&mut game_state.scene, &scene_tree);
             }
-
-            self.scene_tree_debug_nodes = Vec::new();
-
-            match scene_tree {
-                Ok(scene_tree) => {
-                    let nodes: Vec<_> = scene.nodes().cloned().collect();
-                    for node in nodes {
-                        if let Some(bounding_sphere) =
-                            scene.get_node_bounding_sphere(node.id(), self)
-                        {
-                            self.scene_tree_debug_nodes.push(
-                                scene
-                                    .add_node(
-                                        GameNodeDescBuilder::new()
-                                            .transform(
-                                                TransformBuilder::new()
-                                                    .scale(
-                                                        bounding_sphere.radius
-                                                            * Vector3::new(1.0, 1.0, 1.0),
-                                                    )
-                                                    .position(bounding_sphere.origin)
-                                                    .build(),
-                                            )
-                                            .mesh(Some(GameNodeMesh {
-                                                mesh_type: GameNodeMeshType::Unlit {
-                                                    color: Vector3::new(0.0, 1.0, 0.0),
-                                                },
-                                                mesh_indices: vec![self
-                                                    .sphere_mesh_index
-                                                    .try_into()
-                                                    .unwrap()],
-                                                wireframe: true,
-                                                cullable: false,
-                                            }))
-                                            .build(),
-                                    )
-                                    .id(),
-                            );
-                        }
-                    }
-
-                    let aabb_list = scene_tree.to_aabb_list();
-                    for aabb in &aabb_list {
-                        let scale = (aabb.max - aabb.min) / 2.0;
-                        let position = (aabb.max + aabb.min) / 2.0;
-                        self.scene_tree_debug_nodes.push(
-                            scene
-                                .add_node(
-                                    GameNodeDescBuilder::new()
-                                        .transform(
-                                            TransformBuilder::new()
-                                                .scale(scale)
-                                                .position(position)
-                                                .build(),
-                                        )
-                                        .mesh(Some(GameNodeMesh {
-                                            mesh_type: GameNodeMeshType::Unlit {
-                                                color: Vector3::new(1.0, 0.0, 0.0),
-                                            },
-                                            mesh_indices: vec![self
-                                                .box_mesh_index
-                                                .try_into()
-                                                .unwrap()],
-                                            wireframe: true,
-                                            cullable: false,
-                                        }))
-                                        .build(),
-                                )
-                                .id(),
-                        );
-                    }
-
-                    logger_log(&format!(
-                        "non_empty_node_count: {:?}, node_count: {:?}, game_node_count: {:?}, aabb_list.len(): {:?}",
-                        scene_tree.get_non_empty_node_count(),
-                        scene_tree.get_node_count(),
-                        scene_tree.get_game_node_count(),
-                        aabb_list.len(),
-                    ));
-                }
-                Err(err) => {
-                    logger_log(&format!("{:?}", err));
-                }
+            Err(err) => {
+                logger_log(&format!("{:?}", err));
             }
-
-            scene.recompute_node_transforms();
         }
 
-        // scene_tree_debug_nodes
-
-        // dbg!(&scene_tree);
-
+        let scene = &mut game_state.scene;
         let limits = &mut self.base.limits;
         let queue = &mut self.base.queue;
         let device = &self.base.device;
@@ -2593,10 +2561,7 @@ impl RendererState {
                                     }
                                 }
                             };
-                            let gpu_instance = GpuUnlitMeshInstance {
-                                color,
-                                model_transform: GpuMatrix4(transform),
-                            };
+
                             if is_wireframe_mode_on || is_node_wireframe {
                                 let wireframe_mesh_index = self
                                     .buffers
@@ -2610,6 +2575,10 @@ impl RendererState {
                                     })
                                     .unwrap()
                                     .0;
+                                let gpu_instance = GpuWireframeMeshInstance {
+                                    color,
+                                    model_transform: GpuMatrix4(transform),
+                                };
                                 match wireframe_mesh_index_to_gpu_instances
                                     .entry(wireframe_mesh_index)
                                 {
@@ -2621,6 +2590,10 @@ impl RendererState {
                                     }
                                 }
                             } else {
+                                let gpu_instance = GpuUnlitMeshInstance {
+                                    color,
+                                    model_transform: GpuMatrix4(transform),
+                                };
                                 match unlit_mesh_index_to_gpu_instances.entry(mesh_index) {
                                     Entry::Occupied(mut entry) => {
                                         entry.get_mut().push(gpu_instance);

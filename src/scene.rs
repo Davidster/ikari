@@ -311,11 +311,6 @@ impl Scene {
             .and_then(|node| node.mesh.as_ref())
             .map(|mesh| {
                 let global_transform = self.get_global_transform_for_node_opt(node_id);
-                let global_node_position = Vector3::new(
-                    global_transform.w.x,
-                    global_transform.w.y,
-                    global_transform.w.z,
-                );
                 let global_node_scale = Vector3::new(
                     Vector3::new(
                         global_transform.x.x,
@@ -363,13 +358,15 @@ impl Scene {
                         merged_aabb.max[i] = aabb.max.x.max(merged_aabb.max[i]);
                     }
                 }
-                // let transform_point = |point: Vector3<f32>| {
-                //     let transformed = global_transform * Vector4::new(point.x, point.y, point.z, 1.0);
-                //     Vector3::new(transformed.x, transformed.y, transformed.z);
-                // };
-                // merged_aabb.min = transform_point();
 
-                let origin = global_node_position + (merged_aabb.max + merged_aabb.min) / 2.0;
+                let transform_point = |point: Vector3<f32>| {
+                    let transformed =
+                        global_transform * Vector4::new(point.x, point.y, point.z, 1.0);
+                    Vector3::new(transformed.x, transformed.y, transformed.z)
+                };
+
+                // let origin = global_node_position + (aabb.max + aabb.min) / 2.0;
+                let origin = transform_point((merged_aabb.max + merged_aabb.min) / 2.0);
 
                 let half_length = (merged_aabb.max - merged_aabb.min) / 2.0;
                 let radius = largest_axis_scale * half_length.magnitude();
@@ -438,7 +435,7 @@ impl Scene {
         )
     }
 
-    #[profiling::function]
+    // #[profiling::function]
     pub fn get_global_transform_for_node_opt(&self, node_id: GameNodeId) -> Matrix4<f32> {
         let GameNodeId(node_index, _) = node_id;
         let mut node_ancestry_list: [u32; MAX_NODE_HIERARCHY_LEVELS] =

@@ -55,8 +55,4 @@ impl GameState {
             panic!("Must call GameState::on_frame_started at least once before getting the time")
         })
     }
-
-    pub fn toggle_animations(&mut self) {
-        self.is_playing_animations = !self.is_playing_animations;
-    }
 }

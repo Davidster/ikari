@@ -93,7 +93,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     // player's revolver
     #[allow(unused_assignments)]
     let mut revolver: Option<Revolver> = None;
-    /* {
+    {
         // or ./src/models/gltf/Revolver/revolver_low_poly.gltf
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
@@ -129,33 +129,33 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
                 .scale(2.0f32 * Vector3::new(1.0, 1.0, 1.0))
                 .build(),
         ));
-    } */
+    }
 
     // forest
-    // {
-    //     let (document, buffers, images) =
-    //         gltf::import("./src/models/gltf/free_low_poly_forest/scene.gltf")?;
-    //     validate_animation_property_counts(&document);
-    //     let (mut other_scene, other_render_buffers) =
-    //         build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
-    //     // hack to get the terrain to be at the same height as the ground.
-    //     let node_has_parent: Vec<_> = other_scene
-    //         .nodes()
-    //         .map(|node| other_scene.get_node_parent(node.id()).is_some())
-    //         .collect();
-    //     for (i, node) in other_scene.nodes_mut().enumerate() {
-    //         if node_has_parent[i] {
-    //             continue;
-    //         }
-    //         node.transform
-    //             .set_position(node.transform.position() + Vector3::new(0.0, 29.0, 0.0));
-    //     }
-    //     scene.merge_scene(renderer_state, other_scene, other_render_buffers);
-    // }
+    {
+        let (document, buffers, images) =
+            gltf::import("./src/models/gltf/free_low_poly_forest/scene.gltf")?;
+        validate_animation_property_counts(&document);
+        let (mut other_scene, other_render_buffers) =
+            build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
+        // hack to get the terrain to be at the same height as the ground.
+        let node_has_parent: Vec<_> = other_scene
+            .nodes()
+            .map(|node| other_scene.get_node_parent(node.id()).is_some())
+            .collect();
+        for (i, node) in other_scene.nodes_mut().enumerate() {
+            if node_has_parent[i] {
+                continue;
+            }
+            node.transform
+                .set_position(node.transform.position() + Vector3::new(0.0, 29.0, 0.0));
+        }
+        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+    }
 
     // robot
     // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-    /* {
+    {
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf")?;
         validate_animation_property_counts(&document);
@@ -171,30 +171,30 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             jump_up_animation.state.loop_type = LoopType::Wrap;
         }
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
-    } */
+    }
 
     // maze
-    // {
-    //     let skip_nodes = scene.node_count();
-    //     let (document, buffers, images) =
-    //         gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
-    //     validate_animation_property_counts(&document);
-    //     let (other_scene, other_render_buffers) =
-    //         build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
-    //     scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+    {
+        let skip_nodes = scene.node_count();
+        let (document, buffers, images) =
+            gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
+        validate_animation_property_counts(&document);
+        let (other_scene, other_render_buffers) =
+            build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
+        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
 
-    //     let test_level_node_ids: Vec<_> = scene
-    //         .nodes()
-    //         .skip(skip_nodes)
-    //         .map(|node| node.id())
-    //         .collect();
-    //     for node_id in test_level_node_ids {
-    //         if let Some(_mesh) = scene.get_node_mut(node_id).unwrap().mesh.as_mut() {
-    //             // _mesh.wireframe = true;
-    //         }
-    //         physics_state.add_static_box(&scene, renderer_state, node_id);
-    //     }
-    // }
+        let test_level_node_ids: Vec<_> = scene
+            .nodes()
+            .skip(skip_nodes)
+            .map(|node| node.id())
+            .collect();
+        for node_id in test_level_node_ids {
+            if let Some(_mesh) = scene.get_node_mut(node_id).unwrap().mesh.as_mut() {
+                // _mesh.wireframe = true;
+            }
+            physics_state.add_static_box(&scene, renderer_state, node_id);
+        }
+    }
 
     // other
     {
@@ -205,7 +205,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
         // let gltf_path = "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf";
         // let gltf_path = "./src/models/gltf/Sponza/Sponza.gltf";
-        let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
+        // let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
         // let gltf_path = "./src/models/gltf/Arrow/Arrow.gltf";
         // let gltf_path = "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf";
         // let gltf_path = "./src/models/gltf/VertexColorTest/VertexColorTest.gltf";
@@ -219,17 +219,21 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
         // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
         // let gltf_path = "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf";
-        // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
+        let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
         // let gltf_path =
         //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
-        // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
+        // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/Lantern/glTF/Lantern.gltf";
         // let gltf_path = "./src/models/gltf/VC/VC.gltf";
         // let gltf_path =
         //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
         let (document, buffers, images) = gltf::import(gltf_path)?;
         validate_animation_property_counts(&document);
-        let (other_scene, other_render_buffers) =
+        let (mut other_scene, other_render_buffers) =
             build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
+        for animation in other_scene.animations.iter_mut() {
+            animation.state.is_playing = true;
+            animation.state.loop_type = LoopType::Wrap;
+        }
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
     }
 
@@ -677,78 +681,80 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         }
         img
     };
+    #[allow(unused_assignments)]
     let mut crosshair_node_id: Option<GameNodeId> = None;
-    // let crosshair_texture = Texture::from_decoded_image(
-    //     &renderer_state.base.device,
-    //     &renderer_state.base.queue,
-    //     &crosshair_texture_img,
-    //     crosshair_texture_img.dimensions(),
-    //     Some("crosshair_texture"),
-    //     None,
-    //     false,
-    //     &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
-    //         // mag_filter: wgpu::FilterMode::Nearest,
-    //         // min_filter: wgpu::FilterMode::Nearest,
-    //         // mipmap_filter: wgpu::FilterMode::Nearest,
-    //         ..texture::SamplerDescriptor::default().0
-    //     }),
-    // )?;
-    // let crosshair_quad = BasicMesh {
-    //     vertices: vec![[1.0, 1.0], [1.0, -1.0], [-1.0, -1.0], [-1.0, 1.0]]
-    //         .iter()
-    //         .map(|position| Vertex {
-    //             position: [0.0, position[1], position[0]],
-    //             normal: [0.0, 0.0, 1.0],
-    //             tex_coords: [0.5 * (position[0] + 1.0), 0.5 * (1.0 - position[1])],
-    //             tangent: [1.0, 0.0, 0.0],
-    //             bitangent: [0.0, -1.0, 0.0],
-    //             color: [1.0, 1.0, 1.0, 1.0],
-    //             bone_indices: [0, 1, 2, 3],
-    //             bone_weights: [1.0, 0.0, 0.0, 0.0],
-    //         })
-    //         .collect(),
-    //     indices: vec![0, 2, 1, 0, 3, 2],
-    // };
-    // let pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
-    //     &crosshair_quad,
-    //     &PbrMaterial {
-    //         ambient_occlusion: Some(&Texture::from_color(
-    //             &renderer_state.base.device,
-    //             &renderer_state.base.queue,
-    //             [0, 0, 0, 0],
-    //         )?),
-    //         metallic_roughness: Some(&Texture::from_color(
-    //             &renderer_state.base.device,
-    //             &renderer_state.base.queue,
-    //             [0, 0, 255, 0],
-    //         )?),
-    //         base_color: Some(&crosshair_texture),
-    //         emissive: Some(&crosshair_texture),
-    //         ..Default::default()
-    //     },
-    //     Default::default(),
-    // )?;
-    // let crosshair_color = Vector3::new(1.0, 0.0, 0.0);
-    // crosshair_node_id = Some(
-    //     scene
-    //         .add_node(
-    //             GameNodeDescBuilder::new()
-    //                 .mesh(Some(GameNodeMesh {
-    //                     mesh_indices: vec![pbr_mesh_index],
-    //                     mesh_type: GameNodeMeshType::Pbr {
-    //                         material_override: Some(DynamicPbrParams {
-    //                             emissive_factor: crosshair_color,
-    //                             base_color_factor: Vector4::new(0.0, 0.0, 0.0, 1.0),
-    //                             alpha_cutoff: 0.5,
-    //                             ..Default::default()
-    //                         }),
-    //                     },
-    //                     wireframe: false,
-    //                 }))
-    //                 .build(),
-    //         )
-    //         .id(),
-    // );
+    let crosshair_texture = Texture::from_decoded_image(
+        &renderer_state.base.device,
+        &renderer_state.base.queue,
+        &crosshair_texture_img,
+        crosshair_texture_img.dimensions(),
+        Some("crosshair_texture"),
+        None,
+        false,
+        &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
+            // mag_filter: wgpu::FilterMode::Nearest,
+            // min_filter: wgpu::FilterMode::Nearest,
+            // mipmap_filter: wgpu::FilterMode::Nearest,
+            ..texture::SamplerDescriptor::default().0
+        }),
+    )?;
+    let crosshair_quad = BasicMesh {
+        vertices: vec![[1.0, 1.0], [1.0, -1.0], [-1.0, -1.0], [-1.0, 1.0]]
+            .iter()
+            .map(|position| Vertex {
+                position: [0.0, position[1], position[0]],
+                normal: [0.0, 0.0, 1.0],
+                tex_coords: [0.5 * (position[0] + 1.0), 0.5 * (1.0 - position[1])],
+                tangent: [1.0, 0.0, 0.0],
+                bitangent: [0.0, -1.0, 0.0],
+                color: [1.0, 1.0, 1.0, 1.0],
+                bone_indices: [0, 1, 2, 3],
+                bone_weights: [1.0, 0.0, 0.0, 0.0],
+            })
+            .collect(),
+        indices: vec![0, 2, 1, 0, 3, 2],
+    };
+    let pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
+        &crosshair_quad,
+        &PbrMaterial {
+            ambient_occlusion: Some(&Texture::from_color(
+                &renderer_state.base.device,
+                &renderer_state.base.queue,
+                [0, 0, 0, 0],
+            )?),
+            metallic_roughness: Some(&Texture::from_color(
+                &renderer_state.base.device,
+                &renderer_state.base.queue,
+                [0, 0, 255, 0],
+            )?),
+            base_color: Some(&crosshair_texture),
+            emissive: Some(&crosshair_texture),
+            ..Default::default()
+        },
+        Default::default(),
+    )?;
+    let crosshair_color = Vector3::new(1.0, 0.0, 0.0);
+    crosshair_node_id = Some(
+        scene
+            .add_node(
+                GameNodeDescBuilder::new()
+                    .mesh(Some(GameNodeMesh {
+                        mesh_indices: vec![pbr_mesh_index],
+                        mesh_type: GameNodeMeshType::Pbr {
+                            material_override: Some(DynamicPbrParams {
+                                emissive_factor: crosshair_color,
+                                base_color_factor: Vector4::new(0.0, 0.0, 0.0, 1.0),
+                                alpha_cutoff: 0.5,
+                                ..Default::default()
+                            }),
+                        },
+                        wireframe: false,
+                        ..Default::default()
+                    }))
+                    .build(),
+            )
+            .id(),
+    );
 
     let mut audio_manager = AudioManager::new()?;
 
@@ -812,6 +818,43 @@ pub fn process_device_input(game_state: &mut GameState, event: &winit::event::De
     game_state.player_controller.process_device_events(event);
 }
 
+pub fn increment_render_scale(renderer_state: &mut RendererState, increase: bool) {
+    let delta = 0.1;
+    let change = if increase { delta } else { -delta };
+    renderer_state.render_scale = (renderer_state.render_scale + change).max(0.1).min(4.0);
+    logger_log(&format!(
+        "Render scale: {:?} ({:?}x{:?})",
+        renderer_state.render_scale,
+        (renderer_state.base.surface_config.width as f32 * renderer_state.render_scale.sqrt())
+            .round() as u32,
+        (renderer_state.base.surface_config.height as f32 * renderer_state.render_scale.sqrt())
+            .round() as u32,
+    ));
+    renderer_state.resize(renderer_state.base.window_size);
+}
+
+pub fn increment_exposure(renderer_state: &mut RendererState, increase: bool) {
+    let delta = 0.05;
+    let change = if increase { delta } else { -delta };
+    renderer_state.tone_mapping_exposure = (renderer_state.tone_mapping_exposure + change)
+        .max(0.0)
+        .min(20.0);
+    logger_log(&format!(
+        "Exposure: {:?}",
+        renderer_state.tone_mapping_exposure
+    ));
+}
+
+pub fn increment_bloom_threshold(renderer_state: &mut RendererState, increase: bool) {
+    let delta = 0.05;
+    let change = if increase { delta } else { -delta };
+    renderer_state.bloom_threshold = (renderer_state.bloom_threshold + change).max(0.0).min(20.0);
+    logger_log(&format!(
+        "Bloom Threshold: {:?}",
+        renderer_state.bloom_threshold
+    ));
+}
+
 pub fn process_window_input(
     game_state: &mut GameState,
     renderer_state: &mut RendererState,
@@ -839,34 +882,41 @@ pub fn process_window_input(
         if *state == ElementState::Released {
             match keycode {
                 VirtualKeyCode::Z => {
-                    renderer_state.increment_render_scale(false);
+                    increment_render_scale(renderer_state, false);
                 }
                 VirtualKeyCode::X => {
-                    renderer_state.increment_render_scale(true);
+                    increment_render_scale(renderer_state, true);
                 }
                 VirtualKeyCode::E => {
-                    renderer_state.increment_exposure(false);
+                    increment_exposure(renderer_state, false);
                 }
                 VirtualKeyCode::R => {
-                    renderer_state.increment_exposure(true);
+                    increment_exposure(renderer_state, true);
                 }
                 VirtualKeyCode::T => {
-                    renderer_state.increment_bloom_threshold(false);
+                    increment_bloom_threshold(renderer_state, false);
                 }
                 VirtualKeyCode::Y => {
-                    renderer_state.increment_bloom_threshold(true);
+                    increment_bloom_threshold(renderer_state, true);
                 }
                 VirtualKeyCode::P => {
-                    game_state.toggle_animations();
+                    game_state.is_playing_animations = !game_state.is_playing_animations;
                 }
                 VirtualKeyCode::M => {
-                    renderer_state.toggle_shadows();
+                    renderer_state.enable_shadows = !renderer_state.enable_shadows;
                 }
                 VirtualKeyCode::B => {
-                    renderer_state.toggle_bloom();
+                    renderer_state.enable_bloom = !renderer_state.enable_bloom;
                 }
                 VirtualKeyCode::F => {
-                    renderer_state.toggle_wireframe_mode();
+                    renderer_state.enable_wireframe_mode = !renderer_state.enable_wireframe_mode;
+                }
+                VirtualKeyCode::J => {
+                    renderer_state.draw_node_bounding_spheres =
+                        !renderer_state.draw_node_bounding_spheres;
+                }
+                VirtualKeyCode::K => {
+                    renderer_state.draw_scene_tree_aabbs = !renderer_state.draw_scene_tree_aabbs;
                 }
                 VirtualKeyCode::C => {
                     if let Some(character) = game_state.character.as_mut() {
