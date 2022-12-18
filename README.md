@@ -108,3 +108,31 @@ To do that you have to:
 - Run wgpubox and tracy (in any order), when the game is loading tracy will start profiling
 
 If something does not work it is possible that the crate profiling has been updated and is no longer aligned with the tracy version and a more recent one must be used.
+
+### Tracy linux install:
+
+Based on instructions from here: https://github.com/wolfpld/tracy/issues/484
+
+- Install glfw, freetype2
+  - (e.g. aur packages `glfw-x11`, `freetype2`). maybe different on Ubuntu
+- Install libcapstone
+  - Clone https://github.com/libcapstone/libcapstone
+  - cd libcapstone
+  - PATH=/usr/local/bin:/usr/bin:/bin CC=clang CXX=clang++ make -j12
+  - sudo make install
+- Install tracy 0.9
+  - Clone https://github.com/wolfpld/tracy
+  - cd tracy/profiler/build/unix
+  - git checkout v0.9
+  - PATH=/usr/local/bin:/usr/bin:/bin CC=clang CXX=clang++ make -j12
+- Run tracy
+  - ./Tracy_release
+- I made a desktop entry to make it easier to start from the system menus:
+  - Not sure if it works in other distros, tested on Arch/KDE
+  - Create file ~/.local/share/applications/tracy.desktop with contents:
+    ```
+    [Desktop Entry]
+    Name=Tracy
+    Exec=/home/david/Programming/tracy/profiler/build/unix/Tracy-release
+    Type=Application
+    ```
