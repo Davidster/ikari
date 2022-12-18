@@ -180,9 +180,8 @@ impl Scene {
         }
     }
 
+    #[profiling::function]
     pub fn recompute_node_transforms(&mut self) {
-        puffin::profile_function!();
-
         if self.nodes.len() <= self.node_transforms.len() {
             self.node_transforms.truncate(self.nodes.len());
         } else {
@@ -346,12 +345,11 @@ impl Scene {
     }
 
     // TODO: should this return an option?
+    #[profiling::function]
     pub fn get_global_transform_for_node(
         &self,
         node_id: GameNodeId,
     ) -> crate::transform::Transform {
-        puffin::profile_function!();
-
         let GameNodeId(node_index, _) = node_id;
         let node_ancestry_list: Vec<_> = self.get_node_ancestry_list(node_index).collect();
         node_ancestry_list.iter().rev().fold(
@@ -363,9 +361,8 @@ impl Scene {
         )
     }
 
+    #[profiling::function]
     pub fn get_global_transform_for_node_opt(&self, node_id: GameNodeId) -> Matrix4<f32> {
-        puffin::profile_function!();
-
         let GameNodeId(node_index, _) = node_id;
         let mut node_ancestry_list: [u32; MAX_NODE_HIERARCHY_LEVELS] =
             [0; MAX_NODE_HIERARCHY_LEVELS];

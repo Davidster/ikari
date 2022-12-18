@@ -2366,9 +2366,8 @@ impl RendererState {
         ];
     }
 
+    #[profiling::function]
     pub fn update(&mut self, game_state: &mut GameState) {
-        puffin::profile_function!();
-
         // send data to gpu
         let scene = &mut game_state.scene;
         let limits = &mut self.base.limits;
@@ -2823,9 +2822,8 @@ impl RendererState {
         );
     }
 
+    #[profiling::function]
     pub fn render(&mut self, game_state: &GameState) -> Result<(), wgpu::SurfaceError> {
-        puffin::profile_function!();
-
         let surface_texture = self.base.surface.get_current_texture()?;
         let surface_texture_view = surface_texture
             .texture
