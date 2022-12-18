@@ -690,6 +690,7 @@ pub struct RendererState {
     all_wireframe_instances: AllInstances,
 
     box_mesh_index: i32,
+    sphere_mesh_index: i32,
     scene_tree_debug_nodes: Vec<GameNodeId>,
 
     pub skybox_mesh_buffers: GeometryBuffers,
@@ -2032,6 +2033,7 @@ impl RendererState {
             bloom_pingpong_textures,
 
             box_mesh_index: -1,
+            sphere_mesh_index: -1,
             scene_tree_debug_nodes: vec![],
 
             skybox_mesh_buffers,
@@ -2385,6 +2387,9 @@ impl RendererState {
         if self.box_mesh_index == -1 {
             let cube_mesh = BasicMesh::new("./src/models/cube.obj").unwrap();
             self.box_mesh_index = self.bind_basic_unlit_mesh(&cube_mesh).try_into().unwrap();
+
+            let sphere_mesh = BasicMesh::new("./src/models/sphere.obj").unwrap();
+            self.sphere_mesh_index = self.bind_basic_unlit_mesh(&sphere_mesh).try_into().unwrap();
         } else {
             let scene_tree = build_scene_tree(scene, self);
 
@@ -2398,13 +2403,44 @@ impl RendererState {
 
             match scene_tree {
                 Ok(scene_tree) => {
-                    logger_log(&format!(
-                        "non_empty_node_count: {:?}, node_count: {:?}",
-                        scene_tree.get_non_empty_node_count(),
-                        scene_tree.get_node_count()
-                    ));
+                    let nodes: Vec<_> = scene.nodes().cloned().collect();
+                    for node in nodes {
+                        if let Some(bounding_sphere) =
+                            scene.get_node_bounding_sphere(node.id(), self)
+                        {
+                            self.scene_tree_debug_nodes.push(
+                                scene
+                                    .add_node(
+                                        GameNodeDescBuilder::new()
+                                            .transform(
+                                                TransformBuilder::new()
+                                                    .scale(
+                                                        bounding_sphere.radius
+                                                            * Vector3::new(1.0, 1.0, 1.0),
+                                                    )
+                                                    .position(bounding_sphere.origin)
+                                                    .build(),
+                                            )
+                                            .mesh(Some(GameNodeMesh {
+                                                mesh_type: GameNodeMeshType::Unlit {
+                                                    color: Vector3::new(0.0, 1.0, 0.0),
+                                                },
+                                                mesh_indices: vec![self
+                                                    .sphere_mesh_index
+                                                    .try_into()
+                                                    .unwrap()],
+                                                wireframe: true,
+                                                cullable: false,
+                                            }))
+                                            .build(),
+                                    )
+                                    .id(),
+                            );
+                        }
+                    }
 
-                    for aabb in scene_tree.to_aabb_list() {
+                    let aabb_list = scene_tree.to_aabb_list();
+                    for aabb in &aabb_list {
                         let scale = (aabb.max - aabb.min) / 2.0;
                         let position = (aabb.max + aabb.min) / 2.0;
                         self.scene_tree_debug_nodes.push(
@@ -2433,6 +2469,14 @@ impl RendererState {
                                 .id(),
                         );
                     }
+
+                    logger_log(&format!(
+                        "non_empty_node_count: {:?}, node_count: {:?}, game_node_count: {:?}, aabb_list.len(): {:?}",
+                        scene_tree.get_non_empty_node_count(),
+                        scene_tree.get_node_count(),
+                        scene_tree.get_game_node_count(),
+                        aabb_list.len(),
+                    ));
                 }
                 Err(err) => {
                     logger_log(&format!("{:?}", err));

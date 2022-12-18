@@ -22,8 +22,8 @@ pub struct Sphere {
     pub radius: f32,
 }
 
-const BASE_AABB_SIZE: f32 = 1000.0;
-const MAX_DEPTH: u8 = 12;
+const BASE_AABB_SIZE: f32 = 4000.0;
+const MAX_DEPTH: u8 = 14;
 // const MIN_CELL_SIZE: f32 = BASE_AABB_SIZE / 2_u32.pow(MAX_DEPTH) as f32;
 
 impl Default for SceneTree {
@@ -126,11 +126,12 @@ impl Aabb {
 }
 
 pub fn build_scene_tree(scene: &Scene, renderer_state: &RendererState) -> Result<SceneTree> {
-    let base_aabb_max = Vector3::new(BASE_AABB_SIZE, BASE_AABB_SIZE, BASE_AABB_SIZE);
+    let offset = BASE_AABB_SIZE * 0.02 * std::f32::consts::PI * Vector3::new(1.0, 1.0, 1.0);
+    let base_aabb_max = BASE_AABB_SIZE * Vector3::new(1.0, 1.0, 1.0);
     let mut tree = SceneTree {
         aabb: Aabb {
-            min: -base_aabb_max,
-            max: base_aabb_max,
+            min: -base_aabb_max + offset,
+            max: base_aabb_max + offset,
         },
         ..Default::default()
     };
@@ -181,7 +182,18 @@ impl SceneTree {
         total += 1;
         if let Some(sub_trees) = self.children.as_ref() {
             for sub_tree in sub_trees.iter() {
-                total += 1 + Self::get_non_empty_node_count(sub_tree);
+                total += Self::get_node_count(sub_tree);
+            }
+        }
+        total
+    }
+
+    pub fn get_game_node_count(&self) -> u32 {
+        let mut total = 0_u32;
+        total += self.nodes.len() as u32;
+        if let Some(sub_trees) = self.children.as_ref() {
+            for sub_tree in sub_trees.iter() {
+                total += Self::get_game_node_count(sub_tree);
             }
         }
         total
@@ -189,19 +201,32 @@ impl SceneTree {
 
     pub fn to_aabb_list(&self) -> Vec<Aabb> {
         let mut list: Vec<Aabb> = Vec::new();
-        self.to_aabb_list_impl(&mut list);
+        self.to_aabb_list_impl_2(&mut list);
         list
     }
 
     // only includes branch nodes and leaf nodes with game nodes inside them
     fn to_aabb_list_impl(&self, acc: &mut Vec<Aabb>) {
+        if !self.nodes.is_empty() {
+            acc.push(self.aabb);
+        }
         if let Some(children) = self.children.as_ref() {
             acc.push(self.aabb);
             for child in children.iter() {
                 child.to_aabb_list_impl(acc);
             }
-        } else if !self.nodes.is_empty() {
+        }
+    }
+
+    // only includes nodes with game nodes in them
+    fn to_aabb_list_impl_2(&self, acc: &mut Vec<Aabb>) {
+        if !self.nodes.is_empty() {
             acc.push(self.aabb);
+        }
+        if let Some(children) = self.children.as_ref() {
+            for child in children.iter() {
+                child.to_aabb_list_impl_2(acc);
+            }
         }
     }
 

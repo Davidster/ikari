@@ -132,26 +132,26 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     } */
 
     // forest
-    /* {
-        let (document, buffers, images) =
-            gltf::import("./src/models/gltf/free_low_poly_forest/scene.gltf")?;
-        validate_animation_property_counts(&document);
-        let (mut other_scene, other_render_buffers) =
-            build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
-        // hack to get the terrain to be at the same height as the ground.
-        let node_has_parent: Vec<_> = other_scene
-            .nodes()
-            .map(|node| other_scene.get_node_parent(node.id()).is_some())
-            .collect();
-        for (i, node) in other_scene.nodes_mut().enumerate() {
-            if node_has_parent[i] {
-                continue;
-            }
-            node.transform
-                .set_position(node.transform.position() + Vector3::new(0.0, 29.0, 0.0));
-        }
-        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
-    } */
+    // {
+    //     let (document, buffers, images) =
+    //         gltf::import("./src/models/gltf/free_low_poly_forest/scene.gltf")?;
+    //     validate_animation_property_counts(&document);
+    //     let (mut other_scene, other_render_buffers) =
+    //         build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
+    //     // hack to get the terrain to be at the same height as the ground.
+    //     let node_has_parent: Vec<_> = other_scene
+    //         .nodes()
+    //         .map(|node| other_scene.get_node_parent(node.id()).is_some())
+    //         .collect();
+    //     for (i, node) in other_scene.nodes_mut().enumerate() {
+    //         if node_has_parent[i] {
+    //             continue;
+    //         }
+    //         node.transform
+    //             .set_position(node.transform.position() + Vector3::new(0.0, 29.0, 0.0));
+    //     }
+    //     scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+    // }
 
     // robot
     // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
@@ -174,27 +174,27 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     } */
 
     // maze
-    /* {
-        let skip_nodes = scene.node_count();
-        let (document, buffers, images) =
-            gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
-        validate_animation_property_counts(&document);
-        let (other_scene, other_render_buffers) =
-            build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
-        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+    // {
+    //     let skip_nodes = scene.node_count();
+    //     let (document, buffers, images) =
+    //         gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
+    //     validate_animation_property_counts(&document);
+    //     let (other_scene, other_render_buffers) =
+    //         build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
+    //     scene.merge_scene(renderer_state, other_scene, other_render_buffers);
 
-        let test_level_node_ids: Vec<_> = scene
-            .nodes()
-            .skip(skip_nodes)
-            .map(|node| node.id())
-            .collect();
-        for node_id in test_level_node_ids {
-            if let Some(_mesh) = scene.get_node_mut(node_id).unwrap().mesh.as_mut() {
-                // _mesh.wireframe = true;
-            }
-            physics_state.add_static_box(&scene, renderer_state, node_id);
-        }
-    } */
+    //     let test_level_node_ids: Vec<_> = scene
+    //         .nodes()
+    //         .skip(skip_nodes)
+    //         .map(|node| node.id())
+    //         .collect();
+    //     for node_id in test_level_node_ids {
+    //         if let Some(_mesh) = scene.get_node_mut(node_id).unwrap().mesh.as_mut() {
+    //             // _mesh.wireframe = true;
+    //         }
+    //         physics_state.add_static_box(&scene, renderer_state, node_id);
+    //     }
+    // }
 
     // other
     {
@@ -205,7 +205,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
         // let gltf_path = "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf";
         // let gltf_path = "./src/models/gltf/Sponza/Sponza.gltf";
-        // let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
+        let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
         // let gltf_path = "./src/models/gltf/Arrow/Arrow.gltf";
         // let gltf_path = "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf";
         // let gltf_path = "./src/models/gltf/VertexColorTest/VertexColorTest.gltf";
@@ -226,14 +226,11 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         // let gltf_path = "./src/models/gltf/VC/VC.gltf";
         // let gltf_path =
         //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
-        // let (document, buffers, images) = gltf::import(gltf_path)?;
-        // validate_animation_property_counts(&document, logger);
-        // let (other_scene, other_render_buffers) = build_scene(
-        //     &mut renderer_state.base,
-        //     (&document, &buffers, &images),
-        //     logger,
-        // )?;
-        // scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+        let (document, buffers, images) = gltf::import(gltf_path)?;
+        validate_animation_property_counts(&document);
+        let (other_scene, other_render_buffers) =
+            build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
+        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
     }
 
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
@@ -522,7 +519,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         ball_node_ids.push(node.id());
     }
 
-    let physics_ball_count = 500;
+    let physics_ball_count = 100;
     let physics_balls: Vec<_> = (0..physics_ball_count)
         .into_iter()
         .map(|_| {
