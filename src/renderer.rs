@@ -689,6 +689,9 @@ pub struct RendererState {
     all_unlit_instances: AllInstances,
     all_wireframe_instances: AllInstances,
 
+    box_mesh_index: i32,
+    scene_tree_debug_nodes: Vec<GameNodeId>,
+
     pub skybox_mesh_buffers: GeometryBuffers,
 
     pub buffers: RenderBuffers,
@@ -2028,6 +2031,9 @@ impl RendererState {
             depth_texture,
             bloom_pingpong_textures,
 
+            box_mesh_index: -1,
+            scene_tree_debug_nodes: vec![],
+
             skybox_mesh_buffers,
 
             buffers,
@@ -2375,7 +2381,68 @@ impl RendererState {
         let scene = &mut game_state.scene;
 
         scene.recompute_node_transforms();
-        let scene_tree = build_scene_tree(scene, self);
+
+        if self.box_mesh_index == -1 {
+            let cube_mesh = BasicMesh::new("./src/models/cube.obj").unwrap();
+            self.box_mesh_index = self.bind_basic_unlit_mesh(&cube_mesh).try_into().unwrap();
+        } else {
+            let scene_tree = build_scene_tree(scene, self);
+
+            // for
+
+            for node_id in self.scene_tree_debug_nodes.iter().copied() {
+                scene.remove_node(node_id);
+            }
+
+            self.scene_tree_debug_nodes = Vec::new();
+
+            match scene_tree {
+                Ok(scene_tree) => {
+                    logger_log(&format!(
+                        "non_empty_node_count: {:?}, node_count: {:?}",
+                        scene_tree.get_non_empty_node_count(),
+                        scene_tree.get_node_count()
+                    ));
+
+                    for aabb in scene_tree.to_aabb_list() {
+                        let scale = (aabb.max - aabb.min) / 2.0;
+                        let position = (aabb.max + aabb.min) / 2.0;
+                        self.scene_tree_debug_nodes.push(
+                            scene
+                                .add_node(
+                                    GameNodeDescBuilder::new()
+                                        .transform(
+                                            TransformBuilder::new()
+                                                .scale(scale)
+                                                .position(position)
+                                                .build(),
+                                        )
+                                        .mesh(Some(GameNodeMesh {
+                                            mesh_type: GameNodeMeshType::Unlit {
+                                                color: Vector3::new(1.0, 0.0, 0.0),
+                                            },
+                                            mesh_indices: vec![self
+                                                .box_mesh_index
+                                                .try_into()
+                                                .unwrap()],
+                                            wireframe: true,
+                                            cullable: false,
+                                        }))
+                                        .build(),
+                                )
+                                .id(),
+                        );
+                    }
+                }
+                Err(err) => {
+                    logger_log(&format!("{:?}", err));
+                }
+            }
+
+            scene.recompute_node_transforms();
+        }
+
+        // scene_tree_debug_nodes
 
         // dbg!(&scene_tree);
 
@@ -2384,18 +2451,6 @@ impl RendererState {
         let device = &self.base.device;
         let bones_and_instances_bind_group_layout =
             &self.base.bones_and_instances_bind_group_layout;
-
-        match scene_tree {
-            Ok(scene_tree) => {
-                logger_log(&format!(
-                    "node_count: {:?}",
-                    scene_tree.get_non_empty_node_count()
-                ));
-            }
-            Err(err) => {
-                logger_log(&format!("{:?}", err));
-            }
-        }
 
         self.all_bone_transforms =
             get_all_bone_data(scene, limits.min_storage_buffer_offset_alignment);

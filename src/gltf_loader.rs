@@ -199,7 +199,7 @@ pub fn build_scene(
                     mesh_type: GameNodeMeshType::Pbr {
                         material_override: None,
                     },
-                    wireframe: false,
+                    ..Default::default()
                 }),
             name: node.name().map(|name| name.to_string()),
         })

@@ -43,6 +43,7 @@ pub struct GameNodeMesh {
     pub mesh_type: GameNodeMeshType,
     pub mesh_indices: Vec<usize>,
     pub wireframe: bool,
+    pub cullable: bool,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -601,6 +602,19 @@ impl Default for GameNodeDesc {
     }
 }
 
+impl Default for GameNodeMesh {
+    fn default() -> Self {
+        Self {
+            mesh_type: GameNodeMeshType::Unlit {
+                color: Vector3::zero(),
+            },
+            mesh_indices: vec![],
+            wireframe: false,
+            cullable: true,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct GameNodeDescBuilder {
     transform: crate::transform::Transform,
@@ -664,6 +678,7 @@ impl GameNodeMesh {
                 material_override: None,
             },
             wireframe: false,
+            ..Default::default()
         }
     }
 }

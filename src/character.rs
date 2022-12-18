@@ -142,6 +142,7 @@ impl Character {
                         color: Vector3::new(1.0, 0.0, 0.0),
                     },
                     wireframe: true,
+                    ..Default::default()
                 })
             }
         }
@@ -168,6 +169,7 @@ impl Character {
                         color: Vector3::new(rand::random(), rand::random(), rand::random()),
                     },
                     wireframe: true,
+                    ..Default::default()
                 })
             }
         }
