@@ -167,7 +167,6 @@ impl Aabb {
 impl Plane {
     pub fn from_normal_and_point(normal: Vector3<f32>, point: Vector3<f32>) -> Self {
         Self {
-            // normal,
             normal: normal.normalize(),
             d: -normal.normalize().dot(point),
         }
@@ -202,7 +201,7 @@ impl Frustum {
             // if n.dot(v) <= 0.0 {
             //     return false;
             // }
-            if plane.normal.dot(point) - plane.d < 0.0 {
+            if plane.normal.dot(point) + plane.d < 0.0 {
                 return false;
             }
         }

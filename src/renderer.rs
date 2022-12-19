@@ -2401,8 +2401,8 @@ impl RendererState {
             Deg(90.0).into(),
         );
 
-        // dbg!(first_light_first_view_frustum);
-        // panic!();
+        dbg!(first_light_first_view_frustum);
+        panic!();
 
         // let sphere_box =
         //     light_position + first_light_first_view_frustum.near.normal.normalize() * 5.0;

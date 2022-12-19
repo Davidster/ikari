@@ -128,7 +128,7 @@ impl Frustum {
         fov_y: Rad<f32>,
     ) -> Self {
         // see https://learnopengl.com/Guest-Articles/2021/Scene/Frustum-Culling
-        let transform_t = transform.transpose();
+        let transform_t = transform;
         let up = transform_t.y.truncate();
         let forward = transform_t.z.truncate();
         let right = forward.cross(up);
