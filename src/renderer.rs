@@ -2401,9 +2401,6 @@ impl RendererState {
             Deg(90.0).into(),
         );
 
-        dbg!(first_light_first_view_frustum);
-        panic!();
-
         // let sphere_box =
         //     light_position + first_light_first_view_frustum.near.normal.normalize() * 5.0;
 
@@ -2452,12 +2449,12 @@ impl RendererState {
         let transform_builder =
             TransformBuilder::new().scale(0.05f32 * Vector3::new(1.0, 1.0, 1.0));
 
-        for _ in 0..1000 {
+        for _ in 0..10000 {
             let random_point_near_light = light_position
                 + Vector3::new(
-                    5.0 * (1.0 - rand::random::<f32>() * 2.0),
-                    5.0 * (1.0 - rand::random::<f32>() * 2.0),
-                    5.0 * (1.0 - rand::random::<f32>() * 2.0),
+                    50.0 * (1.0 - rand::random::<f32>() * 2.0),
+                    50.0 * (1.0 - rand::random::<f32>() * 2.0),
+                    50.0 * (1.0 - rand::random::<f32>() * 2.0),
                 );
             // dbg!(random_point_near_light);
             if first_light_first_view_frustum.contains_point(random_point_near_light) {
