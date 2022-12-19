@@ -693,6 +693,7 @@ pub struct RendererState {
 
     box_mesh_index: i32,
     sphere_mesh_index: i32,
+    plane_mesh_index: i32,
     debug_nodes: Vec<GameNodeId>,
 
     pub skybox_mesh_buffers: GeometryBuffers,
@@ -1991,8 +1992,8 @@ impl RendererState {
             bloom_threshold: INITIAL_BLOOM_THRESHOLD,
             bloom_ramp_size: INITIAL_BLOOM_RAMP_SIZE,
             render_scale: initial_render_scale,
-            enable_bloom: true,
-            enable_shadows: true,
+            enable_bloom: false,
+            enable_shadows: false,
             enable_wireframe_mode: false,
             draw_node_bounding_spheres: false,
             draw_scene_tree_aabbs: false,
@@ -2040,6 +2041,7 @@ impl RendererState {
 
             box_mesh_index: -1,
             sphere_mesh_index: -1,
+            plane_mesh_index: -1,
             debug_nodes: vec![],
 
             skybox_mesh_buffers,
@@ -2065,7 +2067,6 @@ impl RendererState {
             },
         };
 
-        let cube_mesh = BasicMesh::new("./src/models/cube.obj").unwrap();
         renderer_state.box_mesh_index = renderer_state
             .bind_basic_unlit_mesh(&cube_mesh)
             .try_into()
@@ -2074,6 +2075,12 @@ impl RendererState {
         let sphere_mesh = BasicMesh::new("./src/models/sphere.obj").unwrap();
         renderer_state.sphere_mesh_index = renderer_state
             .bind_basic_unlit_mesh(&sphere_mesh)
+            .try_into()
+            .unwrap();
+
+        let plane_mesh = BasicMesh::new("./src/models/plane.obj").unwrap();
+        renderer_state.plane_mesh_index = renderer_state
+            .bind_basic_unlit_mesh(&plane_mesh)
             .try_into()
             .unwrap();
 
@@ -2365,10 +2372,155 @@ impl RendererState {
         self.debug_nodes = Vec::new();
     }
 
-    pub fn add_debug_nodes(&mut self, scene: &mut Scene, scene_tree: &SceneTree) {
-        if !self.draw_node_bounding_spheres && !self.draw_scene_tree_aabbs {
-            return;
+    pub fn add_debug_nodes(&mut self, game_state: &mut GameState, scene_tree: &SceneTree) {
+        // if !self.draw_node_bounding_spheres && !self.draw_scene_tree_aabbs {
+        //     return;
+        // }
+
+        let light_position = game_state
+            .scene
+            .get_node(game_state.point_lights[0].node_id)
+            .unwrap()
+            .transform
+            .position();
+        // let first_light_first_view_frustum: Frustum =
+        //     build_cubemap_face_camera_views(light_position, 0.1, 1000.0, false)[0].into();
+
+        let first_light_first_view_frustum = Frustum::from_camera_params(
+            light_position,
+            Camera {
+                horizontal_rotation: Deg(90.0).into(),
+                vertical_rotation: Deg(0.0).into(),
+                position: light_position,
+            }
+            .to_transform()
+            .matrix(),
+            1.0,
+            0.001,
+            100.0,
+            Deg(90.0).into(),
+        );
+
+        // dbg!(first_light_first_view_frustum);
+        // panic!();
+
+        // let sphere_box =
+        //     light_position + first_light_first_view_frustum.near.normal.normalize() * 5.0;
+
+        self.debug_nodes.push(
+            game_state
+                .scene
+                .add_node(
+                    GameNodeDescBuilder::new()
+                        .transform(
+                            TransformBuilder::new()
+                                .position(
+                                    light_position
+                                        + first_light_first_view_frustum.near.normal.normalize()
+                                            * 5.0,
+                                )
+                                .build(),
+                        )
+                        .mesh(Some(GameNodeMesh {
+                            mesh_type: GameNodeMeshType::Unlit {
+                                color: Vector3::new(0.0, 0.0, 1.0),
+                            },
+                            mesh_indices: vec![self.sphere_mesh_index.try_into().unwrap()],
+                            wireframe: true,
+                            cullable: false,
+                        }))
+                        .build(),
+                )
+                .id(),
+        );
+
+        // let radius = 0.2 + (rand::random::<f32>() * 0.4);
+        // let position = Vector3::new(
+        //     ARENA_SIDE_LENGTH * (rand::random::<f32>() * 2.0 - 1.0),
+        //     radius * 2.0 + rand::random::<f32>() * 15.0 + 5.0,
+        //     ARENA_SIDE_LENGTH * (rand::random::<f32>() * 2.0 - 1.0),
+        // );
+
+        let mesh = GameNodeMesh {
+            mesh_type: GameNodeMeshType::Unlit {
+                color: Vector3::new(1.0, 0.0, 0.0),
+            },
+            mesh_indices: vec![self.box_mesh_index.try_into().unwrap()],
+            wireframe: true,
+            cullable: false,
+        };
+        let transform_builder =
+            TransformBuilder::new().scale(0.05f32 * Vector3::new(1.0, 1.0, 1.0));
+
+        for _ in 0..1000 {
+            let random_point_near_light = light_position
+                + Vector3::new(
+                    5.0 * (1.0 - rand::random::<f32>() * 2.0),
+                    5.0 * (1.0 - rand::random::<f32>() * 2.0),
+                    5.0 * (1.0 - rand::random::<f32>() * 2.0),
+                );
+            // dbg!(random_point_near_light);
+            if first_light_first_view_frustum.contains_point(random_point_near_light) {
+                // panic!();
+                self.debug_nodes.push(
+                    game_state
+                        .scene
+                        .add_node(
+                            GameNodeDescBuilder::new()
+                                .transform(
+                                    transform_builder
+                                        .clone()
+                                        .position(random_point_near_light)
+                                        .build(),
+                                )
+                                .mesh(Some(mesh.clone()))
+                                .build(),
+                        )
+                        .id(),
+                );
+            }
         }
+
+        /* for plane in &[
+            first_light_first_view_frustum.left,
+            first_light_first_view_frustum.right,
+            // first_light_first_view_frustum.top,
+            // first_light_first_view_frustum.bottom,
+            first_light_first_view_frustum.near,
+            first_light_first_view_frustum.far,
+        ] {
+            self.debug_nodes.push(
+                game_state
+                    .scene
+                    .add_node(
+                        GameNodeDescBuilder::new()
+                            .transform(
+                                transform::Transform::from(direction_vector_to_coordinate_frame_matrix(
+                                    light_position,
+                                    plane.normal,
+                                )) * TransformBuilder::new()
+                                    .rotation(make_quat_from_axis_angle(
+                                        Vector3::new(0.0, 0.0, 1.0),
+                                        Deg(90.0).into(),
+                                    ))
+                                    .build(),
+                            )
+                            .mesh(Some(GameNodeMesh {
+                                mesh_type: GameNodeMeshType::Unlit {
+                                    color: Vector3::new(0.0, 0.0, 1.0),
+                                },
+                                mesh_indices: vec![self.plane_mesh_index.try_into().unwrap()],
+                                wireframe: true,
+                                cullable: false,
+                            }))
+                            .build(),
+                    )
+                    .id(),
+            );
+        } */
+
+        let scene = &mut game_state.scene;
+
         if self.draw_node_bounding_spheres {
             // super slow, but who cares for now
             let nodes: Vec<_> = scene.nodes().cloned().collect();
@@ -2450,7 +2602,7 @@ impl RendererState {
 
         match scene_tree {
             Ok(scene_tree) => {
-                self.add_debug_nodes(&mut game_state.scene, &scene_tree);
+                self.add_debug_nodes(game_state, &scene_tree);
             }
             Err(err) => {
                 logger_log(&format!("{:?}", err));
@@ -2488,6 +2640,7 @@ impl RendererState {
             usize,
             Vec<GpuWireframeMeshInstance>,
         > = HashMap::new();
+
         for node in scene.nodes() {
             let transform = scene.get_global_transform_for_node_opt(node.id());
             if let Some(GameNodeMesh {

@@ -132,7 +132,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     }
 
     // forest
-    {
+    /* {
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/free_low_poly_forest/scene.gltf")?;
         validate_animation_property_counts(&document);
@@ -151,11 +151,11 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
                 .set_position(node.transform.position() + Vector3::new(0.0, 29.0, 0.0));
         }
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
-    }
+    } */
 
     // robot
     // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-    {
+    /* {
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf")?;
         validate_animation_property_counts(&document);
@@ -171,10 +171,10 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             jump_up_animation.state.loop_type = LoopType::Wrap;
         }
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
-    }
+    } */
 
     // maze
-    {
+    /* {
         let skip_nodes = scene.node_count();
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
@@ -194,7 +194,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             }
             physics_state.add_static_box(&scene, renderer_state, node_id);
         }
-    }
+    } */
 
     // other
     {
@@ -219,22 +219,22 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
         // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
         // let gltf_path = "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf";
-        let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
+        // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
         // let gltf_path =
         //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
         // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/Lantern/glTF/Lantern.gltf";
         // let gltf_path = "./src/models/gltf/VC/VC.gltf";
         // let gltf_path =
         //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
-        let (document, buffers, images) = gltf::import(gltf_path)?;
-        validate_animation_property_counts(&document);
-        let (mut other_scene, other_render_buffers) =
-            build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
-        for animation in other_scene.animations.iter_mut() {
-            animation.state.is_playing = true;
-            animation.state.loop_type = LoopType::Wrap;
-        }
-        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+        // let (document, buffers, images) = gltf::import(gltf_path)?;
+        // validate_animation_property_counts(&document);
+        // let (mut other_scene, other_render_buffers) =
+        //     build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
+        // for animation in other_scene.animations.iter_mut() {
+        //     animation.state.is_playing = true;
+        //     animation.state.loop_type = LoopType::Wrap;
+        // }
+        // scene.merge_scene(renderer_state, other_scene, other_render_buffers);
     }
 
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
@@ -262,7 +262,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         (
             TransformBuilder::new()
                 .scale(Vector3::new(0.05, 0.05, 0.05))
-                .position(Vector3::new(0.0, 12.0, 0.0))
+                .position(Vector3::new(0.0, 2.0, 0.0))
                 .build(),
             POINT_LIGHT_COLOR,
             1.0,
@@ -1058,7 +1058,7 @@ pub fn update_game_state(game_state: &mut GameState, renderer_state: &RendererSt
         if let Some(node) = game_state.scene.get_node_mut(point_light_0.node_id) {
             node.transform.set_position(Vector3::new(
                 1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).cos(),
-                node.transform.position().y - frame_time_seconds * 0.25,
+                node.transform.position().y,
                 1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).sin(),
             ));
         }

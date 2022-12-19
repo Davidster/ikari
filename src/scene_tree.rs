@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use cgmath::Vector3;
+use cgmath::{Vector3, Vector4};
 
 use super::*;
 
@@ -14,6 +14,22 @@ pub struct SceneTree {
 pub struct Aabb {
     pub min: Vector3<f32>,
     pub max: Vector3<f32>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Plane {
+    pub normal: Vector3<f32>,
+    pub d: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Frustum {
+    pub left: Plane,
+    pub right: Plane,
+    pub top: Plane,
+    pub bottom: Plane,
+    pub near: Plane,
+    pub far: Plane,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -50,8 +66,31 @@ impl Default for Aabb {
 
 impl Aabb {
     fn _volume(&self) -> f32 {
-        let size = self.max - self.min;
+        let size = self.size();
         size.x * size.y * size.z
+    }
+
+    fn size(&self) -> Vector3<f32> {
+        self.max - self.min
+    }
+
+    pub fn vertices(&self) -> [Vector3<f32>; 8] {
+        let size = self.size();
+        let mut vertices: [Vector3<f32>; 8] = [Vector3::zero(); 8];
+        let mut counter = 0;
+        for i in 0..2 {
+            for j in 0..2 {
+                for k in 0..2 {
+                    vertices[counter] = Vector3::new(
+                        self.min.x + size.x * i as f32,
+                        self.min.y + size.y * j as f32,
+                        self.min.z + size.z * k as f32,
+                    );
+                    counter += 1;
+                }
+            }
+        }
+        vertices
     }
 
     // taken from https://gamedev.stackexchange.com/questions/156870/how-do-i-implement-a-aabb-sphere-collision
@@ -122,6 +161,52 @@ impl Aabb {
             }
         }
         new_aabbs
+    }
+}
+
+impl Plane {
+    pub fn from_normal_and_point(normal: Vector3<f32>, point: Vector3<f32>) -> Self {
+        Self {
+            // normal,
+            normal: normal.normalize(),
+            d: -normal.normalize().dot(point),
+        }
+    }
+}
+
+impl Frustum {
+    pub fn planes(&self) -> [Plane; 6] {
+        [
+            self.left,
+            self.right,
+            self.top,
+            self.bottom,
+            self.near,
+            self.far,
+        ]
+    }
+
+    // see https://gdbooks.gitbooks.io/legacyopengl/content/Chapter8/halfspace.html
+    // and https://gdbooks.gitbooks.io/legacyopengl/content/Chapter8/frustum.html
+    pub fn contains_point(&self, point: Vector3<f32>) -> bool {
+        for plane in self.planes() {
+            // let n = Vector4::new(plane.normal.x, plane.normal.y, plane.normal.z, 0.0);
+            // let point_on_plane = Vector4::new(
+            //     -plane.normal.x * plane.d,
+            //     -plane.normal.y * plane.d,
+            //     -plane.normal.z * plane.d,
+            //     1.0,
+            // );
+            // let v = point_on_plane - Vector4::new(point.x, point.y, point.z, 1.0);
+            // dbg!(n, v, n.dot(v));
+            // if n.dot(v) <= 0.0 {
+            //     return false;
+            // }
+            if plane.normal.dot(point) - plane.d < 0.0 {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -217,6 +302,10 @@ impl SceneTree {
             }
         }
     }
+
+    /* pub fn get_intersecting_nodes(&self, scene: &Scene, frustum: ) {
+
+    } */
 
     fn insert_internal(&mut self, node_id: GameNodeId, node_bounding_sphere: Sphere, depth: u8) {
         let entry = (node_id, node_bounding_sphere);

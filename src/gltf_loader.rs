@@ -1084,6 +1084,7 @@ impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
     }
 }
 
+// TODO: is this needed? not sure if it does anything useful, might even be a false positive since multiple property counts might now be supported
 pub fn validate_animation_property_counts(gltf_document: &gltf::Document) {
     let property_counts: HashMap<(usize, ChannelPropertyStr), usize> = gltf_document
         .animations()
