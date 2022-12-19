@@ -2452,9 +2452,9 @@ impl RendererState {
         for _ in 0..10000 {
             let random_point_near_light = light_position
                 + Vector3::new(
-                    50.0 * (1.0 - rand::random::<f32>() * 2.0),
-                    50.0 * (1.0 - rand::random::<f32>() * 2.0),
-                    50.0 * (1.0 - rand::random::<f32>() * 2.0),
+                    5.0 * (1.0 - rand::random::<f32>() * 2.0),
+                    5.0 * (1.0 - rand::random::<f32>() * 2.0),
+                    5.0 * (1.0 - rand::random::<f32>() * 2.0),
                 );
             // dbg!(random_point_near_light);
             if first_light_first_view_frustum.contains_point(random_point_near_light) {
