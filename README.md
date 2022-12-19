@@ -80,7 +80,7 @@ https://user-images.githubusercontent.com/2389735/180101651-86ba2084-4196-494b-9
 - [x] make the logger be a global variable, no need to pass it around everywhere
 - [ ] frustum culling
 - [ ] is there a bug with From<Mat4> for Transform? Seems the base matrix should be updatable?
-- [ ] [optimize shadows](https://github.com/Davidster/wgpu-sandbox/discussions/6)
+- [ ] [optimize shadows](https://github.com/Davidster/ikari/discussions/6)
 - [ ] spawn enemies, make them follow the character
 - [ ] add UI
 - [ ] track score and health, display on screen, and end game when health reaches 0
@@ -101,10 +101,10 @@ https://user-images.githubusercontent.com/2389735/180101651-86ba2084-4196-494b-9
 - [ ] use limit constraints at device creation time to try to lower the min_storage_buffer_offset_alignment number cuz smaller buffer = more cache hits
 
 ## Profiling
-You can profile wgpu-sandbox with [tracy](https://github.com/wolfpld/tracy) via [profiling](https://github.com/aclysma/profiling) crate.
+You can profile ikari with [tracy](https://github.com/wolfpld/tracy) via [profiling](https://github.com/aclysma/profiling) crate.
 To do that you have to:
 - Download [tracy 0.9](https://github.com/wolfpld/tracy/releases/tag/v0.9)
-- Build wgpu-sandbox by adding --features="profile-with-tracy" to the cargo command
+- Build ikari by adding --features="profile-with-tracy" to the cargo command
 - Run wgpubox and tracy (in any order), when the game is loading tracy will start profiling
 
 If something does not work it is possible that the crate profiling has been updated and is no longer aligned with the tracy version and a more recent one must be used.
