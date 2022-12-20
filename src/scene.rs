@@ -508,6 +508,12 @@ impl Scene {
         }
     }
 
+    pub fn get_node_unchecked(&self, node_id: GameNodeId) -> &GameNode {
+        let GameNodeId(node_index, node_gen) = node_id;
+        let (actual_node, actual_node_gen) = &self.nodes[node_index as usize];
+        actual_node.as_ref().unwrap()
+    }
+
     pub fn get_node_mut(&mut self, node_id: GameNodeId) -> Option<&mut GameNode> {
         let GameNodeId(node_index, node_gen) = node_id;
         let (actual_node, actual_node_gen) = &mut self.nodes[node_index as usize];

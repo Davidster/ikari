@@ -9,7 +9,7 @@ pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.3;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
 pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
-pub const ARENA_SIDE_LENGTH: f32 = 100.0;
+pub const ARENA_SIDE_LENGTH: f32 = 500.0;
 // pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
 // pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
 
@@ -132,7 +132,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     }
 
     // forest
-    /* {
+    {
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/free_low_poly_forest/scene.gltf")?;
         validate_animation_property_counts(&document);
@@ -151,7 +151,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
                 .set_position(node.transform.position() + Vector3::new(0.0, 29.0, 0.0));
         }
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
-    } */
+    }
 
     // robot
     // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model

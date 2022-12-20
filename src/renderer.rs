@@ -6,7 +6,7 @@ use std::num::{NonZeroU32, NonZeroU64};
 use super::*;
 
 use anyhow::Result;
-use cgmath::{Deg, Matrix4, One, Vector3};
+use cgmath::{Deg, Matrix, Matrix4, One, Vector3};
 use image::Pixel;
 use wgpu::util::DeviceExt;
 
@@ -2377,28 +2377,53 @@ impl RendererState {
         //     return;
         // }
 
-        let light_position = game_state
+        let camera_position = game_state
             .scene
             .get_node(game_state.point_lights[0].node_id)
             .unwrap()
             .transform
             .position();
-        // let first_light_first_view_frustum: Frustum =
-        //     build_cubemap_face_camera_views(light_position, 0.1, 1000.0, false)[0].into();
 
-        let first_light_first_view_frustum = Frustum::from_camera_params(
-            light_position,
+        let camera_frustum = Frustum::from_camera_params(
             Camera {
                 horizontal_rotation: Deg(90.0).into(),
                 vertical_rotation: Deg(0.0).into(),
-                position: light_position,
+                position: camera_position,
             }
             .to_transform()
             .matrix(),
             1.0,
-            0.001,
-            100.0,
+            0.1,
+            1000.0,
             Deg(90.0).into(),
+        );
+
+        let camera_forward = camera_frustum.near.normal;
+
+        // let camera_transform = game_state
+        //     .scene
+        //     .get_global_transform_for_node(game_state.player_node_id)
+        //     .matrix();
+
+        let camera_position = game_state
+            .player_controller
+            .position(&game_state.physics_state);
+        let camera_forward = game_state
+            .player_controller
+            .view_direction
+            .to_direction_vector();
+        let camera_right = camera_forward
+            .cross(Vector3::new(0.0, 1.0, 0.0))
+            .normalize();
+
+        let camera_frustum = Frustum::from_camera_params_2(
+            camera_position,
+            camera_forward,
+            camera_right,
+            self.base.window_size.width as f32 / self.base.window_size.height as f32,
+            NEAR_PLANE_DISTANCE,
+            FAR_PLANE_DISTANCE,
+            FOV_Y.into(),
         );
 
         // let sphere_box =
@@ -2411,11 +2436,7 @@ impl RendererState {
                     GameNodeDescBuilder::new()
                         .transform(
                             TransformBuilder::new()
-                                .position(
-                                    light_position
-                                        + first_light_first_view_frustum.near.normal.normalize()
-                                            * 5.0,
-                                )
+                                .position(camera_position + camera_forward * 5.0)
                                 .build(),
                         )
                         .mesh(Some(GameNodeMesh {
@@ -2431,14 +2452,7 @@ impl RendererState {
                 .id(),
         );
 
-        // let radius = 0.2 + (rand::random::<f32>() * 0.4);
-        // let position = Vector3::new(
-        //     ARENA_SIDE_LENGTH * (rand::random::<f32>() * 2.0 - 1.0),
-        //     radius * 2.0 + rand::random::<f32>() * 15.0 + 5.0,
-        //     ARENA_SIDE_LENGTH * (rand::random::<f32>() * 2.0 - 1.0),
-        // );
-
-        let mesh = GameNodeMesh {
+        /* let mesh = GameNodeMesh {
             mesh_type: GameNodeMeshType::Unlit {
                 color: Vector3::new(1.0, 0.0, 0.0),
             },
@@ -2446,27 +2460,32 @@ impl RendererState {
             wireframe: true,
             cullable: false,
         };
-        let transform_builder =
-            TransformBuilder::new().scale(0.05f32 * Vector3::new(1.0, 1.0, 1.0));
 
         for _ in 0..10000 {
-            let random_point_near_light = light_position
+            let box_half_size = 0.05f32;
+            let scale = box_half_size * Vector3::new(1.0, 1.0, 1.0);
+            let random_point_near_light = camera_position
                 + Vector3::new(
                     5.0 * (1.0 - rand::random::<f32>() * 2.0),
                     5.0 * (1.0 - rand::random::<f32>() * 2.0),
                     5.0 * (1.0 - rand::random::<f32>() * 2.0),
                 );
-            // dbg!(random_point_near_light);
-            if first_light_first_view_frustum.contains_point(random_point_near_light) {
-                // panic!();
+            let aabb = crate::scene_tree::Aabb {
+                min: random_point_near_light - scale,
+                max: random_point_near_light + scale,
+            };
+            // if camera_frustum.contains_point(random_point_near_light) {
+            if camera_frustum.aabb_intersection_test(aabb)
+                == IntersectionResult::PartiallyIntersecting
+            {
                 self.debug_nodes.push(
                     game_state
                         .scene
                         .add_node(
                             GameNodeDescBuilder::new()
                                 .transform(
-                                    transform_builder
-                                        .clone()
+                                    TransformBuilder::new()
+                                        .scale(scale)
                                         .position(random_point_near_light)
                                         .build(),
                                 )
@@ -2476,7 +2495,7 @@ impl RendererState {
                         .id(),
                 );
             }
-        }
+        } */
 
         /* for plane in &[
             first_light_first_view_frustum.left,
@@ -2595,16 +2614,22 @@ impl RendererState {
 
         game_state.scene.recompute_node_transforms();
 
-        let scene_tree = build_scene_tree(&game_state.scene, self);
+        let camera_frustum = game_state.player_controller.frustum(
+            &game_state.physics_state,
+            self.base.window_size.width as f32 / self.base.window_size.height as f32,
+        );
 
-        match scene_tree {
-            Ok(scene_tree) => {
-                self.add_debug_nodes(game_state, &scene_tree);
-            }
-            Err(err) => {
-                logger_log(&format!("{:?}", err));
-            }
-        }
+        let scene_tree = build_scene_tree(&game_state.scene, self);
+        self.add_debug_nodes(game_state, &scene_tree);
+
+        // match scene_tree {
+        //     Ok(scene_tree) => {
+        //         self.add_debug_nodes(game_state, &scene_tree);
+        //     }
+        //     Err(err) => {
+        //         logger_log(&format!("{:?}", err));
+        //     }
+        // }
 
         let scene = &mut game_state.scene;
         let limits = &mut self.base.limits;
@@ -2638,7 +2663,25 @@ impl RendererState {
             Vec<GpuWireframeMeshInstance>,
         > = HashMap::new();
 
-        for node in scene.nodes() {
+        let frustum_culled_node_list = scene_tree.get_intersecting_nodes(camera_frustum);
+        let non_cullable_node_list: Vec<_> = scene
+            .nodes()
+            .filter_map(|node| {
+                (node.mesh.is_some() && !node.mesh.as_ref().unwrap().cullable).then_some(node.id())
+            })
+            .collect();
+
+        logger_log(&format!(
+            "Total node count: {:?}, drawn node count: {:?}",
+            scene.nodes().filter(|node| node.mesh.is_some()).count(),
+            frustum_culled_node_list.len() + non_cullable_node_list.len()
+        ));
+
+        for node_id in frustum_culled_node_list
+            .iter()
+            .chain(non_cullable_node_list.iter())
+        {
+            let node = scene.get_node_unchecked(*node_id);
             let transform = scene.get_global_transform_for_node_opt(node.id());
             if let Some(GameNodeMesh {
                 mesh_indices,

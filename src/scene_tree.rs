@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use cgmath::{Vector3, Vector4};
+use cgmath::{Matrix4, Rad, Vector3, Vector4};
 
 use super::*;
 
@@ -36,6 +36,13 @@ pub struct Frustum {
 pub struct Sphere {
     pub origin: Vector3<f32>,
     pub radius: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntersectionResult {
+    FullyContained,
+    PartiallyIntersecting,
+    NotIntersecting,
 }
 
 const BASE_AABB_SIZE: f32 = 4000.0;
@@ -174,6 +181,81 @@ impl Plane {
 }
 
 impl Frustum {
+    pub fn from_camera_params(
+        transform: Matrix4<f32>,
+        aspect_ratio: f32,
+        near_plane_distance: f32,
+        far_plane_distance: f32,
+        fov_y: Rad<f32>,
+    ) -> Self {
+        let position = get_translation_from_matrix(transform);
+        // see https://learnopengl.com/Guest-Articles/2021/Scene/Frustum-Culling
+        let up = transform.y.truncate();
+        let forward = transform.z.truncate();
+        let right = forward.cross(up);
+        let half_v_side = far_plane_distance * (fov_y.0 * 0.5).tan();
+        let half_h_side = half_v_side * aspect_ratio;
+        let front_mult_far = far_plane_distance * forward;
+
+        Self {
+            left: Plane::from_normal_and_point(
+                (front_mult_far - right * half_h_side).cross(up),
+                position,
+            ),
+            right: Plane::from_normal_and_point(
+                up.cross(front_mult_far + right * half_h_side),
+                position,
+            ),
+            bottom: Plane::from_normal_and_point(
+                (front_mult_far + up * half_v_side).cross(right),
+                position,
+            ),
+            top: Plane::from_normal_and_point(
+                right.cross(front_mult_far - up * half_v_side),
+                position,
+            ),
+            near: Plane::from_normal_and_point(forward, position + near_plane_distance * forward),
+            far: Plane::from_normal_and_point(-forward, position + front_mult_far),
+        }
+    }
+
+    pub fn from_camera_params_2(
+        position: Vector3<f32>,
+        forward: Vector3<f32>,
+        right: Vector3<f32>,
+        aspect_ratio: f32,
+        near_plane_distance: f32,
+        far_plane_distance: f32,
+        fov_y: Rad<f32>,
+    ) -> Self {
+        // see https://learnopengl.com/Guest-Articles/2021/Scene/Frustum-Culling
+        let up = right.cross(forward).normalize();
+        let half_v_side = far_plane_distance * (fov_y.0 * 0.5).tan();
+        let half_h_side = half_v_side * aspect_ratio;
+        let front_mult_far = far_plane_distance * forward;
+
+        Self {
+            left: Plane::from_normal_and_point(
+                (front_mult_far - right * half_h_side).cross(up),
+                position,
+            ),
+            right: Plane::from_normal_and_point(
+                up.cross(front_mult_far + right * half_h_side),
+                position,
+            ),
+            bottom: Plane::from_normal_and_point(
+                (front_mult_far + up * half_v_side).cross(right),
+                position,
+            ),
+            top: Plane::from_normal_and_point(
+                right.cross(front_mult_far - up * half_v_side),
+                position,
+            ),
+            near: Plane::from_normal_and_point(forward, position + near_plane_distance * forward),
+            far: Plane::from_normal_and_point(-forward, position + front_mult_far),
+        }
+    }
+
     pub fn planes(&self) -> [Plane; 6] {
         [
             self.left,
@@ -189,28 +271,48 @@ impl Frustum {
     // and https://gdbooks.gitbooks.io/legacyopengl/content/Chapter8/frustum.html
     pub fn contains_point(&self, point: Vector3<f32>) -> bool {
         for plane in self.planes() {
-            // let n = Vector4::new(plane.normal.x, plane.normal.y, plane.normal.z, 0.0);
-            // let point_on_plane = Vector4::new(
-            //     -plane.normal.x * plane.d,
-            //     -plane.normal.y * plane.d,
-            //     -plane.normal.z * plane.d,
-            //     1.0,
-            // );
-            // let v = point_on_plane - Vector4::new(point.x, point.y, point.z, 1.0);
-            // dbg!(n, v, n.dot(v));
-            // if n.dot(v) <= 0.0 {
-            //     return false;
-            // }
             if plane.normal.dot(point) + plane.d < 0.0 {
                 return false;
             }
         }
         true
     }
+
+    // see https://www.flipcode.com/archives/Frustum_Culling.shtml Frustrum::ContainsAaBox
+    // check if the aabb is fully contained in the frustum
+    pub fn aabb_intersection_test(&self, aabb: Aabb) -> IntersectionResult {
+        let mut total_in = 0;
+
+        let vertices = aabb.vertices();
+
+        for plane in self.planes() {
+            let mut in_count = 0;
+
+            for vertex in vertices {
+                if plane.normal.dot(vertex) + plane.d > 0.0 {
+                    in_count += 1;
+                }
+            }
+
+            if in_count == 0 {
+                return IntersectionResult::NotIntersecting;
+            }
+
+            if in_count == 8 {
+                total_in += 1;
+            }
+        }
+
+        if total_in == 6 {
+            IntersectionResult::FullyContained
+        } else {
+            IntersectionResult::PartiallyIntersecting
+        }
+    }
 }
 
 #[profiling::function]
-pub fn build_scene_tree(scene: &Scene, renderer_state: &RendererState) -> Result<SceneTree> {
+pub fn build_scene_tree(scene: &Scene, renderer_state: &RendererState) -> SceneTree {
     let offset = BASE_AABB_SIZE * 0.02 * std::f32::consts::PI * Vector3::new(1.0, 1.0, 1.0);
     let base_aabb_max = BASE_AABB_SIZE * Vector3::new(1.0, 1.0, 1.0);
     let mut tree = SceneTree {
@@ -228,20 +330,20 @@ pub fn build_scene_tree(scene: &Scene, renderer_state: &RendererState) -> Result
         if let Some(node_bounding_sphere) =
             scene.get_node_bounding_sphere(node.id(), renderer_state)
         {
-            tree.insert(node.id(), node_bounding_sphere)?;
+            tree.insert(node.id(), node_bounding_sphere);
         }
     }
 
-    Ok(tree)
+    tree
 }
 
 impl SceneTree {
-    pub fn insert(&mut self, node_id: GameNodeId, node_bounding_sphere: Sphere) -> Result<()> {
+    pub fn insert(&mut self, node_id: GameNodeId, node_bounding_sphere: Sphere) {
         if !self.aabb.fully_contains_sphere(node_bounding_sphere) {
-            bail!("Tried to insert a node that's not fully contained by the scene tree. Consider increasing size of the base scene tree. Sphere: {:?}, Base aabb: {:?}", node_bounding_sphere, self.aabb);
+            logger_log(&format!("WARNING Tried to insert a node that's not fully contained by the scene tree. Consider increasing size of the base scene tree. Sphere: {:?}, Base aabb: {:?}", node_bounding_sphere, self.aabb));
+            // bail!("Tried to insert a node that's not fully contained by the scene tree. Consider increasing size of the base scene tree. Sphere: {:?}, Base aabb: {:?}", node_bounding_sphere, self.aabb);
         }
         self.insert_internal(node_id, node_bounding_sphere, 0);
-        Ok(())
     }
 
     #[profiling::function]
@@ -302,9 +404,45 @@ impl SceneTree {
         }
     }
 
-    /* pub fn get_intersecting_nodes(&self, scene: &Scene, frustum: ) {
+    pub fn _get_all_nodes(&self) -> Vec<GameNodeId> {
+        let mut result: Vec<GameNodeId> = Vec::new();
+        self.get_all_nodes_impl(&mut result);
+        result
+    }
 
-    } */
+    fn get_all_nodes_impl(&self, acc: &mut Vec<GameNodeId>) {
+        acc.extend(self.nodes.iter().map(|(node_id, _)| node_id));
+        if let Some(children) = self.children.as_ref() {
+            for child in children.iter() {
+                child.get_all_nodes_impl(acc);
+            }
+        }
+    }
+
+    pub fn get_intersecting_nodes(&self, frustum: Frustum) -> Vec<GameNodeId> {
+        let mut result: Vec<GameNodeId> = Vec::new();
+        self.get_intersecting_nodes_impl(frustum, &mut result);
+        result
+    }
+
+    fn get_intersecting_nodes_impl(&self, frustum: Frustum, acc: &mut Vec<GameNodeId>) {
+        use IntersectionResult::*;
+
+        match frustum.aabb_intersection_test(self.aabb) {
+            NotIntersecting => {}
+            FullyContained => {
+                self.get_all_nodes_impl(acc);
+            }
+            PartiallyIntersecting => {
+                acc.extend(self.nodes.iter().map(|(node_id, _)| node_id));
+                if let Some(children) = self.children.as_ref() {
+                    for child in children.iter() {
+                        child.get_intersecting_nodes_impl(frustum, acc);
+                    }
+                }
+            }
+        }
+    }
 
     fn insert_internal(&mut self, node_id: GameNodeId, node_bounding_sphere: Sphere, depth: u8) {
         let entry = (node_id, node_bounding_sphere);
