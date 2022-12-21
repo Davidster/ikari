@@ -5,7 +5,7 @@ use super::*;
 
 #[derive(Debug, Clone)]
 pub struct SceneTree {
-    pub aabb: Aabb,
+    base_aabb: Aabb,
     pub nodes: Vec<(GameNodeId, Sphere)>,
     pub children: Option<Box<[SceneTree; 8]>>,
 }
@@ -45,14 +45,14 @@ pub enum IntersectionResult {
     NotIntersecting,
 }
 
-const BASE_AABB_SIZE: f32 = 4000.0;
-const MAX_DEPTH: u8 = 14;
-// const MIN_CELL_SIZE: f32 = BASE_AABB_SIZE / 2_u32.pow(MAX_DEPTH) as f32;
+const ROOT_AABB_SIZE: f32 = 4000.0;
+const MAX_DEPTH: u8 = 20;
+const K: f32 = 2.0; // looseness factor, set to 1.0 to disable loosening
 
 impl Default for SceneTree {
     fn default() -> Self {
         Self {
-            aabb: Aabb {
+            base_aabb: Aabb {
                 min: Vector3::zero(),
                 max: Vector3::zero(),
             },
@@ -79,6 +79,10 @@ impl Aabb {
 
     fn size(&self) -> Vector3<f32> {
         self.max - self.min
+    }
+
+    fn origin(&self) -> Vector3<f32> {
+        self.max - self.size() / 2.0
     }
 
     pub fn vertices(&self) -> [Vector3<f32>; 8] {
@@ -138,6 +142,7 @@ impl Aabb {
         distance < sphere.radius
     }
 
+    // TODO: convert to an aabb test since that's what it is anyways.
     fn fully_contains_sphere(&self, sphere: Sphere) -> bool {
         let sphere_bb_half_size = Vector3::new(sphere.radius, sphere.radius, sphere.radius);
         let sphere_min = sphere.origin - sphere_bb_half_size;
@@ -313,12 +318,12 @@ impl Frustum {
 
 #[profiling::function]
 pub fn build_scene_tree(scene: &Scene, renderer_state: &RendererState) -> SceneTree {
-    let offset = BASE_AABB_SIZE * 0.02 * std::f32::consts::PI * Vector3::new(1.0, 1.0, 1.0);
-    let base_aabb_max = BASE_AABB_SIZE * Vector3::new(1.0, 1.0, 1.0);
+    let _offset = ROOT_AABB_SIZE * 0.02 * std::f32::consts::PI * Vector3::new(1.0, 1.0, 1.0);
+    let root_aabb_max = ROOT_AABB_SIZE * Vector3::new(1.0, 1.0, 1.0);
     let mut tree = SceneTree {
-        aabb: Aabb {
-            min: -base_aabb_max + offset,
-            max: base_aabb_max + offset,
+        base_aabb: Aabb {
+            min: -root_aabb_max, /*  + offset */
+            max: root_aabb_max,  /*  + offset */
         },
         ..Default::default()
     };
@@ -339,14 +344,13 @@ pub fn build_scene_tree(scene: &Scene, renderer_state: &RendererState) -> SceneT
 
 impl SceneTree {
     pub fn insert(&mut self, node_id: GameNodeId, node_bounding_sphere: Sphere) {
-        if !self.aabb.fully_contains_sphere(node_bounding_sphere) {
-            logger_log(&format!("WARNING Tried to insert a node that's not fully contained by the scene tree. Consider increasing size of the base scene tree. Sphere: {:?}, Base aabb: {:?}", node_bounding_sphere, self.aabb));
+        if !self.aabb().fully_contains_sphere(node_bounding_sphere) {
+            logger_log(&format!("WARNING Tried to insert a node that's not fully contained by the scene tree. Consider increasing size of the base scene tree. Sphere: {:?}, Base aabb: {:?}", node_bounding_sphere, self.base_aabb));
             // bail!("Tried to insert a node that's not fully contained by the scene tree. Consider increasing size of the base scene tree. Sphere: {:?}, Base aabb: {:?}", node_bounding_sphere, self.aabb);
         }
         self.insert_internal(node_id, node_bounding_sphere, 0);
     }
 
-    #[profiling::function]
     pub fn _get_non_empty_node_count(&self) -> u32 {
         let mut total = 0_u32;
         if !self.nodes.is_empty() {
@@ -360,7 +364,6 @@ impl SceneTree {
         total
     }
 
-    #[profiling::function]
     pub fn _get_node_count(&self) -> u32 {
         let mut total = 0_u32;
         total += 1;
@@ -372,7 +375,6 @@ impl SceneTree {
         total
     }
 
-    #[profiling::function]
     pub fn _get_game_node_count(&self) -> u32 {
         let mut total = 0_u32;
         total += self.nodes.len() as u32;
@@ -393,17 +395,17 @@ impl SceneTree {
 
     // includes all branch nodes and nodes that contain game nodes
     fn to_aabb_list_impl(&self, acc: &mut Vec<Aabb>) {
-        if !self.nodes.is_empty() {
-            acc.push(self.aabb);
+        if !self.nodes.is_empty() || self.children.as_ref().is_some() {
+            acc.push(self.aabb());
         }
         if let Some(children) = self.children.as_ref() {
-            acc.push(self.aabb);
             for child in children.iter() {
                 child.to_aabb_list_impl(acc);
             }
         }
     }
 
+    #[profiling::function]
     pub fn _get_all_nodes(&self) -> Vec<GameNodeId> {
         let mut result: Vec<GameNodeId> = Vec::new();
         self.get_all_nodes_impl(&mut result);
@@ -419,16 +421,31 @@ impl SceneTree {
         }
     }
 
+    #[profiling::function]
     pub fn get_intersecting_nodes(&self, frustum: Frustum) -> Vec<GameNodeId> {
         let mut result: Vec<GameNodeId> = Vec::new();
         self.get_intersecting_nodes_impl(frustum, &mut result);
         result
     }
 
+    // it's a loose octree, so the base_aabb shouldn't be used for intersection tests, only subdivision
+    // see Real-Time Collision Detection, section 7.3.6
+    fn aabb(&self) -> Aabb {
+        self.loosen_aabb(&self.base_aabb)
+    }
+
+    fn loosen_aabb(&self, aabb: &Aabb) -> Aabb {
+        let extension_factor = aabb.size() * ((K - 1.0) / 2.0);
+        Aabb {
+            min: aabb.min - extension_factor,
+            max: aabb.max + extension_factor,
+        }
+    }
+
     fn get_intersecting_nodes_impl(&self, frustum: Frustum, acc: &mut Vec<GameNodeId>) {
         use IntersectionResult::*;
 
-        match frustum.aabb_intersection_test(self.aabb) {
+        match frustum.aabb_intersection_test(self.aabb()) {
             NotIntersecting => {}
             FullyContained => {
                 self.get_all_nodes_impl(acc);
@@ -452,49 +469,49 @@ impl SceneTree {
             return;
         }
 
-        match self.children.as_mut() {
-            None => {
-                let subdivided = self.aabb.subdivide();
-                let fully_contained_index = subdivided.iter().enumerate().find_map(|(i, aabb)| {
-                    aabb.fully_contains_sphere(node_bounding_sphere)
-                        .then_some(i)
-                });
-                match fully_contained_index {
-                    Some(fully_contained_index) => {
-                        let mut new_children: [SceneTree; 8] = Default::default();
-                        for (i, aabb) in subdivided.iter().copied().enumerate() {
-                            new_children[i].aabb = aabb;
-                        }
-                        new_children[fully_contained_index].insert_internal(
-                            node_id,
-                            node_bounding_sphere,
-                            depth + 1,
-                        );
-                        self.children = Some(Box::new(new_children));
-                    }
-                    None => {
-                        self.nodes.push(entry);
-                    }
-                }
+        let mut fully_contained_index: Option<(usize, f32)> = None;
+        let children_base_aabbs = self.base_aabb.subdivide();
+        let mut children_aabbs: [Aabb; 8] = Default::default();
+        for (i, child_base_aabb) in children_base_aabbs.iter().enumerate() {
+            children_aabbs[i] = self.loosen_aabb(child_base_aabb);
+        }
+        for (i, aabb) in children_aabbs.iter().enumerate() {
+            if aabb.fully_contains_sphere(node_bounding_sphere) {
+                let distance2 = (aabb.origin() - node_bounding_sphere.origin).magnitude2();
+                // pick the aabb whose origin is closest to the object
+                fully_contained_index = match fully_contained_index {
+                    Some((other_i, other_dist2)) => Some(if distance2 < other_dist2 {
+                        (i, distance2)
+                    } else {
+                        (other_i, other_dist2)
+                    }),
+                    None => Some((i, distance2)),
+                };
             }
-            Some(children) => {
-                let fully_contained_index = children.iter().enumerate().find_map(|(i, tree)| {
-                    tree.aabb
-                        .fully_contains_sphere(node_bounding_sphere)
-                        .then_some(i)
-                });
-                match fully_contained_index {
-                    Some(fully_contained_index) => {
-                        children[fully_contained_index].insert_internal(
-                            node_id,
-                            node_bounding_sphere,
-                            depth + 1,
-                        );
-                    }
-                    None => {
-                        self.nodes.push(entry);
-                    }
+        }
+
+        match (self.children.as_mut(), fully_contained_index) {
+            (None, Some((fully_contained_index, _))) => {
+                let mut new_children: [SceneTree; 8] = Default::default();
+                for (i, aabb) in children_base_aabbs.iter().copied().enumerate() {
+                    new_children[i].base_aabb = aabb;
                 }
+                new_children[fully_contained_index].insert_internal(
+                    node_id,
+                    node_bounding_sphere,
+                    depth + 1,
+                );
+                self.children = Some(Box::new(new_children));
+            }
+            (Some(children), Some((fully_contained_index, _))) => {
+                children[fully_contained_index].insert_internal(
+                    node_id,
+                    node_bounding_sphere,
+                    depth + 1,
+                );
+            }
+            _ => {
+                self.nodes.push(entry);
             }
         }
     }
