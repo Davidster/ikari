@@ -1,7 +1,10 @@
 [package]
 name = "ikari"
 version = "0.1.0"
-authors = ["https://github.com/Davidster/ikari/graphs/contributors"]
+authors = [
+    "David Huculak https://github.com/Davidster",
+    "Ikari Contributors https://github.com/Davidster/ikari/graphs/contributors"
+]
 edition = "2021"
 rust-version = "1.65"
 description = "3D renderer that will be used to make a simple first person shooter"
