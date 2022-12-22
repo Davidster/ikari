@@ -105,7 +105,7 @@ You can profile ikari with [tracy](https://github.com/wolfpld/tracy) via [profil
 To do that you have to:
 - Download [tracy 0.9](https://github.com/wolfpld/tracy/releases/tag/v0.9)
 - Build ikari by adding --features="profile-with-tracy" to the cargo command
-- Run wgpubox and tracy (in any order), when the game is loading tracy will start profiling
+- Run ikari and tracy (in any order), when the game is loading tracy will start profiling
 
 If something does not work it is possible that the crate profiling has been updated and is no longer aligned with the tracy version and a more recent one must be used.
 
