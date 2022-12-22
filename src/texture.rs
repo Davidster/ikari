@@ -86,8 +86,8 @@ impl Texture {
         sampler_descriptor: &SamplerDescriptor,
     ) -> Result<Self> {
         let size = wgpu::Extent3d {
-            width: dimensions.0 as u32,
-            height: dimensions.1 as u32,
+            width: dimensions.0,
+            height: dimensions.1,
             depth_or_array_layers: 1,
         };
         let mip_level_count = if generate_mipmaps {
@@ -981,7 +981,7 @@ impl Texture {
                                 dimension: Some(wgpu::TextureViewDimension::D2),
                                 base_array_layer: i as u32,
                                 array_layer_count: NonZeroU32::new(1),
-                                base_mip_level: mip_level as u32,
+                                base_mip_level: mip_level,
                                 mip_level_count: NonZeroU32::new(1),
                                 ..Default::default()
                             }),
