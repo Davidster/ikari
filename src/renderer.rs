@@ -2372,7 +2372,7 @@ impl RendererState {
         self.debug_nodes = Vec::new();
     }
 
-    pub fn add_debug_nodes(&mut self, game_state: &mut GameState, scene_tree: &SceneTree) {
+    pub fn add_debug_nodes(&mut self, game_state: &mut GameState, scene_tree: &SceneTreeNode) {
         // if !self.draw_node_bounding_spheres && !self.draw_scene_tree_aabbs {
         //     return;
         // }
@@ -2605,6 +2605,7 @@ impl RendererState {
         }
 
         scene.recompute_node_transforms();
+        scene.recompute_global_node_transforms();
     }
 
     // send data to gpu
@@ -2613,6 +2614,7 @@ impl RendererState {
         self.clear_debug_nodes(&mut game_state.scene);
 
         game_state.scene.recompute_node_transforms();
+        game_state.scene.recompute_global_node_transforms();
 
         let camera_frustum = game_state.player_controller.frustum(
             &game_state.physics_state,

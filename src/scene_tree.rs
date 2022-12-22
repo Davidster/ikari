@@ -4,10 +4,10 @@ use cgmath::{Matrix4, Rad, Vector3, Vector4};
 use super::*;
 
 #[derive(Debug, Clone)]
-pub struct SceneTree {
+pub struct SceneTreeNode {
     base_aabb: Aabb,
     pub nodes: Vec<(GameNodeId, Sphere)>,
-    pub children: Option<Box<[SceneTree; 8]>>,
+    pub children: Option<Box<[SceneTreeNode; 8]>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -49,7 +49,7 @@ const ROOT_AABB_SIZE: f32 = 4000.0;
 const MAX_DEPTH: u8 = 20;
 const K: f32 = 2.0; // looseness factor, set to 1.0 to disable loosening
 
-impl Default for SceneTree {
+impl Default for SceneTreeNode {
     fn default() -> Self {
         Self {
             base_aabb: Aabb {
@@ -317,10 +317,10 @@ impl Frustum {
 }
 
 #[profiling::function]
-pub fn build_scene_tree(scene: &Scene, renderer_state: &RendererState) -> SceneTree {
+pub fn build_scene_tree(scene: &Scene, renderer_state: &RendererState) -> SceneTreeNode {
     let _offset = ROOT_AABB_SIZE * 0.02 * std::f32::consts::PI * Vector3::new(1.0, 1.0, 1.0);
     let root_aabb_max = ROOT_AABB_SIZE * Vector3::new(1.0, 1.0, 1.0);
-    let mut tree = SceneTree {
+    let mut tree = SceneTreeNode {
         base_aabb: Aabb {
             min: -root_aabb_max, /*  + offset */
             max: root_aabb_max,  /*  + offset */
@@ -342,7 +342,7 @@ pub fn build_scene_tree(scene: &Scene, renderer_state: &RendererState) -> SceneT
     tree
 }
 
-impl SceneTree {
+impl SceneTreeNode {
     pub fn insert(&mut self, node_id: GameNodeId, node_bounding_sphere: Sphere) {
         if !self.aabb().fully_contains_sphere(node_bounding_sphere) {
             logger_log(&format!("WARNING Tried to insert a node that's not fully contained by the scene tree. Consider increasing size of the base scene tree. Sphere: {:?}, Base aabb: {:?}", node_bounding_sphere, self.base_aabb));
@@ -492,7 +492,7 @@ impl SceneTree {
 
         match (self.children.as_mut(), fully_contained_index) {
             (None, Some((fully_contained_index, _))) => {
-                let mut new_children: [SceneTree; 8] = Default::default();
+                let mut new_children: [SceneTreeNode; 8] = Default::default();
                 for (i, aabb) in children_base_aabbs.iter().copied().enumerate() {
                     new_children[i].base_aabb = aabb;
                 }

@@ -9,6 +9,7 @@ use super::*;
 pub struct Scene {
     nodes: Vec<(Option<GameNode>, usize)>, // (node, generation number). None means the node was removed from the scene
     node_transforms: Vec<Matrix4<f32>>,
+    global_node_transforms: Vec<Matrix4<f32>>,
     pub skins: Vec<Skin>,
     pub animations: Vec<Animation>,
     // node index -> parent node index
@@ -126,6 +127,7 @@ impl Scene {
         let mut scene = Scene {
             nodes: Vec::new(),
             node_transforms: Vec::new(),
+            global_node_transforms: Vec::new(),
             skins: Vec::new(),
             animations,
             parent_index_map,
@@ -160,6 +162,7 @@ impl Scene {
         scene.rebuild_skeleton_parent_index_maps();
 
         scene.recompute_node_transforms();
+        scene.recompute_global_node_transforms();
 
         scene
     }
@@ -199,6 +202,28 @@ impl Scene {
                 self.node_transforms[node_index] = transform;
             } else {
                 self.node_transforms.push(transform);
+            }
+        }
+    }
+
+    #[profiling::function]
+    pub fn recompute_global_node_transforms(&mut self) {
+        if self.nodes.len() <= self.global_node_transforms.len() {
+            self.global_node_transforms.truncate(self.nodes.len());
+        } else {
+            // eliminate potential allocations in the subsequent push() calls
+            self.global_node_transforms
+                .reserve_exact(self.nodes.len() - self.global_node_transforms.len());
+        }
+        for (node_index, (node, _)) in self.nodes.iter().enumerate() {
+            let transform = node
+                .as_ref()
+                .map(|node| self.get_global_transform_for_node_internal(node.id()))
+                .unwrap_or_else(Matrix4::identity);
+            if node_index < self.global_node_transforms.len() {
+                self.global_node_transforms[node_index] = transform;
+            } else {
+                self.global_node_transforms.push(transform);
             }
         }
     }
@@ -436,7 +461,7 @@ impl Scene {
     }
 
     // #[profiling::function]
-    pub fn get_global_transform_for_node_opt(&self, node_id: GameNodeId) -> Matrix4<f32> {
+    fn get_global_transform_for_node_internal(&self, node_id: GameNodeId) -> Matrix4<f32> {
         let GameNodeId(node_index, _) = node_id;
         let mut node_ancestry_list: [u32; MAX_NODE_HIERARCHY_LEVELS] =
             [0; MAX_NODE_HIERARCHY_LEVELS];
@@ -451,6 +476,11 @@ impl Scene {
             acc = acc * self.node_transforms[node_index as usize];
         }
         acc
+    }
+
+    pub fn get_global_transform_for_node_opt(&self, node_id: GameNodeId) -> Matrix4<f32> {
+        let GameNodeId(node_index, _) = node_id;
+        self.global_node_transforms[node_index as usize]
     }
 
     pub fn add_node(&mut self, node: GameNodeDesc) -> &GameNode {
@@ -673,6 +703,7 @@ impl GameNodeDescBuilder {
     }
 }
 
+// TODO: cache the merged aabb, make mesh_indices no longer public, update the aabb whenever mesh_indices changes
 impl GameNodeMesh {
     pub fn from_pbr_mesh_index(pbr_mesh_index: usize) -> Self {
         Self {
