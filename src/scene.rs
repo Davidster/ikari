@@ -7,6 +7,7 @@ use super::*;
 
 #[derive(Debug, Default)]
 pub struct Scene {
+    pub scene_tree: Option<SceneTree>,
     nodes: Vec<(Option<GameNode>, usize)>, // (node, generation number). None means the node was removed from the scene
     node_transforms: Vec<Matrix4<f32>>,
     global_node_transforms: Vec<Matrix4<f32>>,
@@ -125,6 +126,7 @@ impl Scene {
             })
             .collect();
         let mut scene = Scene {
+            scene_tree: None,
             nodes: Vec::new(),
             node_transforms: Vec::new(),
             global_node_transforms: Vec::new(),

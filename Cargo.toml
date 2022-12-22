@@ -27,6 +27,7 @@ half = "2"
 pollster = "0.2"
 twox-hash = "1.6"
 lazy_static = "1.4.0"
+smallvec = { version = "1.10.0", features = ["union", "const_generics"] }
 
 # log
 anyhow = { version = "1", features = ["backtrace"] }
@@ -61,5 +62,5 @@ oddio = "0.6"
 [profile.dev.package."*"]
 opt-level = 3
 
-# [profile.release]
-# codegen-units = 1
+[profile.release]
+debug = true

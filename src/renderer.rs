@@ -2372,10 +2372,10 @@ impl RendererState {
         self.debug_nodes = Vec::new();
     }
 
-    pub fn add_debug_nodes(&mut self, game_state: &mut GameState, scene_tree: &SceneTreeNode) {
-        // if !self.draw_node_bounding_spheres && !self.draw_scene_tree_aabbs {
-        //     return;
-        // }
+    pub fn add_debug_nodes(&mut self, game_state: &mut GameState, scene_tree: &SceneTree) {
+        if !self.draw_node_bounding_spheres && !self.draw_scene_tree_aabbs {
+            return;
+        }
 
         let camera_position = game_state
             .scene
@@ -2621,7 +2621,8 @@ impl RendererState {
             self.base.window_size.width as f32 / self.base.window_size.height as f32,
         );
 
-        let scene_tree = build_scene_tree(&game_state.scene, self);
+        let prev_scene_tree = game_state.scene.scene_tree.take();
+        let scene_tree = build_scene_tree(&game_state.scene, self, prev_scene_tree);
         self.add_debug_nodes(game_state, &scene_tree);
 
         // match scene_tree {
@@ -2674,10 +2675,13 @@ impl RendererState {
             .collect();
 
         logger_log(&format!(
-            "Total node count: {:?}, drawn node count: {:?}",
+            "Total node count: {:?}, drawn node count: {:?}, non_empty_node_count: {:?}",
             scene.nodes().filter(|node| node.mesh.is_some()).count(),
-            frustum_culled_node_list.len() + non_cullable_node_list.len()
+            frustum_culled_node_list.len() + non_cullable_node_list.len(),
+            scene_tree.get_non_empty_node_count(scene_tree.root()),
         ));
+
+        scene.scene_tree = Some(scene_tree);
 
         for node_id in frustum_culled_node_list
             .iter()

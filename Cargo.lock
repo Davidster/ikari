@@ -1033,6 +1033,7 @@ dependencies = [
  "profiling",
  "rand",
  "rapier3d",
+ "smallvec",
  "twox-hash",
  "wavefront_obj",
  "wgpu",
