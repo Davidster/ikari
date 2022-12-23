@@ -184,7 +184,8 @@ impl PlayerController {
 
             self.view_direction.horizontal += Rad(-d_x as f32 * mouse_sensitivity);
             self.view_direction.vertical = Rad((self.view_direction.vertical.0
-                + Rad(-d_y as f32 * mouse_sensitivity).0).clamp(Rad::from(Deg(-90.0)).0, Rad::from(Deg(90.0)).0));
+                + Rad(-d_y as f32 * mouse_sensitivity).0)
+                .clamp(Rad::from(Deg(-90.0)).0, Rad::from(Deg(90.0)).0));
         }
         self.unprocessed_delta = None;
 

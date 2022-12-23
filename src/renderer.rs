@@ -2208,7 +2208,7 @@ impl RendererState {
     pub fn increment_bloom_threshold(&mut self, increase: bool) {
         let delta = 0.05;
         let change = if increase { delta } else { -delta };
-        self.bloom_threshold = (self.bloom_threshold + change).clamp(0.0,20.0);
+        self.bloom_threshold = (self.bloom_threshold + change).clamp(0.0, 20.0);
         logger_log(&format!("Bloom Threshold: {:?}", self.bloom_threshold));
     }
 
@@ -2398,8 +2398,10 @@ impl RendererState {
             HashMap::new();
         let mut unlit_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuUnlitMeshInstance>> =
             HashMap::new();
-        let mut wireframe_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuWireframeMeshInstance>> =
-            HashMap::new();
+        let mut wireframe_mesh_index_to_gpu_instances: HashMap<
+            usize,
+            Vec<GpuWireframeMeshInstance>,
+        > = HashMap::new();
         for node in scene.nodes() {
             let transform = scene.get_global_transform_for_node_opt(node.id());
             if let Some(GameNodeMesh {
