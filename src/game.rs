@@ -523,7 +523,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         ball_node_ids.push(node.id());
     }
 
-    let physics_ball_count = 100;
+    let physics_ball_count = 3000;
     let physics_balls: Vec<_> = (0..physics_ball_count)
         .into_iter()
         .map(|_| {
@@ -1130,7 +1130,7 @@ pub fn update_game_state(game_state: &mut GameState, renderer_state: &RendererSt
 
     // remove physics balls over time
     game_state.ball_spawner_acc += frame_time_seconds;
-    let rate = 0.1;
+    let rate = 0.01;
     let prev_ball_count = game_state.physics_balls.len();
     while game_state.ball_spawner_acc > rate {
         // let new_ball = BallComponent::rand();
@@ -1151,11 +1151,11 @@ pub fn update_game_state(game_state: &mut GameState, renderer_state: &RendererSt
         // if let Some(physics_ball) = game_state.physics_balls.pop() {
         //     physics_ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
         // }
-        // game_state.physics_balls.push(PhysicsBall::new_random(
-        //     &mut game_state.scene,
-        //     &mut game_state.physics_state,
-        //     GameNodeMesh::from_pbr_mesh_index(game_state.ball_pbr_mesh_index),
-        // ));
+        game_state.physics_balls.push(PhysicsBall::new_random(
+            &mut game_state.scene,
+            &mut game_state.physics_state,
+            GameNodeMesh::from_pbr_mesh_index(game_state.ball_pbr_mesh_index),
+        ));
         game_state.ball_spawner_acc -= rate;
     }
     let new_ball_count = game_state.physics_balls.len();

@@ -5,7 +5,7 @@ use smallvec::{smallvec, SmallVec};
 use super::*;
 
 const ROOT_AABB_SIZE: f32 = 4000.0;
-const MAX_DEPTH: u8 = 20;
+const MAX_DEPTH: u8 = 5;
 const K: f32 = 2.0; // looseness factor, set to 1.0 to disable loosening
 const K_FACTOR: f32 = ((K - 1.0) / 2.0);
 
@@ -151,11 +151,8 @@ impl Aabb {
 
     // TODO: convert to an aabb test since that's what it is anyways.
     fn fully_contains_sphere(&self, sphere: Sphere) -> bool {
-        let sphere_bb_half_size = Vector3::new(sphere.radius, sphere.radius, sphere.radius);
-        let sphere_min = sphere.origin - sphere_bb_half_size;
-        let sphere_max = sphere.origin + sphere_bb_half_size;
-
-        self.contains_point(sphere_min) && self.contains_point(sphere_max)
+        let sphere_aabb = sphere.aabb();
+        self.contains_point(sphere_aabb.min) && self.contains_point(sphere_aabb.max)
     }
 
     pub fn subdivide(&self) -> [Self; 8] {
@@ -207,6 +204,16 @@ impl Plane {
         Self {
             normal: normal.normalize(),
             d: -normal.normalize().dot(point),
+        }
+    }
+}
+
+impl Sphere {
+    pub fn aabb(&self) -> Aabb {
+        let sphere_bb_half_size = Vector3::new(self.radius, self.radius, self.radius);
+        Aabb {
+            min: self.origin - sphere_bb_half_size,
+            max: self.origin + sphere_bb_half_size,
         }
     }
 }
@@ -355,7 +362,7 @@ pub fn build_scene_tree(
             continue;
         }
         if let Some(node_bounding_sphere) =
-            scene.get_node_bounding_sphere(node.id(), renderer_state)
+            scene.get_node_bounding_sphere_opt(node.id(), renderer_state)
         {
             scene_tree.insert(node.id(), node_bounding_sphere);
         }
@@ -369,10 +376,10 @@ impl SceneTree {
         let mut tree = old_scene_tree.unwrap_or(SceneTree { node_list: vec![] });
         tree.node_list.clear();
 
-        logger_log(&format!(
-            "node_list capacity: {:?}",
-            tree.node_list.capacity(),
-        ));
+        // logger_log(&format!(
+        //     "node_list capacity: {:?}",
+        //     tree.node_list.capacity(),
+        // ));
 
         let _offset = ROOT_AABB_SIZE * 0.02 * std::f32::consts::PI * Vector3::new(1.0, 1.0, 1.0);
         let root_aabb_max = ROOT_AABB_SIZE * Vector3::new(1.0, 1.0, 1.0);
@@ -499,7 +506,12 @@ impl SceneTree {
                 self.get_all_nodes_impl(node, acc);
             }
             PartiallyIntersecting => {
-                acc.extend(node.game_nodes.iter().map(|(node_id, _)| node_id));
+                for (node_id, bounding_shere) in &node.game_nodes {
+                    if frustum.aabb_intersection_test(bounding_shere.aabb()) != NotIntersecting {
+                        acc.push(*node_id);
+                    }
+                }
+                // acc.extend(node.game_nodes.iter().map(|(node_id, _)| node_id));
                 if let Some(first_child_index) = node.children.as_ref() {
                     for child in self.iter_children(*first_child_index as usize) {
                         self.get_intersecting_nodes_impl(child, frustum, acc);

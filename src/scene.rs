@@ -337,68 +337,27 @@ impl Scene {
         self.get_node(node_id)
             .and_then(|node| node.mesh.as_ref())
             .map(|mesh| {
-                let global_transform = self.get_global_transform_for_node_opt(node_id);
-                let global_node_scale = Vector3::new(
-                    Vector3::new(
-                        global_transform.x.x,
-                        global_transform.x.y,
-                        global_transform.x.z,
-                    )
-                    .magnitude(),
-                    Vector3::new(
-                        global_transform.y.x,
-                        global_transform.y.y,
-                        global_transform.y.z,
-                    )
-                    .magnitude(),
-                    Vector3::new(
-                        global_transform.z.x,
-                        global_transform.z.y,
-                        global_transform.z.z,
-                    )
-                    .magnitude(),
-                );
-                let largest_axis_scale = global_node_scale
-                    .x
-                    .max(global_node_scale.y)
-                    .max(global_node_scale.z);
+                build_node_bounding_sphere(
+                    mesh,
+                    &self.get_global_transform_for_node(node_id).matrix(),
+                    renderer_state,
+                )
+            })
+    }
 
-                let mut mesh_aabbs = mesh
-                    .mesh_indices
-                    .iter()
-                    .copied()
-                    .map(|mesh_index| match mesh.mesh_type {
-                        GameNodeMeshType::Pbr { .. } => {
-                            renderer_state.buffers.binded_pbr_meshes[mesh_index]
-                                .geometry_buffers
-                                .bounding_box
-                        }
-                        GameNodeMeshType::Unlit { .. } => {
-                            renderer_state.buffers.binded_unlit_meshes[mesh_index].bounding_box
-                        }
-                    });
-
-                let mut merged_aabb = mesh_aabbs.next().unwrap();
-                for aabb in mesh_aabbs {
-                    for i in 0..3 {
-                        merged_aabb.min[i] = aabb.min.x.min(merged_aabb.min[i]);
-                        merged_aabb.max[i] = aabb.max.x.max(merged_aabb.max[i]);
-                    }
-                }
-
-                let transform_point = |point: Vector3<f32>| {
-                    let transformed =
-                        global_transform * Vector4::new(point.x, point.y, point.z, 1.0);
-                    Vector3::new(transformed.x, transformed.y, transformed.z)
-                };
-
-                // let origin = global_node_position + (aabb.max + aabb.min) / 2.0;
-                let origin = transform_point((merged_aabb.max + merged_aabb.min) / 2.0);
-
-                let half_length = (merged_aabb.max - merged_aabb.min) / 2.0;
-                let radius = largest_axis_scale * half_length.magnitude();
-
-                Sphere { origin, radius }
+    pub fn get_node_bounding_sphere_opt(
+        &self,
+        node_id: GameNodeId,
+        renderer_state: &RendererState,
+    ) -> Option<Sphere> {
+        self.get_node(node_id)
+            .and_then(|node| node.mesh.as_ref())
+            .map(|mesh| {
+                build_node_bounding_sphere(
+                    mesh,
+                    &self.get_global_transform_for_node_opt(node_id),
+                    renderer_state,
+                )
             })
     }
 
@@ -612,6 +571,73 @@ impl Scene {
     pub fn nodes_mut(&mut self) -> impl Iterator<Item = &mut GameNode> {
         self.nodes.iter_mut().flat_map(|(node, _)| node)
     }
+}
+
+fn build_node_bounding_sphere(
+    mesh: &GameNodeMesh,
+    global_transform: &Matrix4<f32>,
+    renderer_state: &RendererState,
+) -> Sphere {
+    let global_node_scale = Vector3::new(
+        Vector3::new(
+            global_transform.x.x,
+            global_transform.x.y,
+            global_transform.x.z,
+        )
+        .magnitude(),
+        Vector3::new(
+            global_transform.y.x,
+            global_transform.y.y,
+            global_transform.y.z,
+        )
+        .magnitude(),
+        Vector3::new(
+            global_transform.z.x,
+            global_transform.z.y,
+            global_transform.z.z,
+        )
+        .magnitude(),
+    );
+    let largest_axis_scale = global_node_scale
+        .x
+        .max(global_node_scale.y)
+        .max(global_node_scale.z);
+
+    let mut mesh_aabbs = mesh
+        .mesh_indices
+        .iter()
+        .copied()
+        .map(|mesh_index| match mesh.mesh_type {
+            GameNodeMeshType::Pbr { .. } => {
+                renderer_state.buffers.binded_pbr_meshes[mesh_index]
+                    .geometry_buffers
+                    .bounding_box
+            }
+            GameNodeMeshType::Unlit { .. } => {
+                renderer_state.buffers.binded_unlit_meshes[mesh_index].bounding_box
+            }
+        });
+
+    let mut merged_aabb = mesh_aabbs.next().unwrap();
+    for aabb in mesh_aabbs {
+        for i in 0..3 {
+            merged_aabb.min[i] = aabb.min.x.min(merged_aabb.min[i]);
+            merged_aabb.max[i] = aabb.max.x.max(merged_aabb.max[i]);
+        }
+    }
+
+    let transform_point = |point: Vector3<f32>| {
+        let transformed = global_transform * Vector4::new(point.x, point.y, point.z, 1.0);
+        Vector3::new(transformed.x, transformed.y, transformed.z)
+    };
+
+    // let origin = global_node_position + (aabb.max + aabb.min) / 2.0;
+    let origin = transform_point((merged_aabb.max + merged_aabb.min) / 2.0);
+
+    let half_length = (merged_aabb.max - merged_aabb.min) / 2.0;
+    let radius = largest_axis_scale * half_length.magnitude();
+
+    Sphere { origin, radius }
 }
 
 impl GameNode {

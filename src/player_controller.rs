@@ -244,7 +244,7 @@ impl PlayerController {
             }
         };
         if self.is_up_pressed && can_jump() {
-            rigid_body.apply_impulse(vector![0.0, 3.0, 0.0], true);
+            rigid_body.apply_impulse(vector![0.0, 0.5 * self.speed, 0.0], true);
             self.last_jump_time = Some(Instant::now());
         }
     }
