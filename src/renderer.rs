@@ -262,7 +262,7 @@ pub struct BaseRendererState {
 }
 
 impl BaseRendererState {
-    pub async fn new(window: &winit::window::Window) -> Self {
+    pub async fn new(window: &winit::window::Window, auto_vsync: bool) -> Self {
         let backends = if cfg!(target_os = "linux") {
             wgpu::Backends::from(wgpu::Backend::Vulkan)
         } else {
@@ -300,13 +300,18 @@ impl BaseRendererState {
             .get(0)
             .expect("Window surface is incompatible with the graphics adapter");
 
+        let present_mode = if auto_vsync {
+            wgpu::PresentMode::AutoVsync
+        } else {
+            wgpu::PresentMode::AutoNoVsync
+        };
+
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: swapchain_format,
             width: window_size.width,
             height: window_size.height,
-            // present_mode: wgpu::PresentMode::Fifo,
-            present_mode: wgpu::PresentMode::Immediate,
+            present_mode,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
         };
 

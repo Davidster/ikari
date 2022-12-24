@@ -64,7 +64,7 @@ async fn start() {
         .build(&event_loop)
         .expect("Failed to create window");
 
-    let base_render_state = BaseRendererState::new(&window).await;
+    let base_render_state = BaseRendererState::new(&window, true).await;
 
     let run_result = async {
         let game_scene = Scene::default();
