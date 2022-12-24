@@ -587,7 +587,6 @@ pub fn get_buffer_slice_from_accessor(
         .collect()
 }
 
-// TODO: this tuple is getting out of hand lol. return a GeometryBuffers or something
 pub fn build_geometry_buffers(
     device: &wgpu::Device,
     primitive_group: &gltf::mesh::Primitive,
