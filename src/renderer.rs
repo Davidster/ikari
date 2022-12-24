@@ -80,7 +80,7 @@ fn make_point_light_uniform_buffer(game_state: &GameState) -> Vec<PointLightUnif
         .collect::<Vec<_>>();
     light_uniforms.append(&mut active_lights);
 
-    let mut inactive_lights = (0..(MAX_LIGHT_COUNT as usize - active_light_count))
+    let mut inactive_lights = (0..(MAX_LIGHT_COUNT - active_light_count))
         .map(|_| PointLightUniform::default())
         .collect::<Vec<_>>();
     light_uniforms.append(&mut inactive_lights);
@@ -139,7 +139,7 @@ fn make_directional_light_uniform_buffer(
         .collect::<Vec<_>>();
     light_uniforms.append(&mut active_lights);
 
-    let mut inactive_lights = (0..(MAX_LIGHT_COUNT as usize - active_light_count))
+    let mut inactive_lights = (0..(MAX_LIGHT_COUNT - active_light_count))
         .map(|_| DirectionalLightUniform::default())
         .collect::<Vec<_>>();
     light_uniforms.append(&mut inactive_lights);
@@ -1813,7 +1813,7 @@ impl RendererState {
         let wireframe_instances_buffer = GpuBuffer::empty(
             device,
             1,
-            std::mem::size_of::<GpuUnlitMeshInstance>(),
+            std::mem::size_of::<GpuWireframeMeshInstance>(),
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
@@ -2188,7 +2188,7 @@ impl RendererState {
     pub fn increment_render_scale(&mut self, increase: bool) {
         let delta = 0.1;
         let change = if increase { delta } else { -delta };
-        self.render_scale = (self.render_scale + change).max(0.1).min(4.0);
+        self.render_scale = (self.render_scale + change).clamp(0.1, 4.0);
         logger_log(&format!(
             "Render scale: {:?} ({:?}x{:?})",
             self.render_scale,
@@ -2201,14 +2201,14 @@ impl RendererState {
     pub fn increment_exposure(&mut self, increase: bool) {
         let delta = 0.05;
         let change = if increase { delta } else { -delta };
-        self.tone_mapping_exposure = (self.tone_mapping_exposure + change).max(0.0).min(20.0);
+        self.tone_mapping_exposure = (self.tone_mapping_exposure + change).clamp(0.0, 20.0);
         logger_log(&format!("Exposure: {:?}", self.tone_mapping_exposure));
     }
 
     pub fn increment_bloom_threshold(&mut self, increase: bool) {
         let delta = 0.05;
         let change = if increase { delta } else { -delta };
-        self.bloom_threshold = (self.bloom_threshold + change).max(0.0).min(20.0);
+        self.bloom_threshold = (self.bloom_threshold + change).clamp(0.0, 20.0);
         logger_log(&format!("Bloom Threshold: {:?}", self.bloom_threshold));
     }
 
@@ -2398,8 +2398,10 @@ impl RendererState {
             HashMap::new();
         let mut unlit_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuUnlitMeshInstance>> =
             HashMap::new();
-        let mut wireframe_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuUnlitMeshInstance>> =
-            HashMap::new();
+        let mut wireframe_mesh_index_to_gpu_instances: HashMap<
+            usize,
+            Vec<GpuWireframeMeshInstance>,
+        > = HashMap::new();
         for node in scene.nodes() {
             let transform = scene.get_global_transform_for_node_opt(node.id());
             if let Some(GameNodeMesh {
@@ -2630,7 +2632,7 @@ impl RendererState {
 
         let mut max_wireframe_instances = 0;
         self.all_wireframe_instances = {
-            let instance_size_bytes = std::mem::size_of::<GpuUnlitMeshInstance>();
+            let instance_size_bytes = std::mem::size_of::<GpuWireframeMeshInstance>();
             let mut buffer: Vec<u8> = Vec::new();
             let mut instances: Vec<AllInstancesSlice> = Vec::new();
 
@@ -3037,7 +3039,7 @@ impl RendererState {
             for wireframe_instance_slice in &self.all_wireframe_instances.instances {
                 let binded_wireframe_mesh_index = wireframe_instance_slice.mesh_index;
                 let instances_buffer_start_index = wireframe_instance_slice.start_index as u32;
-                let instance_size_bytes = std::mem::size_of::<GpuUnlitMeshInstance>();
+                let instance_size_bytes = std::mem::size_of::<GpuWireframeMeshInstance>();
                 let instance_count = (wireframe_instance_slice.end_index
                     - wireframe_instance_slice.start_index)
                     / instance_size_bytes;

@@ -231,7 +231,7 @@ fn resample_linear(samples: &Vec<Vec<f32>>, from_hz: u32, to_hz: u32) -> Vec<Vec
             } else {
                 let right_sample = &samples[right_index];
                 let t = old_sample_number % 1.0;
-                (0..(channels as usize))
+                (0..channels)
                     .map(|channel| (1.0 - t) * left_sample[channel] + t * right_sample[channel])
                     .collect::<Vec<_>>()
             }

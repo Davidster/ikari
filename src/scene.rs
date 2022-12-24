@@ -171,8 +171,8 @@ impl Scene {
                 .iter()
                 .filter_map(|GameNodeId(bone_node_index, _)| {
                     self.parent_index_map
-                        .get(&(*bone_node_index as u32))
-                        .map(|parent_index| (*bone_node_index as u32, *parent_index))
+                        .get(bone_node_index)
+                        .map(|parent_index| (*bone_node_index, *parent_index))
                 })
                 .collect();
             self.skeleton_parent_index_maps

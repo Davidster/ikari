@@ -145,12 +145,9 @@ pub fn build_scene(
 
         let (
             vertices,
-            vertex_buffer,
-            index_buffer,
-            index_buffer_format,
+            geometry_buffers,
             wireframe_index_buffer,
             wireframe_index_buffer_format,
-            bounding_box,
         ) = build_geometry_buffers(&base_renderer_state.device, &primitive_group, buffers)?;
         let initial_instances: Vec<_> = scene_nodes
             .iter()
@@ -175,12 +172,7 @@ pub fn build_scene(
         }
 
         binded_pbr_meshes.push(BindedPbrMesh {
-            geometry_buffers: GeometryBuffers {
-                vertex_buffer,
-                index_buffer,
-                index_buffer_format,
-                bounding_box,
-            },
+            geometry_buffers,
             dynamic_pbr_params,
             textures_bind_group,
             primitive_mode,
@@ -595,19 +587,15 @@ pub fn get_buffer_slice_from_accessor(
         .collect()
 }
 
-// TODO: this tuple is getting out of hand lol. return a GeometryBuffers or something
 pub fn build_geometry_buffers(
     device: &wgpu::Device,
     primitive_group: &gltf::mesh::Primitive,
     buffers: &[gltf::buffer::Data],
 ) -> Result<(
     Vec<Vertex>,
-    GpuBuffer,
-    GpuBuffer,
-    wgpu::IndexFormat,
+    GeometryBuffers,
     GpuBuffer,
     wgpu::IndexFormat,
-    (Vector3<f32>, Vector3<f32>),
 )> {
     let vertex_positions: Vec<Vector3<f32>> = {
         let (_, accessor) = primitive_group
@@ -1077,12 +1065,14 @@ pub fn build_geometry_buffers(
 
     Ok((
         vertices_with_all_data,
-        vertex_buffer,
-        index_buffer,
-        index_buffer_format,
+        GeometryBuffers {
+            vertex_buffer,
+            index_buffer,
+            index_buffer_format,
+            bounding_box,
+        },
         wireframe_index_buffer,
         wireframe_index_buffer_format,
-        bounding_box,
     ))
 }
 

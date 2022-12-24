@@ -87,8 +87,7 @@ impl Revolver {
         self.sway += Rad(
             (player_view_direction.horizontal - last_camera_horizontal_rotation)
                 .0
-                .min(max_sway.0)
-                .max(-max_sway.0),
+                .clamp(-max_sway.0, max_sway.0),
         );
         self.sway = Rad(lerp(self.sway.0, 0.0, WEAPON_SWAY_RESET_LERP_FACTOR));
 

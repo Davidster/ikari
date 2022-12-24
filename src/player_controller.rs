@@ -114,9 +114,7 @@ impl PlayerController {
                 };
                 let scroll_direction = if scroll_amount > 0.0 { 1.0 } else { -1.0 };
                 let scroll_speed = 1.0;
-                self.speed = (self.speed - (scroll_direction * scroll_speed))
-                    .max(0.5)
-                    .min(300.0);
+                self.speed = (self.speed - (scroll_direction * scroll_speed)).clamp(0.5, 300.0);
                 logger_log(&format!("Speed: {:?}", self.speed));
             }
             _ => {}
@@ -187,8 +185,7 @@ impl PlayerController {
             self.view_direction.horizontal += Rad(-d_x as f32 * mouse_sensitivity);
             self.view_direction.vertical = Rad((self.view_direction.vertical.0
                 + Rad(-d_y as f32 * mouse_sensitivity).0)
-                .min(Rad::from(Deg(90.0)).0)
-                .max(Rad::from(Deg(-90.0)).0));
+                .clamp(Rad::from(Deg(-90.0)).0, Rad::from(Deg(90.0)).0));
         }
         self.unprocessed_delta = None;
 

@@ -29,6 +29,7 @@ use audio::*;
 use ball::*;
 use buffer::*;
 use camera::*;
+use cgmath::prelude::*;
 use character::*;
 use default_textures::*;
 use game::*;
@@ -50,42 +51,37 @@ use texture::*;
 use time_tracker::*;
 use transform::*;
 
-use cgmath::prelude::*;
-
 async fn start() {
     let event_loop = winit::event_loop::EventLoop::new();
-    let window = {
-        let window = winit::window::WindowBuilder::new()
-            // .with_inner_size(winit::dpi::LogicalSize::new(1000.0f32, 1000.0f32))
-            // .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
-            .with_inner_size(winit::dpi::PhysicalSize::new(1920.0, 1080.0))
-            .with_title("David's window name")
-            // .with_visible(false)
-            .build(&event_loop)
-            .expect("Failed to create window");
 
-        Some(window)
-    };
-    if let Some(window) = window {
-        let base_render_state = BaseRendererState::new(&window).await;
+    let title = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+    let window = winit::window::WindowBuilder::new()
+        // .with_inner_size(winit::dpi::LogicalSize::new(1000.0f32, 1000.0f32))
+        // .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
+        .with_inner_size(winit::dpi::PhysicalSize::new(1920.0, 1080.0))
+        .with_title(title)
+        // .with_visible(false)
+        .build(&event_loop)
+        .expect("Failed to create window");
 
-        let run_result = async {
-            let game_scene = Scene::default();
-            let render_buffers = RenderBuffers::default();
-            let mut renderer_state = RendererState::new(render_buffers, base_render_state).await?;
-            let game_state = init_game_state(game_scene, &mut renderer_state)?;
-            gameloop::run(window, event_loop, game_state, renderer_state); // this will block while the game is running
-            anyhow::Ok(())
-        }
-        .await;
+    let base_render_state = BaseRendererState::new(&window).await;
 
-        if let Err(err) = run_result {
-            eprintln!(
-                "Error setting up game / render state: {}\n{}",
-                err,
-                err.backtrace()
-            )
-        }
+    let run_result = async {
+        let game_scene = Scene::default();
+        let render_buffers = RenderBuffers::default();
+        let mut renderer_state = RendererState::new(render_buffers, base_render_state).await?;
+        let game_state = init_game_state(game_scene, &mut renderer_state)?;
+        gameloop::run(window, event_loop, game_state, renderer_state); // this will block while the game is running
+        anyhow::Ok(())
+    }
+    .await;
+
+    if let Err(err) = run_result {
+        eprintln!(
+            "Error setting up game / render state: {}\n{}",
+            err,
+            err.backtrace()
+        )
     }
 }
 
