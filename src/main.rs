@@ -64,7 +64,14 @@ async fn start() {
         .build(&event_loop)
         .expect("Failed to create window");
 
-    let base_render_state = BaseRendererState::new(&window, true).await;
+    let base_render_state = {
+        let backends = if cfg!(target_os = "linux") {
+            wgpu::Backends::from(wgpu::Backend::Vulkan)
+        } else {
+            wgpu::Backends::all()
+        };
+        BaseRendererState::new(&window, backends, wgpu::PresentMode::AutoVsync).await
+    };
 
     let run_result = async {
         let game_scene = Scene::default();
