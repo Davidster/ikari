@@ -59,7 +59,7 @@ async fn start() {
             None => (1920, 1080), // Most widespread resolution in 2022.
             Some(handle) => (handle.size().width, handle.size().height),
         };
-        let inner_size = winit::dpi::LogicalSize::new(width /2, height /2);
+        let inner_size = winit::dpi::PhysicalSize::new(width * 3 / 4, height * 3 / 4);
         let title = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
         winit::window::WindowBuilder::new()
             //.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
