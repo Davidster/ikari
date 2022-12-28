@@ -6,7 +6,7 @@ use std::num::{NonZeroU32, NonZeroU64};
 use super::*;
 
 use anyhow::Result;
-use cgmath::{Deg, Matrix, Matrix4, One, Vector3};
+use cgmath::{Deg, Matrix4, One, Vector3};
 use image::Pixel;
 use wgpu::util::DeviceExt;
 
@@ -2634,6 +2634,31 @@ impl RendererState {
         //     }
         // }
 
+        let now_1 = std::time::Instant::now();
+        let mut frustum_culled_node_list_2: Vec<GameNodeId> = Vec::new();
+        for node in game_state.scene.nodes() {
+            if node.mesh.is_none() || !node.mesh.as_ref().unwrap().cullable {
+                continue;
+            }
+            if let Some(node_bounding_sphere) = game_state
+                .scene
+                .get_node_bounding_sphere_opt(node.id(), self)
+            {
+                match camera_frustum.aabb_intersection_test(node_bounding_sphere.aabb()) {
+                    IntersectionResult::FullyContained
+                    | IntersectionResult::PartiallyIntersecting => {
+                        frustum_culled_node_list_2.push(node.id());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        logger_log(&format!(
+            "brute culled {:?} objects in {:?}us",
+            frustum_culled_node_list_2.len(),
+            now_1.elapsed().as_micros()
+        ));
+
         let scene = &mut game_state.scene;
         let limits = &mut self.base.limits;
         let queue = &mut self.base.queue;
@@ -2666,7 +2691,14 @@ impl RendererState {
             Vec<GpuWireframeMeshInstance>,
         > = HashMap::new();
 
+        let now = std::time::Instant::now();
         let frustum_culled_node_list = scene_tree.get_intersecting_nodes(camera_frustum);
+        logger_log(&format!(
+            "tree culled {:?} objects in {:?}us",
+            frustum_culled_node_list.len(),
+            now.elapsed().as_micros()
+        ));
+
         let non_cullable_node_list: Vec<_> = scene
             .nodes()
             .filter_map(|node| {

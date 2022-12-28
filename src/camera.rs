@@ -1,5 +1,5 @@
 use super::*;
-use cgmath::{Deg, Euler, Matrix, Matrix4, Quaternion, Rad, Vector3, Vector4};
+use cgmath::{Deg, Euler, Matrix4, Quaternion, Rad, Vector3};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Camera {

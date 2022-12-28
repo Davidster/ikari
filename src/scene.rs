@@ -500,8 +500,8 @@ impl Scene {
     }
 
     pub fn get_node_unchecked(&self, node_id: GameNodeId) -> &GameNode {
-        let GameNodeId(node_index, node_gen) = node_id;
-        let (actual_node, actual_node_gen) = &self.nodes[node_index as usize];
+        let GameNodeId(node_index, _) = node_id;
+        let (actual_node, _) = &self.nodes[node_index as usize];
         actual_node.as_ref().unwrap()
     }
 
@@ -560,7 +560,7 @@ impl Scene {
         }
     }
 
-    pub fn node_count(&self) -> usize {
+    pub fn _node_count(&self) -> usize {
         self.nodes.iter().filter(|(node, _)| node.is_some()).count()
     }
 

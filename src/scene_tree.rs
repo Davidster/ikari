@@ -1,5 +1,4 @@
-use anyhow::{bail, Result};
-use cgmath::{Matrix4, Rad, Vector3, Vector4};
+use cgmath::{Matrix4, Rad, Vector3};
 use smallvec::{smallvec, SmallVec};
 
 use super::*;
@@ -7,7 +6,7 @@ use super::*;
 const ROOT_AABB_SIZE: f32 = 4000.0;
 const MAX_DEPTH: u8 = 5;
 const K: f32 = 2.0; // looseness factor, set to 1.0 to disable loosening
-const K_FACTOR: f32 = ((K - 1.0) / 2.0);
+const K_FACTOR: f32 = (K - 1.0) / 2.0;
 
 #[derive(Debug, Clone)]
 pub struct SceneTree {
@@ -117,12 +116,7 @@ impl Aabb {
         let mut q: Vector3<f32> = Vector3::zero();
         for i in 0..3 {
             let mut v = p[i];
-            if v < self.min[i] {
-                v = self.min[i];
-            }
-            if v > self.max[i] {
-                v = self.max[i];
-            }
+            v = v.clamp(self.min[i], self.max[i]);
             q[i] = v;
         }
         q
@@ -219,6 +213,7 @@ impl Sphere {
 }
 
 impl Frustum {
+    // TODO: remove this one in favor of _2 variant.
     pub fn from_camera_params(
         transform: Matrix4<f32>,
         aspect_ratio: f32,
@@ -307,7 +302,7 @@ impl Frustum {
 
     // see https://gdbooks.gitbooks.io/legacyopengl/content/Chapter8/halfspace.html
     // and https://gdbooks.gitbooks.io/legacyopengl/content/Chapter8/frustum.html
-    pub fn contains_point(&self, point: Vector3<f32>) -> bool {
+    pub fn _contains_point(&self, point: Vector3<f32>) -> bool {
         for plane in self.planes() {
             if plane.normal.dot(point) + plane.d < 0.0 {
                 return false;

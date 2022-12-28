@@ -821,7 +821,7 @@ pub fn process_device_input(game_state: &mut GameState, event: &winit::event::De
 pub fn increment_render_scale(renderer_state: &mut RendererState, increase: bool) {
     let delta = 0.1;
     let change = if increase { delta } else { -delta };
-    renderer_state.render_scale = (renderer_state.render_scale + change).max(0.1).min(4.0);
+    renderer_state.render_scale = (renderer_state.render_scale + change).clamp(0.1, 4.0);
     logger_log(&format!(
         "Render scale: {:?} ({:?}x{:?})",
         renderer_state.render_scale,
@@ -836,9 +836,8 @@ pub fn increment_render_scale(renderer_state: &mut RendererState, increase: bool
 pub fn increment_exposure(renderer_state: &mut RendererState, increase: bool) {
     let delta = 0.05;
     let change = if increase { delta } else { -delta };
-    renderer_state.tone_mapping_exposure = (renderer_state.tone_mapping_exposure + change)
-        .max(0.0)
-        .min(20.0);
+    renderer_state.tone_mapping_exposure =
+        (renderer_state.tone_mapping_exposure + change).clamp(0.0, 20.0);
     logger_log(&format!(
         "Exposure: {:?}",
         renderer_state.tone_mapping_exposure
@@ -848,7 +847,7 @@ pub fn increment_exposure(renderer_state: &mut RendererState, increase: bool) {
 pub fn increment_bloom_threshold(renderer_state: &mut RendererState, increase: bool) {
     let delta = 0.05;
     let change = if increase { delta } else { -delta };
-    renderer_state.bloom_threshold = (renderer_state.bloom_threshold + change).max(0.0).min(20.0);
+    renderer_state.bloom_threshold = (renderer_state.bloom_threshold + change).clamp(0.0, 20.0);
     logger_log(&format!(
         "Bloom Threshold: {:?}",
         renderer_state.bloom_threshold

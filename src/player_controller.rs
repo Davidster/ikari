@@ -266,7 +266,7 @@ impl PlayerController {
     }
 
     pub fn frustum(&self, physics_state: &PhysicsState, aspect_ratio: f32) -> Frustum {
-        let camera_position = self.position(&physics_state);
+        let camera_position = self.position(physics_state);
         let camera_forward = self.view_direction.to_direction_vector();
         let camera_right = camera_forward
             .cross(Vector3::new(0.0, 1.0, 0.0))
