@@ -18,7 +18,7 @@ pub const DEFAULT_WIREFRAME_COLOR: [f32; 4] = [0.0, 1.0, 1.0, 1.0];
 
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, Debug)]
-pub struct GpuMatrix4(pub cgmath::Matrix4<f32>);
+pub struct GpuMatrix4(pub Matrix4<f32>);
 
 unsafe impl bytemuck::Pod for GpuMatrix4 {}
 unsafe impl bytemuck::Zeroable for GpuMatrix4 {}
@@ -262,14 +262,14 @@ pub struct BaseRendererState {
 }
 
 impl BaseRendererState {
-    pub async fn new(window: &winit::window::Window) -> Self {
-        let backends = if cfg!(target_os = "linux") {
-            wgpu::Backends::from(wgpu::Backend::Vulkan)
-        } else {
-            wgpu::Backends::all()
-        };
-        let instance = wgpu::Instance::new(backends);
+    pub async fn new(
+        window: &winit::window::Window,
+        backends: wgpu::Backends,
+        present_mode: wgpu::PresentMode,
+    ) -> Self {
         let window_size = window.inner_size();
+
+        let instance = wgpu::Instance::new(backends);
         let surface = unsafe { instance.create_surface(&window) };
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -305,8 +305,7 @@ impl BaseRendererState {
             format: swapchain_format,
             width: window_size.width,
             height: window_size.height,
-            // present_mode: wgpu::PresentMode::Fifo,
-            present_mode: wgpu::PresentMode::Immediate,
+            present_mode,
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
         };
 

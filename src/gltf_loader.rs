@@ -143,12 +143,8 @@ pub fn build_scene(
         let textures_bind_group =
             base_renderer_state.make_pbr_textures_bind_group(&pbr_material, true)?;
 
-        let (
-            vertices,
-            geometry_buffers,
-            wireframe_index_buffer,
-            wireframe_index_buffer_format,
-        ) = build_geometry_buffers(&base_renderer_state.device, &primitive_group, buffers)?;
+        let (vertices, geometry_buffers, wireframe_index_buffer, wireframe_index_buffer_format) =
+            build_geometry_buffers(&base_renderer_state.device, &primitive_group, buffers)?;
         let initial_instances: Vec<_> = scene_nodes
             .iter()
             .filter(|node| node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index())
@@ -591,12 +587,7 @@ pub fn build_geometry_buffers(
     device: &wgpu::Device,
     primitive_group: &gltf::mesh::Primitive,
     buffers: &[gltf::buffer::Data],
-) -> Result<(
-    Vec<Vertex>,
-    GeometryBuffers,
-    GpuBuffer,
-    wgpu::IndexFormat,
-)> {
+) -> Result<(Vec<Vertex>, GeometryBuffers, GpuBuffer, wgpu::IndexFormat)> {
     let vertex_positions: Vec<Vector3<f32>> = {
         let (_, accessor) = primitive_group
             .attributes()

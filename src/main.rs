@@ -54,17 +54,31 @@ use transform::*;
 async fn start() {
     let event_loop = winit::event_loop::EventLoop::new();
 
-    let title = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
-    let window = winit::window::WindowBuilder::new()
-        // .with_inner_size(winit::dpi::LogicalSize::new(1000.0f32, 1000.0f32))
-        // .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
-        .with_inner_size(winit::dpi::PhysicalSize::new(1920.0, 1080.0))
-        .with_title(title)
-        // .with_visible(false)
-        .build(&event_loop)
-        .expect("Failed to create window");
+    let window = {
+        let (width, height) = match event_loop.primary_monitor() {
+            None => (1920, 1080), // Most widespread resolution in 2022.
+            Some(handle) => (handle.size().width, handle.size().height),
+        };
+        let inner_size = winit::dpi::PhysicalSize::new(width * 3 / 4, height * 3 / 4);
+        let title = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        winit::window::WindowBuilder::new()
+            //.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
+            .with_inner_size(inner_size)
+            .with_title(title)
+            .with_maximized(false)
+            // .with_visible(false)
+            .build(&event_loop)
+            .expect("Failed to create window")
+    };
 
-    let base_render_state = BaseRendererState::new(&window).await;
+    let base_render_state = {
+        let backends = if cfg!(target_os = "linux") {
+            wgpu::Backends::from(wgpu::Backend::Vulkan)
+        } else {
+            wgpu::Backends::all()
+        };
+        BaseRendererState::new(&window, backends, wgpu::PresentMode::AutoVsync).await
+    };
 
     let run_result = async {
         let game_scene = Scene::default();
