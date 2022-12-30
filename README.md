@@ -35,7 +35,7 @@ Hopefully one day it can be used in a real game 😃.
 
 ## Screenshots / Videos:
 
-### PBR Materials
+### PBR glTF assets
 
 ![screenshot_1](https://user-images.githubusercontent.com/2389735/174690197-1761b4ca-3c93-43c2-ba0f-a17470802613.jpg)
 
