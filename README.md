@@ -6,7 +6,7 @@ Ikari is a game engine project for learning about game tech. It is developed to 
 
 Most of the rendering features were implemented by following the awesome tutorials on [learnopengl](https://learnopengl.com/) and [learnwgpu](https://sotrh.github.io/learn-wgpu/).
 
-Hopefully one day it can be used in a real game 😃.
+Hopefully one day it will be used in a real game 😃
 
 ## Features:
 
