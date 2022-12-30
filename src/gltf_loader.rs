@@ -199,7 +199,7 @@ pub fn build_scene(
                     mesh_type: GameNodeMeshType::Pbr {
                         material_override: None,
                     },
-                    wireframe: false,
+                    ..Default::default()
                 }),
             name: node.name().map(|name| name.to_string()),
         })
@@ -624,7 +624,10 @@ pub fn build_geometry_buffers(
             max_point.y = max_point.y.max(pos.y);
             max_point.z = max_point.z.max(pos.z);
         }
-        (min_point, max_point)
+        crate::collisions::Aabb {
+            min: min_point,
+            max: max_point,
+        }
     };
 
     let indices: Vec<u32> = primitive_group
@@ -1081,6 +1084,7 @@ impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
     }
 }
 
+// TODO: is this needed? not sure if it does anything useful, might even be a false positive since multiple property counts might now be supported
 pub fn validate_animation_property_counts(gltf_document: &gltf::Document) {
     let property_counts: HashMap<(usize, ChannelPropertyStr), usize> = gltf_document
         .animations()

@@ -27,7 +27,7 @@ pub struct GameState {
     pub ball_spawner_acc: f32,
 
     pub test_object_node_id: GameNodeId,
-    pub crosshair_node_id: GameNodeId,
+    pub crosshair_node_id: Option<GameNodeId>,
     pub revolver: Option<Revolver>,
 
     pub bouncing_ball_node_id: GameNodeId,
@@ -38,7 +38,7 @@ pub struct GameState {
     pub physics_balls: Vec<PhysicsBall>,
     pub mouse_button_pressed: bool,
 
-    pub character: Character,
+    pub character: Option<Character>,
     pub player_controller: PlayerController,
 }
 
@@ -54,9 +54,5 @@ impl GameState {
         self.time_tracker.unwrap_or_else(|| {
             panic!("Must call GameState::on_frame_started at least once before getting the time")
         })
-    }
-
-    pub fn toggle_animations(&mut self) {
-        self.is_playing_animations = !self.is_playing_animations;
     }
 }

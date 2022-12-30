@@ -1,6 +1,6 @@
 use std::{collections::HashMap, hash::BuildHasherDefault};
 
-use cgmath::{Matrix4, Vector3};
+use cgmath::{Matrix4, Vector3, Vector4};
 use twox_hash::XxHash64;
 
 use super::*;
@@ -9,6 +9,7 @@ use super::*;
 pub struct Scene {
     nodes: Vec<(Option<GameNode>, usize)>, // (node, generation number). None means the node was removed from the scene
     node_transforms: Vec<Matrix4<f32>>,
+    global_node_transforms: Vec<Matrix4<f32>>,
     pub skins: Vec<Skin>,
     pub animations: Vec<Animation>,
     // node index -> parent node index
@@ -43,6 +44,7 @@ pub struct GameNodeMesh {
     pub mesh_type: GameNodeMeshType,
     pub mesh_indices: Vec<usize>,
     pub wireframe: bool,
+    pub cullable: bool,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -125,6 +127,7 @@ impl Scene {
         let mut scene = Scene {
             nodes: Vec::new(),
             node_transforms: Vec::new(),
+            global_node_transforms: Vec::new(),
             skins: Vec::new(),
             animations,
             parent_index_map,
@@ -159,6 +162,7 @@ impl Scene {
         scene.rebuild_skeleton_parent_index_maps();
 
         scene.recompute_node_transforms();
+        scene.recompute_global_node_transforms();
 
         scene
     }
@@ -198,6 +202,28 @@ impl Scene {
                 self.node_transforms[node_index] = transform;
             } else {
                 self.node_transforms.push(transform);
+            }
+        }
+    }
+
+    #[profiling::function]
+    pub fn recompute_global_node_transforms(&mut self) {
+        if self.nodes.len() <= self.global_node_transforms.len() {
+            self.global_node_transforms.truncate(self.nodes.len());
+        } else {
+            // eliminate potential allocations in the subsequent push() calls
+            self.global_node_transforms
+                .reserve_exact(self.nodes.len() - self.global_node_transforms.len());
+        }
+        for (node_index, (node, _)) in self.nodes.iter().enumerate() {
+            let transform = node
+                .as_ref()
+                .map(|node| self.get_global_transform_for_node_internal(node.id()))
+                .unwrap_or_else(Matrix4::identity);
+            if node_index < self.global_node_transforms.len() {
+                self.global_node_transforms[node_index] = transform;
+            } else {
+                self.global_node_transforms.push(transform);
             }
         }
     }
@@ -301,6 +327,38 @@ impl Scene {
         self.rebuild_skeleton_parent_index_maps();
     }
 
+    pub fn get_node_bounding_sphere(
+        &self,
+        node_id: GameNodeId,
+        renderer_state: &RendererState,
+    ) -> Option<Sphere> {
+        self.get_node(node_id)
+            .and_then(|node| node.mesh.as_ref())
+            .map(|mesh| {
+                build_node_bounding_sphere(
+                    mesh,
+                    &self.get_global_transform_for_node(node_id).matrix(),
+                    renderer_state,
+                )
+            })
+    }
+
+    pub fn get_node_bounding_sphere_opt(
+        &self,
+        node_id: GameNodeId,
+        renderer_state: &RendererState,
+    ) -> Option<Sphere> {
+        self.get_node(node_id)
+            .and_then(|node| node.mesh.as_ref())
+            .map(|mesh| {
+                build_node_bounding_sphere(
+                    mesh,
+                    &self.get_global_transform_for_node_opt(node_id),
+                    renderer_state,
+                )
+            })
+    }
+
     pub fn _get_skeleton_skin_node_id(&self, node_id: GameNodeId) -> Option<GameNodeId> {
         self.nodes
             .iter()
@@ -361,8 +419,8 @@ impl Scene {
         )
     }
 
-    #[profiling::function]
-    pub fn get_global_transform_for_node_opt(&self, node_id: GameNodeId) -> Matrix4<f32> {
+    // #[profiling::function]
+    fn get_global_transform_for_node_internal(&self, node_id: GameNodeId) -> Matrix4<f32> {
         let GameNodeId(node_index, _) = node_id;
         let mut node_ancestry_list: [u32; MAX_NODE_HIERARCHY_LEVELS] =
             [0; MAX_NODE_HIERARCHY_LEVELS];
@@ -377,6 +435,11 @@ impl Scene {
             acc = acc * self.node_transforms[node_index as usize];
         }
         acc
+    }
+
+    pub fn get_global_transform_for_node_opt(&self, node_id: GameNodeId) -> Matrix4<f32> {
+        let GameNodeId(node_index, _) = node_id;
+        self.global_node_transforms[node_index as usize]
     }
 
     pub fn add_node(&mut self, node: GameNodeDesc) -> &GameNode {
@@ -432,6 +495,12 @@ impl Scene {
         } else {
             None
         }
+    }
+
+    pub fn get_node_unchecked(&self, node_id: GameNodeId) -> &GameNode {
+        let GameNodeId(node_index, _) = node_id;
+        let (actual_node, _) = &self.nodes[node_index as usize];
+        actual_node.as_ref().unwrap()
     }
 
     pub fn get_node_mut(&mut self, node_id: GameNodeId) -> Option<&mut GameNode> {
@@ -502,6 +571,72 @@ impl Scene {
     }
 }
 
+fn build_node_bounding_sphere(
+    mesh: &GameNodeMesh,
+    global_transform: &Matrix4<f32>,
+    renderer_state: &RendererState,
+) -> Sphere {
+    let global_node_scale = Vector3::new(
+        Vector3::new(
+            global_transform.x.x,
+            global_transform.x.y,
+            global_transform.x.z,
+        )
+        .magnitude(),
+        Vector3::new(
+            global_transform.y.x,
+            global_transform.y.y,
+            global_transform.y.z,
+        )
+        .magnitude(),
+        Vector3::new(
+            global_transform.z.x,
+            global_transform.z.y,
+            global_transform.z.z,
+        )
+        .magnitude(),
+    );
+    let largest_axis_scale = global_node_scale
+        .x
+        .max(global_node_scale.y)
+        .max(global_node_scale.z);
+
+    let mut mesh_aabbs = mesh
+        .mesh_indices
+        .iter()
+        .copied()
+        .map(|mesh_index| match mesh.mesh_type {
+            GameNodeMeshType::Pbr { .. } => {
+                renderer_state.buffers.binded_pbr_meshes[mesh_index]
+                    .geometry_buffers
+                    .bounding_box
+            }
+            GameNodeMeshType::Unlit { .. } => {
+                renderer_state.buffers.binded_unlit_meshes[mesh_index].bounding_box
+            }
+        });
+
+    let mut merged_aabb = mesh_aabbs.next().unwrap();
+    for aabb in mesh_aabbs {
+        for i in 0..3 {
+            merged_aabb.min[i] = aabb.min.x.min(merged_aabb.min[i]);
+            merged_aabb.max[i] = aabb.max.x.max(merged_aabb.max[i]);
+        }
+    }
+
+    let transform_point = |point: Vector3<f32>| {
+        let transformed = global_transform * Vector4::new(point.x, point.y, point.z, 1.0);
+        Vector3::new(transformed.x, transformed.y, transformed.z)
+    };
+
+    let origin = transform_point((merged_aabb.max + merged_aabb.min) / 2.0);
+
+    let half_length = (merged_aabb.max - merged_aabb.min) / 2.0;
+    let radius = largest_axis_scale * half_length.magnitude();
+
+    Sphere { origin, radius }
+}
+
 impl GameNode {
     pub fn id(&self) -> GameNodeId {
         self.id
@@ -521,6 +656,19 @@ impl Default for GameNodeDesc {
             skin_index: None,
             mesh: None,
             name: None,
+        }
+    }
+}
+
+impl Default for GameNodeMesh {
+    fn default() -> Self {
+        Self {
+            mesh_type: GameNodeMeshType::Unlit {
+                color: Vector3::zero(),
+            },
+            mesh_indices: vec![],
+            wireframe: false,
+            cullable: true,
         }
     }
 }
@@ -580,6 +728,7 @@ impl GameNodeDescBuilder {
     }
 }
 
+// TODO: cache the merged aabb, make mesh_indices no longer public, update the aabb whenever mesh_indices changes
 impl GameNodeMesh {
     pub fn from_pbr_mesh_index(pbr_mesh_index: usize) -> Self {
         Self {
@@ -588,6 +737,7 @@ impl GameNodeMesh {
                 material_override: None,
             },
             wireframe: false,
+            ..Default::default()
         }
     }
 }
