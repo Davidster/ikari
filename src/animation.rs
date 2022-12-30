@@ -31,7 +31,9 @@ pub struct AnimationState {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum LoopType {
+    #[allow(dead_code)]
     Once,
+    #[allow(dead_code)]
     Wrap,
     #[allow(dead_code)]
     PingPong,

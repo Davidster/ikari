@@ -264,4 +264,22 @@ impl PlayerController {
             .translation();
         Vector3::new(position.x, position.y, position.z)
     }
+
+    pub fn frustum(&self, physics_state: &PhysicsState, aspect_ratio: f32) -> Frustum {
+        let camera_position = self.position(physics_state);
+        let camera_forward = self.view_direction.to_direction_vector();
+        let camera_right = camera_forward
+            .cross(Vector3::new(0.0, 1.0, 0.0))
+            .normalize();
+
+        Frustum::from_camera_params(
+            camera_position,
+            camera_forward,
+            camera_right,
+            aspect_ratio,
+            NEAR_PLANE_DISTANCE,
+            FAR_PLANE_DISTANCE,
+            FOV_Y.into(),
+        )
+    }
 }

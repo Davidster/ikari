@@ -194,7 +194,7 @@ pub struct GeometryBuffers {
     pub vertex_buffer: GpuBuffer,
     pub index_buffer: GpuBuffer,
     pub index_buffer_format: wgpu::IndexFormat,
-    pub bounding_box: (Vector3<f32>, Vector3<f32>),
+    pub bounding_box: crate::collisions::Aabb,
 }
 
 pub type BindedUnlitMesh = GeometryBuffers;
@@ -634,13 +634,14 @@ impl BaseRendererState {
 pub struct RendererState {
     pub base: BaseRendererState,
 
-    tone_mapping_exposure: f32,
-    bloom_threshold: f32,
-    bloom_ramp_size: f32,
-    render_scale: f32,
-    enable_bloom: bool,
-    enable_shadows: bool,
-    enable_wireframe_mode: bool,
+    pub tone_mapping_exposure: f32,
+    pub bloom_threshold: f32,
+    pub bloom_ramp_size: f32,
+    pub render_scale: f32,
+    pub enable_bloom: bool,
+    pub enable_shadows: bool,
+    pub enable_wireframe_mode: bool,
+    pub draw_node_bounding_spheres: bool,
 
     mesh_pipeline: wgpu::RenderPipeline,
     unlit_mesh_pipeline: wgpu::RenderPipeline,
@@ -688,6 +689,11 @@ pub struct RendererState {
     all_unlit_instances: AllInstances,
     all_wireframe_instances: AllInstances,
 
+    box_mesh_index: i32,
+    sphere_mesh_index: i32,
+    plane_mesh_index: i32,
+    debug_nodes: Vec<GameNodeId>,
+
     pub skybox_mesh_buffers: GeometryBuffers,
 
     pub buffers: RenderBuffers,
@@ -717,6 +723,8 @@ impl RendererState {
             "Toggle Shadows:          M",
             "Toggle Wireframe:        F",
             "Toggle Collision Boxes:  C",
+            "Draw Bounding Spheres:   J",
+            "Draw Scene SP Tree:      K",
             "Exit:                    Escape",
         ]
         .iter()
@@ -1975,16 +1983,17 @@ impl RendererState {
                 label: Some("skybox_texture_bind_group"),
             });
 
-        Ok(Self {
+        let mut renderer_state = Self {
             base,
 
             tone_mapping_exposure: INITIAL_TONE_MAPPING_EXPOSURE,
             bloom_threshold: INITIAL_BLOOM_THRESHOLD,
             bloom_ramp_size: INITIAL_BLOOM_RAMP_SIZE,
             render_scale: initial_render_scale,
-            enable_bloom: true,
-            enable_shadows: true,
+            enable_bloom: false,
+            enable_shadows: false,
             enable_wireframe_mode: false,
+            draw_node_bounding_spheres: false,
 
             mesh_pipeline,
             unlit_mesh_pipeline,
@@ -2027,6 +2036,11 @@ impl RendererState {
             depth_texture,
             bloom_pingpong_textures,
 
+            box_mesh_index: -1,
+            sphere_mesh_index: -1,
+            plane_mesh_index: -1,
+            debug_nodes: vec![],
+
             skybox_mesh_buffers,
 
             buffers,
@@ -2048,7 +2062,26 @@ impl RendererState {
                 buffer: vec![],
                 instances: vec![],
             },
-        })
+        };
+
+        renderer_state.box_mesh_index = renderer_state
+            .bind_basic_unlit_mesh(&cube_mesh)
+            .try_into()
+            .unwrap();
+
+        let sphere_mesh = BasicMesh::new("./src/models/sphere.obj").unwrap();
+        renderer_state.sphere_mesh_index = renderer_state
+            .bind_basic_unlit_mesh(&sphere_mesh)
+            .try_into()
+            .unwrap();
+
+        let plane_mesh = BasicMesh::new("./src/models/plane.obj").unwrap();
+        renderer_state.plane_mesh_index = renderer_state
+            .bind_basic_unlit_mesh(&plane_mesh)
+            .try_into()
+            .unwrap();
+
+        Ok(renderer_state)
     }
 
     pub fn bind_basic_unlit_mesh(&mut self, mesh: &BasicMesh) -> usize {
@@ -2140,7 +2173,10 @@ impl RendererState {
                 max_point.y = max_point.y.max(vertex.position[1]);
                 max_point.z = max_point.z.max(vertex.position[2]);
             }
-            (min_point, max_point)
+            crate::collisions::Aabb {
+                min: min_point,
+                max: max_point,
+            }
         };
 
         GeometryBuffers {
@@ -2182,45 +2218,6 @@ impl RendererState {
         );
 
         index_buffer
-    }
-
-    pub fn increment_render_scale(&mut self, increase: bool) {
-        let delta = 0.1;
-        let change = if increase { delta } else { -delta };
-        self.render_scale = (self.render_scale + change).clamp(0.1, 4.0);
-        logger_log(&format!(
-            "Render scale: {:?} ({:?}x{:?})",
-            self.render_scale,
-            (self.base.surface_config.width as f32 * self.render_scale.sqrt()).round() as u32,
-            (self.base.surface_config.height as f32 * self.render_scale.sqrt()).round() as u32,
-        ));
-        self.resize(self.base.window_size);
-    }
-
-    pub fn increment_exposure(&mut self, increase: bool) {
-        let delta = 0.05;
-        let change = if increase { delta } else { -delta };
-        self.tone_mapping_exposure = (self.tone_mapping_exposure + change).clamp(0.0, 20.0);
-        logger_log(&format!("Exposure: {:?}", self.tone_mapping_exposure));
-    }
-
-    pub fn increment_bloom_threshold(&mut self, increase: bool) {
-        let delta = 0.05;
-        let change = if increase { delta } else { -delta };
-        self.bloom_threshold = (self.bloom_threshold + change).clamp(0.0, 20.0);
-        logger_log(&format!("Bloom Threshold: {:?}", self.bloom_threshold));
-    }
-
-    pub fn toggle_bloom(&mut self) {
-        self.enable_bloom = !self.enable_bloom;
-    }
-
-    pub fn toggle_shadows(&mut self) {
-        self.enable_shadows = !self.enable_shadows;
-    }
-
-    pub fn toggle_wireframe_mode(&mut self) {
-        self.enable_wireframe_mode = !self.enable_wireframe_mode;
     }
 
     pub fn resize(&mut self, new_window_size: winit::dpi::PhysicalSize<u32>) {
@@ -2365,17 +2362,106 @@ impl RendererState {
         ];
     }
 
+    pub fn clear_debug_nodes(&mut self, scene: &mut Scene) {
+        for node_id in self.debug_nodes.iter().copied() {
+            scene.remove_node(node_id);
+        }
+        self.debug_nodes = Vec::new();
+    }
+
+    pub fn add_debug_nodes(&mut self, game_state: &mut GameState) {
+        if !self.draw_node_bounding_spheres {
+            return;
+        }
+
+        let scene = &mut game_state.scene;
+
+        if self.draw_node_bounding_spheres {
+            // super slow, but who cares for now
+            let nodes: Vec<_> = scene.nodes().cloned().collect();
+            for node in nodes {
+                if let Some(bounding_sphere) = scene.get_node_bounding_sphere(node.id(), self) {
+                    self.debug_nodes.push(
+                        scene
+                            .add_node(
+                                GameNodeDescBuilder::new()
+                                    .transform(
+                                        TransformBuilder::new()
+                                            .scale(
+                                                bounding_sphere.radius
+                                                    * Vector3::new(1.0, 1.0, 1.0),
+                                            )
+                                            .position(bounding_sphere.origin)
+                                            .build(),
+                                    )
+                                    .mesh(Some(GameNodeMesh {
+                                        mesh_type: GameNodeMeshType::Unlit {
+                                            color: Vector3::new(0.0, 1.0, 0.0),
+                                        },
+                                        mesh_indices: vec![self
+                                            .sphere_mesh_index
+                                            .try_into()
+                                            .unwrap()],
+                                        wireframe: true,
+                                        cullable: false,
+                                    }))
+                                    .build(),
+                            )
+                            .id(),
+                    );
+                }
+            }
+        }
+
+        scene.recompute_node_transforms();
+        scene.recompute_global_node_transforms();
+    }
+
+    // send data to gpu
     #[profiling::function]
     pub fn update(&mut self, game_state: &mut GameState) {
-        // send data to gpu
+        self.clear_debug_nodes(&mut game_state.scene);
+
+        game_state.scene.recompute_node_transforms();
+        game_state.scene.recompute_global_node_transforms();
+
+        let camera_frustum = game_state.player_controller.frustum(
+            &game_state.physics_state,
+            self.base.window_size.width as f32 / self.base.window_size.height as f32,
+        );
+
+        self.add_debug_nodes(game_state);
+
+        let mut frustum_culled_node_list: Vec<GameNodeId> = Vec::new();
+        for node in game_state.scene.nodes() {
+            if node.mesh.is_none() {
+                continue;
+            }
+            /* bounding boxes will be wrong for skinned meshes so we currently can't cull them */
+            if node.skin_index.is_some() || !node.mesh.as_ref().unwrap().cullable {
+                frustum_culled_node_list.push(node.id());
+                continue;
+            }
+            if let Some(node_bounding_sphere) = game_state
+                .scene
+                .get_node_bounding_sphere_opt(node.id(), self)
+            {
+                match camera_frustum.aabb_intersection_test(node_bounding_sphere.aabb()) {
+                    IntersectionResult::FullyContained
+                    | IntersectionResult::PartiallyIntersecting => {
+                        frustum_culled_node_list.push(node.id());
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         let scene = &mut game_state.scene;
         let limits = &mut self.base.limits;
         let queue = &mut self.base.queue;
         let device = &self.base.device;
         let bones_and_instances_bind_group_layout =
             &self.base.bones_and_instances_bind_group_layout;
-
-        scene.recompute_node_transforms();
 
         self.all_bone_transforms =
             get_all_bone_data(scene, limits.min_storage_buffer_offset_alignment);
@@ -2401,7 +2487,9 @@ impl RendererState {
             usize,
             Vec<GpuWireframeMeshInstance>,
         > = HashMap::new();
-        for node in scene.nodes() {
+
+        for node_id in frustum_culled_node_list {
+            let node = scene.get_node_unchecked(node_id);
             let transform = scene.get_global_transform_for_node_opt(node.id());
             if let Some(GameNodeMesh {
                 mesh_indices,
@@ -2474,10 +2562,7 @@ impl RendererState {
                                     }
                                 }
                             };
-                            let gpu_instance = GpuUnlitMeshInstance {
-                                color,
-                                model_transform: GpuMatrix4(transform),
-                            };
+
                             if is_wireframe_mode_on || is_node_wireframe {
                                 let wireframe_mesh_index = self
                                     .buffers
@@ -2491,6 +2576,10 @@ impl RendererState {
                                     })
                                     .unwrap()
                                     .0;
+                                let gpu_instance = GpuWireframeMeshInstance {
+                                    color,
+                                    model_transform: GpuMatrix4(transform),
+                                };
                                 match wireframe_mesh_index_to_gpu_instances
                                     .entry(wireframe_mesh_index)
                                 {
@@ -2502,6 +2591,10 @@ impl RendererState {
                                     }
                                 }
                             } else {
+                                let gpu_instance = GpuUnlitMeshInstance {
+                                    color,
+                                    model_transform: GpuMatrix4(transform),
+                                };
                                 match unlit_mesh_index_to_gpu_instances.entry(mesh_index) {
                                     Entry::Occupied(mut entry) => {
                                         entry.get_mut().push(gpu_instance);

@@ -61,11 +61,11 @@ impl PhysicsBall {
         physics_state: &mut PhysicsState,
         mesh: GameNodeMesh,
     ) -> Self {
-        let radius = 0.02 + (rand::random::<f32>() * 0.1);
+        let radius = 0.2 + (rand::random::<f32>() * 0.4);
         let position = Vector3::new(
-            ARENA_SIDE_LENGTH * (rand::random::<f32>() * 2.0 - 1.0),
+            ARENA_SIDE_LENGTH * (rand::random::<f32>() * 2.0 - 1.0) / 4.0,
             radius * 2.0 + rand::random::<f32>() * 15.0 + 5.0,
-            ARENA_SIDE_LENGTH * (rand::random::<f32>() * 2.0 - 1.0),
+            ARENA_SIDE_LENGTH * (rand::random::<f32>() * 2.0 - 1.0) / 4.0,
         );
         Self::new(scene, physics_state, mesh, position, radius)
     }
