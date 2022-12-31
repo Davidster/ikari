@@ -1798,28 +1798,24 @@ impl RendererState {
 
         let bones_buffer = GpuBuffer::empty(
             device,
-            1,
             std::mem::size_of::<GpuMatrix4>(),
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
         let pbr_instances_buffer = GpuBuffer::empty(
             device,
-            1,
             std::mem::size_of::<GpuPbrMeshInstance>(),
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
         let unlit_instances_buffer = GpuBuffer::empty(
             device,
-            1,
             std::mem::size_of::<GpuUnlitMeshInstance>(),
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
         let wireframe_instances_buffer = GpuBuffer::empty(
             device,
-            1,
             std::mem::size_of::<GpuWireframeMeshInstance>(),
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );

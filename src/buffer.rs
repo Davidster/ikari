@@ -10,12 +10,8 @@ pub struct GpuBuffer {
 }
 
 impl GpuBuffer {
-    pub fn empty(
-        device: &wgpu::Device,
-        capacity: usize, // TODO: make this optional?
-        stride: usize,
-        usage: wgpu::BufferUsages,
-    ) -> Self {
+    pub fn empty(device: &wgpu::Device, stride: usize, usage: wgpu::BufferUsages) -> Self {
+        let capacity = 1;
         Self {
             src: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("GpuBuffer"),
