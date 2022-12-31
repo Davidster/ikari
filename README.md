@@ -1,6 +1,6 @@
 # Ikari
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE-MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.txt)
 
 Ikari is a game engine project written in pure rust for learning about rust and game tech. It is developed to have decent visuals and good performance, ideally supporting frame rates of 144 or higher.
 
