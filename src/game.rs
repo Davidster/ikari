@@ -97,7 +97,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         // or ./src/models/gltf/Revolver/revolver_low_poly.gltf
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
-        validate_animation_property_counts(&document);
         let (other_scene, other_render_buffers) =
             build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
@@ -135,7 +134,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     {
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/free_low_poly_forest/scene.gltf")?;
-        validate_animation_property_counts(&document);
         let (mut other_scene, other_render_buffers) =
             build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
         // hack to get the terrain to be at the same height as the ground.
@@ -158,7 +156,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     {
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf")?;
-        validate_animation_property_counts(&document);
         let (mut other_scene, other_render_buffers) =
             build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
         if let Some(jump_up_animation) = other_scene
@@ -178,7 +175,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         let skip_nodes = scene.node_count();
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
-        validate_animation_property_counts(&document);
         let (other_scene, other_render_buffers) =
             build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
@@ -227,7 +223,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         // let gltf_path =
         //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
         // let (document, buffers, images) = gltf::import(gltf_path)?;
-        // validate_animation_property_counts(&document);
         // let (mut other_scene, other_render_buffers) =
         //     build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
         // for animation in other_scene.animations.iter_mut() {
@@ -1006,7 +1001,6 @@ pub fn update_game_state(game_state: &mut GameState, renderer_state: &RendererSt
     //     game_state.camera_controller.current_pose
     // ));
 
-    // TODO: put this into the player controller's update fn?
     let new_player_transform = game_state
         .player_controller
         .transform(&game_state.physics_state);
