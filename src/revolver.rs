@@ -33,12 +33,20 @@ impl Revolver {
         animation_index: usize,
         transform: crate::transform::Transform,
     ) -> Self {
-        let node_id = scene
-            .add_node(GameNodeDescBuilder::new().transform(transform).build())
-            .id();
-        let hand_node_id = scene.add_node(GameNodeDescBuilder::new().build()).id();
-        scene.set_node_parent(node_id, hand_node_id);
-        scene.set_node_parent(model_node_id, node_id);
+        let hand_node = scene.add_node(GameNodeDescBuilder::new().build());
+        let hand_node_id = hand_node.id();
+
+        let node = scene.add_node(
+            GameNodeDescBuilder::new()
+                .transform(transform)
+                .parent_id(Some(hand_node_id))
+                .build(),
+        );
+        let node_id = node.id();
+
+        if let Some(model_node) = scene.get_node_mut(model_node_id) {
+            model_node.parent_id = Some(node_id);
+        }
 
         // let cooldown = scene.animations[animation_index].length_seconds;
         let cooldown = scene.animations[animation_index].length_seconds + 0.1;

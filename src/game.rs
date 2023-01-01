@@ -139,7 +139,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         // hack to get the terrain to be at the same height as the ground.
         let node_has_parent: Vec<_> = other_scene
             .nodes()
-            .map(|node| other_scene.get_node_parent(node.id()).is_some())
+            .map(|node| node.parent_id.is_some())
             .collect();
         for (i, node) in other_scene.nodes_mut().enumerate() {
             if node_has_parent[i] {

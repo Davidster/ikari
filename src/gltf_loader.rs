@@ -180,7 +180,7 @@ pub fn build_scene(
     // for any of the other stuff that refers to the nodes by index such as the animations
     let nodes: Vec<_> = document
         .nodes()
-        .map(|node| GameNodeDesc {
+        .map(|node| IndexedGameNodeDesc {
             transform: crate::transform::Transform::from(node.transform()),
             skin_index: node.skin().map(|skin| skin.index()),
             mesh: node_mesh_links
@@ -193,6 +193,7 @@ pub fn build_scene(
                     ..Default::default()
                 }),
             name: node.name().map(|name| name.to_string()),
+            parent_index: parent_index_map.get(&node.index()).copied(),
         })
         .collect();
 
@@ -326,7 +327,7 @@ pub fn build_scene(
         render_buffers.textures.len()
     ));
 
-    let scene = Scene::new(nodes, skins, animations, parent_index_map);
+    let scene = Scene::new(nodes, skins, animations);
 
     Ok((scene, render_buffers))
 }

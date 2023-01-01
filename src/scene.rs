@@ -12,8 +12,6 @@ pub struct Scene {
     global_node_transforms: Vec<Matrix4<f32>>,
     pub skins: Vec<Skin>,
     pub animations: Vec<Animation>,
-    // node index -> parent node index
-    parent_index_map: HashMap<u32, u32, BuildHasherDefault<XxHash64>>,
     // skeleton skin node index -> parent_index_map
     skeleton_parent_index_maps:
         HashMap<u32, HashMap<u32, u32, BuildHasherDefault<XxHash64>>, BuildHasherDefault<XxHash64>>,
@@ -25,6 +23,7 @@ pub struct GameNodeDesc {
     pub skin_index: Option<usize>,
     pub mesh: Option<GameNodeMesh>,
     pub name: Option<String>,
+    pub parent_id: Option<GameNodeId>,
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +32,7 @@ pub struct GameNode {
     pub skin_index: Option<usize>,
     pub mesh: Option<GameNodeMesh>,
     pub name: Option<String>,
+    pub parent_id: Option<GameNodeId>,
     id: GameNodeId,
 }
 
@@ -68,6 +68,15 @@ pub struct Skin {
 }
 
 #[derive(Debug, Clone)]
+pub struct IndexedGameNodeDesc {
+    pub transform: crate::transform::Transform,
+    pub skin_index: Option<usize>,
+    pub mesh: Option<GameNodeMesh>,
+    pub name: Option<String>,
+    pub parent_index: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
 pub struct IndexedSkin {
     pub bone_node_indices: Vec<usize>,
     pub bone_inverse_bind_matrices: Vec<Matrix4<f32>>,
@@ -94,16 +103,10 @@ const MAX_NODE_HIERARCHY_LEVELS: usize = 32;
 
 impl Scene {
     pub fn new(
-        nodes_desc: Vec<GameNodeDesc>,
+        nodes_desc: Vec<IndexedGameNodeDesc>,
         indexed_skins: Vec<IndexedSkin>,
         animations: Vec<IndexedAnimation>,
-        a_parent_index_map: HashMap<usize, usize>,
     ) -> Self {
-        let mut parent_index_map: HashMap<u32, u32, BuildHasherDefault<XxHash64>> =
-            Default::default();
-        for (child, parent) in a_parent_index_map {
-            parent_index_map.insert(child.try_into().unwrap(), parent.try_into().unwrap());
-        }
         let animations: Vec<_> = animations
             .iter()
             .map(|indexed_animation| Animation {
@@ -130,12 +133,25 @@ impl Scene {
             global_node_transforms: Vec::new(),
             skins: Vec::new(),
             animations,
-            parent_index_map,
             skeleton_parent_index_maps: Default::default(),
         };
 
         nodes_desc.iter().for_each(|node_desc| {
-            scene.add_node(node_desc.clone());
+            let IndexedGameNodeDesc {
+                transform,
+                skin_index,
+                mesh,
+                name,
+                parent_index,
+            } = node_desc.clone();
+            scene.add_node(GameNodeDesc {
+                transform,
+                skin_index,
+                mesh,
+                name,
+                parent_id: parent_index
+                    .map(|parent_index| GameNodeId((parent_index).try_into().unwrap(), 0)),
+            });
         });
 
         scene.skins = (0..indexed_skins.len())
@@ -174,9 +190,10 @@ impl Scene {
                 .bone_node_ids
                 .iter()
                 .filter_map(|GameNodeId(bone_node_index, _)| {
-                    self.parent_index_map
-                        .get(bone_node_index)
-                        .map(|parent_index| (*bone_node_index, *parent_index))
+                    let (node, _) = &self.nodes[*bone_node_index as usize];
+                    node.as_ref().and_then(|node| node.parent_id).map(
+                        |GameNodeId(parent_node_index, _)| (*bone_node_index, parent_node_index),
+                    )
                 })
                 .collect();
             self.skeleton_parent_index_maps
@@ -266,6 +283,11 @@ impl Scene {
             .append(&mut other_render_buffers.textures);
         let skin_index_offset = self.skins.len();
         let node_index_offset = self.nodes.len();
+        let convert_node_id = |old_node_id| {
+            let GameNodeId(old_index, _) = old_node_id;
+            let new_index = old_index + node_index_offset as u32;
+            GameNodeId(new_index, 0)
+        };
         for (node, _) in &mut other_scene.nodes {
             if let Some(ref mut node) = node {
                 match node.mesh {
@@ -294,30 +316,24 @@ impl Scene {
                 if let Some(ref mut skin_index) = node.skin_index {
                     *skin_index += skin_index_offset;
                 }
-                let GameNodeId(old_index, _) = node.id;
-                let new_index = old_index + node_index_offset as u32;
-                if let Some(parent_index) = other_scene.parent_index_map.get(&old_index) {
-                    self.parent_index_map
-                        .insert(new_index, parent_index + node_index_offset as u32);
+                if let Some(ref mut parent_id) = node.parent_id {
+                    *parent_id = convert_node_id(*parent_id);
                 }
-                node.id.0 = new_index;
+                node.id = convert_node_id(node.id);
             }
         }
         for mut skin in &mut other_scene.skins {
             skin.bone_node_ids = skin
                 .bone_node_ids
                 .iter()
-                .map(|GameNodeId(node_index, _)| {
-                    GameNodeId(node_index + node_index_offset as u32, 0)
-                })
+                .copied()
+                .map(convert_node_id)
                 .collect();
-            let GameNodeId(node_index, _) = skin.node_id;
-            skin.node_id = GameNodeId(node_index + node_index_offset as u32, 0);
+            skin.node_id = convert_node_id(skin.node_id);
         }
         for animation in &mut other_scene.animations {
             for channel in &mut animation.channels {
-                let GameNodeId(node_index, _) = channel.node_id;
-                channel.node_id = GameNodeId(node_index + node_index_offset as u32, 0);
+                channel.node_id = convert_node_id(channel.node_id);
             }
         }
 
@@ -374,9 +390,9 @@ impl Scene {
             })
     }
 
-    fn get_node_ancestry_list(&self, node_index: u32) -> impl Iterator<Item = u32> + '_ {
-        std::iter::successors(Some(node_index), |node_index| {
-            self.parent_index_map.get(node_index).copied()
+    fn get_node_ancestry_list(&self, node_id: GameNodeId) -> impl Iterator<Item = GameNodeId> + '_ {
+        std::iter::successors(Some(node_id), |node_id| {
+            self.get_node(*node_id).and_then(|node| node.parent_id)
         })
     }
 
@@ -408,24 +424,24 @@ impl Scene {
         &self,
         node_id: GameNodeId,
     ) -> crate::transform::Transform {
-        let GameNodeId(node_index, _) = node_id;
-        let node_ancestry_list: Vec<_> = self.get_node_ancestry_list(node_index).collect();
-        node_ancestry_list.iter().rev().fold(
-            crate::transform::Transform::new(),
-            |acc, node_index| {
+        let node_ancestry_list: Vec<_> = self.get_node_ancestry_list(node_id).collect();
+        node_ancestry_list
+            .iter()
+            .rev()
+            .fold(crate::transform::Transform::new(), |acc, node_id| {
+                let GameNodeId(node_index, _) = node_id;
                 let (node, _) = &self.nodes[*node_index as usize];
                 acc * node.as_ref().unwrap().transform
-            },
-        )
+            })
     }
 
     // #[profiling::function]
     fn get_global_transform_for_node_internal(&self, node_id: GameNodeId) -> Matrix4<f32> {
-        let GameNodeId(node_index, _) = node_id;
         let mut node_ancestry_list: [u32; MAX_NODE_HIERARCHY_LEVELS] =
             [0; MAX_NODE_HIERARCHY_LEVELS];
         let mut ancestry_length = 0;
-        for (i, node_index) in self.get_node_ancestry_list(node_index).enumerate() {
+        for (i, node_id) in self.get_node_ancestry_list(node_id).enumerate() {
+            let GameNodeId(node_index, _) = node_id;
             node_ancestry_list[i] = node_index;
             ancestry_length += 1;
         }
@@ -448,6 +464,7 @@ impl Scene {
             skin_index,
             mesh,
             name,
+            parent_id,
         } = node;
         let empty_node = self
             .nodes
@@ -469,6 +486,7 @@ impl Scene {
                     mesh,
                     name,
                     id: GameNodeId(empty_node_index.try_into().unwrap(), new_gen),
+                    parent_id,
                 };
                 self.nodes[empty_node_index] = (Some(new_node), new_gen);
                 self.nodes[empty_node_index].0.as_ref().unwrap()
@@ -480,6 +498,7 @@ impl Scene {
                     mesh,
                     name,
                     id: GameNodeId(self.nodes.len().try_into().unwrap(), 0),
+                    parent_id,
                 };
                 self.nodes.push((Some(new_node), 0));
                 self.nodes[self.nodes.len() - 1].0.as_ref().unwrap()
@@ -526,35 +545,7 @@ impl Scene {
         if let Some(node) = self.get_node(node_id) {
             let GameNodeId(node_index, _) = node.id;
             self.nodes[node_index as usize].0.take();
-            // update parent index map
-            self.parent_index_map.remove(&node_index);
-            let child_entry_option =
-                self.parent_index_map
-                    .iter()
-                    .find_map(|(child_index, parent_index)| {
-                        (*parent_index == node_index).then_some((*child_index, *parent_index))
-                    });
-            if let Some((child_index, _)) = child_entry_option {
-                self.parent_index_map.remove(&child_index);
-            }
             self.rebuild_skeleton_parent_index_maps();
-        }
-    }
-
-    pub fn get_node_parent(&self, node_id: GameNodeId) -> Option<GameNodeId> {
-        let GameNodeId(node_index, _) = node_id;
-        self.parent_index_map
-            .get(&node_index)
-            .and_then(|parent_node_index| self.nodes[*parent_node_index as usize].0.as_ref())
-            .map(|node| node.id)
-    }
-
-    pub fn set_node_parent(&mut self, node_id: GameNodeId, parent_id: GameNodeId) {
-        if let (Some(node), Some(parent_node)) = (self.get_node(node_id), self.get_node(parent_id))
-        {
-            let GameNodeId(node_index, _) = node.id();
-            let GameNodeId(parent_node_index, _) = parent_node.id();
-            self.parent_index_map.insert(node_index, parent_node_index);
         }
     }
 
@@ -656,6 +647,7 @@ impl Default for GameNodeDesc {
             skin_index: None,
             mesh: None,
             name: None,
+            parent_id: None,
         }
     }
 }
@@ -679,6 +671,7 @@ pub struct GameNodeDescBuilder {
     skin_index: Option<usize>,
     mesh: Option<GameNodeMesh>,
     name: Option<String>,
+    parent_id: Option<GameNodeId>,
 }
 
 impl GameNodeDescBuilder {
@@ -688,12 +681,14 @@ impl GameNodeDescBuilder {
             skin_index,
             mesh,
             name,
+            parent_id,
         } = GameNodeDesc::default();
         Self {
             transform,
             skin_index,
             mesh,
             name,
+            parent_id,
         }
     }
 
@@ -718,12 +713,18 @@ impl GameNodeDescBuilder {
         self
     }
 
+    pub fn parent_id(mut self, parent_id: Option<GameNodeId>) -> Self {
+        self.parent_id = parent_id;
+        self
+    }
+
     pub fn build(self) -> GameNodeDesc {
         GameNodeDesc {
             transform: self.transform,
             skin_index: self.skin_index,
             mesh: self.mesh,
             name: self.name,
+            parent_id: self.parent_id,
         }
     }
 }
@@ -749,7 +750,7 @@ mod tests {
 
     #[test]
     fn removing_nodes_invalidates_ids() {
-        let mut scene = Scene::new(vec![], vec![], vec![], HashMap::new());
+        let mut scene = Scene::new(vec![], vec![], vec![]);
 
         let node_1 = scene.add_node(GameNodeDesc::default());
         let node_1_id = node_1.id();
