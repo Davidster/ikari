@@ -38,15 +38,11 @@ impl Character {
             scene.get_global_transform_for_node(self.root_node_id);
         let should_fill_collision_boxes = self.collision_box_colliders.is_empty();
         if let Some((skin_node_id, first_skin_bounding_box_transforms)) =
-            scene.skins.get(self.skin_index).map(|skin| {
-                (
-                    scene
-                        .nodes()
-                        .find(|node| node.skin_index == Some(self.skin_index))
-                        .unwrap() // TODO: dont unwrap here?
-                        .id(),
-                    skin.bone_bounding_box_transforms.clone(),
-                )
+            scene.skins.get(self.skin_index).and_then(|skin| {
+                scene
+                    .nodes()
+                    .find(|node| node.skin_index == Some(self.skin_index))
+                    .map(|node| (node.id(), skin.bone_bounding_box_transforms.clone()))
             })
         {
             for (bone_index, bone_bounding_box_transform) in first_skin_bounding_box_transforms
@@ -56,7 +52,6 @@ impl Character {
             {
                 let transform = {
                     let skin = &scene.skins[self.skin_index];
-                    // TODO: optimize this like get_global_transform_for_node
                     let skeleton_space_transform = {
                         let node_ancestry_list = scene.get_skeleton_node_ancestry_list(
                             skin.bone_node_ids[bone_index],

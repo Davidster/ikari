@@ -1083,34 +1083,3 @@ impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
         })
     }
 }
-
-// TODO: is this needed? not sure if it does anything useful, might even be a false positive since multiple property counts might now be supported
-pub fn validate_animation_property_counts(gltf_document: &gltf::Document) {
-    let property_counts: HashMap<(usize, ChannelPropertyStr), usize> = gltf_document
-        .animations()
-        .flat_map(|animation| animation.channels())
-        .fold(HashMap::new(), |mut acc, channel| {
-            let count = acc
-                .entry((
-                    channel.target().node().index(),
-                    channel.target().property().into(),
-                ))
-                .or_insert(0);
-            *count += 1;
-            acc
-        });
-    for ((node_index, property), count) in property_counts {
-        if count > 1 {
-            logger_log(&format!(
-                "Warning: expected no more than 1 animated property but found {:?} (node_index={:?}, node_name={:?}, property={:?})",
-                count,
-                node_index,
-                gltf_document
-                    .nodes()
-                    .find(|node| node.index() == node_index)
-                    .and_then(|node| node.name()),
-                property.0
-            ))
-        }
-    }
-}

@@ -11,7 +11,7 @@ pub struct GameState {
     pub gunshot_sound_index: usize,
     pub gunshot_sound_data: SoundData,
 
-    pub player_node_id: GameNodeId, // TODO: move this into player controller?
+    pub player_node_id: GameNodeId,
 
     pub point_lights: Vec<PointLightComponent>,
     pub point_light_node_ids: Vec<GameNodeId>,
