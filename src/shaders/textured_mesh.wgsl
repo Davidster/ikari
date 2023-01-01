@@ -75,17 +75,6 @@ struct VertexInput {
     @location(7) bone_weights: vec4<f32>,
 }
 
-// struct Instance {
-//     @location(8)  model_transform_0: vec4<f32>,
-//     @location(9)  model_transform_1: vec4<f32>,
-//     @location(10) model_transform_2: vec4<f32>,
-//     @location(11) model_transform_3: vec4<f32>,
-//     @location(12) base_color_factor: vec4<f32>,
-//     @location(13) emissive_factor: vec4<f32>,
-//     @location(14) mrno: vec4<f32>, // metallicness_factor, roughness_factor, normal scale, occlusion strength
-//     @location(15) alpha_cutoff: f32,
-// }
-
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) world_position: vec3<f32>,

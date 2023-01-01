@@ -175,7 +175,6 @@ pub struct RenderBuffers {
     pub binded_pbr_meshes: Vec<BindedPbrMesh>,
     pub binded_unlit_meshes: Vec<BindedUnlitMesh>,
     pub binded_wireframe_meshes: Vec<BindedWireframeMesh>,
-    // same order as the textures in original gltf asset
     pub textures: Vec<Texture>,
 }
 
@@ -2391,7 +2390,7 @@ impl RendererState {
         scene.recompute_global_node_transforms();
     }
 
-    // send data to gpu
+    /// Prepare and send all data to gpu to it's ready to render
     #[profiling::function]
     pub fn update(&mut self, game_state: &mut GameState) {
         self.clear_debug_nodes(&mut game_state.scene);
@@ -3176,7 +3175,6 @@ impl RendererState {
                             store: true,
                         },
                     })],
-                    // depth_stencil_attachment: None,
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                         view: &self.depth_texture.view,
                         depth_ops: Some(wgpu::Operations {

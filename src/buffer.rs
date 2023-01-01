@@ -3,9 +3,9 @@ use wgpu::util::DeviceExt;
 #[derive(Debug)]
 pub struct GpuBuffer {
     src: wgpu::Buffer,
-    capacity: usize, // capacity in bytes = capacity * stride
+    capacity: usize,
     stride: usize,
-    length: usize, // length in bytes = length * stride
+    length: usize,
     usage: wgpu::BufferUsages,
 }
 
@@ -96,7 +96,7 @@ impl GpuBuffer {
         self.capacity * self.stride
     }
 
-    // returns true if the buffer was resized
+    /// returns true if the buffer was resized
     pub fn write(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, data: &[u8]) -> bool {
         let new_length = (data.len() as f32 / self.stride as f32).ceil() as usize;
 
@@ -144,11 +144,10 @@ impl<T: bytemuck::Pod> ChunkedBuffer<T> {
             item_type: std::marker::PhantomData,
         }
     }
-    /*
-        Takes an iterator of chunks (Vec<T>) and places them all into a buffer, keeping track of the byte ranges of each chunk.
-        The chunks are aligned by `alignment`.
-        Extra space is added to the end of the buffer to avoid the 'Dynamic binding at index x with offset y would overrun the buffer' error.
-    */
+
+    /// Takes an iterator of chunks (Vec<T>) and places them all into a buffer, keeping track of the byte ranges of each chunk.
+    /// The chunks are aligned by `alignment`.
+    /// Extra space is added to the end of the buffer to avoid the 'Dynamic binding at index x with offset y would overrun the buffer' error.
     pub fn new(chunks: impl Iterator<Item = (usize, Vec<T>)>, alignment: usize) -> Self {
         let mut biggest_chunk_length = 0;
         let mut buffer: Vec<u8> = vec![];

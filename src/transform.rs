@@ -311,7 +311,7 @@ mod tests {
     }
 }
 
-// from https://stackoverflow.com/questions/4436764/rotating-a-quaternion-on-1-axis
+/// from https://stackoverflow.com/questions/4436764/rotating-a-quaternion-on-1-axis
 pub fn make_quat_from_axis_angle(axis: Vector3<f32>, angle: Rad<f32>) -> Quaternion<f32> {
     let factor = (angle.0 / 2.0).sin();
 
@@ -324,7 +324,7 @@ pub fn make_quat_from_axis_angle(axis: Vector3<f32>, angle: Rad<f32>) -> Quatern
     Quaternion::new(w, x, y, z)
 }
 
-// from https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation#Quaternion-derived_rotation_matrix
+/// from https://en.wikipedia.org/wiki/Quaternions_and_spatial_rotation#Quaternion-derived_rotation_matrix
 pub fn make_rotation_matrix(r: Quaternion<f32>) -> Matrix4<f32> {
     let qr = r.s;
     let qi = r.v.x;
@@ -361,7 +361,7 @@ pub fn make_rotation_matrix(r: Quaternion<f32>) -> Matrix4<f32> {
     result
 }
 
-// https://d3cw3dd2w32x2b.cloudfront.net/wp-content/uploads/2015/01/matrix-to-quat.pdf
+/// from https://d3cw3dd2w32x2b.cloudfront.net/wp-content/uploads/2015/01/matrix-to-quat.pdf
 pub fn get_quat_from_rotation_matrix(mat: Matrix4<f32>) -> Quaternion<f32> {
     let (t, q): (f32, Quaternion<f32>) = if mat.z.z < 0.0 {
         if mat.x.x > mat.y.y {
@@ -393,7 +393,7 @@ pub fn get_quat_from_rotation_matrix(mat: Matrix4<f32>) -> Quaternion<f32> {
     q * (0.5 / t.sqrt())
 }
 
-// from https://en.wikipedia.org/wiki/Rotation_matrix
+/// from https://en.wikipedia.org/wiki/Rotation_matrix
 pub fn _make_rotation_matrix_from_eulers(
     pitch: Rad<f32>,
     yaw: Rad<f32>,
@@ -449,7 +449,7 @@ pub fn make_scale_matrix(scale: Vector3<f32>) -> Matrix4<f32> {
     result
 }
 
-// from https://vincent-p.github.io/posts/vulkan_perspective_matrix/ and https://thxforthefish.com/posts/reverse_z/
+/// from https://vincent-p.github.io/posts/vulkan_perspective_matrix/ and https://thxforthefish.com/posts/reverse_z/
 pub fn make_perspective_proj_matrix(
     near_plane_distance: f32,
     far_plane_distance: f32,
@@ -524,12 +524,12 @@ pub fn _look_at(eye_pos: Vector3<f32>, dst_pos: Vector3<f32>) -> Matrix4<f32> {
     look_at_dir(eye_pos, (dst_pos - eye_pos).normalize())
 }
 
-// this gives a coordinate frame for an object that points in direction dir.
-// you can use it to point a model in direction dir from position eye_pos.
-// to make a camera view matrix (one that transforms world space coordinates
-// into the camera's view space), take the inverse of this matrix
-// warning: fails if pointing directly upward or downward
-// a.k.a. if dir.normalize() is approximately (0, 1, 0) or (0, -1, 0)
+/// this gives a coordinate frame for an object that points in direction dir.
+/// you can use it to point a model in direction dir from position eye_pos.
+/// to make a camera view matrix (one that transforms world space coordinates
+/// into the camera's view space), take the inverse of this matrix
+/// warning: fails if pointing directly upward or downward
+/// a.k.a. if dir.normalize() is approximately (0, 1, 0) or (0, -1, 0)
 pub fn look_at_dir(eye_pos: Vector3<f32>, dir: Vector3<f32>) -> Matrix4<f32> {
     let world_up = Vector3::new(0.0, 1.0, 0.0);
     let forward = dir.normalize();
