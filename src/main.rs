@@ -80,7 +80,7 @@ async fn start() {
         } else {
             wgpu::Backends::all()
         };
-        BaseRendererState::new(&window, backends, wgpu::PresentMode::AutoVsync).await
+        BaseRendererState::new(&window, backends, wgpu::PresentMode::AutoNoVsync).await
     };
 
     let run_result = async {

@@ -2386,7 +2386,7 @@ impl RendererState {
             }
         }
 
-        scene.recompute_node_transforms();
+        // scene.recompute_node_transforms();
         scene.recompute_global_node_transforms();
     }
 
@@ -2395,7 +2395,7 @@ impl RendererState {
     pub fn update(&mut self, game_state: &mut GameState) {
         self.clear_debug_nodes(&mut game_state.scene);
 
-        game_state.scene.recompute_node_transforms();
+        // game_state.scene.recompute_node_transforms();
         game_state.scene.recompute_global_node_transforms();
 
         let camera_frustum = game_state.player_controller.frustum(

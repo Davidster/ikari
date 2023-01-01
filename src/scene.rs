@@ -8,7 +8,7 @@ use super::*;
 #[derive(Debug, Default)]
 pub struct Scene {
     nodes: Vec<(Option<GameNode>, usize)>, // (node, generation number). None means the node was removed from the scene
-    node_transforms: Vec<Matrix4<f32>>,
+    // node_transforms: Vec<Matrix4<f32>>,
     global_node_transforms: Vec<Matrix4<f32>>,
     pub skins: Vec<Skin>,
     pub animations: Vec<Animation>,
@@ -129,7 +129,6 @@ impl Scene {
             .collect();
         let mut scene = Scene {
             nodes: Vec::new(),
-            node_transforms: Vec::new(),
             global_node_transforms: Vec::new(),
             skins: Vec::new(),
             animations,
@@ -177,7 +176,6 @@ impl Scene {
 
         scene.rebuild_skeleton_parent_index_maps();
 
-        scene.recompute_node_transforms();
         scene.recompute_global_node_transforms();
 
         scene
@@ -198,28 +196,6 @@ impl Scene {
                 .collect();
             self.skeleton_parent_index_maps
                 .insert(skin.node_id.0, skeleton_parent_index_map);
-        }
-    }
-
-    #[profiling::function]
-    pub fn recompute_node_transforms(&mut self) {
-        if self.nodes.len() <= self.node_transforms.len() {
-            self.node_transforms.truncate(self.nodes.len());
-        } else {
-            // eliminate potential allocations in the subsequent push() calls
-            self.node_transforms
-                .reserve_exact(self.nodes.len() - self.node_transforms.len());
-        }
-        for (node_index, (node, _)) in self.nodes.iter().enumerate() {
-            let transform = node
-                .as_ref()
-                .map(|node| node.transform.matrix())
-                .unwrap_or_else(Matrix4::identity);
-            if node_index < self.node_transforms.len() {
-                self.node_transforms[node_index] = transform;
-            } else {
-                self.node_transforms.push(transform);
-            }
         }
     }
 
@@ -448,7 +424,8 @@ impl Scene {
         let mut acc: Matrix4<f32> = Matrix4::identity();
         for ancestry_list_index in (0..ancestry_length).rev() {
             let node_index = node_ancestry_list[ancestry_list_index];
-            acc = acc * self.node_transforms[node_index as usize];
+            let (node, _) = &self.nodes[node_index as usize];
+            acc = acc * node.as_ref().unwrap().transform.matrix();
         }
         acc
     }
