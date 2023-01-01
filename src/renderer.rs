@@ -685,9 +685,9 @@ pub struct RendererState {
     bloom_pingpong_textures: [Texture; 2],
 
     all_bone_transforms: AllBoneTransforms,
-    all_pbr_instances: AllInstances,
-    all_unlit_instances: AllInstances,
-    all_wireframe_instances: AllInstances,
+    all_pbr_instances: ChunkedBuffer<GpuPbrMeshInstance>,
+    all_unlit_instances: ChunkedBuffer<GpuUnlitMeshInstance>,
+    all_wireframe_instances: ChunkedBuffer<GpuWireframeMeshInstance>,
 
     box_mesh_index: i32,
     sphere_mesh_index: i32,
@@ -2046,18 +2046,9 @@ impl RendererState {
                 animated_bone_transforms: vec![],
                 identity_slice: (0, 0),
             },
-            all_pbr_instances: AllInstances {
-                buffer: vec![],
-                instances: vec![],
-            },
-            all_unlit_instances: AllInstances {
-                buffer: vec![],
-                instances: vec![],
-            },
-            all_wireframe_instances: AllInstances {
-                buffer: vec![],
-                instances: vec![],
-            },
+            all_pbr_instances: ChunkedBuffer::empty(),
+            all_unlit_instances: ChunkedBuffer::empty(),
+            all_wireframe_instances: ChunkedBuffer::empty(),
         };
 
         renderer_state.box_mesh_index = renderer_state
@@ -2609,50 +2600,16 @@ impl RendererState {
         let min_storage_buffer_offset_alignment =
             self.base.limits.min_storage_buffer_offset_alignment;
 
-        // TODO: DRY!
-        let mut max_pbr_instances = 0;
-        self.all_pbr_instances = {
-            let instance_size_bytes = std::mem::size_of::<GpuPbrMeshInstance>();
-            let mut buffer: Vec<u8> = Vec::new();
-            let mut instances: Vec<AllInstancesSlice> = Vec::new();
-
-            for (mesh_index, gpu_instances) in pbr_mesh_index_to_gpu_instances {
-                let start_index = buffer.len();
-                let end_index = start_index + gpu_instances.len() * instance_size_bytes;
-                buffer.append(&mut bytemuck::cast_slice(&gpu_instances).to_vec());
-
-                // add padding
-                let needed_padding = min_storage_buffer_offset_alignment as usize
-                    - (buffer.len() % min_storage_buffer_offset_alignment as usize);
-                let mut padding: Vec<_> = (0..needed_padding).map(|_| 0u8).collect();
-                buffer.append(&mut padding);
-
-                if gpu_instances.len() > max_pbr_instances {
-                    max_pbr_instances = gpu_instances.len();
-                }
-
-                instances.push(AllInstancesSlice {
-                    mesh_index,
-                    start_index,
-                    end_index,
-                })
-            }
-
-            // to avoid 'Dynamic binding at index x with offset y would overrun the buffer' error
-            let mut max_instances_padding: Vec<_> = (0..(max_pbr_instances
-                * self.pbr_instances_buffer.stride()))
-                .map(|_| 0u8)
-                .collect();
-            buffer.append(&mut max_instances_padding);
-
-            AllInstances { buffer, instances }
-        };
+        self.all_pbr_instances = ChunkedBuffer::new(
+            pbr_mesh_index_to_gpu_instances.into_iter(),
+            min_storage_buffer_offset_alignment as usize,
+        );
 
         let previous_pbr_instances_buffer_capacity_bytes =
             self.pbr_instances_buffer.capacity_bytes();
         let pbr_instances_buffer_changed_capacity =
             self.pbr_instances_buffer
-                .write(device, queue, &self.all_pbr_instances.buffer);
+                .write(device, queue, self.all_pbr_instances.buffer());
 
         if pbr_instances_buffer_changed_capacity {
             logger_log(&format!(
@@ -2660,53 +2617,20 @@ impl RendererState {
                 previous_pbr_instances_buffer_capacity_bytes,
                 self.pbr_instances_buffer.capacity_bytes(),
                 self.pbr_instances_buffer.length_bytes(),
-                self.all_pbr_instances.buffer.len(),
+                self.all_pbr_instances.buffer().len(),
             ));
         }
 
-        let mut max_unlit_instances = 0;
-        self.all_unlit_instances = {
-            let instance_size_bytes = std::mem::size_of::<GpuUnlitMeshInstance>();
-            let mut buffer: Vec<u8> = Vec::new();
-            let mut instances: Vec<AllInstancesSlice> = Vec::new();
-
-            for (mesh_index, gpu_instances) in unlit_mesh_index_to_gpu_instances {
-                let start_index = buffer.len();
-                let end_index = start_index + gpu_instances.len() * instance_size_bytes;
-                buffer.append(&mut bytemuck::cast_slice(&gpu_instances).to_vec());
-
-                // add padding
-                let needed_padding = min_storage_buffer_offset_alignment as usize
-                    - (buffer.len() % min_storage_buffer_offset_alignment as usize);
-                let mut padding: Vec<_> = (0..needed_padding).map(|_| 0u8).collect();
-                buffer.append(&mut padding);
-
-                if gpu_instances.len() > max_unlit_instances {
-                    max_unlit_instances = gpu_instances.len();
-                }
-
-                instances.push(AllInstancesSlice {
-                    mesh_index,
-                    start_index,
-                    end_index,
-                })
-            }
-
-            // to avoid 'Dynamic binding at index x with offset y would overrun the buffer' error
-            let mut max_instances_padding: Vec<_> = (0..(max_unlit_instances
-                * self.unlit_instances_buffer.stride()))
-                .map(|_| 0u8)
-                .collect();
-            buffer.append(&mut max_instances_padding);
-
-            AllInstances { buffer, instances }
-        };
+        self.all_unlit_instances = ChunkedBuffer::new(
+            unlit_mesh_index_to_gpu_instances.into_iter(),
+            min_storage_buffer_offset_alignment as usize,
+        );
 
         let previous_unlit_instances_buffer_capacity_bytes =
             self.unlit_instances_buffer.capacity_bytes();
         let unlit_instances_buffer_changed_capacity =
             self.unlit_instances_buffer
-                .write(device, queue, &self.all_unlit_instances.buffer);
+                .write(device, queue, &self.all_unlit_instances.buffer());
 
         if unlit_instances_buffer_changed_capacity {
             logger_log(&format!(
@@ -2714,54 +2638,21 @@ impl RendererState {
                 previous_unlit_instances_buffer_capacity_bytes,
                 self.unlit_instances_buffer.capacity_bytes(),
                 self.unlit_instances_buffer.length_bytes(),
-                self.all_unlit_instances.buffer.len(),
+                self.all_unlit_instances.buffer().len(),
             ));
         }
 
-        let mut max_wireframe_instances = 0;
-        self.all_wireframe_instances = {
-            let instance_size_bytes = std::mem::size_of::<GpuWireframeMeshInstance>();
-            let mut buffer: Vec<u8> = Vec::new();
-            let mut instances: Vec<AllInstancesSlice> = Vec::new();
-
-            for (mesh_index, gpu_instances) in wireframe_mesh_index_to_gpu_instances {
-                let start_index = buffer.len();
-                let end_index = start_index + gpu_instances.len() * instance_size_bytes;
-                buffer.append(&mut bytemuck::cast_slice(&gpu_instances).to_vec());
-
-                // add padding
-                let needed_padding = min_storage_buffer_offset_alignment as usize
-                    - (buffer.len() % min_storage_buffer_offset_alignment as usize);
-                let mut padding: Vec<_> = (0..needed_padding).map(|_| 0u8).collect();
-                buffer.append(&mut padding);
-
-                if gpu_instances.len() > max_wireframe_instances {
-                    max_wireframe_instances = gpu_instances.len();
-                }
-
-                instances.push(AllInstancesSlice {
-                    mesh_index,
-                    start_index,
-                    end_index,
-                })
-            }
-
-            // to avoid 'Dynamic binding at index x with offset y would overrun the buffer' error
-            let mut max_instances_padding: Vec<_> = (0..(max_wireframe_instances
-                * self.wireframe_instances_buffer.stride()))
-                .map(|_| 0u8)
-                .collect();
-            buffer.append(&mut max_instances_padding);
-
-            AllInstances { buffer, instances }
-        };
+        self.all_wireframe_instances = ChunkedBuffer::new(
+            wireframe_mesh_index_to_gpu_instances.into_iter(),
+            min_storage_buffer_offset_alignment as usize,
+        );
 
         let previous_wireframe_instances_buffer_capacity_bytes =
             self.wireframe_instances_buffer.capacity_bytes();
         let wireframe_instances_buffer_changed_capacity = self.wireframe_instances_buffer.write(
             device,
             queue,
-            &self.all_wireframe_instances.buffer,
+            &self.all_wireframe_instances.buffer(),
         );
 
         if wireframe_instances_buffer_changed_capacity {
@@ -2770,7 +2661,7 @@ impl RendererState {
                 previous_wireframe_instances_buffer_capacity_bytes,
                 self.wireframe_instances_buffer.capacity_bytes(),
                 self.wireframe_instances_buffer.length_bytes(),
-                self.all_wireframe_instances.buffer.len(),
+                self.all_wireframe_instances.buffer().len(),
             ));
         }
 
@@ -2794,9 +2685,10 @@ impl RendererState {
                             buffer: self.pbr_instances_buffer.src(),
                             offset: 0,
                             size: NonZeroU64::new(
-                                (max_pbr_instances * self.pbr_instances_buffer.stride())
-                                    .try_into()
-                                    .unwrap(),
+                                (self.all_pbr_instances.biggest_chunk_length()
+                                    * self.pbr_instances_buffer.stride())
+                                .try_into()
+                                .unwrap(),
                             ),
                         }),
                     },
@@ -2824,9 +2716,10 @@ impl RendererState {
                             buffer: self.unlit_instances_buffer.src(),
                             offset: 0,
                             size: NonZeroU64::new(
-                                (max_unlit_instances * self.unlit_instances_buffer.stride())
-                                    .try_into()
-                                    .unwrap(),
+                                (self.all_unlit_instances.biggest_chunk_length()
+                                    * self.unlit_instances_buffer.stride())
+                                .try_into()
+                                .unwrap(),
                             ),
                         }),
                     },
@@ -2854,7 +2747,7 @@ impl RendererState {
                             buffer: self.wireframe_instances_buffer.src(),
                             offset: 0,
                             size: NonZeroU64::new(
-                                (max_wireframe_instances
+                                (self.all_wireframe_instances.biggest_chunk_length()
                                     * self.wireframe_instances_buffer.stride())
                                 .try_into()
                                 .unwrap(),
@@ -3095,13 +2988,12 @@ impl RendererState {
 
             render_pass.set_pipeline(&self.unlit_mesh_pipeline);
             render_pass.set_bind_group(0, &self.camera_and_lights_bind_group, &[]);
-            for unlit_instance_slice in &self.all_unlit_instances.instances {
-                let binded_unlit_mesh_index = unlit_instance_slice.mesh_index;
-                let instances_buffer_start_index = unlit_instance_slice.start_index as u32;
-                let instance_size_bytes = std::mem::size_of::<GpuUnlitMeshInstance>();
-                let instance_count = (unlit_instance_slice.end_index
-                    - unlit_instance_slice.start_index)
-                    / instance_size_bytes;
+            for unlit_instance_chunk in self.all_unlit_instances.chunks() {
+                let binded_unlit_mesh_index = unlit_instance_chunk.id;
+                let instances_buffer_start_index = unlit_instance_chunk.start_index as u32;
+                let instance_count = (unlit_instance_chunk.end_index
+                    - unlit_instance_chunk.start_index)
+                    / self.all_unlit_instances.stride();
 
                 let geometry_buffers = &self.buffers.binded_unlit_meshes[binded_unlit_mesh_index];
 
@@ -3124,13 +3016,12 @@ impl RendererState {
 
             render_pass.set_pipeline(&self.wireframe_pipeline);
 
-            for wireframe_instance_slice in &self.all_wireframe_instances.instances {
-                let binded_wireframe_mesh_index = wireframe_instance_slice.mesh_index;
-                let instances_buffer_start_index = wireframe_instance_slice.start_index as u32;
-                let instance_size_bytes = std::mem::size_of::<GpuWireframeMeshInstance>();
-                let instance_count = (wireframe_instance_slice.end_index
-                    - wireframe_instance_slice.start_index)
-                    / instance_size_bytes;
+            for wireframe_instance_chunk in self.all_wireframe_instances.chunks() {
+                let binded_wireframe_mesh_index = wireframe_instance_chunk.id;
+                let instances_buffer_start_index = wireframe_instance_chunk.start_index as u32;
+                let instance_count = (wireframe_instance_chunk.end_index
+                    - wireframe_instance_chunk.start_index)
+                    / self.all_wireframe_instances.stride();
 
                 let BindedWireframeMesh {
                     source_mesh_type,
@@ -3415,9 +3306,8 @@ impl RendererState {
             if !is_shadow {
                 render_pass.set_bind_group(1, &self.environment_textures_bind_group, &[]);
             }
-            // TODO: dry!
-            for pbr_instance_slice in &self.all_pbr_instances.instances {
-                let binded_pbr_mesh_index = pbr_instance_slice.mesh_index;
+            for pbr_instance_chunk in self.all_pbr_instances.chunks() {
+                let binded_pbr_mesh_index = pbr_instance_chunk.id;
                 let bone_transforms_buffer_start_index = self
                     .all_bone_transforms
                     .animated_bone_transforms
@@ -3425,11 +3315,10 @@ impl RendererState {
                     .find(|bone_slice| bone_slice.binded_pbr_mesh_index == binded_pbr_mesh_index)
                     .map(|bone_slice| bone_slice.start_index.try_into().unwrap())
                     .unwrap_or(0);
-                let instances_buffer_start_index = pbr_instance_slice.start_index as u32;
-                let instance_size_bytes = std::mem::size_of::<GpuPbrMeshInstance>();
-                let instance_count = (pbr_instance_slice.end_index
-                    - pbr_instance_slice.start_index)
-                    / instance_size_bytes;
+                let instances_buffer_start_index = pbr_instance_chunk.start_index as u32;
+                let instance_count = (pbr_instance_chunk.end_index
+                    - pbr_instance_chunk.start_index)
+                    / self.all_pbr_instances.stride();
 
                 let BindedPbrMesh {
                     geometry_buffers,
