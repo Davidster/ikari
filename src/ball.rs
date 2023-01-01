@@ -82,7 +82,7 @@ impl BallComponent {
         .iter()
         .map(|pos| *pos + pos_2d)
         .collect();
-        // for edge in
+
         ball_edges.iter().for_each(|edge| {
             let Vector2 { x, y: z } = edge;
             if *x > ARENA_SIDE_LENGTH || *x < -ARENA_SIDE_LENGTH {

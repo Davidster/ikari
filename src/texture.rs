@@ -413,7 +413,6 @@ impl Texture {
         generate_mipmaps: bool,
     ) -> Self {
         let size = wgpu::Extent3d {
-            // TODO: is divide by 3 the right move?
             width: er_texture.size.width / 3,
             height: er_texture.size.width / 3,
             depth_or_array_layers: 6,
@@ -425,7 +424,6 @@ impl Texture {
             1
         };
 
-        // TODO: dry
         let single_uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
@@ -441,7 +439,6 @@ impl Texture {
                 label: Some("single_uniform_bind_group_layout"),
             });
 
-        // TODO: dry
         let single_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -589,7 +586,7 @@ impl Texture {
         }
     }
 
-    // each image should have the same dimensions!
+    /// Each image should have the same dimensions!
     pub fn create_cubemap(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -678,7 +675,6 @@ impl Texture {
         skybox_rad_texture: &Texture,
         generate_mipmaps: bool,
     ) -> Self {
-        // let texture_size = texture.texture.
         let size = wgpu::Extent3d {
             width: 128,
             height: 128,
@@ -691,7 +687,6 @@ impl Texture {
             1
         };
 
-        // TODO: dry
         let single_uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
@@ -707,7 +702,6 @@ impl Texture {
                 label: Some("single_uniform_bind_group_layout"),
             });
 
-        // TODO: dry
         let single_cube_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -862,14 +856,12 @@ impl Texture {
         env_map_gen_pipeline: &wgpu::RenderPipeline,
         skybox_rad_texture: &Texture,
     ) -> Self {
-        // let texture_size = texture.texture.
         let size = wgpu::Extent3d {
             width: skybox_rad_texture.size.width,
             height: skybox_rad_texture.size.height,
             depth_or_array_layers: 6,
         };
 
-        // TODO: dry
         let two_uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -897,7 +889,6 @@ impl Texture {
                 label: Some("single_uniform_bind_group_layout"),
             });
 
-        // TODO: dry
         let single_cube_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -1187,7 +1178,6 @@ fn generate_mipmaps_for_texture(
         mipmap_filter: wgpu::FilterMode::Nearest,
         ..Default::default()
     });
-    // TODO: dry
     let single_texture_bind_group_layout =
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[

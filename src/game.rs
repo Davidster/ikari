@@ -915,60 +915,6 @@ pub fn process_window_input(
                 _ => {}
             }
         }
-        // if *state == ElementState::Pressed {
-        //     match keycode {
-        //         VirtualKeyCode::Up => {
-        //             if let Some(revolver_parent_node) =
-        //                 game_state.scene.get_node_mut(game_state.revolver.node_id)
-        //             {
-        //                 revolver_parent_node.transform.set_position(Vector3::new(
-        //                     revolver_parent_node.transform.position().x,
-        //                     revolver_parent_node.transform.position().y - 0.01,
-        //                     revolver_parent_node.transform.position().z,
-        //                 ));
-        //             }
-        //         }
-        //         VirtualKeyCode::Down => {
-        //             if let Some(revolver_parent_node) =
-        //                 game_state.scene.get_node_mut(game_state.revolver.node_id)
-        //             {
-        //                 revolver_parent_node.transform.set_position(Vector3::new(
-        //                     revolver_parent_node.transform.position().x,
-        //                     revolver_parent_node.transform.position().y + 0.01,
-        //                     revolver_parent_node.transform.position().z,
-        //                 ));
-        //             }
-        //         }
-        //         VirtualKeyCode::Left => {
-        //             if let Some(revolver_parent_node) =
-        //                 game_state.scene.get_node_mut(game_state.revolver.node_id)
-        //             {
-        //                 revolver_parent_node.transform.set_rotation(
-        //                     revolver_parent_node.transform.rotation()
-        //                         * make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(0.1)),
-        //                 );
-        //             }
-        //         }
-        //         VirtualKeyCode::Right => {
-        //             if let Some(revolver_parent_node) =
-        //                 game_state.scene.get_node_mut(game_state.revolver.node_id)
-        //             {
-        //                 revolver_parent_node.transform.set_rotation(
-        //                     revolver_parent_node.transform.rotation()
-        //                         * make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), -Rad(0.1)),
-        //                 );
-        //             }
-        //         }
-        //         _ => {}
-        //     }
-        // }
-        // logger_log(&format!(
-        //     "{:?}",
-        //     game_state
-        //         .scene
-        //         .get_node_mut(game_state.revolver.node_id)
-        //         .map(|node| node.transform)
-        // ));
     }
     game_state
         .player_controller

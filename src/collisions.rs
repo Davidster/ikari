@@ -79,8 +79,8 @@ impl Aabb {
         vertices
     }
 
-    // taken from https://gamedev.stackexchange.com/questions/156870/how-do-i-implement-a-aabb-sphere-collision
-    // ClosestPtPointAABB
+    /// Taken from https://gamedev.stackexchange.com/questions/156870/how-do-i-implement-a-aabb-sphere-collision
+    /// ClosestPtPointAABB
     pub fn _find_closest_surface_point(&self, p: Vector3<f32>) -> Vector3<f32> {
         let mut q: Vector3<f32> = Vector3::zero();
         for i in 0..3 {
@@ -100,7 +100,7 @@ impl Aabb {
             && self.max.z > point.z
     }
 
-    // true if fully contains or partially contains
+    /// Returns true if the Aabb fully contains or partially contains the sphere
     pub fn _partially_contains_sphere(&self, sphere: Sphere) -> bool {
         if self.contains_point(sphere.origin) {
             return true;
@@ -213,8 +213,8 @@ impl Frustum {
         ]
     }
 
-    // see https://gdbooks.gitbooks.io/legacyopengl/content/Chapter8/halfspace.html
-    // and https://gdbooks.gitbooks.io/legacyopengl/content/Chapter8/frustum.html
+    /// See https://gdbooks.gitbooks.io/legacyopengl/content/Chapter8/halfspace.html
+    /// and https://gdbooks.gitbooks.io/legacyopengl/content/Chapter8/frustum.html
     pub fn _contains_point(&self, point: Vector3<f32>) -> bool {
         for plane in self.planes() {
             if plane.normal.dot(point) + plane.d < 0.0 {
@@ -224,8 +224,7 @@ impl Frustum {
         true
     }
 
-    // see https://www.flipcode.com/archives/Frustum_Culling.shtml Frustrum::ContainsAaBox
-    // check if the aabb is fully contained in the frustum
+    /// See https://www.flipcode.com/archives/Frustum_Culling.shtml Frustrum::ContainsAaBox
     pub fn aabb_intersection_test(&self, aabb: Aabb) -> IntersectionResult {
         let mut total_in = 0;
 

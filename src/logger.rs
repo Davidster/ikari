@@ -60,7 +60,7 @@ impl Logger {
                 .recent_frame_times
                 .iter()
                 .map(|frame_time| frame_time.as_nanos() as f64 / 1_000_000.0);
-            let mut res = frame_times_iterator.next().unwrap(); // checked that length isnt 0
+            let mut res = frame_times_iterator.next().unwrap(); // checked that length isn't 0
             for frame_time in frame_times_iterator {
                 res = (1.0 - alpha) * res + (alpha * frame_time);
             }
