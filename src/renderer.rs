@@ -233,19 +233,6 @@ pub enum PrimitiveMode {
     Triangles,
 }
 
-#[derive(Debug)]
-pub struct AllInstances {
-    pub buffer: Vec<u8>,
-    pub instances: Vec<AllInstancesSlice>,
-}
-
-#[derive(Debug)]
-pub struct AllInstancesSlice {
-    pub mesh_index: usize,
-    pub start_index: usize,
-    pub end_index: usize,
-}
-
 pub struct BaseRendererState {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
@@ -2630,7 +2617,7 @@ impl RendererState {
             self.unlit_instances_buffer.capacity_bytes();
         let unlit_instances_buffer_changed_capacity =
             self.unlit_instances_buffer
-                .write(device, queue, &self.all_unlit_instances.buffer());
+                .write(device, queue, self.all_unlit_instances.buffer());
 
         if unlit_instances_buffer_changed_capacity {
             logger_log(&format!(
@@ -2652,7 +2639,7 @@ impl RendererState {
         let wireframe_instances_buffer_changed_capacity = self.wireframe_instances_buffer.write(
             device,
             queue,
-            &self.all_wireframe_instances.buffer(),
+            self.all_wireframe_instances.buffer(),
         );
 
         if wireframe_instances_buffer_changed_capacity {
