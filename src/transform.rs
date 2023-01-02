@@ -10,14 +10,14 @@ pub struct SimpleTransform {
     pub scale: Vec3,
 }
 
+#[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Transform {
-    position: Vec3,
-    rotation: Quat,
-    scale: Vec3,
+    is_new: bool, // put the boolean at the top to reduce the chances of needing the object in the cpu cache
     matrix: Mat4,
-    base_matrix: Mat4,
-    is_new: bool,
+    rotation: Quat,
+    position: Vec3,
+    scale: Vec3,
 }
 
 impl Transform {
@@ -27,7 +27,6 @@ impl Transform {
             rotation: Quat::IDENTITY,
             scale: Vec3::new(1.0, 1.0, 1.0),
             matrix: Mat4::IDENTITY,
-            base_matrix: Mat4::IDENTITY,
             is_new: true,
         }
     }
@@ -45,11 +44,7 @@ impl Transform {
     }
 
     pub fn matrix(&self) -> Mat4 {
-        if self.is_new {
-            Mat4::IDENTITY
-        } else {
-            self.matrix * self.base_matrix
-        }
+        self.matrix
     }
 
     pub fn _is_new(&self) -> bool {
@@ -77,7 +72,7 @@ impl Transform {
     }
 
     pub fn _get_rotation_matrix(&self) -> Mat4 {
-        make_rotation_matrix(self.rotation) * self.base_matrix
+        make_rotation_matrix(self.rotation)
     }
 
     pub fn _get_rotation_matrix3(&self) -> Mat3 {
@@ -134,10 +129,14 @@ impl Transform {
 
 impl From<Mat4> for Transform {
     fn from(matrix: Mat4) -> Self {
-        let mut transform = Transform::new();
-        transform.base_matrix = matrix;
-        transform.is_new = false;
-        transform
+        let (scale, rotation, position) = matrix.to_scale_rotation_translation();
+        Self {
+            position,
+            rotation,
+            scale,
+            matrix,
+            is_new: false,
+        }
     }
 }
 
@@ -204,7 +203,6 @@ pub struct TransformBuilder {
     position: Vec3,
     rotation: Quat,
     scale: Vec3,
-    base_matrix: Mat4,
 }
 
 impl TransformBuilder {
@@ -213,7 +211,6 @@ impl TransformBuilder {
             position: Vec3::new(0.0, 0.0, 0.0),
             rotation: Quat::IDENTITY,
             scale: Vec3::new(1.0, 1.0, 1.0),
-            base_matrix: Mat4::IDENTITY,
         }
     }
 
@@ -232,13 +229,8 @@ impl TransformBuilder {
         self
     }
 
-    pub fn _base_matrix(mut self, base_matrix: Mat4) -> Self {
-        self.base_matrix = base_matrix;
-        self
-    }
-
     pub fn build(self) -> Transform {
-        let mut result = Transform::from(self.base_matrix);
+        let mut result = Transform::new();
         result.set_position(self.position);
         result.set_rotation(self.rotation);
         result.set_scale(self.scale);
@@ -421,7 +413,7 @@ pub fn clear_translation_from_matrix(mut transform: Mat4) -> Mat4 {
 }
 
 pub fn get_translation_from_matrix(transform: Mat4) -> Vec3 {
-    let (scale, rotation, position) = transform.to_scale_rotation_translation();
+    let (_, _, position) = transform.to_scale_rotation_translation();
     position
 }
 

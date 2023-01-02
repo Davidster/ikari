@@ -421,11 +421,14 @@ impl Scene {
             node_ancestry_list[i] = node_index;
             ancestry_length += 1;
         }
-        let mut acc: Mat4 = Mat4::IDENTITY;
-        for ancestry_list_index in (0..ancestry_length).rev() {
+        let mut ancestry_transforms = (0..ancestry_length).rev().map(|ancestry_list_index| {
             let node_index = node_ancestry_list[ancestry_list_index];
             let (node, _) = &self.nodes[node_index as usize];
-            acc = acc * node.as_ref().unwrap().transform.matrix();
+            node.as_ref().unwrap().transform.matrix()
+        });
+        let mut acc: Mat4 = ancestry_transforms.next().unwrap();
+        for ancestry_transform in ancestry_transforms {
+            acc *= ancestry_transform
         }
         acc
     }

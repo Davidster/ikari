@@ -1,7 +1,5 @@
 use glam::f32::Vec3;
 
-use super::*;
-
 #[derive(Debug, Clone, Copy)]
 pub struct Aabb {
     pub min: Vec3,
