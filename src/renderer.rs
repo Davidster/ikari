@@ -2925,7 +2925,7 @@ impl RendererState {
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[CameraUniform::from(ShaderCameraView::from_mat4(
-                player_transform.matrix().into(),
+                player_transform.into(),
                 self.base.window_size.width as f32 / self.base.window_size.height as f32,
                 NEAR_PLANE_DISTANCE,
                 FAR_PLANE_DISTANCE,

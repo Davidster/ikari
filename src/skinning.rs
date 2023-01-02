@@ -116,12 +116,12 @@ pub fn get_bone_skeleton_space_transform(
     let bone_space_to_skeleton_space = node_ancestry_list
         .iter()
         .rev()
-        .fold(crate::transform::Transform::new(), |acc, node_id| {
+        .fold(crate::transform::Transform::IDENTITY, |acc, node_id| {
             acc * scene.get_node(*node_id).unwrap().transform
         });
 
     // goes from the skeletons's space into the bone's space
     let skeleton_space_to_bone_space = skin.bone_inverse_bind_matrices[bone_index];
     // see https://www.khronos.org/files/gltf20-reference-guide.pdf
-    bone_space_to_skeleton_space.matrix() * skeleton_space_to_bone_space
+    Mat4::from(bone_space_to_skeleton_space) * skeleton_space_to_bone_space
 }

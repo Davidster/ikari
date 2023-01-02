@@ -62,7 +62,7 @@ impl Character {
                         let bone_space_to_skeleton_space = node_ancestry_list
                             .iter()
                             .rev()
-                            .fold(crate::transform::Transform::new(), |acc, node_id| {
+                            .fold(crate::transform::Transform::IDENTITY, |acc, node_id| {
                                 acc * scene.get_node(*node_id).unwrap().transform
                             });
                         bone_space_to_skeleton_space

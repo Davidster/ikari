@@ -1,9 +1,6 @@
 use std::{collections::HashMap, hash::BuildHasherDefault};
 
-use glam::{
-    f32::{Mat4, Vec3, Vec4},
-    Affine3A,
-};
+use glam::f32::{Mat4, Vec3, Vec4};
 use twox_hash::XxHash64;
 
 use super::*;
@@ -12,7 +9,7 @@ use super::*;
 pub struct Scene {
     nodes: Vec<(Option<GameNode>, usize)>, // (node, generation number). None means the node was removed from the scene
     // node_transforms: Vec<Mat4>,
-    global_node_transforms: Vec<Affine3A>,
+    global_node_transforms: Vec<transform::Transform>,
     pub skins: Vec<Skin>,
     pub animations: Vec<Animation>,
     // skeleton skin node index -> parent_index_map
@@ -215,7 +212,7 @@ impl Scene {
             let transform = node
                 .as_ref()
                 .map(|node| self.get_global_transform_for_node_internal(node.id()))
-                .unwrap_or(Affine3A::IDENTITY);
+                .unwrap_or(transform::Transform::IDENTITY);
             if node_index < self.global_node_transforms.len() {
                 self.global_node_transforms[node_index] = transform;
             } else {
@@ -404,18 +401,18 @@ impl Scene {
         node_id: GameNodeId,
     ) -> crate::transform::Transform {
         let node_ancestry_list: Vec<_> = self.get_node_ancestry_list(node_id).collect();
-        node_ancestry_list
-            .iter()
-            .rev()
-            .fold(crate::transform::Transform::new(), |acc, node_id| {
+        node_ancestry_list.iter().rev().fold(
+            crate::transform::Transform::IDENTITY,
+            |acc, node_id| {
                 let GameNodeId(node_index, _) = node_id;
                 let (node, _) = &self.nodes[*node_index as usize];
                 acc * node.as_ref().unwrap().transform
-            })
+            },
+        )
     }
 
     // #[profiling::function]
-    fn get_global_transform_for_node_internal(&self, node_id: GameNodeId) -> Affine3A {
+    fn get_global_transform_for_node_internal(&self, node_id: GameNodeId) -> transform::Transform {
         let mut node_ancestry_list: [u32; MAX_NODE_HIERARCHY_LEVELS] =
             [0; MAX_NODE_HIERARCHY_LEVELS];
         let mut ancestry_length = 0;
@@ -427,16 +424,16 @@ impl Scene {
         let mut ancestry_transforms = (0..ancestry_length).rev().map(|ancestry_list_index| {
             let node_index = node_ancestry_list[ancestry_list_index];
             let (node, _) = &self.nodes[node_index as usize];
-            node.as_ref().unwrap().transform.matrix()
+            node.as_ref().unwrap().transform
         });
-        let mut acc: Affine3A = ancestry_transforms.next().unwrap();
+        let mut acc: transform::Transform = ancestry_transforms.next().unwrap();
         for ancestry_transform in ancestry_transforms {
             acc = acc * ancestry_transform
         }
         acc
     }
 
-    pub fn get_global_transform_for_node_opt(&self, node_id: GameNodeId) -> Affine3A {
+    pub fn get_global_transform_for_node_opt(&self, node_id: GameNodeId) -> transform::Transform {
         let GameNodeId(node_index, _) = node_id;
         self.global_node_transforms[node_index as usize]
     }
@@ -579,7 +576,7 @@ fn build_node_bounding_sphere(
         }
     }
 
-    let global_mat4 = Mat4::from(global_transform.matrix());
+    let global_mat4 = Mat4::from(*global_transform);
 
     let transform_point = |point: Vec3| {
         let transformed = global_mat4 * Vec4::new(point.x, point.y, point.z, 1.0);
@@ -609,7 +606,7 @@ impl GameNodeId {
 impl Default for GameNodeDesc {
     fn default() -> Self {
         Self {
-            transform: crate::transform::Transform::new(),
+            transform: crate::transform::Transform::IDENTITY,
             skin_index: None,
             mesh: None,
             name: None,

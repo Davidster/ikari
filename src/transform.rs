@@ -2,7 +2,7 @@ use glam::{
     f32::{Mat3, Mat4, Quat, Vec3},
     Affine3A,
 };
-use std::ops::Mul;
+use std::ops::{Deref, DerefMut, Mul};
 
 use super::*;
 
@@ -15,57 +15,52 @@ pub struct SimpleTransform {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct Transform {
-    is_new: bool,
-    matrix: Affine3A,
+pub struct Transform(pub Affine3A);
+
+impl Deref for Transform {
+    type Target = Affine3A;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Transform {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 impl Transform {
-    pub fn new() -> Transform {
-        Transform {
-            matrix: Affine3A::IDENTITY,
-            is_new: true,
-        }
-    }
+    pub const IDENTITY: Self = Self(Affine3A::IDENTITY);
 
     pub fn position(&self) -> Vec3 {
-        let (_, _, position) = self.matrix.to_scale_rotation_translation();
+        let (_, _, position) = self.to_scale_rotation_translation();
         position
     }
 
     pub fn rotation(&self) -> Quat {
-        let (_, rotation, _) = self.matrix.to_scale_rotation_translation();
+        let (_, rotation, _) = self.to_scale_rotation_translation();
         rotation
     }
 
     pub fn scale(&self) -> Vec3 {
-        let (scale, _, _) = self.matrix.to_scale_rotation_translation();
+        let (scale, _, _) = self.to_scale_rotation_translation();
         scale
     }
 
-    pub fn matrix(&self) -> Affine3A {
-        self.matrix
-    }
-
-    pub fn _is_new(&self) -> bool {
-        self.is_new
-    }
-
     pub fn set_position(&mut self, new_position: Vec3) {
-        self.matrix.translation = new_position.into();
-        self.is_new = false;
+        self.translation = new_position.into();
     }
 
     pub fn set_rotation(&mut self, new_rotation: Quat) {
-        let (scale, _, position) = self.matrix.to_scale_rotation_translation();
-        self.matrix = Affine3A::from_scale_rotation_translation(scale, new_rotation, position);
-        self.is_new = false;
+        let (scale, _, position) = self.to_scale_rotation_translation();
+        self.0 = Affine3A::from_scale_rotation_translation(scale, new_rotation, position);
     }
 
     pub fn set_scale(&mut self, new_scale: Vec3) {
-        let (_, rotation, position) = self.matrix.to_scale_rotation_translation();
-        self.matrix = Affine3A::from_scale_rotation_translation(new_scale, rotation, position);
-        self.is_new = false;
+        let (_, rotation, position) = self.to_scale_rotation_translation();
+        self.0 = Affine3A::from_scale_rotation_translation(new_scale, rotation, position);
     }
 
     pub fn _get_rotation_matrix3(&self) -> Mat3 {
@@ -104,7 +99,7 @@ impl Transform {
     }
 
     pub fn decompose(&self) -> SimpleTransform {
-        let (scale, rotation, position) = self.matrix().to_scale_rotation_translation();
+        let (scale, rotation, position) = self.to_scale_rotation_translation();
 
         SimpleTransform {
             position,
@@ -114,12 +109,15 @@ impl Transform {
     }
 }
 
+impl From<Transform> for Mat4 {
+    fn from(transform: Transform) -> Self {
+        transform.0.into()
+    }
+}
+
 impl From<Affine3A> for Transform {
     fn from(matrix: Affine3A) -> Self {
-        Self {
-            matrix,
-            is_new: false,
-        }
+        Self(matrix)
     }
 }
 
@@ -127,16 +125,15 @@ impl From<[[f32; 4]; 4]> for Transform {
     fn from(matrix: [[f32; 4]; 4]) -> Self {
         let (scale, rotation, position) =
             Mat4::from_cols_array_2d(&matrix).to_scale_rotation_translation();
-        Self {
-            matrix: Affine3A::from_scale_rotation_translation(scale, rotation, position),
-            is_new: false,
-        }
+        Self(Affine3A::from_scale_rotation_translation(
+            scale, rotation, position,
+        ))
     }
 }
 
 impl From<SimpleTransform> for Transform {
     fn from(simple_transform: SimpleTransform) -> Self {
-        let mut transform = Transform::new();
+        let mut transform = Transform::IDENTITY;
         transform.set_position(simple_transform.position);
         transform.set_rotation(simple_transform.rotation);
         transform.set_scale(simple_transform.scale);
@@ -159,7 +156,7 @@ impl From<gltf::scene::Transform> for Transform {
             gltf::scene::Transform::Matrix { matrix } => {
                 let mat4 = Mat4::from_cols_array_2d(&matrix);
                 if mat4.eq(&Mat4::IDENTITY) {
-                    return Transform::new();
+                    return Transform::IDENTITY;
                 }
                 let (scale, rotation, position) = mat4.to_scale_rotation_translation();
                 Affine3A::from_scale_rotation_translation(scale, rotation, position).into()
@@ -170,7 +167,7 @@ impl From<gltf::scene::Transform> for Transform {
 
 impl From<Isometry<f32>> for Transform {
     fn from(isometry: Isometry<f32>) -> Self {
-        let mut transform = Transform::new();
+        let mut transform = Transform::IDENTITY;
         transform.set_position(Vec3::new(
             isometry.translation.x,
             isometry.translation.y,
@@ -190,13 +187,7 @@ impl Mul for Transform {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self {
-        if rhs.is_new {
-            return self;
-        }
-        if self.is_new {
-            return rhs;
-        }
-        (self.matrix() * rhs.matrix()).into()
+        (self.0 * rhs.0).into()
     }
 }
 
@@ -232,11 +223,10 @@ impl TransformBuilder {
     }
 
     pub fn build(self) -> Transform {
-        let mut result = Transform::new();
+        let mut result = Transform::IDENTITY;
         result.set_position(self.position);
         result.set_rotation(self.rotation);
         result.set_scale(self.scale);
-        result.is_new = false;
         result
     }
 }

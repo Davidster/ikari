@@ -145,7 +145,7 @@ pub fn build_cubemap_face_camera_views(
     )
     .map(|camera| {
         ShaderCameraView::from_mat4(
-            camera.to_transform().matrix().into(),
+            camera.to_transform().into(),
             1.0,
             near_plane_distance,
             far_plane_distance,
