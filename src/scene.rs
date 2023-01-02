@@ -1,6 +1,9 @@
 use std::{collections::HashMap, hash::BuildHasherDefault};
 
-use glam::f32::{Mat4, Vec3, Vec4};
+use glam::{
+    f32::{Mat4, Vec3, Vec4},
+    Affine3A,
+};
 use twox_hash::XxHash64;
 
 use super::*;
@@ -9,7 +12,7 @@ use super::*;
 pub struct Scene {
     nodes: Vec<(Option<GameNode>, usize)>, // (node, generation number). None means the node was removed from the scene
     // node_transforms: Vec<Mat4>,
-    global_node_transforms: Vec<Mat4>,
+    global_node_transforms: Vec<Affine3A>,
     pub skins: Vec<Skin>,
     pub animations: Vec<Animation>,
     // skeleton skin node index -> parent_index_map
@@ -212,7 +215,7 @@ impl Scene {
             let transform = node
                 .as_ref()
                 .map(|node| self.get_global_transform_for_node_internal(node.id()))
-                .unwrap_or(Mat4::IDENTITY);
+                .unwrap_or(Affine3A::IDENTITY);
             if node_index < self.global_node_transforms.len() {
                 self.global_node_transforms[node_index] = transform;
             } else {
@@ -329,7 +332,7 @@ impl Scene {
             .map(|mesh| {
                 build_node_bounding_sphere(
                     mesh,
-                    &self.get_global_transform_for_node(node_id).matrix(),
+                    &self.get_global_transform_for_node(node_id),
                     renderer_state,
                 )
             })
@@ -345,7 +348,7 @@ impl Scene {
             .map(|mesh| {
                 build_node_bounding_sphere(
                     mesh,
-                    &self.get_global_transform_for_node_opt(node_id),
+                    &self.get_global_transform_for_node_opt(node_id).into(),
                     renderer_state,
                 )
             })
@@ -412,7 +415,7 @@ impl Scene {
     }
 
     // #[profiling::function]
-    fn get_global_transform_for_node_internal(&self, node_id: GameNodeId) -> Mat4 {
+    fn get_global_transform_for_node_internal(&self, node_id: GameNodeId) -> Affine3A {
         let mut node_ancestry_list: [u32; MAX_NODE_HIERARCHY_LEVELS] =
             [0; MAX_NODE_HIERARCHY_LEVELS];
         let mut ancestry_length = 0;
@@ -426,14 +429,14 @@ impl Scene {
             let (node, _) = &self.nodes[node_index as usize];
             node.as_ref().unwrap().transform.matrix()
         });
-        let mut acc: Mat4 = ancestry_transforms.next().unwrap();
+        let mut acc: Affine3A = ancestry_transforms.next().unwrap();
         for ancestry_transform in ancestry_transforms {
-            acc *= ancestry_transform
+            acc = acc * ancestry_transform
         }
         acc
     }
 
-    pub fn get_global_transform_for_node_opt(&self, node_id: GameNodeId) -> Mat4 {
+    pub fn get_global_transform_for_node_opt(&self, node_id: GameNodeId) -> Affine3A {
         let GameNodeId(node_index, _) = node_id;
         self.global_node_transforms[node_index as usize]
     }
@@ -544,29 +547,10 @@ impl Scene {
 
 fn build_node_bounding_sphere(
     mesh: &GameNodeMesh,
-    global_transform: &Mat4,
+    global_transform: &transform::Transform,
     renderer_state: &RendererState,
 ) -> Sphere {
-    let global_node_scale = Vec3::new(
-        Vec3::new(
-            global_transform.x_axis.x,
-            global_transform.x_axis.y,
-            global_transform.x_axis.z,
-        )
-        .length(),
-        Vec3::new(
-            global_transform.y_axis.x,
-            global_transform.y_axis.y,
-            global_transform.y_axis.z,
-        )
-        .length(),
-        Vec3::new(
-            global_transform.z_axis.x,
-            global_transform.z_axis.y,
-            global_transform.z_axis.z,
-        )
-        .length(),
-    );
+    let global_node_scale = global_transform.scale();
     let largest_axis_scale = global_node_scale
         .x
         .max(global_node_scale.y)
@@ -595,8 +579,10 @@ fn build_node_bounding_sphere(
         }
     }
 
+    let global_mat4 = Mat4::from(global_transform.matrix());
+
     let transform_point = |point: Vec3| {
-        let transformed = *global_transform * Vec4::new(point.x, point.y, point.z, 1.0);
+        let transformed = global_mat4 * Vec4::new(point.x, point.y, point.z, 1.0);
         Vec3::new(transformed.x, transformed.y, transformed.z)
     };
 

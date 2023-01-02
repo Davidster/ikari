@@ -2456,7 +2456,7 @@ impl RendererState {
 
         for node_id in frustum_culled_node_list {
             let node = scene.get_node_unchecked(node_id);
-            let transform = scene.get_global_transform_for_node_opt(node.id());
+            let transform = Mat4::from(scene.get_global_transform_for_node_opt(node.id()));
             if let Some(GameNodeMesh {
                 mesh_indices,
                 mesh_type,
@@ -2924,8 +2924,8 @@ impl RendererState {
         self.base.queue.write_buffer(
             &self.camera_buffer,
             0,
-            bytemuck::cast_slice(&[CameraUniform::from(ShaderCameraView::from_transform(
-                player_transform.matrix(),
+            bytemuck::cast_slice(&[CameraUniform::from(ShaderCameraView::from_mat4(
+                player_transform.matrix().into(),
                 self.base.window_size.width as f32 / self.base.window_size.height as f32,
                 NEAR_PLANE_DISTANCE,
                 FAR_PLANE_DISTANCE,

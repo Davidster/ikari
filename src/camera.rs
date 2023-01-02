@@ -60,7 +60,7 @@ impl CameraUniform {
 }
 
 impl ShaderCameraView {
-    pub fn from_transform(
+    pub fn from_mat4(
         transform: Mat4,
         aspect_ratio: f32,
         near_plane_distance: f32,
@@ -144,8 +144,8 @@ pub fn build_cubemap_face_camera_views(
         },
     )
     .map(|camera| {
-        ShaderCameraView::from_transform(
-            camera.to_transform().matrix(),
+        ShaderCameraView::from_mat4(
+            camera.to_transform().matrix().into(),
             1.0,
             near_plane_distance,
             far_plane_distance,

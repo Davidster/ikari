@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use glam::f32::{Vec3, Vec4};
+use glam::{
+    f32::{Vec3, Vec4},
+    Mat4,
+};
 use rapier3d::prelude::*;
 
 use super::*;
@@ -100,7 +103,7 @@ impl PhysicsState {
                         base_scale.z * transform_decomposed.scale.z,
                     );
                     let position_rotated = {
-                        let rotated = make_rotation_matrix(transform_decomposed.rotation)
+                        let rotated = Mat4::from_quat(transform_decomposed.rotation)
                             * Vec4::new(base_position.x, base_position.y, base_position.z, 1.0);
                         Vec3::new(rotated.x, rotated.y, rotated.z)
                     };

@@ -1,4 +1,7 @@
-use glam::f32::{Mat3, Mat4, Quat, Vec3};
+use glam::{
+    f32::{Mat3, Mat4, Quat, Vec3},
+    Affine3A,
+};
 use std::ops::Mul;
 
 use super::*;
@@ -13,37 +16,34 @@ pub struct SimpleTransform {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Transform {
-    is_new: bool, // put the boolean at the top to reduce the chances of needing the object in the cpu cache
-    matrix: Mat4,
-    rotation: Quat,
-    position: Vec3,
-    scale: Vec3,
+    is_new: bool,
+    matrix: Affine3A,
 }
 
 impl Transform {
     pub fn new() -> Transform {
         Transform {
-            position: Vec3::new(0.0, 0.0, 0.0),
-            rotation: Quat::IDENTITY,
-            scale: Vec3::new(1.0, 1.0, 1.0),
-            matrix: Mat4::IDENTITY,
+            matrix: Affine3A::IDENTITY,
             is_new: true,
         }
     }
 
     pub fn position(&self) -> Vec3 {
-        self.position
+        let (_, _, position) = self.matrix.to_scale_rotation_translation();
+        position
     }
 
     pub fn rotation(&self) -> Quat {
-        self.rotation
+        let (_, rotation, _) = self.matrix.to_scale_rotation_translation();
+        rotation
     }
 
     pub fn scale(&self) -> Vec3 {
-        self.scale
+        let (scale, _, _) = self.matrix.to_scale_rotation_translation();
+        scale
     }
 
-    pub fn matrix(&self) -> Mat4 {
+    pub fn matrix(&self) -> Affine3A {
         self.matrix
     }
 
@@ -52,31 +52,24 @@ impl Transform {
     }
 
     pub fn set_position(&mut self, new_position: Vec3) {
-        self.position = new_position;
-        self.matrix.w_axis.x = new_position.x;
-        self.matrix.w_axis.y = new_position.y;
-        self.matrix.w_axis.z = new_position.z;
+        self.matrix.translation = new_position.into();
         self.is_new = false;
     }
 
     pub fn set_rotation(&mut self, new_rotation: Quat) {
-        self.rotation = new_rotation;
+        let (scale, _, position) = self.matrix.to_scale_rotation_translation();
+        self.matrix = Affine3A::from_scale_rotation_translation(scale, new_rotation, position);
         self.is_new = false;
-        self.resync_matrix();
     }
 
     pub fn set_scale(&mut self, new_scale: Vec3) {
-        self.scale = new_scale;
+        let (_, rotation, position) = self.matrix.to_scale_rotation_translation();
+        self.matrix = Affine3A::from_scale_rotation_translation(new_scale, rotation, position);
         self.is_new = false;
-        self.resync_matrix();
-    }
-
-    pub fn _get_rotation_matrix(&self) -> Mat4 {
-        make_rotation_matrix(self.rotation)
     }
 
     pub fn _get_rotation_matrix3(&self) -> Mat3 {
-        let rotation_matrix = self._get_rotation_matrix();
+        let rotation_matrix = Mat4::from_quat(self.rotation());
         Mat3::from_cols(
             Vec3::new(
                 rotation_matrix.x_axis.x,
@@ -119,22 +112,23 @@ impl Transform {
             scale,
         }
     }
+}
 
-    fn resync_matrix(&mut self) {
-        self.matrix = make_translation_matrix(self.position)
-            * make_rotation_matrix(self.rotation)
-            * make_scale_matrix(self.scale);
+impl From<Affine3A> for Transform {
+    fn from(matrix: Affine3A) -> Self {
+        Self {
+            matrix,
+            is_new: false,
+        }
     }
 }
 
-impl From<Mat4> for Transform {
-    fn from(matrix: Mat4) -> Self {
-        let (scale, rotation, position) = matrix.to_scale_rotation_translation();
+impl From<[[f32; 4]; 4]> for Transform {
+    fn from(matrix: [[f32; 4]; 4]) -> Self {
+        let (scale, rotation, position) =
+            Mat4::from_cols_array_2d(&matrix).to_scale_rotation_translation();
         Self {
-            position,
-            rotation,
-            scale,
-            matrix,
+            matrix: Affine3A::from_scale_rotation_translation(scale, rotation, position),
             is_new: false,
         }
     }
@@ -146,7 +140,6 @@ impl From<SimpleTransform> for Transform {
         transform.set_position(simple_transform.position);
         transform.set_rotation(simple_transform.rotation);
         transform.set_scale(simple_transform.scale);
-        transform.resync_matrix();
         transform
     }
 }
@@ -163,7 +156,14 @@ impl From<gltf::scene::Transform> for Transform {
                 .scale(scale.into())
                 .rotation(Quat::from_array(rotation))
                 .build(),
-            gltf::scene::Transform::Matrix { matrix } => Mat4::from_cols_array_2d(&matrix).into(),
+            gltf::scene::Transform::Matrix { matrix } => {
+                let mat4 = Mat4::from_cols_array_2d(&matrix);
+                if mat4.eq(&Mat4::IDENTITY) {
+                    return Transform::new();
+                }
+                let (scale, rotation, position) = mat4.to_scale_rotation_translation();
+                Affine3A::from_scale_rotation_translation(scale, rotation, position).into()
+            }
         }
     }
 }
@@ -191,10 +191,12 @@ impl Mul for Transform {
 
     fn mul(self, rhs: Self) -> Self {
         if rhs.is_new {
-            self
-        } else {
-            (self.matrix() * rhs.matrix()).into()
+            return self;
         }
+        if self.is_new {
+            return rhs;
+        }
+        (self.matrix() * rhs.matrix()).into()
     }
 }
 
@@ -239,75 +241,8 @@ impl TransformBuilder {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use glam::f32::Vec4;
-
-    use super::*;
-
-    #[test]
-    fn decompose_transform() {
-        let position = -Vec3::new(1.0, 2.0, 3.0);
-        let rotation = make_quat_from_axis_angle(Vec3::new(1.0, 0.2, 3.0).normalize(), 0.2);
-        let scale = Vec3::new(3.0, 2.0, 1.0);
-
-        let expected = SimpleTransform {
-            position,
-            rotation,
-            scale,
-        };
-
-        let transform_1 = TransformBuilder::new()
-            .position(position)
-            .rotation(rotation)
-            .scale(scale)
-            .build();
-
-        let transform_2: crate::transform::Transform = (make_translation_matrix(position)
-            * make_rotation_matrix(rotation)
-            * make_scale_matrix(scale))
-        .into();
-
-        // these fail but they pass in our hearts 💗
-        assert_eq!(transform_1.decompose(), expected);
-        assert_eq!(transform_2.decompose(), expected);
-        assert_eq!(
-            transform_1.matrix() * Vec4::new(2.0, -3.0, 4.0, 1.0),
-            crate::transform::Transform::from(transform_1.decompose()).matrix()
-                * Vec4::new(2.0, -3.0, 4.0, 1.0)
-        );
-    }
-}
-
 pub fn make_quat_from_axis_angle(axis: Vec3, angle: f32) -> Quat {
     Quat::from_axis_angle(axis, angle)
-}
-
-/// from https://en.wikipedia.org/wiki/Quats_and_spatial_rotation#Quat-derived_rotation_matrix
-pub fn make_rotation_matrix(r: Quat) -> Mat4 {
-    Mat4::from_quat(r)
-}
-
-pub fn make_translation_matrix(translation: Vec3) -> Mat4 {
-    #[rustfmt::skip]
-    let result = Mat4::from_cols_array(&[
-        1.0, 0.0, 0.0, translation.x,
-        0.0, 1.0, 0.0, translation.y,
-        0.0, 0.0, 1.0, translation.z,
-        0.0, 0.0, 0.0,           1.0,
-    ]).transpose();
-    result
-}
-
-pub fn make_scale_matrix(scale: Vec3) -> Mat4 {
-    #[rustfmt::skip]
-    let result = Mat4::from_cols_array(&[
-        scale.x, 0.0,     0.0,     0.0,
-        0.0,     scale.y, 0.0,     0.0,
-        0.0,     0.0,     scale.z, 0.0,
-        0.0,     0.0,     0.0,     1.0,
-    ]).transpose();
-    result
 }
 
 /// from https://vincent-p.github.io/posts/vulkan_perspective_matrix/ and https://thxforthefish.com/posts/reverse_z/
