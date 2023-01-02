@@ -1,6 +1,6 @@
 use std::ops::{Add, Mul};
 
-use cgmath::{Quaternion, Vector3};
+use glam::f32::{Quat, Vec3};
 
 use super::*;
 
@@ -57,9 +57,9 @@ struct KeyframeTime {
 
 pub fn step_animations(scene: &mut Scene, delta_time_seconds: f32) {
     pub enum Op {
-        Translation(Vector3<f32>),
-        Scale(Vector3<f32>),
-        Rotation(Quaternion<f32>),
+        Translation(Vec3),
+        Scale(Vec3),
+        Rotation(Quat),
     }
 
     let mut ops: Vec<(GameNodeId, Op)> = Vec::new();
@@ -141,13 +141,13 @@ fn get_vec3_at_moment(
     animation_time_seconds: f32,
     previous_keyframe: Option<KeyframeTime>,
     next_keyframe: Option<KeyframeTime>,
-) -> Vector3<f32> {
+) -> Vec3 {
     let get_basic_keyframe_values = || {
         bytemuck::cast_slice::<_, [f32; 3]>(&channel.keyframe_values_u8)
             .to_vec()
             .iter()
             .copied()
-            .map(Vector3::from)
+            .map(Vec3::from)
             .collect::<Vec<_>>()
     };
     let get_cubic_keyframe_values = || {
@@ -157,9 +157,9 @@ fn get_vec3_at_moment(
             .copied()
             .map(|kf| {
                 [
-                    Vector3::from(kf[0]), // in-tangent
-                    Vector3::from(kf[1]), // value
-                    Vector3::from(kf[2]), // out-tangent
+                    Vec3::from(kf[0]), // in-tangent
+                    Vec3::from(kf[1]), // value
+                    Vec3::from(kf[2]), // out-tangent
                 ]
             })
             .collect::<Vec<_>>()
@@ -219,13 +219,13 @@ fn get_quat_at_moment(
     animation_time_seconds: f32,
     previous_keyframe: Option<KeyframeTime>,
     next_keyframe: Option<KeyframeTime>,
-) -> Quaternion<f32> {
+) -> Quat {
     let get_basic_keyframe_values = || {
         bytemuck::cast_slice::<_, [f32; 4]>(&channel.keyframe_values_u8)
             .to_vec()
             .iter()
             .copied()
-            .map(Quaternion::from)
+            .map(Quat::from_array)
             .collect::<Vec<_>>()
     };
     let get_cubic_keyframe_values = || {
@@ -235,9 +235,9 @@ fn get_quat_at_moment(
             .copied()
             .map(|kf| {
                 [
-                    Quaternion::from(kf[0]), // in-tangent
-                    Quaternion::from(kf[1]), // value
-                    Quaternion::from(kf[2]), // out-tangent
+                    Quat::from_array(kf[0]), // in-tangent
+                    Quat::from_array(kf[1]), // value
+                    Quat::from_array(kf[2]), // out-tangent
                 ]
             })
             .collect::<Vec<_>>()

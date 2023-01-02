@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use cgmath::{Vector3, Vector4};
+use glam::{
+    f32::{Vec3, Vec4},
+    Mat4,
+};
 use rapier3d::prelude::*;
 
 use super::*;
@@ -94,17 +97,17 @@ impl PhysicsState {
                     };
                     let base_scale = (bounding_box.max - bounding_box.min) / 2.0;
                     let base_position = (bounding_box.max + bounding_box.min) / 2.0;
-                    let scale = Vector3::new(
+                    let scale = Vec3::new(
                         base_scale.x * transform_decomposed.scale.x,
                         base_scale.y * transform_decomposed.scale.y,
                         base_scale.z * transform_decomposed.scale.z,
                     );
                     let position_rotated = {
-                        let rotated = make_rotation_matrix(transform_decomposed.rotation)
-                            * Vector4::new(base_position.x, base_position.y, base_position.z, 1.0);
-                        Vector3::new(rotated.x, rotated.y, rotated.z)
+                        let rotated = Mat4::from_quat(transform_decomposed.rotation)
+                            * Vec4::new(base_position.x, base_position.y, base_position.z, 1.0);
+                        Vec3::new(rotated.x, rotated.y, rotated.z)
                     };
-                    let position = Vector3::new(
+                    let position = Vec3::new(
                         position_rotated.x + transform_decomposed.position.x,
                         position_rotated.y + transform_decomposed.position.y,
                         position_rotated.z + transform_decomposed.position.z,
@@ -121,10 +124,7 @@ impl PhysicsState {
                     collider.set_position(Isometry::from_parts(
                         nalgebra::Translation3::new(position.x, position.y, position.z),
                         nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
-                            rotation.s,
-                            rotation.v.x,
-                            rotation.v.y,
-                            rotation.v.z,
+                            rotation.w, rotation.x, rotation.y, rotation.z,
                         )),
                     ));
                     collider_handles.push(self.collider_set.insert(collider));

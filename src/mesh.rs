@@ -3,7 +3,10 @@ use std::collections::{hash_map, HashMap};
 use super::*;
 
 use anyhow::Result;
-use cgmath::{Vector2, Vector3, Vector4};
+use glam::{
+    f32::{Vec2, Vec3, Vec4},
+    Mat4,
+};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -42,7 +45,7 @@ impl Vertex {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuPbrMeshInstance {
-    model_transform: GpuMatrix4,
+    model_transform: Mat4,
     base_color_factor: [f32; 4],
     emissive_factor: [f32; 4],
     mrno: [f32; 4], // metallic_factor, roughness_factor, normal scale, occlusion strength
@@ -51,7 +54,7 @@ pub struct GpuPbrMeshInstance {
 }
 
 impl GpuPbrMeshInstance {
-    pub fn new(transform: cgmath::Matrix4<f32>, pbr_params: DynamicPbrParams) -> Self {
+    pub fn new(transform: Mat4, pbr_params: DynamicPbrParams) -> Self {
         let DynamicPbrParams {
             base_color_factor,
             emissive_factor,
@@ -62,7 +65,7 @@ impl GpuPbrMeshInstance {
             alpha_cutoff,
         } = pbr_params;
         Self {
-            model_transform: GpuMatrix4(transform),
+            model_transform: transform,
             base_color_factor: base_color_factor.into(),
             emissive_factor: [
                 emissive_factor[0],
@@ -85,7 +88,7 @@ impl GpuPbrMeshInstance {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuUnlitMeshInstance {
-    pub model_transform: GpuMatrix4,
+    pub model_transform: Mat4,
     pub color: [f32; 4],
 }
 
@@ -93,8 +96,8 @@ pub type GpuWireframeMeshInstance = GpuUnlitMeshInstance;
 
 #[derive(Copy, Clone, Debug)]
 pub struct DynamicPbrParams {
-    pub base_color_factor: Vector4<f32>,
-    pub emissive_factor: Vector3<f32>,
+    pub base_color_factor: Vec4,
+    pub emissive_factor: Vec3,
     pub metallic_factor: f32,
     pub roughness_factor: f32,
     pub normal_scale: f32,
@@ -105,8 +108,8 @@ pub struct DynamicPbrParams {
 impl Default for DynamicPbrParams {
     fn default() -> Self {
         DynamicPbrParams {
-            base_color_factor: Vector4::new(1.0, 1.0, 1.0, 1.0),
-            emissive_factor: Vector3::new(0.0, 0.0, 0.0),
+            base_color_factor: Vec4::new(1.0, 1.0, 1.0, 1.0),
+            emissive_factor: Vec3::new(0.0, 0.0, 0.0),
             metallic_factor: 1.0,
             roughness_factor: 1.0,
             normal_scale: 1.0,
@@ -188,10 +191,10 @@ impl BasicMesh {
                         z: n_z,
                     } = obj.normals[normal_index];
                     let wavefront_obj::obj::TVertex { u, v, .. } = obj.tex_vertices[uv_index];
-                    let position = Vector3::new(p_x as f32, p_y as f32, p_z as f32);
-                    let normal = Vector3::new(n_x as f32, n_y as f32, n_z as f32);
+                    let position = Vec3::new(p_x as f32, p_y as f32, p_z as f32);
+                    let normal = Vec3::new(n_x as f32, n_y as f32, n_z as f32);
                     // convert uv format into 0->1 range
-                    let tex_coords = Vector2::new(u as f32, 1.0 - v as f32);
+                    let tex_coords = Vec2::new(u as f32, 1.0 - v as f32);
                     (key, position, normal, tex_coords)
                 })
                 .collect();
@@ -204,13 +207,13 @@ impl BasicMesh {
 
             let f = 1.0 / (delta_uv_1.x * delta_uv_2.y - delta_uv_2.x * delta_uv_1.y);
 
-            let tangent = Vector3::new(
+            let tangent = Vec3::new(
                 f * (delta_uv_2.y * edge_1.x - delta_uv_1.y * edge_2.x),
                 f * (delta_uv_2.y * edge_1.y - delta_uv_1.y * edge_2.y),
                 f * (delta_uv_2.y * edge_1.z - delta_uv_1.y * edge_2.z),
             );
 
-            let bitangent = Vector3::new(
+            let bitangent = Vec3::new(
                 f * (-delta_uv_2.x * edge_1.x + delta_uv_1.x * edge_2.x),
                 f * (-delta_uv_2.x * edge_1.y + delta_uv_1.x * edge_2.y),
                 f * (-delta_uv_2.x * edge_1.z + delta_uv_1.x * edge_2.z),
@@ -220,7 +223,7 @@ impl BasicMesh {
                 .iter()
                 .for_each(|(key, position, normal, tex_coords)| {
                     if let hash_map::Entry::Vacant(vacant_entry) = composite_index_map.entry(*key) {
-                        let to_arr = |vec: &Vector3<f32>| [vec.x, vec.y, vec.z];
+                        let to_arr = |vec: &Vec3| [vec.x, vec.y, vec.z];
                         vacant_entry.insert(Vertex {
                             position: to_arr(position),
                             normal: to_arr(normal),

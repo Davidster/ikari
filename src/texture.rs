@@ -2,7 +2,7 @@ use super::*;
 use std::{num::NonZeroU32, ops::Deref};
 
 use anyhow::*;
-use cgmath::Vector3;
+use glam::f32::Vec3;
 use wgpu::util::DeviceExt;
 
 #[derive(Debug)]
@@ -489,7 +489,7 @@ impl Texture {
         });
 
         let faces: Vec<_> = build_cubemap_face_camera_views(
-            Vector3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 0.0),
             NEAR_PLANE_DISTANCE,
             FAR_PLANE_DISTANCE,
             true,
@@ -750,7 +750,7 @@ impl Texture {
         });
 
         let faces: Vec<_> = build_cubemap_face_camera_views(
-            Vector3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 0.0),
             NEAR_PLANE_DISTANCE,
             FAR_PLANE_DISTANCE,
             true,
@@ -950,7 +950,7 @@ impl Texture {
         });
 
         let camera_projection_matrices = build_cubemap_face_camera_views(
-            Vector3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 0.0),
             NEAR_PLANE_DISTANCE,
             FAR_PLANE_DISTANCE,
             true,

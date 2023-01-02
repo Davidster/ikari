@@ -1,11 +1,14 @@
 use super::*;
-use cgmath::{Deg, Euler, Matrix4, Quaternion, Rad, Vector3};
+use glam::{
+    f32::{Mat4, Quat, Vec3},
+    EulerRot,
+};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Camera {
-    pub horizontal_rotation: Rad<f32>,
-    pub vertical_rotation: Rad<f32>,
-    pub position: Vector3<f32>,
+    pub horizontal_rotation: f32,
+    pub vertical_rotation: f32,
+    pub position: Vec3,
 }
 
 impl Camera {
@@ -13,8 +16,8 @@ impl Camera {
         TransformBuilder::new()
             .position(self.position)
             .rotation(
-                Quaternion::from(Euler::new(Rad(0.0), self.horizontal_rotation, Rad(0.0)))
-                    * Quaternion::from(Euler::new(self.vertical_rotation, Rad(0.0), Rad(0.0))),
+                Quat::from_euler(EulerRot::XYZ, 0.0, self.horizontal_rotation, 0.0)
+                    * Quat::from_euler(EulerRot::XYZ, self.vertical_rotation, 0.0, 0.0),
             )
             .build()
     }
@@ -22,10 +25,10 @@ impl Camera {
 
 #[derive(Copy, Clone, Debug)]
 pub struct ShaderCameraView {
-    pub proj: Matrix4<f32>,
-    pub view: Matrix4<f32>,
-    pub rotation_only_view: Matrix4<f32>,
-    pub position: Vector3<f32>,
+    pub proj: Mat4,
+    pub view: Mat4,
+    pub rotation_only_view: Mat4,
+    pub position: Vec3,
     pub near_plane_distance: f32,
     pub far_plane_distance: f32,
 }
@@ -45,9 +48,9 @@ pub struct CameraUniform {
 impl CameraUniform {
     pub fn new() -> Self {
         Self {
-            proj: Matrix4::one().into(),
-            view: Matrix4::one().into(),
-            rotation_only_view: Matrix4::one().into(),
+            proj: Mat4::IDENTITY.to_cols_array_2d(),
+            view: Mat4::IDENTITY.to_cols_array_2d(),
+            rotation_only_view: Mat4::IDENTITY.to_cols_array_2d(),
             position: [0.0; 4],
             near_plane_distance: 0.0,
             far_plane_distance: 0.0,
@@ -57,12 +60,12 @@ impl CameraUniform {
 }
 
 impl ShaderCameraView {
-    pub fn from_transform(
-        transform: Matrix4<f32>,
+    pub fn from_mat4(
+        transform: Mat4,
         aspect_ratio: f32,
         near_plane_distance: f32,
         far_plane_distance: f32,
-        fov_y: Rad<f32>,
+        fov_y: f32,
         reverse_z: bool,
     ) -> Self {
         let proj = make_perspective_proj_matrix(
@@ -73,8 +76,8 @@ impl ShaderCameraView {
             reverse_z,
         );
         let rotation_only_matrix = clear_translation_from_matrix(transform);
-        let rotation_only_view = rotation_only_matrix.inverse_transform().unwrap();
-        let view = transform.inverse_transform().unwrap();
+        let rotation_only_view = rotation_only_matrix.inverse();
+        let view = transform.inverse();
         let position = get_translation_from_matrix(transform);
         Self {
             proj,
@@ -86,7 +89,7 @@ impl ShaderCameraView {
         }
         // orthographic instead of perspective:
         // build_directional_light_camera_view(
-        //     Vector3::new(-0.5, -0.5, 0.1).normalize(),
+        //     Vec3::new(-0.5, -0.5, 0.1).normalize(),
         //     100.0,
         //     100.0,
         //     100.0,
@@ -107,9 +110,9 @@ impl From<ShaderCameraView> for CameraUniform {
         }: ShaderCameraView,
     ) -> CameraUniform {
         Self {
-            proj: proj.into(),
-            view: view.into(),
-            rotation_only_view: rotation_only_view.into(),
+            proj: proj.to_cols_array_2d(),
+            view: view.to_cols_array_2d(),
+            rotation_only_view: rotation_only_view.to_cols_array_2d(),
             position: [position.x, position.y, position.z, 1.0],
             near_plane_distance,
             far_plane_distance,
@@ -119,34 +122,34 @@ impl From<ShaderCameraView> for CameraUniform {
 }
 
 pub fn build_cubemap_face_camera_views(
-    position: Vector3<f32>,
+    position: Vec3,
     near_plane_distance: f32,
     far_plane_distance: f32,
     reverse_z: bool,
 ) -> Vec<ShaderCameraView> {
     vec![
-        (Deg(90.0), Deg(0.0)),    // right
-        (Deg(-90.0), Deg(0.0)),   // left
-        (Deg(180.0), Deg(90.0)),  // top
-        (Deg(180.0), Deg(-90.0)), // bottom
-        (Deg(180.0), Deg(0.0)),   // front
-        (Deg(0.0), Deg(0.0)),     // back
+        (90.0, 0.0),    // right
+        (-90.0, 0.0),   // left
+        (180.0, 90.0),  // top
+        (180.0, -90.0), // bottom
+        (180.0, 0.0),   // front
+        (0.0, 0.0),     // back
     ]
     .iter()
     .map(
-        |(horizontal_rotation, vertical_rotation): &(Deg<f32>, Deg<f32>)| Camera {
-            horizontal_rotation: (*horizontal_rotation).into(),
-            vertical_rotation: (*vertical_rotation).into(),
+        |(horizontal_rotation, vertical_rotation): &(f32, f32)| Camera {
+            horizontal_rotation: deg_to_rad(*horizontal_rotation),
+            vertical_rotation: deg_to_rad(*vertical_rotation),
             position,
         },
     )
     .map(|camera| {
-        ShaderCameraView::from_transform(
-            camera.to_transform().matrix(),
+        ShaderCameraView::from_mat4(
+            camera.to_transform().into(),
             1.0,
             near_plane_distance,
             far_plane_distance,
-            Deg(90.0).into(),
+            deg_to_rad(90.0),
             reverse_z,
         )
     })
@@ -154,21 +157,19 @@ pub fn build_cubemap_face_camera_views(
 }
 
 pub fn build_directional_light_camera_view(
-    direction: Vector3<f32>,
+    direction: Vec3,
     width: f32,
     height: f32,
     depth: f32,
 ) -> ShaderCameraView {
     let proj = make_orthographic_proj_matrix(width, height, -depth / 2.0, depth / 2.0, false);
-    let rotation_only_view = direction_vector_to_coordinate_frame_matrix(direction)
-        .inverse_transform()
-        .unwrap();
+    let rotation_only_view = direction_vector_to_coordinate_frame_matrix(direction).inverse();
     let view = rotation_only_view;
     ShaderCameraView {
         proj,
         view,
         rotation_only_view,
-        position: Vector3::new(0.0, 0.0, 0.0),
+        position: Vec3::new(0.0, 0.0, 0.0),
         near_plane_distance: -depth / 2.0,
         far_plane_distance: depth / 2.0,
     }
@@ -176,20 +177,19 @@ pub fn build_directional_light_camera_view(
 
 #[cfg(test)]
 mod tests {
-    use cgmath::Vector4;
+    use glam::f32::Vec4;
 
     use super::*;
 
     #[test]
     fn should_i_exist() {
         let reverse_z_mat =
-            make_perspective_proj_matrix(0.1, 100000.0, cgmath::Deg(90.0).into(), 1.0, true);
-        let reg_z_mat =
-            make_perspective_proj_matrix(0.1, 100000.0, cgmath::Deg(90.0).into(), 1.0, false);
-        let pos = Vector4::new(-0.5, -0.5, -0.11, 1.0);
+            make_perspective_proj_matrix(0.1, 100000.0, deg_to_rad(90.0), 1.0, true);
+        let reg_z_mat = make_perspective_proj_matrix(0.1, 100000.0, deg_to_rad(90.0), 1.0, false);
+        let pos = Vec4::new(-0.5, -0.5, -0.11, 1.0);
         let reverse_proj_pos = reverse_z_mat * pos;
         let reg_proj_pos = reg_z_mat * pos;
-        let persp_div = |yo: Vector4<f32>| yo / yo.w;
+        let persp_div = |yo: Vec4| yo / yo.w;
         println!("{:?}", reverse_z_mat);
         println!("{:?}", reg_z_mat);
         println!("{:?}", reverse_proj_pos);

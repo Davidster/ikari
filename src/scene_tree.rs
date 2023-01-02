@@ -1,4 +1,4 @@
-use cgmath::Vector3;
+use glam::f32::Vec3;
 use smallvec::{smallvec, SmallVec};
 
 use super::*;
@@ -32,8 +32,8 @@ impl Default for SceneTreeNode {
     fn default() -> Self {
         Self {
             base_aabb: Aabb {
-                min: Vector3::zero(),
-                max: Vector3::zero(),
+                min: Vec3::default(),
+                max: Vec3::default(),
             },
             game_nodes: smallvec![],
             children: None,
@@ -74,8 +74,8 @@ impl SceneTree {
         //     tree.node_list.capacity(),
         // ));
 
-        let _offset = ROOT_AABB_SIZE * 0.02 * std::f32::consts::PI * Vector3::new(1.0, 1.0, 1.0);
-        let root_aabb_max = ROOT_AABB_SIZE * Vector3::new(1.0, 1.0, 1.0);
+        let _offset = ROOT_AABB_SIZE * 0.02 * std::f32::consts::PI * Vec3::new(1.0, 1.0, 1.0);
+        let root_aabb_max = ROOT_AABB_SIZE * Vec3::new(1.0, 1.0, 1.0);
         let root = SceneTreeNode {
             base_aabb: Aabb {
                 min: -root_aabb_max, /*  + _offset */
@@ -129,7 +129,8 @@ impl SceneTree {
             if node_bounding_sphere.radius < child_base_aabb.size().x / 2.0
                 || child_aabb.fully_contains_sphere(node_bounding_sphere)
             {
-                let distance2 = (child_aabb.origin() - node_bounding_sphere.origin).magnitude2();
+                let distance2 =
+                    (child_aabb.origin() - node_bounding_sphere.origin).length_squared();
                 // pick the aabb whose origin is closest to the object
                 fully_contained_index = match fully_contained_index {
                     Some((other_i, other_dist2)) => Some(if distance2 < other_dist2 {
@@ -297,7 +298,7 @@ impl SceneTreeNode {
         // aabb must be a cube!
         let extension_factor = (aabb.max.x - aabb.min.x) * K_FACTOR;
         let extension_factor_vector =
-            Vector3::new(extension_factor, extension_factor, extension_factor);
+            Vec3::new(extension_factor, extension_factor, extension_factor);
         Aabb {
             min: aabb.min - extension_factor_vector,
             max: aabb.max + extension_factor_vector,

@@ -31,7 +31,6 @@ use audio::*;
 use ball::*;
 use buffer::*;
 use camera::*;
-use cgmath::prelude::*;
 use character::*;
 use collisions::*;
 use default_textures::*;
@@ -80,7 +79,7 @@ async fn start() {
         } else {
             wgpu::Backends::all()
         };
-        BaseRendererState::new(&window, backends, wgpu::PresentMode::AutoVsync).await
+        BaseRendererState::new(&window, backends, wgpu::PresentMode::AutoNoVsync).await
     };
 
     let run_result = async {
