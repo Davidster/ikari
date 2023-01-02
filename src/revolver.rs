@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use cgmath::{Deg, Quaternion, Rad, Vector3};
+use glam::f32::{Quat, Vec3};
 
 use super::*;
 
@@ -8,7 +8,7 @@ use super::*;
 const CAMERA_FOLLOW_LERP_FACTOR: f32 = 0.8;
 // (0, 1], higher means it sways for a shorter time
 const WEAPON_SWAY_RESET_LERP_FACTOR: f32 = 0.3;
-const MAX_SWAY_DEG: Deg<f32> = Deg(3.0);
+const MAX_SWAY_DEG: f32 = 3.0;
 
 #[derive(Debug)]
 pub struct Revolver {
@@ -20,9 +20,9 @@ pub struct Revolver {
     hand_node_id: GameNodeId,
     camera_node_id: GameNodeId,
     current_hand_transform: Option<crate::transform::Transform>,
-    last_camera_horizontal_rotation: Option<Rad<f32>>,
-    base_rotation: Quaternion<f32>,
-    sway: Rad<f32>,
+    last_camera_horizontal_rotation: Option<f32>,
+    base_rotation: Quat,
+    sway: f32,
 }
 
 impl Revolver {
@@ -61,7 +61,7 @@ impl Revolver {
             camera_node_id,
             current_hand_transform: None,
             last_camera_horizontal_rotation: None,
-            sway: Rad(0.0),
+            sway: 0.0,
             base_rotation: transform.rotation(),
         }
     }
@@ -79,7 +79,7 @@ impl Revolver {
                 new_hand_transform.set_rotation(
                     current_hand_transform
                         .rotation()
-                        .nlerp(camera_transform.rotation(), CAMERA_FOLLOW_LERP_FACTOR),
+                        .lerp(camera_transform.rotation(), CAMERA_FOLLOW_LERP_FACTOR),
                 );
 
                 new_hand_transform
@@ -91,13 +91,10 @@ impl Revolver {
         let last_camera_horizontal_rotation = self
             .last_camera_horizontal_rotation
             .unwrap_or(player_view_direction.horizontal);
-        let max_sway: Rad<f32> = MAX_SWAY_DEG.into();
-        self.sway += Rad(
-            (player_view_direction.horizontal - last_camera_horizontal_rotation)
-                .0
-                .clamp(-max_sway.0, max_sway.0),
-        );
-        self.sway = Rad(lerp(self.sway.0, 0.0, WEAPON_SWAY_RESET_LERP_FACTOR));
+        let max_sway: f32 = deg_to_rad(MAX_SWAY_DEG);
+        self.sway += (player_view_direction.horizontal - last_camera_horizontal_rotation)
+            .clamp(-max_sway, max_sway);
+        self.sway = lerp(self.sway, 0.0, WEAPON_SWAY_RESET_LERP_FACTOR);
 
         self.last_camera_horizontal_rotation = Some(player_view_direction.horizontal);
         self.current_hand_transform = Some(new_hand_transform);
@@ -108,8 +105,7 @@ impl Revolver {
 
         if let Some(node) = scene.get_node_mut(self.node_id) {
             node.transform.set_rotation(
-                make_quat_from_axis_angle(Vector3::new(0.0, 0.0, 1.0), self.sway)
-                    * self.base_rotation,
+                make_quat_from_axis_angle(Vec3::new(0.0, 0.0, 1.0), self.sway) * self.base_rotation,
             )
         }
     }

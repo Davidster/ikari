@@ -6,29 +6,22 @@ use std::num::{NonZeroU32, NonZeroU64};
 use super::*;
 
 use anyhow::Result;
-use cgmath::{Deg, Matrix4, One, Vector3};
+use glam::f32::{Mat4, Vec3};
 use image::Pixel;
 use wgpu::util::DeviceExt;
 
 pub const MAX_LIGHT_COUNT: usize = 32;
 pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const FAR_PLANE_DISTANCE: f32 = 100000.0;
-pub const FOV_Y: Deg<f32> = Deg(45.0);
+pub const FOV_Y_DEG: f32 = 45.0;
 pub const DEFAULT_WIREFRAME_COLOR: [f32; 4] = [0.0, 1.0, 1.0, 1.0];
 
-#[repr(C)]
+/* #[repr(C)]
 #[derive(Copy, Clone, PartialEq, Debug)]
-pub struct GpuMatrix4(pub Matrix4<f32>);
+pub struct GpuMatrix4(pub Mat4);
 
 unsafe impl bytemuck::Pod for GpuMatrix4 {}
-unsafe impl bytemuck::Zeroable for GpuMatrix4 {}
-
-#[repr(C)]
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub struct GpuMatrix3(pub cgmath::Matrix3<f32>);
-
-unsafe impl bytemuck::Pod for GpuMatrix3 {}
-unsafe impl bytemuck::Zeroable for GpuMatrix3 {}
+unsafe impl bytemuck::Zeroable for GpuMatrix4 {} */
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -108,7 +101,8 @@ impl From<&DirectionalLightComponent> for DirectionalLightUniform {
         let view_proj_matrices =
             build_directional_light_camera_view(-light.direction, 100.0, 100.0, 1000.0);
         Self {
-            world_space_to_light_space: (view_proj_matrices.proj * view_proj_matrices.view).into(),
+            world_space_to_light_space: (view_proj_matrices.proj * view_proj_matrices.view)
+                .to_cols_array_2d(),
             position: [position.x, position.y, position.z, 1.0],
             direction: [direction.x, direction.y, direction.z, 1.0],
             color: [color.x, color.y, color.z, *intensity],
@@ -119,7 +113,7 @@ impl From<&DirectionalLightComponent> for DirectionalLightUniform {
 impl Default for DirectionalLightUniform {
     fn default() -> Self {
         Self {
-            world_space_to_light_space: Matrix4::one().into(),
+            world_space_to_light_space: Mat4::IDENTITY.to_cols_array_2d(),
             position: [0.0, 0.0, 0.0, 1.0],
             direction: [0.0, -1.0, 0.0, 1.0],
             color: [0.0, 0.0, 0.0, 1.0],
@@ -153,8 +147,8 @@ struct UnlitColorUniform {
     color: [f32; 4],
 }
 
-impl From<Vector3<f32>> for UnlitColorUniform {
-    fn from(color: Vector3<f32>) -> Self {
+impl From<Vec3> for UnlitColorUniform {
+    fn from(color: Vec3) -> Self {
         Self {
             color: [color.x, color.y, color.z, 1.0],
         }
@@ -1784,7 +1778,7 @@ impl RendererState {
 
         let bones_buffer = GpuBuffer::empty(
             device,
-            std::mem::size_of::<GpuMatrix4>(),
+            std::mem::size_of::<Mat4>(),
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         );
 
@@ -2132,7 +2126,7 @@ impl RendererState {
         );
 
         let bounding_box = {
-            let mut min_point = Vector3::new(
+            let mut min_point = Vec3::new(
                 mesh.vertices[0].position[0],
                 mesh.vertices[0].position[1],
                 mesh.vertices[0].position[2],
@@ -2361,15 +2355,14 @@ impl RendererState {
                                     .transform(
                                         TransformBuilder::new()
                                             .scale(
-                                                bounding_sphere.radius
-                                                    * Vector3::new(1.0, 1.0, 1.0),
+                                                bounding_sphere.radius * Vec3::new(1.0, 1.0, 1.0),
                                             )
                                             .position(bounding_sphere.origin)
                                             .build(),
                                     )
                                     .mesh(Some(GameNodeMesh {
                                         mesh_type: GameNodeMeshType::Unlit {
-                                            color: Vector3::new(0.0, 1.0, 0.0),
+                                            color: Vec3::new(0.0, 1.0, 0.0),
                                         },
                                         mesh_indices: vec![self
                                             .sphere_mesh_index
@@ -2551,7 +2544,7 @@ impl RendererState {
                                     .0;
                                 let gpu_instance = GpuWireframeMeshInstance {
                                     color,
-                                    model_transform: GpuMatrix4(transform),
+                                    model_transform: transform,
                                 };
                                 match wireframe_mesh_index_to_gpu_instances
                                     .entry(wireframe_mesh_index)
@@ -2566,7 +2559,7 @@ impl RendererState {
                             } else {
                                 let gpu_instance = GpuUnlitMeshInstance {
                                     color,
-                                    model_transform: GpuMatrix4(transform),
+                                    model_transform: transform,
                                 };
                                 match unlit_mesh_index_to_gpu_instances.entry(mesh_index) {
                                     Entry::Occupied(mut entry) => {
@@ -2936,7 +2929,7 @@ impl RendererState {
                 self.base.window_size.width as f32 / self.base.window_size.height as f32,
                 NEAR_PLANE_DISTANCE,
                 FAR_PLANE_DISTANCE,
-                FOV_Y.into(),
+                deg_to_rad(FOV_Y_DEG),
                 true,
             ))]),
         );

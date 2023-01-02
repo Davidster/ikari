@@ -1,6 +1,7 @@
 use std::time::Instant;
 
-use cgmath::{Deg, Euler, Quaternion, Rad, Vector3};
+use glam::f32::{Quat, Vec3};
+use glam::EulerRot;
 use winit::window::CursorGrabMode;
 use winit::{
     dpi::PhysicalPosition,
@@ -33,22 +34,22 @@ pub struct PlayerController {
 
 #[derive(Copy, Clone, Debug)]
 pub struct ControlledViewDirection {
-    pub horizontal: Rad<f32>,
-    pub vertical: Rad<f32>,
+    pub horizontal: f32,
+    pub vertical: f32,
 }
 
 impl ControlledViewDirection {
-    pub fn to_quat(self) -> Quaternion<f32> {
-        Quaternion::from(Euler::new(Rad(0.0), self.horizontal, Rad(0.0)))
-            * Quaternion::from(Euler::new(self.vertical, Rad(0.0), Rad(0.0)))
+    pub fn to_quat(self) -> Quat {
+        Quat::from_euler(EulerRot::XYZ, 0.0, self.horizontal, 0.0)
+            * Quat::from_euler(EulerRot::XYZ, self.vertical, 0.0, 0.0)
     }
 
-    pub fn to_direction_vector(self) -> Vector3<f32> {
-        let horizontal_scale = self.vertical.0.cos();
-        Vector3::new(
-            (self.horizontal.0 + std::f32::consts::PI).sin() * horizontal_scale,
-            self.vertical.0.sin(),
-            (self.horizontal.0 + std::f32::consts::PI).cos() * horizontal_scale,
+    pub fn to_direction_vector(self) -> Vec3 {
+        let horizontal_scale = self.vertical.cos();
+        Vec3::new(
+            (self.horizontal + std::f32::consts::PI).sin() * horizontal_scale,
+            self.vertical.sin(),
+            (self.horizontal + std::f32::consts::PI).cos() * horizontal_scale,
         )
         .normalize()
     }
@@ -58,7 +59,7 @@ impl PlayerController {
     pub fn new(
         physics_state: &mut PhysicsState,
         speed: f32,
-        position: Vector3<f32>,
+        position: Vec3,
         view_direction: ControlledViewDirection,
     ) -> Self {
         let rigid_body = RigidBodyBuilder::dynamic()
@@ -182,21 +183,21 @@ impl PlayerController {
         if let Some((d_x, d_y)) = self.unprocessed_delta {
             let mouse_sensitivity = 0.002;
 
-            self.view_direction.horizontal += Rad(-d_x as f32 * mouse_sensitivity);
-            self.view_direction.vertical = Rad((self.view_direction.vertical.0
-                + Rad(-d_y as f32 * mouse_sensitivity).0)
-                .clamp(Rad::from(Deg(-90.0)).0, Rad::from(Deg(90.0)).0));
+            self.view_direction.horizontal += -d_x as f32 * mouse_sensitivity;
+            self.view_direction.vertical = (self.view_direction.vertical
+                + (-d_y as f32 * mouse_sensitivity))
+                .clamp(deg_to_rad(-90.0), deg_to_rad(90.0));
         }
         self.unprocessed_delta = None;
 
         let forward_direction = self.view_direction.to_direction_vector();
-        let up_direction = Vector3::new(0.0, 1.0, 0.0);
+        let up_direction = Vec3::new(0.0, 1.0, 0.0);
         let right_direction = forward_direction.cross(up_direction);
 
         let new_linear_velocity = {
-            let mut res: Option<Vector3<f32>> = None;
+            let mut res: Option<Vec3> = None;
 
-            let mut add_movement = |movement: Vector3<f32>| {
+            let mut add_movement = |movement: Vec3| {
                 res = match res {
                     Some(res) => Some(res + movement),
                     None => Some(movement),
@@ -216,7 +217,7 @@ impl PlayerController {
             }
 
             res.map(|res| res.normalize() * self.speed)
-                .unwrap_or(Vector3::new(0.0, 0.0, 0.0))
+                .unwrap_or(Vec3::new(0.0, 0.0, 0.0))
         };
 
         let rigid_body = physics_state
@@ -256,21 +257,19 @@ impl PlayerController {
             .build()
     }
 
-    pub fn position(&self, physics_state: &PhysicsState) -> Vector3<f32> {
+    pub fn position(&self, physics_state: &PhysicsState) -> Vec3 {
         let position = physics_state
             .rigid_body_set
             .get(self.rigid_body_handle)
             .unwrap()
             .translation();
-        Vector3::new(position.x, position.y, position.z)
+        Vec3::new(position.x, position.y, position.z)
     }
 
     pub fn frustum(&self, physics_state: &PhysicsState, aspect_ratio: f32) -> Frustum {
         let camera_position = self.position(physics_state);
         let camera_forward = self.view_direction.to_direction_vector();
-        let camera_right = camera_forward
-            .cross(Vector3::new(0.0, 1.0, 0.0))
-            .normalize();
+        let camera_right = camera_forward.cross(Vec3::new(0.0, 1.0, 0.0)).normalize();
 
         Frustum::from_camera_params(
             camera_position,
@@ -279,7 +278,7 @@ impl PlayerController {
             aspect_ratio,
             NEAR_PLANE_DISTANCE,
             FAR_PLANE_DISTANCE,
-            FOV_Y.into(),
+            FOV_Y_DEG,
         )
     }
 }

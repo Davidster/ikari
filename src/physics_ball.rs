@@ -1,4 +1,4 @@
-use cgmath::Vector3;
+use glam::f32::Vec3;
 
 use super::*;
 
@@ -15,12 +15,12 @@ impl PhysicsBall {
         scene: &mut Scene,
         physics_state: &mut PhysicsState,
         mesh: GameNodeMesh,
-        position: Vector3<f32>,
+        position: Vec3,
         radius: f32,
     ) -> Self {
         let transform = TransformBuilder::new()
-            .position(Vector3::new(position.x, position.y, position.z))
-            .scale(Vector3::new(radius, radius, radius))
+            .position(Vec3::new(position.x, position.y, position.z))
+            .scale(Vec3::new(radius, radius, radius))
             .build();
 
         let node = scene.add_node(
@@ -62,7 +62,7 @@ impl PhysicsBall {
         mesh: GameNodeMesh,
     ) -> Self {
         let radius = 0.2 + (rand::random::<f32>() * 0.4);
-        let position = Vector3::new(
+        let position = Vec3::new(
             ARENA_SIDE_LENGTH * (rand::random::<f32>() * 2.0 - 1.0) / 4.0,
             radius * 2.0 + rand::random::<f32>() * 15.0 + 5.0,
             ARENA_SIDE_LENGTH * (rand::random::<f32>() * 2.0 - 1.0) / 4.0,

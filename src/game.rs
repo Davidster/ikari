@@ -1,7 +1,7 @@
 use super::*;
 
 use anyhow::Result;
-use cgmath::{Deg, Rad, Vector3, Vector4};
+use glam::f32::{Vec3, Vec4};
 use rapier3d::prelude::*;
 use winit::event::{ElementState, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent};
 
@@ -10,15 +10,15 @@ pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.3;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
 pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
 pub const ARENA_SIDE_LENGTH: f32 = 500.0;
-// pub const LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.996, 0.973, 0.663);
-// pub const LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.25, 0.973, 0.663);
+// pub const LIGHT_COLOR_A: Vec3 = Vec3::new(0.996, 0.973, 0.663);
+// pub const LIGHT_COLOR_B: Vec3 = Vec3::new(0.25, 0.973, 0.663);
 
 // linear colors, not srgb
-pub const DIRECTIONAL_LIGHT_COLOR_A: Vector3<f32> = Vector3::new(0.84922975, 0.81581426, 0.8832506);
-pub const DIRECTIONAL_LIGHT_COLOR_B: Vector3<f32> = Vector3::new(0.81115574, 0.77142686, 0.8088144);
-pub const POINT_LIGHT_COLOR: Vector3<f32> = Vector3::new(0.93126976, 0.7402633, 0.49407062);
-// pub const LIGHT_COLOR_C: Vector3<f32> =
-//     Vector3::new(from_srgb(0.631), from_srgb(0.565), from_srgb(0.627));
+pub const DIRECTIONAL_LIGHT_COLOR_A: Vec3 = Vec3::new(0.84922975, 0.81581426, 0.8832506);
+pub const DIRECTIONAL_LIGHT_COLOR_B: Vec3 = Vec3::new(0.81115574, 0.77142686, 0.8088144);
+pub const POINT_LIGHT_COLOR: Vec3 = Vec3::new(0.93126976, 0.7402633, 0.49407062);
+// pub const LIGHT_COLOR_C: Vec3 =
+//     Vec3::new(from_srgb(0.631), from_srgb(0.565), from_srgb(0.627));
 
 pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: Group = Group::GROUP_1;
 
@@ -81,10 +81,10 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     let player_controller = PlayerController::new(
         &mut physics_state,
         6.0,
-        Vector3::new(8.0, 30.0, -13.0),
+        Vec3::new(8.0, 30.0, -13.0),
         ControlledViewDirection {
-            horizontal: Deg(180.0).into(),
-            vertical: Rad(0.0),
+            horizontal: deg_to_rad(180.0),
+            vertical: 0.0,
         },
     );
 
@@ -111,21 +111,21 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             animation_index,
             // revolver model
             // TransformBuilder::new()
-            //     .position(Vector3::new(0.21, -0.09, -1.0))
+            //     .position(Vec3::new(0.21, -0.09, -1.0))
             //     .rotation(make_quat_from_axis_angle(
-            //         Vector3::new(0.0, 1.0, 0.0),
-            //         Deg(180.0).into(),
+            //         Vec3::new(0.0, 1.0, 0.0),
+            //         deg_to_rad(180.0).into(),
             //     ))
-            //     .scale(0.17f32 * Vector3::new(1.0, 1.0, 1.0))
+            //     .scale(0.17f32 * Vec3::new(1.0, 1.0, 1.0))
             //     .build(),
             // colt python model
             TransformBuilder::new()
-                .position(Vector3::new(0.21, -0.13, -1.0))
+                .position(Vec3::new(0.21, -0.13, -1.0))
                 .rotation(
-                    make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(180.0).into())
-                        * make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(0.1)),
+                    make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), deg_to_rad(180.0))
+                        * make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.1),
                 )
-                .scale(2.0f32 * Vector3::new(1.0, 1.0, 1.0))
+                .scale(2.0f32 * Vec3::new(1.0, 1.0, 1.0))
                 .build(),
         ));
     }
@@ -146,7 +146,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
                 continue;
             }
             node.transform
-                .set_position(node.transform.position() + Vector3::new(0.0, 29.0, 0.0));
+                .set_position(node.transform.position() + Vec3::new(0.0, 29.0, 0.0));
         }
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
     }
@@ -239,39 +239,39 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     // add lights to the scene
     let directional_lights = vec![
         DirectionalLightComponent {
-            position: Vector3::new(1.0, 5.0, -10.0) * 10.0,
-            direction: (-Vector3::new(1.0, 5.0, -10.0)).normalize(),
+            position: Vec3::new(1.0, 5.0, -10.0) * 10.0,
+            direction: (-Vec3::new(1.0, 5.0, -10.0)).normalize(),
             color: DIRECTIONAL_LIGHT_COLOR_A,
             intensity: 1.0,
         },
         DirectionalLightComponent {
-            position: Vector3::new(-1.0, 10.0, 10.0) * 10.0,
-            direction: (-Vector3::new(-1.0, 10.0, 10.0)).normalize(),
+            position: Vec3::new(-1.0, 10.0, 10.0) * 10.0,
+            direction: (-Vec3::new(-1.0, 10.0, 10.0)).normalize(),
             color: DIRECTIONAL_LIGHT_COLOR_B,
             intensity: 1.0,
         },
     ];
     // let directional_lights: Vec<DirectionalLightComponent> = vec![];
 
-    let point_lights: Vec<(transform::Transform, Vector3<f32>, f32)> = vec![
+    let point_lights: Vec<(transform::Transform, Vec3, f32)> = vec![
         (
             TransformBuilder::new()
-                .scale(Vector3::new(0.05, 0.05, 0.05))
-                .position(Vector3::new(0.0, 12.0, 0.0))
+                .scale(Vec3::new(0.05, 0.05, 0.05))
+                .position(Vec3::new(0.0, 12.0, 0.0))
                 .build(),
             POINT_LIGHT_COLOR,
             1.0,
         ),
         // (
         //     TransformBuilder::new()
-        //         .scale(Vector3::new(0.1, 0.1, 0.1))
-        //         .position(Vector3::new(0.0, 15.0, 0.0))
+        //         .scale(Vec3::new(0.1, 0.1, 0.1))
+        //         .position(Vec3::new(0.0, 15.0, 0.0))
         //         .build(),
         //     LIGHT_COLOR_B,
         //     1.0,
         // ),
     ];
-    // let point_lights: Vec<(transform::Transform, Vector3<f32>, f32)> = vec![];
+    // let point_lights: Vec<(transform::Transform, Vec3, f32)> = vec![];
 
     let point_light_unlit_mesh_index = renderer_state.bind_basic_unlit_mesh(&sphere_mesh);
     let mut point_light_node_ids: Vec<GameNodeId> = Vec::new();
@@ -377,8 +377,8 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
                 )))
                 .transform(
                     TransformBuilder::new()
-                        .position(Vector3::new(4.0, 10.0, 4.0))
-                        // .scale(Vector3::new(0.0, 0.0, 0.0))
+                        .position(Vec3::new(4.0, 10.0, 4.0))
+                        // .scale(Vec3::new(0.0, 0.0, 0.0))
                         .build(),
                 )
                 .build(),
@@ -396,7 +396,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             .get_node_mut(legendary_robot_root_node_id)
             .unwrap()
             .transform
-            .set_position(Vector3::new(2.0, 0.0, 0.0));
+            .set_position(Vec3::new(2.0, 0.0, 0.0));
 
         let legendary_robot_skin_index = 0;
         Character::new(
@@ -546,8 +546,8 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     //         }))
     //         .transform(
     //             TransformBuilder::new()
-    //                 .scale(Vector3::new(0.5, 0.5, 0.5))
-    //                 .position(Vector3::new(0.0, 0.5, 0.0))
+    //                 .scale(Vec3::new(0.5, 0.5, 0.5))
+    //                 .position(Vec3::new(0.0, 0.5, 0.0))
     //                 .build(),
     //         )
     //         .build(),
@@ -563,7 +563,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         Default::default(),
     )?;
     let floor_transform = TransformBuilder::new()
-        .scale(Vector3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH))
+        .scale(Vec3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH))
         .build();
     let _floor_node = scene.add_node(
         GameNodeDescBuilder::new()
@@ -610,12 +610,12 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
                 )))
                 .transform(
                     TransformBuilder::new()
-                        .scale(Vector3::new(
+                        .scale(Vec3::new(
                             bouncing_ball_radius,
                             bouncing_ball_radius,
                             bouncing_ball_radius,
                         ))
-                        .position(Vector3::new(-1.0, 10.0, 0.0))
+                        .position(Vec3::new(-1.0, 10.0, 0.0))
                         .build(),
                 )
                 .build(),
@@ -727,7 +727,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         },
         Default::default(),
     )?;
-    let crosshair_color = Vector3::new(1.0, 0.0, 0.0);
+    let crosshair_color = Vec3::new(1.0, 0.0, 0.0);
     crosshair_node_id = Some(
         scene
             .add_node(
@@ -737,7 +737,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
                         mesh_type: GameNodeMeshType::Pbr {
                             material_override: Some(DynamicPbrParams {
                                 emissive_factor: crosshair_color,
-                                base_color_factor: Vector4::new(0.0, 0.0, 0.0, 1.0),
+                                base_color_factor: Vec4::new(0.0, 0.0, 0.0, 1.0),
                                 alpha_cutoff: 0.5,
                                 ..Default::default()
                             }),
@@ -990,7 +990,7 @@ pub fn update_game_state(game_state: &mut GameState, renderer_state: &RendererSt
         //     (global_time_seconds * 2.0).sin(),
         // );
         if let Some(node) = game_state.scene.get_node_mut(point_light_0.node_id) {
-            node.transform.set_position(Vector3::new(
+            node.transform.set_position(Vec3::new(
                 1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).cos(),
                 node.transform.position().y - frame_time_seconds * 0.25,
                 1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).sin(),
@@ -1029,7 +1029,7 @@ pub fn update_game_state(game_state: &mut GameState, renderer_state: &RendererSt
         .get(0)
         .map(|directional_light_0| {
             let direction = directional_light_0.direction;
-            // transform.set_position(Vector3::new(
+            // transform.set_position(Vec3::new(
             //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
             //     transform.position.get().y,
             //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
@@ -1037,7 +1037,7 @@ pub fn update_game_state(game_state: &mut GameState, renderer_state: &RendererSt
             // let color = lerp_vec(LIGHT_COLOR_B, LIGHT_COLOR_A, (time_seconds * 2.0).sin());
 
             DirectionalLightComponent {
-                direction: Vector3::new(direction.x, direction.y + 0.0001, direction.z),
+                direction: Vec3::new(direction.x, direction.y + 0.0001, direction.z),
                 ..*directional_light_0
             }
         });
@@ -1047,7 +1047,7 @@ pub fn update_game_state(game_state: &mut GameState, renderer_state: &RendererSt
 
     // rotate the test object
     let rotational_displacement =
-        make_quat_from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(frame_time_seconds / 5.0));
+        make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), frame_time_seconds / 5.0);
     if let Some(node) = game_state
         .scene
         .get_node_mut(game_state.test_object_node_id)
@@ -1121,15 +1121,15 @@ pub fn update_game_state(game_state: &mut GameState, renderer_state: &RendererSt
     {
         crosshair_node.transform = new_player_transform
             * TransformBuilder::new()
-                .position(Vector3::new(0.0, 0.0, -1.0))
+                .position(Vec3::new(0.0, 0.0, -1.0))
                 .rotation(make_quat_from_axis_angle(
-                    Vector3::new(0.0, 1.0, 0.0),
-                    Deg(90.0).into(),
+                    Vec3::new(0.0, 1.0, 0.0),
+                    deg_to_rad(90.0),
                 ))
                 .scale(
                     (1080.0 / renderer_state.base.window_size.height as f32)
                         * 0.06
-                        * Vector3::new(1.0, 1.0, 1.0),
+                        * Vec3::new(1.0, 1.0, 1.0),
                 )
                 .build();
     }

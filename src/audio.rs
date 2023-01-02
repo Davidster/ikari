@@ -1,9 +1,9 @@
 use anyhow::Result;
-use cgmath::Vector3;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     Stream,
 };
+use glam::f32::Vec3;
 use hound::{WavReader, WavSpec};
 use oddio::{
     FixedGain, FramesSignal, Gain, Handle, Mixer, SpatialBuffered, SpatialOptions, SpatialScene,
@@ -44,8 +44,8 @@ pub enum SoundSignal {
 }
 
 pub struct SpacialParams {
-    initial_position: Vector3<f32>,
-    initial_velocity: Vector3<f32>,
+    initial_position: Vec3,
+    initial_velocity: Vec3,
 }
 
 impl AudioManager {
@@ -374,7 +374,7 @@ impl Sound {
         }
     }
 
-    fn _set_motion(&mut self, position: Vector3<f32>, velocity: Vector3<f32>, discontinuity: bool) {
+    fn _set_motion(&mut self, position: Vec3, velocity: Vec3, discontinuity: bool) {
         if let SoundSignal::Spacial { signal_handle } = &mut self.signal {
             signal_handle.control::<SpatialBuffered<_>, _>().set_motion(
                 [position.x, position.y, position.z].into(),

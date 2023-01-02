@@ -1,16 +1,16 @@
-use cgmath::{Rad, Vector3};
+use glam::f32::Vec3;
 
 use super::*;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Aabb {
-    pub min: Vector3<f32>,
-    pub max: Vector3<f32>,
+    pub min: Vec3,
+    pub max: Vec3,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct Plane {
-    pub normal: Vector3<f32>,
+    pub normal: Vec3,
     pub d: f32,
 }
 
@@ -26,7 +26,7 @@ pub struct Frustum {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Sphere {
-    pub origin: Vector3<f32>,
+    pub origin: Vec3,
     pub radius: f32,
 }
 
@@ -40,8 +40,8 @@ pub enum IntersectionResult {
 impl Default for Aabb {
     fn default() -> Self {
         Self {
-            min: Vector3::new(-1.0, -1.0, -1.0),
-            max: Vector3::new(1.0, 1.0, 1.0),
+            min: Vec3::new(-1.0, -1.0, -1.0),
+            max: Vec3::new(1.0, 1.0, 1.0),
         }
     }
 }
@@ -52,22 +52,22 @@ impl Aabb {
         size.x * size.y * size.z
     }
 
-    pub fn size(&self) -> Vector3<f32> {
+    pub fn size(&self) -> Vec3 {
         self.max - self.min
     }
 
-    pub fn origin(&self) -> Vector3<f32> {
+    pub fn origin(&self) -> Vec3 {
         self.max - self.size() / 2.0
     }
 
-    pub fn vertices(&self) -> [Vector3<f32>; 8] {
+    pub fn vertices(&self) -> [Vec3; 8] {
         let size = self.size();
-        let mut vertices: [Vector3<f32>; 8] = [Vector3::zero(); 8];
+        let mut vertices: [Vec3; 8] = Default::default();
         let mut counter = 0;
         for i in 0..2 {
             for j in 0..2 {
                 for k in 0..2 {
-                    vertices[counter] = Vector3::new(
+                    vertices[counter] = Vec3::new(
                         self.min.x + size.x * i as f32,
                         self.min.y + size.y * j as f32,
                         self.min.z + size.z * k as f32,
@@ -81,8 +81,8 @@ impl Aabb {
 
     /// Taken from https://gamedev.stackexchange.com/questions/156870/how-do-i-implement-a-aabb-sphere-collision
     /// ClosestPtPointAABB
-    pub fn _find_closest_surface_point(&self, p: Vector3<f32>) -> Vector3<f32> {
-        let mut q: Vector3<f32> = Vector3::zero();
+    pub fn _find_closest_surface_point(&self, p: Vec3) -> Vec3 {
+        let mut q: Vec3 = Vec3::new(0.0, 0.0, 0.0);
         for i in 0..3 {
             let mut v = p[i];
             v = v.clamp(self.min[i], self.max[i]);
@@ -91,7 +91,7 @@ impl Aabb {
         q
     }
 
-    pub fn contains_point(&self, point: Vector3<f32>) -> bool {
+    pub fn contains_point(&self, point: Vec3) -> bool {
         self.min.x < point.x
             && self.max.x > point.x
             && self.min.y < point.y
@@ -108,7 +108,7 @@ impl Aabb {
 
         let closest_surface_point = self._find_closest_surface_point(sphere.origin);
         let delta = closest_surface_point - sphere.origin;
-        let distance = delta.magnitude();
+        let distance = delta.length();
         distance < sphere.radius
     }
 
@@ -130,7 +130,7 @@ impl Aabb {
         (0..2).flat_map(move |i| {
             (0..2).flat_map(move |j| {
                 (0..2).map(move |k| {
-                    let offset = Vector3::new(
+                    let offset = Vec3::new(
                         self.min.x + i as f32 * new_size.x,
                         self.min.y + j as f32 * new_size.y,
                         self.min.z + k as f32 * new_size.z,
@@ -146,7 +146,7 @@ impl Aabb {
 }
 
 impl Plane {
-    pub fn from_normal_and_point(normal: Vector3<f32>, point: Vector3<f32>) -> Self {
+    pub fn from_normal_and_point(normal: Vec3, point: Vec3) -> Self {
         Self {
             normal: normal.normalize(),
             d: -normal.normalize().dot(point),
@@ -156,7 +156,7 @@ impl Plane {
 
 impl Sphere {
     pub fn aabb(&self) -> Aabb {
-        let sphere_bb_half_size = Vector3::new(self.radius, self.radius, self.radius);
+        let sphere_bb_half_size = Vec3::new(self.radius, self.radius, self.radius);
         Aabb {
             min: self.origin - sphere_bb_half_size,
             max: self.origin + sphere_bb_half_size,
@@ -166,17 +166,17 @@ impl Sphere {
 
 impl Frustum {
     pub fn from_camera_params(
-        position: Vector3<f32>,
-        forward: Vector3<f32>,
-        right: Vector3<f32>,
+        position: Vec3,
+        forward: Vec3,
+        right: Vec3,
         aspect_ratio: f32,
         near_plane_distance: f32,
         far_plane_distance: f32,
-        fov_y: Rad<f32>,
+        fov_y_deg: f32,
     ) -> Self {
         // see https://learnopengl.com/Guest-Articles/2021/Scene/Frustum-Culling
         let up = right.cross(forward).normalize();
-        let half_v_side = far_plane_distance * (fov_y.0 * 0.5).tan();
+        let half_v_side = far_plane_distance * (fov_y_deg * 0.5).tan();
         let half_h_side = half_v_side * aspect_ratio;
         let front_mult_far = far_plane_distance * forward;
 
@@ -215,7 +215,7 @@ impl Frustum {
 
     /// See https://gdbooks.gitbooks.io/legacyopengl/content/Chapter8/halfspace.html
     /// and https://gdbooks.gitbooks.io/legacyopengl/content/Chapter8/frustum.html
-    pub fn _contains_point(&self, point: Vector3<f32>) -> bool {
+    pub fn _contains_point(&self, point: Vec3) -> bool {
         for plane in self.planes() {
             if plane.normal.dot(point) + plane.d < 0.0 {
                 return false;

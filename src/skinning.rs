@@ -1,6 +1,6 @@
 use std::collections::{hash_map::Entry, HashMap};
 
-use cgmath::Matrix4;
+use glam::f32::Mat4;
 
 use super::*;
 
@@ -21,13 +21,13 @@ pub fn get_all_bone_data(
     scene: &Scene,
     min_storage_buffer_offset_alignment: u32,
 ) -> AllBoneTransforms {
-    let matrix_size_bytes = std::mem::size_of::<GpuMatrix4>();
+    let matrix_size_bytes = std::mem::size_of::<Mat4>();
     let identity_bone_count = 4;
     let identity_slice = (0, identity_bone_count * matrix_size_bytes);
 
     let mut buffer: Vec<u8> = bytemuck::cast_slice(
         &((0..identity_bone_count)
-            .map(|_| GpuMatrix4(Matrix4::one()))
+            .map(|_| Mat4::IDENTITY)
             .collect::<Vec<_>>()),
     )
     .to_vec();
@@ -63,13 +63,13 @@ pub fn get_all_bone_data(
                             .iter()
                             .enumerate()
                             .map(|(bone_index, bone_node_id)| {
-                                GpuMatrix4(get_bone_skeleton_space_transform(
+                                get_bone_skeleton_space_transform(
                                     scene,
                                     skin,
                                     skin.node_id,
                                     bone_index,
                                     *bone_node_id,
-                                ))
+                                )
                             })
                             .collect();
 
@@ -108,7 +108,7 @@ pub fn get_bone_skeleton_space_transform(
     skeleton_skin_node_id: GameNodeId,
     bone_index: usize,
     bone_node_id: GameNodeId,
-) -> Matrix4<f32> {
+) -> Mat4 {
     let node_ancestry_list =
         scene.get_skeleton_node_ancestry_list(bone_node_id, skeleton_skin_node_id);
 

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, hash::BuildHasherDefault};
 
-use cgmath::{Matrix4, Vector3, Vector4};
+use glam::f32::{Mat4, Vec3, Vec4};
 use twox_hash::XxHash64;
 
 use super::*;
@@ -8,8 +8,8 @@ use super::*;
 #[derive(Debug, Default)]
 pub struct Scene {
     nodes: Vec<(Option<GameNode>, usize)>, // (node, generation number). None means the node was removed from the scene
-    // node_transforms: Vec<Matrix4<f32>>,
-    global_node_transforms: Vec<Matrix4<f32>>,
+    // node_transforms: Vec<Mat4>,
+    global_node_transforms: Vec<Mat4>,
     pub skins: Vec<Skin>,
     pub animations: Vec<Animation>,
     // skeleton skin node index -> parent_index_map
@@ -53,7 +53,7 @@ pub enum GameNodeMeshType {
         material_override: Option<DynamicPbrParams>,
     },
     Unlit {
-        color: Vector3<f32>,
+        color: Vec3,
     },
 }
 
@@ -61,7 +61,7 @@ pub enum GameNodeMeshType {
 pub struct Skin {
     pub node_id: GameNodeId,
     pub bone_node_ids: Vec<GameNodeId>,
-    pub bone_inverse_bind_matrices: Vec<Matrix4<f32>>,
+    pub bone_inverse_bind_matrices: Vec<Mat4>,
     // each transform moves a 2x2x2 box centered at the origin
     // such that it surrounds the bone's vertices in bone space
     pub bone_bounding_box_transforms: Vec<crate::transform::Transform>,
@@ -79,7 +79,7 @@ pub struct IndexedGameNodeDesc {
 #[derive(Debug, Clone)]
 pub struct IndexedSkin {
     pub bone_node_indices: Vec<usize>,
-    pub bone_inverse_bind_matrices: Vec<Matrix4<f32>>,
+    pub bone_inverse_bind_matrices: Vec<Mat4>,
     pub bone_bounding_box_transforms: Vec<crate::transform::Transform>,
 }
 
@@ -212,7 +212,7 @@ impl Scene {
             let transform = node
                 .as_ref()
                 .map(|node| self.get_global_transform_for_node_internal(node.id()))
-                .unwrap_or_else(Matrix4::identity);
+                .unwrap_or(Mat4::IDENTITY);
             if node_index < self.global_node_transforms.len() {
                 self.global_node_transforms[node_index] = transform;
             } else {
@@ -412,7 +412,7 @@ impl Scene {
     }
 
     // #[profiling::function]
-    fn get_global_transform_for_node_internal(&self, node_id: GameNodeId) -> Matrix4<f32> {
+    fn get_global_transform_for_node_internal(&self, node_id: GameNodeId) -> Mat4 {
         let mut node_ancestry_list: [u32; MAX_NODE_HIERARCHY_LEVELS] =
             [0; MAX_NODE_HIERARCHY_LEVELS];
         let mut ancestry_length = 0;
@@ -421,7 +421,7 @@ impl Scene {
             node_ancestry_list[i] = node_index;
             ancestry_length += 1;
         }
-        let mut acc: Matrix4<f32> = Matrix4::identity();
+        let mut acc: Mat4 = Mat4::IDENTITY;
         for ancestry_list_index in (0..ancestry_length).rev() {
             let node_index = node_ancestry_list[ancestry_list_index];
             let (node, _) = &self.nodes[node_index as usize];
@@ -430,7 +430,7 @@ impl Scene {
         acc
     }
 
-    pub fn get_global_transform_for_node_opt(&self, node_id: GameNodeId) -> Matrix4<f32> {
+    pub fn get_global_transform_for_node_opt(&self, node_id: GameNodeId) -> Mat4 {
         let GameNodeId(node_index, _) = node_id;
         self.global_node_transforms[node_index as usize]
     }
@@ -541,28 +541,28 @@ impl Scene {
 
 fn build_node_bounding_sphere(
     mesh: &GameNodeMesh,
-    global_transform: &Matrix4<f32>,
+    global_transform: &Mat4,
     renderer_state: &RendererState,
 ) -> Sphere {
-    let global_node_scale = Vector3::new(
-        Vector3::new(
-            global_transform.x.x,
-            global_transform.x.y,
-            global_transform.x.z,
+    let global_node_scale = Vec3::new(
+        Vec3::new(
+            global_transform.x_axis.x,
+            global_transform.x_axis.y,
+            global_transform.x_axis.z,
         )
-        .magnitude(),
-        Vector3::new(
-            global_transform.y.x,
-            global_transform.y.y,
-            global_transform.y.z,
+        .length(),
+        Vec3::new(
+            global_transform.y_axis.x,
+            global_transform.y_axis.y,
+            global_transform.y_axis.z,
         )
-        .magnitude(),
-        Vector3::new(
-            global_transform.z.x,
-            global_transform.z.y,
-            global_transform.z.z,
+        .length(),
+        Vec3::new(
+            global_transform.z_axis.x,
+            global_transform.z_axis.y,
+            global_transform.z_axis.z,
         )
-        .magnitude(),
+        .length(),
     );
     let largest_axis_scale = global_node_scale
         .x
@@ -592,15 +592,15 @@ fn build_node_bounding_sphere(
         }
     }
 
-    let transform_point = |point: Vector3<f32>| {
-        let transformed = global_transform * Vector4::new(point.x, point.y, point.z, 1.0);
-        Vector3::new(transformed.x, transformed.y, transformed.z)
+    let transform_point = |point: Vec3| {
+        let transformed = *global_transform * Vec4::new(point.x, point.y, point.z, 1.0);
+        Vec3::new(transformed.x, transformed.y, transformed.z)
     };
 
     let origin = transform_point((merged_aabb.max + merged_aabb.min) / 2.0);
 
     let half_length = (merged_aabb.max - merged_aabb.min) / 2.0;
-    let radius = largest_axis_scale * half_length.magnitude();
+    let radius = largest_axis_scale * half_length.length();
 
     Sphere { origin, radius }
 }
@@ -633,7 +633,7 @@ impl Default for GameNodeMesh {
     fn default() -> Self {
         Self {
             mesh_type: GameNodeMeshType::Unlit {
-                color: Vector3::zero(),
+                color: Vec3::default(),
             },
             mesh_indices: vec![],
             wireframe: false,

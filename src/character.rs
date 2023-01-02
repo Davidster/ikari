@@ -1,4 +1,4 @@
-use cgmath::Vector3;
+use glam::f32::Vec3;
 
 use super::*;
 
@@ -101,10 +101,10 @@ impl Character {
                             transform_decomposed.position.z,
                         ),
                         nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
-                            transform_decomposed.rotation.s,
-                            transform_decomposed.rotation.v.x,
-                            transform_decomposed.rotation.v.y,
-                            transform_decomposed.rotation.v.z,
+                            transform_decomposed.rotation.w,
+                            transform_decomposed.rotation.x,
+                            transform_decomposed.rotation.y,
+                            transform_decomposed.rotation.z,
                         )),
                     ))
                 }
@@ -134,7 +134,7 @@ impl Character {
                         })
                         .unwrap_or_else(|| vec![self.collision_debug_mesh_index]),
                     mesh_type: GameNodeMeshType::Unlit {
-                        color: Vector3::new(1.0, 0.0, 0.0),
+                        color: Vec3::new(1.0, 0.0, 0.0),
                     },
                     wireframe: true,
                     ..Default::default()
@@ -161,7 +161,7 @@ impl Character {
                         })
                         .unwrap_or_else(|| vec![self.collision_debug_mesh_index]),
                     mesh_type: GameNodeMeshType::Unlit {
-                        color: Vector3::new(rand::random(), rand::random(), rand::random()),
+                        color: Vec3::new(rand::random(), rand::random(), rand::random()),
                     },
                     wireframe: true,
                     ..Default::default()

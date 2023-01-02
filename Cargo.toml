@@ -49,9 +49,10 @@ wgpu = "0.14"
 winit = "0.27"
 
 # math
-cgmath = "0.18"
 rand = "0.8"
 rapier3d = "0.16"
+glam = { version = "0.22.0", features = ["approx", "bytemuck"] }
+approx = "0.5.1"
 
 # audio
 cpal = "0.14"
@@ -65,4 +66,4 @@ opt-level = 0
 [profile.release]
 incremental = false
 codegen-units = 1
-# debug = true
+debug = true

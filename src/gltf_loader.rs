@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use anyhow::{bail, Result};
-use cgmath::{abs_diff_eq, Matrix4, Vector2, Vector3, Vector4};
+use approx::abs_diff_eq;
+use glam::f32::{Mat4, Vec2, Vec3, Vec4};
 
 use super::*;
 
@@ -219,14 +220,13 @@ pub fn build_scene(
                     Ok(bytemuck::cast_slice::<_, [[f32; 4]; 4]>(&matrices_u8)
                         .to_vec()
                         .iter()
-                        .cloned()
-                        .map(Matrix4::from)
+                        .map(Mat4::from_cols_array_2d)
                         .collect())
                 })
                 .transpose()?
                 .unwrap_or_else(|| {
                     (0..bone_node_indices.len())
-                        .map(|_| Matrix4::one())
+                        .map(|_| Mat4::IDENTITY)
                         .collect()
                 });
 
@@ -254,7 +254,7 @@ pub fn build_scene(
                                 })
                         })
                         .map(|vertex| {
-                            let position = Vector4::new(
+                            let position = Vec4::new(
                                 vertex.position[0],
                                 vertex.position[1],
                                 vertex.position[2],
@@ -265,10 +265,10 @@ pub fn build_scene(
                         .collect();
                     if vertex_positions_for_node.is_empty() {
                         return TransformBuilder::new()
-                            .scale(Vector3::new(0.0, 0.0, 0.0))
+                            .scale(Vec3::new(0.0, 0.0, 0.0))
                             .build();
                     }
-                    let mut min_point = Vector3::new(
+                    let mut min_point = Vec3::new(
                         vertex_positions_for_node[0].x,
                         vertex_positions_for_node[0].y,
                         vertex_positions_for_node[0].z,
@@ -538,8 +538,8 @@ fn get_dynamic_pbr_params(material: &gltf::material::Material) -> DynamicPbrPara
     let pbr_info = material.pbr_metallic_roughness();
 
     DynamicPbrParams {
-        base_color_factor: Vector4::from(pbr_info.base_color_factor()),
-        emissive_factor: Vector3::from(material.emissive_factor()),
+        base_color_factor: Vec4::from(pbr_info.base_color_factor()),
+        emissive_factor: Vec3::from(material.emissive_factor()),
         metallic_factor: pbr_info.metallic_factor(),
         roughness_factor: pbr_info.roughness_factor(),
         normal_scale: material
@@ -580,7 +580,7 @@ pub fn build_geometry_buffers(
     primitive_group: &gltf::mesh::Primitive,
     buffers: &[gltf::buffer::Data],
 ) -> Result<(Vec<Vertex>, GeometryBuffers, GpuBuffer, wgpu::IndexFormat)> {
-    let vertex_positions: Vec<Vector3<f32>> = {
+    let vertex_positions: Vec<Vec3> = {
         let (_, accessor) = primitive_group
             .attributes()
             .find(|(semantic, _)| *semantic == gltf::Semantic::Positions)
@@ -595,14 +595,7 @@ pub fn build_geometry_buffers(
         }
         let positions_u8 = get_buffer_slice_from_accessor(accessor, buffers);
         let positions: &[[f32; 3]] = bytemuck::cast_slice(&positions_u8);
-        anyhow::Ok(
-            positions
-                .to_vec()
-                .iter()
-                .copied()
-                .map(Vector3::from)
-                .collect(),
-        )
+        anyhow::Ok(positions.to_vec().iter().copied().map(Vec3::from).collect())
     }?;
     let vertex_position_count = vertex_positions.len();
     let bounding_box = {
@@ -731,7 +724,7 @@ pub fn build_geometry_buffers(
         });
     let vertex_color_count = vertex_colors.len();
 
-    let vertex_normals: Vec<Vector3<f32>> = primitive_group
+    let vertex_normals: Vec<Vec3> = primitive_group
         .attributes()
         .find(|(semantic, _)| *semantic == gltf::Semantic::Normals)
         .map(|(_, accessor)| {
@@ -745,19 +738,13 @@ pub fn build_geometry_buffers(
             }
             let normals_u8 = get_buffer_slice_from_accessor(accessor, buffers);
             let normals: &[[f32; 3]] = bytemuck::cast_slice(&normals_u8);
-            Ok(normals
-                .to_vec()
-                .iter()
-                .copied()
-                .map(Vector3::from)
-                .collect())
+            Ok(normals.to_vec().iter().copied().map(Vec3::from).collect())
         })
         .transpose()?
         .unwrap_or_else(|| {
             // compute normals
             // key is flattened vertex position, value is accumulated normal and count
-            let mut vertex_normal_accumulators: HashMap<usize, (Vector3<f32>, usize)> =
-                HashMap::new();
+            let mut vertex_normal_accumulators: HashMap<usize, (Vec3, usize)> = HashMap::new();
             triangles_as_index_tuples
                 .iter()
                 .copied()
@@ -765,15 +752,15 @@ pub fn build_geometry_buffers(
                     let a = vertex_positions[index_a];
                     let b = vertex_positions[index_b];
                     let c = vertex_positions[index_c];
-                    let a_to_b = Vector3::new(b[0], b[1], b[2]) - Vector3::new(a[0], a[1], a[2]);
-                    let a_to_c = Vector3::new(c[0], c[1], c[2]) - Vector3::new(a[0], a[1], a[2]);
+                    let a_to_b = Vec3::new(b[0], b[1], b[2]) - Vec3::new(a[0], a[1], a[2]);
+                    let a_to_c = Vec3::new(c[0], c[1], c[2]) - Vec3::new(a[0], a[1], a[2]);
                     let normal = a_to_b.cross(a_to_c).normalize();
                     vec![index_a, index_b, index_c]
                         .iter()
                         .for_each(|vertex_index| {
                             let (accumulated_normal, count) = vertex_normal_accumulators
                                 .entry(*vertex_index)
-                                .or_insert((Vector3::new(0.0, 0.0, 0.0), 0));
+                                .or_insert((Vec3::new(0.0, 0.0, 0.0), 0));
                             *accumulated_normal += normal;
                             *count += 1;
                         });
@@ -782,7 +769,7 @@ pub fn build_geometry_buffers(
                 .map(|vertex_index| {
                     let (accumulated_normal, count) =
                         vertex_normal_accumulators.get(&vertex_index).unwrap();
-                    accumulated_normal / (*count as f32)
+                    *accumulated_normal / (*count as f32)
                 })
                 .collect()
         });
@@ -911,8 +898,7 @@ pub fn build_geometry_buffers(
                 .enumerate()
                 .map(|(vertex_index, tangent_slice)| {
                     let normal = vertex_normals[vertex_index];
-                    let tangent =
-                        Vector3::new(tangent_slice[0], tangent_slice[1], tangent_slice[2]);
+                    let tangent = Vec3::new(tangent_slice[0], tangent_slice[1], tangent_slice[2]);
                     // handedness is stored in w component: http://foundationsofgameenginedev.com/FGED2-sample.pdf
                     let coordinate_system_handedness =
                         if tangent_slice[3] > 0.0 { -1.0 } else { 1.0 };
@@ -935,9 +921,9 @@ pub fn build_geometry_buffers(
                             let norm = vertex_normals[index];
                             let tc = vertex_tex_coords[index];
                             (
-                                Vector3::new(pos[0], pos[1], pos[2]),
-                                Vector3::new(norm[0], norm[1], norm[2]),
-                                Vector2::new(tc[0], tc[1]),
+                                Vec3::new(pos[0], pos[1], pos[2]),
+                                Vec3::new(norm[0], norm[1], norm[2]),
+                                Vec2::new(tc[0], tc[1]),
                             )
                         })
                         .collect();
@@ -952,15 +938,15 @@ pub fn build_geometry_buffers(
 
                     let (tangent, bitangent) = {
                         if abs_diff_eq!(f, 0.0, epsilon = 0.00001) || !f.is_finite() {
-                            (Vector3::new(1.0, 0.0, 0.0), Vector3::new(0.0, 1.0, 0.0))
+                            (Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0))
                         } else {
-                            let tangent = Vector3::new(
+                            let tangent = Vec3::new(
                                 f * (delta_uv_2.y * edge_1.x - delta_uv_1.y * edge_2.x),
                                 f * (delta_uv_2.y * edge_1.y - delta_uv_1.y * edge_2.y),
                                 f * (delta_uv_2.y * edge_1.z - delta_uv_1.y * edge_2.z),
                             );
 
-                            let bitangent = Vector3::new(
+                            let bitangent = Vec3::new(
                                 f * (-delta_uv_2.x * edge_1.x + delta_uv_1.x * edge_2.x),
                                 f * (-delta_uv_2.x * edge_1.y + delta_uv_1.x * edge_2.y),
                                 f * (-delta_uv_2.x * edge_1.z + delta_uv_1.x * edge_2.z),
@@ -977,7 +963,7 @@ pub fn build_geometry_buffers(
 
     let vertices_with_all_data: Vec<_> = (0..(vertex_position_count))
         .map(|index| {
-            let to_arr = |vec: &Vector3<f32>| [vec.x, vec.y, vec.z];
+            let to_arr = |vec: &Vec3| [vec.x, vec.y, vec.z];
             let (tangent, bitangent) = vertex_tangents_and_bitangents[index];
             Vertex {
                 position: vertex_positions[index].into(),
