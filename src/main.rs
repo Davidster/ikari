@@ -105,7 +105,13 @@ fn main() {
     env_logger::init();
 
     #[cfg(feature = "profile-with-tracy")]
-    profiling::tracy_client::Client::start();
+    {
+        use profiling::tracy_client::ProfiledAllocator;
+        #[global_allocator]
+        static GLOBAL: ProfiledAllocator<std::alloc::System> = ProfiledAllocator::new(std::alloc::System, 100);
+
+        profiling::tracy_client::Client::start();
+    }
 
     pollster::block_on(start());
 }
