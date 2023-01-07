@@ -23,15 +23,15 @@ tracy = ["profiling/profile-with-tracy"]
 tracy_n_alloc = ["tracy"]
 
 [dependencies]
-bytemuck = { version = "1", features = ["derive"] }
-half = "2"
+bytemuck = { version = "1.12", features = ["derive"] }
+half = "2.2"
 pollster = "0.2"
 twox-hash = "1.6"
-lazy_static = "1.4.0"
-smallvec = { version = "1.10.0", features = ["union", "const_generics"] }
+lazy_static = "1.4"
+smallvec = { version = "1.10", features = ["union", "const_generics"] }
 
 # log
-anyhow = { version = "1", features = ["backtrace"] }
+anyhow = { version = "1.0", features = ["backtrace"] }
 console = "0.15"
 env_logger = { version = "0.10", default-features = false, features = ["auto-color", "humantime"] }
 log = "0.4"
@@ -40,10 +40,10 @@ log = "0.4"
 profiling = "1.0.7" # The version should be the one used by wgpu-core/hal
 
 # assets
-gltf = "1"
+gltf = "1.0"
 image = { version = "0.23.14", default-features = false, features = ["hdr", "jpeg"] } # The version should be the one used by gltf crate
 obj-rs = "0.7"
-wavefront_obj = "10"
+wavefront_obj = "10.0"
 
 # surface
 wgpu = "0.14"
@@ -52,12 +52,12 @@ winit = "0.27"
 # math
 rand = "0.8"
 rapier3d = "0.16"
-glam = { version = "0.22.0", features = ["approx", "bytemuck"] }
-approx = "0.5.1"
+glam = { version = "0.22", features = ["approx", "bytemuck"] }
+approx = "0.5"
 
 # audio
 cpal = "0.14"
-hound = "3"
+hound = "3.5"
 minimp3 = "0.5"
 oddio = "0.6"
 
