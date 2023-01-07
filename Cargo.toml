@@ -20,7 +20,7 @@ default = []
 #Not supported at this time #profile-with-superluminal = ["profiling/profile-with-superluminal"]
 #Not supported at this time #profile-with-tracing = ["profiling/profile-with-tracing"]
 tracy = ["profiling/profile-with-tracy"]
-tracy_n_alloc = ["tracy"]
+tracy-n-alloc = ["tracy"]
 
 [dependencies]
 bytemuck = { version = "1.12", features = ["derive"] }

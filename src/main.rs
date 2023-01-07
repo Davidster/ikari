@@ -104,7 +104,7 @@ async fn start() {
 fn main() {
     env_logger::init();
 
-    #[cfg(feature = "tracy_n_alloc")]
+    #[cfg(feature = "tracy-n-alloc")]
     {
         use profiling::tracy_client::ProfiledAllocator;
         #[global_allocator]
