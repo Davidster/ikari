@@ -345,7 +345,7 @@ impl Scene {
             .map(|mesh| {
                 build_node_bounding_sphere(
                     mesh,
-                    &self.get_global_transform_for_node_opt(node_id).into(),
+                    &self.get_global_transform_for_node_opt(node_id),
                     renderer_state,
                 )
             })
