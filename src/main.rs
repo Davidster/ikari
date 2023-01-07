@@ -104,14 +104,15 @@ async fn start() {
 fn main() {
     env_logger::init();
 
-    #[cfg(feature = "profile-with-tracy")]
+    #[cfg(feature = "tracy_n_alloc")]
     {
         use profiling::tracy_client::ProfiledAllocator;
         #[global_allocator]
-        static GLOBAL: ProfiledAllocator<std::alloc::System> = ProfiledAllocator::new(std::alloc::System, 100);
-
-        profiling::tracy_client::Client::start();
+        static GLOBAL: ProfiledAllocator<std::alloc::System> =
+            ProfiledAllocator::new(std::alloc::System, 100);
     }
+    #[cfg(feature = "tracy")]
+    profiling::tracy_client::Client::start();
 
     pollster::block_on(start());
 }

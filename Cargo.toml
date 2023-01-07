@@ -6,7 +6,7 @@ authors = [
     "Ikari Contributors https://github.com/Davidster/ikari/graphs/contributors"
 ]
 edition = "2021"
-rust-version = "1.65"
+rust-version = "1.66"
 description = "3D renderer that will be used to make a simple first person shooter"
 repository = "https://github.com/Davidster/ikari"
 license = "MIT"
@@ -19,7 +19,8 @@ default = []
 #Not supported at this time #profile-with-optick = ["profiling/profile-with-optick"]
 #Not supported at this time #profile-with-superluminal = ["profiling/profile-with-superluminal"]
 #Not supported at this time #profile-with-tracing = ["profiling/profile-with-tracing"]
-profile-with-tracy = ["profiling/profile-with-tracy"]
+tracy = ["profiling/profile-with-tracy"]
+tracy_n_alloc = ["tracy"]
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
@@ -60,10 +61,5 @@ hound = "3"
 minimp3 = "0.5"
 oddio = "0.6"
 
-[profile.dev]
-opt-level = 0
-
 [profile.release]
-incremental = false
-codegen-units = 1
-debug = true
+#debug = true
