@@ -46,8 +46,7 @@ obj-rs = "0.7"
 wavefront_obj = "10.0"
 
 # surface
-wgpu = { path = "../wgpu-fork/wgpu" }
-# wgpu = "0.15"
+wgpu = { git = "https://github.com/gfx-rs/wgpu", branch = "master" }
 winit = "0.27"
 
 # math

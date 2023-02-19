@@ -2823,6 +2823,7 @@ dependencies = [
 [[package]]
 name = "wgpu"
 version = "0.15.0"
+source = "git+https://github.com/gfx-rs/wgpu?branch=master#e18520078a3eab5a5fc6beee974033e8a98822f3"
 dependencies = [
  "arrayvec 0.7.2",
  "cfg-if",
@@ -2845,6 +2846,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "0.15.0"
+source = "git+https://github.com/gfx-rs/wgpu?branch=master#e18520078a3eab5a5fc6beee974033e8a98822f3"
 dependencies = [
  "arrayvec 0.7.2",
  "bit-vec",
@@ -2866,6 +2868,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "0.15.1"
+source = "git+https://github.com/gfx-rs/wgpu?branch=master#e18520078a3eab5a5fc6beee974033e8a98822f3"
 dependencies = [
  "android_system_properties",
  "arrayvec 0.7.2",
@@ -2906,6 +2909,7 @@ dependencies = [
 [[package]]
 name = "wgpu-types"
 version = "0.15.0"
+source = "git+https://github.com/gfx-rs/wgpu?branch=master#e18520078a3eab5a5fc6beee974033e8a98822f3"
 dependencies = [
  "bitflags",
  "js-sys",
