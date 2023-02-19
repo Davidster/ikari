@@ -56,10 +56,10 @@ fn cubemap_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 // for mapping equirectangular to cubemap
 
-let pi: f32 = 3.141592653589793;
-let two_pi: f32 = 6.283185307179586;
-let half_pi: f32 = 1.570796326794897;
-let epsilon: f32 = 0.00001;
+const pi: f32 = 3.141592653589793;
+const two_pi: f32 = 6.283185307179586;
+const half_pi: f32 = 1.570796326794897;
+const epsilon: f32 = 0.00001;
 
 // https://learnopengl.com/PBR/Theory
 fn normal_distribution_func_tr_ggx(
@@ -121,7 +121,7 @@ fn importance_sampled_ggx(x_i: vec2<f32>, n: vec3<f32>, a: f32) -> vec3<f32> {
     );
 
     var up: vec3<f32>;
-    if (abs(n.z) < 0.999) {
+    if abs(n.z) < 0.999 {
         up = vec3<f32>(0.0, 0.0, 1.0);
     } else {
         up = vec3<f32>(1.0, 0.0, 0.0);

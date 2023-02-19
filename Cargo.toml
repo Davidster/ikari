@@ -46,7 +46,8 @@ obj-rs = "0.7"
 wavefront_obj = "10.0"
 
 # surface
-wgpu = "0.14"
+wgpu = { path = "../wgpu-fork/wgpu" }
+# wgpu = "0.15"
 winit = "0.27"
 
 # math
@@ -63,3 +64,6 @@ oddio = "0.6"
 
 [profile.release]
 #debug = true
+incremental = false
+codegen-units = 1
+debug = true
