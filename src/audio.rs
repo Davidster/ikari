@@ -74,6 +74,7 @@ impl AudioManager {
             move |err| {
                 eprintln!("{}", err);
             },
+            None,
         )?;
         let mixer_output_stream = device.build_output_stream(
             &config,
@@ -84,6 +85,7 @@ impl AudioManager {
             move |err| {
                 eprintln!("{}", err);
             },
+            None,
         )?;
         spatial_scene_output_stream.play()?;
         mixer_output_stream.play()?;

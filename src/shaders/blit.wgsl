@@ -105,7 +105,7 @@ fn bloom_blur_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex_dimension_f32 = vec2<f32>(f32(tex_dimensions.x), f32(tex_dimensions.y));
     let tex_offset = 1.0 / tex_dimension_f32;
     var result = textureSample(texture_1, sampler_1, in.tex_coords).rgb * gaussian_blur_weights[0];
-    if (bloom_config.direction == 0.0) {
+    if bloom_config.direction == 0.0 {
         for (var i = 1; i < 5; i = i + 1) {
             result = result + textureSample(
                 texture_1,
@@ -137,10 +137,10 @@ fn bloom_blur_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 // BRDF LUT:
 
-let pi: f32 = 3.141592653589793;
-let two_pi: f32 = 6.283185307179586;
-let half_pi: f32 = 1.570796326794897;
-let epsilon: f32 = 0.00001;
+const pi: f32 = 3.141592653589793;
+const two_pi: f32 = 6.283185307179586;
+const half_pi: f32 = 1.570796326794897;
+const epsilon: f32 = 0.00001;
 
 fn geometry_func_schlick_ggx_k_direct(
     a: f32,
@@ -189,7 +189,7 @@ fn importance_sampled_ggx(x_i: vec2<f32>, n: vec3<f32>, a: f32) -> vec3<f32> {
     );
 
     var up: vec3<f32>;
-    if (abs(n.z) < 0.999) {
+    if abs(n.z) < 0.999 {
         up = vec3<f32>(0.0, 0.0, 1.0);
     } else {
         up = vec3<f32>(1.0, 0.0, 0.0);
@@ -259,7 +259,7 @@ fn integrate_brdf(n_dot_v: f32, roughness: f32) -> vec2<f32> {
         let n_dot_h = max(h.z, 0.0);
         let v_dot_h = max(dot(v, h), 0.0);
 
-        if (n_dot_l > 0.0) {
+        if n_dot_l > 0.0 {
             let k = geometry_func_schlick_ggx_k_ibl(roughness); // 0.41
             let g = geometry_func_smith_ggx(k, n, v, l); // 0.95
             let g_vis = (g * v_dot_h) / (n_dot_h * n_dot_v); // 0.956

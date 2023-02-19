@@ -10,8 +10,8 @@ struct CameraUniform {
 @group(0) @binding(0)
 var<uniform> camera: CameraUniform;
 
-let MAX_LIGHTS = 32u;
-let MAX_BONES = 512u;
+const MAX_LIGHTS = 32u;
+const MAX_BONES = 512u;
 
 struct PointLight {
     position: vec4<f32>,
@@ -281,10 +281,10 @@ var directional_shadow_map_textures: texture_2d_array<f32>;
 var directional_shadow_map_sampler: sampler;
 
 
-let pi: f32 = 3.141592653589793;
-let two_pi: f32 = 6.283185307179586;
-let half_pi: f32 = 1.570796326794897;
-let epsilon: f32 = 0.00001;
+const pi: f32 = 3.141592653589793;
+const two_pi: f32 = 6.283185307179586;
+const half_pi: f32 = 1.570796326794897;
+const epsilon: f32 = 0.00001;
 
 // https://learnopengl.com/PBR/Theory
 fn normal_distribution_func_tr_ggx(

@@ -5,7 +5,6 @@ mod buffer;
 mod camera;
 mod character;
 mod collisions;
-mod default_textures;
 mod game;
 mod game_state;
 mod gameloop;
@@ -19,6 +18,7 @@ mod physics_ball;
 mod player_controller;
 mod renderer;
 mod revolver;
+mod sampler_cache;
 mod scene;
 mod scene_tree;
 mod skinning;
@@ -33,7 +33,6 @@ use buffer::*;
 use camera::*;
 use character::*;
 use collisions::*;
-use default_textures::*;
 use game::*;
 use game_state::*;
 use gltf_loader::*;
@@ -47,6 +46,7 @@ use player_controller::*;
 use rapier3d::prelude::*;
 use renderer::*;
 use revolver::*;
+use sampler_cache::*;
 use scene::*;
 use skinning::*;
 use texture::*;
@@ -77,7 +77,8 @@ async fn start() {
         let backends = if cfg!(target_os = "linux") {
             wgpu::Backends::from(wgpu::Backend::Vulkan)
         } else {
-            wgpu::Backends::all()
+            // wgpu::Backends::from(wgpu::Backend::Dx12)
+            wgpu::Backends::PRIMARY
         };
         BaseRendererState::new(&window, backends, wgpu::PresentMode::AutoNoVsync).await
     };
