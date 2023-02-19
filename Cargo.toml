@@ -23,9 +23,9 @@ tracy = ["profiling/profile-with-tracy"]
 tracy-n-alloc = ["tracy"]
 
 [dependencies]
-bytemuck = { version = "1.12", features = ["derive"] }
-half = "2.2"
-pollster = "0.2"
+bytemuck = { version = "1", features = ["derive"] }
+half = "2"
+pollster = "0.3"
 twox-hash = "1.6"
 lazy_static = "1.4"
 smallvec = { version = "1.10", features = ["union", "const_generics"] }
@@ -47,17 +47,17 @@ wavefront_obj = "10.0"
 
 # surface
 wgpu = { git = "https://github.com/gfx-rs/wgpu", branch = "master" }
-winit = "0.27"
+winit = "0.28"
 
 # math
 rand = "0.8"
-rapier3d = "0.16"
-glam = { version = "0.22", features = ["approx", "bytemuck"] }
+rapier3d = "0.17"
+glam = { version = "0.22.0", features = ["approx", "bytemuck"] }
 approx = "0.5"
 
 # audio
-cpal = "0.14"
-hound = "3.5"
+cpal = "0.15"
+hound = "3"
 minimp3 = "0.5"
 oddio = "0.6"
 

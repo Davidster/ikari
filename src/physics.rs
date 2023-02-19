@@ -60,15 +60,13 @@ impl PhysicsState {
             &mut self.impulse_joint_set,
             &mut self.multibody_joint_set,
             &mut self.ccd_solver,
+            None,
             &(),
             &(),
         );
 
-        self.query_pipeline.update(
-            &self.island_manager,
-            &self.rigid_body_set,
-            &self.collider_set,
-        );
+        self.query_pipeline
+            .update(&self.rigid_body_set, &self.collider_set);
     }
 
     pub fn add_static_box(
