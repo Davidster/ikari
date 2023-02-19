@@ -75,21 +75,20 @@ pub fn build_scene(
                 .unwrap_or((default_sampler.min_filter, default_sampler.mipmap_filter));
 
             Texture::from_decoded_image(
-                &base_renderer_state.device,
-                &base_renderer_state.queue,
+                base_renderer_state,
                 &image_pixels,
                 (image_data.width, image_data.height),
                 texture.name(),
                 texture_format.into(),
                 true,
-                &SamplerDescriptor(wgpu::SamplerDescriptor {
+                &SamplerDescriptor {
                     address_mode_u,
                     address_mode_v,
                     mag_filter,
                     min_filter,
                     mipmap_filter,
                     ..Default::default()
-                }),
+                },
             )
         })
         .collect::<Result<Vec<_>, _>>()?;

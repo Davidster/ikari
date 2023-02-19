@@ -327,30 +327,43 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     let earth_texture_path = "./src/textures/8k_earth.jpg";
     let earth_texture_bytes = std::fs::read(earth_texture_path)?;
     let earth_texture = Texture::from_encoded_image(
-        &renderer_state.base.device,
-        &renderer_state.base.queue,
+        &mut renderer_state.base,
         &earth_texture_bytes,
         earth_texture_path,
         None,
         true,
-        &Default::default(),
+        &SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        },
     )?;
 
     let earth_normal_map_path = "./src/textures/8k_earth_normal_map.jpg";
     let earth_normal_map_bytes = std::fs::read(earth_normal_map_path)?;
     let earth_normal_map = Texture::from_encoded_image(
-        &renderer_state.base.device,
-        &renderer_state.base.queue,
+        &mut renderer_state.base,
         &earth_normal_map_bytes,
         earth_normal_map_path,
         wgpu::TextureFormat::Rgba8Unorm.into(),
         false,
-        &Default::default(),
+        &SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        },
     )?;
 
     let test_object_metallic_roughness_map = Texture::from_color(
-        &renderer_state.base.device,
-        &renderer_state.base.queue,
+        &mut renderer_state.base,
         [
             255,
             (0.12 * 255.0f32).round() as u8,
@@ -430,17 +443,21 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         img
     };
     let big_checkerboard_texture = Texture::from_decoded_image(
-        &renderer_state.base.device,
-        &renderer_state.base.queue,
+        &mut renderer_state.base,
         &big_checkerboard_texture_img,
         big_checkerboard_texture_img.dimensions(),
         Some("big_checkerboard_texture"),
         None,
         true,
-        &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
+        &SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Nearest,
-            ..texture::SamplerDescriptor::default().0
-        }),
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        },
     )?;
 
     let small_checkerboard_texture_img = {
@@ -464,17 +481,21 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         img
     };
     let small_checkerboard_texture = Texture::from_decoded_image(
-        &renderer_state.base.device,
-        &renderer_state.base.queue,
+        &mut renderer_state.base,
         &small_checkerboard_texture_img,
         small_checkerboard_texture_img.dimensions(),
         Some("small_checkerboard_texture"),
         None,
         true,
-        &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
+        &SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Nearest,
-            ..texture::SamplerDescriptor::default().0
-        }),
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        },
     )?;
 
     // add balls to scene
@@ -483,13 +504,20 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     let mars_texture_path = "./src/textures/8k_mars.jpg";
     let mars_texture_bytes = std::fs::read(mars_texture_path)?;
     let mars_texture = Texture::from_encoded_image(
-        &renderer_state.base.device,
-        &renderer_state.base.queue,
+        &mut renderer_state.base,
         &mars_texture_bytes,
         mars_texture_path,
         None,
         true,
-        &Default::default(),
+        &SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        },
     )?;
 
     let ball_count = 0;
@@ -678,19 +706,21 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     #[allow(unused_assignments)]
     let mut crosshair_node_id: Option<GameNodeId> = None;
     let crosshair_texture = Texture::from_decoded_image(
-        &renderer_state.base.device,
-        &renderer_state.base.queue,
+        &mut renderer_state.base,
         &crosshair_texture_img,
         crosshair_texture_img.dimensions(),
         Some("crosshair_texture"),
         None,
         false,
-        &texture::SamplerDescriptor(wgpu::SamplerDescriptor {
-            // mag_filter: wgpu::FilterMode::Nearest,
-            // min_filter: wgpu::FilterMode::Nearest,
-            // mipmap_filter: wgpu::FilterMode::Nearest,
-            ..texture::SamplerDescriptor::default().0
-        }),
+        &SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        },
     )?;
     let crosshair_quad = BasicMesh {
         vertices: vec![[1.0, 1.0], [1.0, -1.0], [-1.0, -1.0], [-1.0, 1.0]]
@@ -708,19 +738,14 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             .collect(),
         indices: vec![0, 2, 1, 0, 3, 2],
     };
+    let crosshair_ambient_occlusion = Texture::from_color(&mut renderer_state.base, [0, 0, 0, 0])?;
+    let crosshair_metallic_roughness =
+        Texture::from_color(&mut renderer_state.base, [0, 0, 255, 0])?;
     let crosshair_mesh_index = renderer_state.bind_basic_pbr_mesh(
         &crosshair_quad,
         &PbrMaterial {
-            ambient_occlusion: Some(&Texture::from_color(
-                &renderer_state.base.device,
-                &renderer_state.base.queue,
-                [0, 0, 0, 0],
-            )?),
-            metallic_roughness: Some(&Texture::from_color(
-                &renderer_state.base.device,
-                &renderer_state.base.queue,
-                [0, 0, 255, 0],
-            )?),
+            ambient_occlusion: Some(&crosshair_ambient_occlusion),
+            metallic_roughness: Some(&crosshair_metallic_roughness),
             base_color: Some(&crosshair_texture),
             emissive: Some(&crosshair_texture),
             ..Default::default()
