@@ -1,7 +1,7 @@
 use std::collections::{hash_map::Entry, HashMap};
 use std::fs::File;
 use std::io::BufReader;
-use std::num::NonZeroU64;
+use std::num::{NonZeroU32, NonZeroU64};
 use std::rc::Rc;
 
 use super::*;
@@ -2921,7 +2921,7 @@ impl RendererState {
                         &wgpu::TextureViewDescriptor {
                             dimension: Some(wgpu::TextureViewDimension::D2),
                             base_array_layer: light_index.try_into().unwrap(),
-                            array_layer_count: Some(1),
+                            array_layer_count: NonZeroU32::new(1),
                             ..Default::default()
                         },
                     );
@@ -2969,7 +2969,7 @@ impl RendererState {
                                 &wgpu::TextureViewDescriptor {
                                     dimension: Some(wgpu::TextureViewDimension::D2),
                                     base_array_layer: (6 * light_index + i).try_into().unwrap(),
-                                    array_layer_count: Some(1),
+                                    array_layer_count: NonZeroU32::new(1),
                                     ..Default::default()
                                 },
                             ),
