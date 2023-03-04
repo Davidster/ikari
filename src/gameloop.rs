@@ -28,7 +28,7 @@ pub fn run(
                 update_game_state(&mut game_state, &renderer_state);
                 renderer_state.update(&mut game_state);
 
-                let last_log_time_clone = last_log_time;
+                /* let last_log_time_clone = last_log_time;
                 let mut write_logs = || {
                     if let Err(err) = LOGGER.lock().unwrap().write_to_term() {
                         eprintln!("Error writing to terminal: {}", err);
@@ -45,7 +45,7 @@ pub fn run(
                     }
                     None => write_logs(),
                     _ => {}
-                }
+                } */
 
                 match renderer_state.render(&game_state) {
                     Ok(_) => {}

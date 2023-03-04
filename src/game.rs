@@ -137,10 +137,18 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
 
     // forest
     {
+        let mut subtimer = std::time::Instant::now();
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/free_low_poly_forest/scene.gltf")?;
+
+        println!("gltf::import: {:?}", subtimer.elapsed());
+        subtimer = std::time::Instant::now();
+
         let (mut other_scene, other_render_buffers) =
             build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
+
+        println!("build_scene: {:?}", subtimer.elapsed());
+
         // hack to get the terrain to be at the same height as the ground.
         let node_has_parent: Vec<_> = other_scene
             .nodes()
@@ -178,7 +186,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
     }
 
-    println!("robot: {:?}", timer.elapsed());
+    println!("legendary robot: {:?}", timer.elapsed());
     timer = std::time::Instant::now();
 
     // maze
@@ -253,9 +261,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
     let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
 
-    println!("basic meshes: {:?}", timer.elapsed());
-    timer = std::time::Instant::now();
-
     // add lights to the scene
     let directional_lights = vec![
         DirectionalLightComponent {
@@ -319,7 +324,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         });
     }
 
-    println!("lights: {:?}", timer.elapsed());
     timer = std::time::Instant::now();
 
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
@@ -523,9 +527,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         .id();
     scene.remove_node(test_object_node_id);
 
-    println!("test object: {:?}", timer.elapsed());
-    timer = std::time::Instant::now();
-
     let legendary_robot_root_node_id = scene
         .nodes()
         .find(|node| node.name == Some(String::from("robot")))
@@ -549,9 +550,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         )
     });
     // add floor to scene
-
-    println!("legendary robot character: {:?}", timer.elapsed());
-    timer = std::time::Instant::now();
 
     let ball_count = 0;
     let balls: Vec<_> = (0..ball_count)
@@ -579,9 +577,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         ball_node_ids.push(node.id());
     }
 
-    println!("balls: {:?}", timer.elapsed());
-    timer = std::time::Instant::now();
-
     let physics_ball_count = 500;
     let physics_balls: Vec<_> = (0..physics_ball_count)
         .into_iter()
@@ -593,9 +588,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             )
         })
         .collect();
-
-    println!("physics balls: {:?}", timer.elapsed());
-    timer = std::time::Instant::now();
 
     // let box_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
     //     &cube_mesh,
@@ -659,9 +651,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     .build();
     physics_state.collider_set.insert(floor_collider);
 
-    println!("floor: {:?}", timer.elapsed());
-    timer = std::time::Instant::now();
-
     // create the checkerboarded bouncing ball and add it to the scene
     let (bouncing_ball_node_id, bouncing_ball_body_handle) = {
         let bouncing_ball_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
@@ -714,9 +703,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         (bouncing_ball_node.id(), bouncing_ball_body_handle)
     };
     scene.remove_node(bouncing_ball_node_id);
-
-    println!("bouncing ball: {:?}", timer.elapsed());
-    timer = std::time::Instant::now();
 
     // add crosshair to scene
     let crosshair_texture_img = {
@@ -820,17 +806,12 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             .id(),
     );
 
-    println!("crosshair: {:?}", timer.elapsed());
     timer = std::time::Instant::now();
 
     let mut audio_manager = AudioManager::new()?;
 
-    let timer_2 = std::time::Instant::now();
-
     let bgm_data =
         AudioManager::decode_mp3(audio_manager.device_sample_rate(), "./src/sounds/bgm.mp3")?;
-
-    println!("bgm decode: {:?}", timer_2.elapsed());
 
     let bgm_sound_index = audio_manager.add_sound(&bgm_data, 0.5, false, None);
     audio_manager.play_sound(bgm_sound_index);

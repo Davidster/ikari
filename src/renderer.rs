@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::num::NonZeroU64;
 use std::rc::Rc;
+use std::sync::Mutex;
 
 use super::*;
 
@@ -164,14 +165,6 @@ pub enum SkyboxBackground<'a> {
 
 pub enum SkyboxHDREnvironment<'a> {
     Equirectangular { image_path: &'a str },
-}
-
-#[derive(Debug, Default)]
-pub struct RenderBuffers {
-    pub binded_pbr_meshes: Vec<BindedPbrMesh>,
-    pub binded_unlit_meshes: Vec<BindedUnlitMesh>,
-    pub binded_wireframe_meshes: Vec<BindedWireframeMesh>,
-    pub textures: Vec<Texture>,
 }
 
 #[derive(Debug)]
@@ -643,8 +636,54 @@ impl BaseRendererState {
     }
 }
 
-pub struct RendererState {
-    pub base: BaseRendererState,
+pub struct RendererStatePrivateMutableData {
+    // cpu
+    all_bone_transforms: AllBoneTransforms,
+    all_pbr_instances: ChunkedBuffer<GpuPbrMeshInstance>,
+    all_unlit_instances: ChunkedBuffer<GpuUnlitMeshInstance>,
+    all_wireframe_instances: ChunkedBuffer<GpuWireframeMeshInstance>,
+    debug_nodes: Vec<GameNodeId>,
+
+    // gpu
+    camera_and_lights_bind_group: wgpu::BindGroup,
+    bones_and_pbr_instances_bind_group: wgpu::BindGroup,
+    bones_and_unlit_instances_bind_group: wgpu::BindGroup,
+    bones_and_wireframe_instances_bind_group: wgpu::BindGroup,
+    bloom_config_bind_group: wgpu::BindGroup,
+    tone_mapping_config_bind_group: wgpu::BindGroup,
+
+    environment_textures_bind_group: Mutex<wgpu::BindGroup>,
+    shading_and_bloom_textures_bind_group: Mutex<wgpu::BindGroup>,
+    tone_mapping_texture_bind_group: Mutex<wgpu::BindGroup>,
+    shading_texture_bind_group: Mutex<wgpu::BindGroup>,
+    bloom_pingpong_texture_bind_groups: Mutex<[wgpu::BindGroup; 2]>,
+
+    camera_buffer: wgpu::Buffer,
+    point_lights_buffer: wgpu::Buffer,
+    directional_lights_buffer: wgpu::Buffer,
+    bloom_config_buffer: wgpu::Buffer,
+    tone_mapping_config_buffer: wgpu::Buffer,
+    bones_buffer: GpuBuffer,
+    pbr_instances_buffer: GpuBuffer,
+    unlit_instances_buffer: GpuBuffer,
+    wireframe_instances_buffer: GpuBuffer,
+
+    point_shadow_map_textures: Texture,
+    directional_shadow_map_textures: Texture,
+    shading_texture: Texture,
+    tone_mapping_texture: Texture,
+    depth_texture: Texture,
+    bloom_pingpong_textures: [Texture; 2],
+}
+
+#[derive(Debug)]
+pub struct RendererStatePublicData {
+    pub binded_pbr_meshes: Vec<BindedPbrMesh>,
+    pub binded_unlit_meshes: Vec<BindedUnlitMesh>,
+    pub binded_wireframe_meshes: Vec<BindedWireframeMesh>,
+    pub textures: Vec<Texture>,
+
+    pub skybox_mesh: GeometryBuffers,
 
     pub tone_mapping_exposure: f32,
     pub bloom_threshold: f32,
@@ -654,6 +693,10 @@ pub struct RendererState {
     pub enable_shadows: bool,
     pub enable_wireframe_mode: bool,
     pub draw_node_bounding_spheres: bool,
+}
+
+pub struct RendererState {
+    pub base: BaseRendererState,
 
     mesh_pipeline: wgpu::RenderPipeline,
     unlit_mesh_pipeline: wgpu::RenderPipeline,
@@ -666,52 +709,17 @@ pub struct RendererState {
     bloom_threshold_pipeline: wgpu::RenderPipeline,
     bloom_blur_pipeline: wgpu::RenderPipeline,
 
-    camera_and_lights_bind_group: wgpu::BindGroup,
-    bones_and_pbr_instances_bind_group: wgpu::BindGroup,
-    bones_and_unlit_instances_bind_group: wgpu::BindGroup,
-    bones_and_wireframe_instances_bind_group: wgpu::BindGroup,
-    bloom_config_bind_group: wgpu::BindGroup,
-    tone_mapping_config_bind_group: wgpu::BindGroup,
-
-    environment_textures_bind_group: wgpu::BindGroup,
-    shading_and_bloom_textures_bind_group: wgpu::BindGroup,
-    tone_mapping_texture_bind_group: wgpu::BindGroup,
-    shading_texture_bind_group: wgpu::BindGroup,
-    bloom_pingpong_texture_bind_groups: [wgpu::BindGroup; 2],
-
-    camera_buffer: wgpu::Buffer,
-    point_lights_buffer: wgpu::Buffer,
-    directional_lights_buffer: wgpu::Buffer,
-    bones_buffer: GpuBuffer,
-    pbr_instances_buffer: GpuBuffer,
-    unlit_instances_buffer: GpuBuffer,
-    wireframe_instances_buffer: GpuBuffer,
-    bloom_config_buffer: wgpu::Buffer,
-    tone_mapping_config_buffer: wgpu::Buffer,
-
-    point_shadow_map_textures: Texture,
-    directional_shadow_map_textures: Texture,
-    shading_texture: Texture,
-    tone_mapping_texture: Texture,
-    depth_texture: Texture,
-    bloom_pingpong_textures: [Texture; 2],
-
-    all_bone_transforms: AllBoneTransforms,
-    all_pbr_instances: ChunkedBuffer<GpuPbrMeshInstance>,
-    all_unlit_instances: ChunkedBuffer<GpuUnlitMeshInstance>,
-    all_wireframe_instances: ChunkedBuffer<GpuWireframeMeshInstance>,
+    mutable_data: Mutex<RendererStatePrivateMutableData>,
 
     box_mesh_index: i32,
     sphere_mesh_index: i32,
     plane_mesh_index: i32,
-    debug_nodes: Vec<GameNodeId>,
 
-    pub skybox_mesh_buffers: GeometryBuffers,
-
-    pub buffers: RenderBuffers,
+    pub public_mutable_data: Mutex<RendererStatePublicData>,
 }
 
 impl RendererState {
+    // TODO: remove buffers arg if possible
     pub async fn new(buffers: RenderBuffers, mut base: BaseRendererState) -> Result<Self> {
         logger_log("Controls:");
         vec![
