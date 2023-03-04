@@ -42,20 +42,20 @@ pub fn get_skybox_path() -> (
 
     // Newport Loft
     // src: http://www.hdrlabs.com/sibl/archive/
-    let _skybox_background = SkyboxBackground::Equirectangular {
+    let skybox_background = SkyboxBackground::Equirectangular {
         image_path: "./src/textures/newport_loft/background.jpg",
     };
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+    let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
         Some(SkyboxHDREnvironment::Equirectangular {
             image_path: "./src/textures/newport_loft/radiance.hdr",
         });
 
     // Milkyway
     // src: http://www.hdrlabs.com/sibl/archive/
-    let skybox_background = SkyboxBackground::Equirectangular {
+    let _skybox_background = SkyboxBackground::Equirectangular {
         image_path: "./src/textures/milkyway/background.jpg",
     };
-    let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
         Some(SkyboxHDREnvironment::Equirectangular {
             image_path: "./src/textures/milkyway/radiance.hdr",
         });
@@ -136,7 +136,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             gltf::import("./src/models/gltf/free_low_poly_forest/scene.gltf")?;
         let (mut other_scene, other_render_buffers) =
             build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
-        // hack to get the terrain to be at the same height as the ground.
         let node_has_parent: Vec<_> = other_scene
             .nodes()
             .map(|node| node.parent_id.is_some())
@@ -145,6 +144,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             if node_has_parent[i] {
                 continue;
             }
+            // hack to get the terrain to be at the same height as the ground.
             node.transform
                 .set_position(node.transform.position() + Vec3::new(0.0, 29.0, 0.0));
         }
@@ -171,26 +171,26 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     }
 
     // maze
-    {
-        let skip_nodes = scene.node_count();
-        let (document, buffers, images) =
-            gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
-        let (other_scene, other_render_buffers) =
-            build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
-        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+    // {
+    //     let skip_nodes = scene.node_count();
+    //     let (document, buffers, images) =
+    //         gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
+    //     let (other_scene, other_render_buffers) =
+    //         build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
+    //     scene.merge_scene(renderer_state, other_scene, other_render_buffers);
 
-        let test_level_node_ids: Vec<_> = scene
-            .nodes()
-            .skip(skip_nodes)
-            .map(|node| node.id())
-            .collect();
-        for node_id in test_level_node_ids {
-            if let Some(_mesh) = scene.get_node_mut(node_id).unwrap().mesh.as_mut() {
-                // _mesh.wireframe = true;
-            }
-            physics_state.add_static_box(&scene, renderer_state, node_id);
-        }
-    }
+    //     let test_level_node_ids: Vec<_> = scene
+    //         .nodes()
+    //         .skip(skip_nodes)
+    //         .map(|node| node.id())
+    //         .collect();
+    //     for node_id in test_level_node_ids {
+    //         if let Some(_mesh) = scene.get_node_mut(node_id).unwrap().mesh.as_mut() {
+    //             // _mesh.wireframe = true;
+    //         }
+    //         physics_state.add_static_box(&scene, renderer_state, node_id);
+    //     }
+    // }
 
     // other
     {
@@ -201,7 +201,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
         // let gltf_path = "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf";
         // let gltf_path = "./src/models/gltf/Sponza/Sponza.gltf";
-        // let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
+        let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
         // let gltf_path = "./src/models/gltf/Arrow/Arrow.gltf";
         // let gltf_path = "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf";
         // let gltf_path = "./src/models/gltf/VertexColorTest/VertexColorTest.gltf";
@@ -222,14 +222,14 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         // let gltf_path = "./src/models/gltf/VC/VC.gltf";
         // let gltf_path =
         //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
-        // let (document, buffers, images) = gltf::import(gltf_path)?;
-        // let (mut other_scene, other_render_buffers) =
-        //     build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
-        // for animation in other_scene.animations.iter_mut() {
-        //     animation.state.is_playing = true;
-        //     animation.state.loop_type = LoopType::Wrap;
-        // }
-        // scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+        let (document, buffers, images) = gltf::import(gltf_path)?;
+        let (mut other_scene, other_render_buffers) =
+            build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
+        for animation in other_scene.animations.iter_mut() {
+            animation.state.is_playing = true;
+            animation.state.loop_type = LoopType::Wrap;
+        }
+        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
     }
 
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;

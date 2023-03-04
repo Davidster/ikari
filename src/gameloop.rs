@@ -28,24 +28,24 @@ pub fn run(
                 update_game_state(&mut game_state, &renderer_state);
                 renderer_state.update(&mut game_state);
 
-                let last_log_time_clone = last_log_time;
-                let mut write_logs = || {
-                    if let Err(err) = LOGGER.lock().unwrap().write_to_term() {
-                        eprintln!("Error writing to terminal: {}", err);
-                    }
-                    last_log_time = Some(Instant::now());
-                };
+                // let last_log_time_clone = last_log_time;
+                // let mut write_logs = || {
+                //     if let Err(err) = LOGGER.lock().unwrap().write_to_term() {
+                //         eprintln!("Error writing to terminal: {}", err);
+                //     }
+                //     last_log_time = Some(Instant::now());
+                // };
 
-                match last_log_time_clone {
-                    Some(last_log_time)
-                        if last_log_time.elapsed()
-                            > Duration::from_millis((1000.0 / MAX_LOG_RATE as f32) as u64) =>
-                    {
-                        write_logs()
-                    }
-                    None => write_logs(),
-                    _ => {}
-                }
+                // match last_log_time_clone {
+                //     Some(last_log_time)
+                //         if last_log_time.elapsed()
+                //             > Duration::from_millis((1000.0 / MAX_LOG_RATE as f32) as u64) =>
+                //     {
+                //         write_logs()
+                //     }
+                //     None => write_logs(),
+                //     _ => {}
+                // }
 
                 match renderer_state.render(&game_state) {
                     Ok(_) => {}
