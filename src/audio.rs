@@ -23,7 +23,8 @@ pub struct AudioManager {
     sounds: Vec<Sound>,
 }
 
-pub struct SoundData(Vec<Vec<f32>>);
+const CHANNEL_COUNT: usize = 2;
+pub struct SoundData(Vec<[f32; CHANNEL_COUNT]>);
 
 pub struct Sound {
     volume: f32,
@@ -115,6 +116,10 @@ impl AudioManager {
             ..
         } = reader.spec();
 
+        if channels as usize != CHANNEL_COUNT {
+            anyhow::bail!("Only dual-channel (stereo) wav files are supported");
+        }
+
         // convert the WAV data to floating point samples
         // e.g. i8 data is converted from [-128, 127] to [-1.0, 1.0]
         let samples_result: Result<Vec<f32>, _> = match sample_format {
@@ -129,9 +134,9 @@ impl AudioManager {
         };
         // channels are interleaved
         let samples_interleaved = samples_result.unwrap();
-        let mut samples: Vec<_> = samples_interleaved
+        let mut samples: Vec<[f32; CHANNEL_COUNT]> = samples_interleaved
             .chunks(channels.into())
-            .map(|chunk| chunk.to_vec())
+            .map(|chunk| [chunk[0], chunk[1]])
             .collect();
 
         if sample_rate != source_sample_rate {
@@ -149,6 +154,9 @@ impl AudioManager {
         loop {
             match decoder.next_frame() {
                 Ok(frame) => {
+                    if frame.channels != CHANNEL_COUNT {
+                        anyhow::bail!("Only dual-channel (stereo) mp3 files are supported");
+                    }
                     mp3_frames.push(frame);
                 }
                 Err(minimp3::Error::Eof) => {
@@ -158,25 +166,26 @@ impl AudioManager {
             }
         }
 
-        let mut samples: Vec<Vec<f32>> = Vec::new();
+        let mut samples: Vec<[f32; CHANNEL_COUNT]> = Vec::new();
         for mp3_frame in mp3_frames {
             let source_sample_rate = u32::try_from(mp3_frame.sample_rate).unwrap();
-            let mut current_samples: Vec<_> = mp3_frame
-                .data
-                .chunks(2)
-                .map(|chunk| {
-                    chunk
-                        .iter()
-                        .map(|channel| *channel as f32 / i16::MAX as f32)
-                        .collect::<Vec<_>>()
-                })
-                .collect();
+            let mut current_samples: Vec<[f32; CHANNEL_COUNT]> = Vec::new();
+            current_samples.reserve(mp3_frame.data.len() / CHANNEL_COUNT);
+            for sample in mp3_frame.data.chunks(CHANNEL_COUNT) {
+                current_samples.push([
+                    sample[0] as f32 / i16::MAX as f32,
+                    sample[1] as f32 / i16::MAX as f32,
+                ]);
+            }
             if sample_rate != source_sample_rate {
                 // resample the sound to the device sample rate using linear interpolation
                 current_samples =
                     resample_linear(&current_samples, source_sample_rate, sample_rate);
             }
-            samples.extend(current_samples);
+            samples.reserve(current_samples.len());
+            for sample in current_samples {
+                samples.push(sample);
+            }
         }
 
         Ok(SoundData(samples))
@@ -209,36 +218,39 @@ impl AudioManager {
     }
 }
 
-fn resample_linear(samples: &Vec<Vec<f32>>, from_hz: u32, to_hz: u32) -> Vec<Vec<f32>> {
-    let channels = samples[0].len();
-
+fn resample_linear(
+    samples: &Vec<[f32; CHANNEL_COUNT]>,
+    from_hz: u32,
+    to_hz: u32,
+) -> Vec<[f32; CHANNEL_COUNT]> {
     let old_sample_count = samples.len();
     let length_seconds = old_sample_count as f32 / from_hz as f32;
     let new_sample_count = (length_seconds * to_hz as f32).ceil() as usize;
-    // TODO: instead of vec of vecs, use one big vec with smart indexing
-    (1..(new_sample_count + 1))
-        .map(|new_sample_number| {
-            let old_sample_number = new_sample_number as f32 * (from_hz as f32 / to_hz as f32);
+    let mut result: Vec<[f32; CHANNEL_COUNT]> = Vec::new();
+    result.reserve(new_sample_count);
+    for new_sample_number in 1..(new_sample_count + 1) {
+        let old_sample_number = new_sample_number as f32 * (from_hz as f32 / to_hz as f32);
 
-            // get the indices of the two samples that surround the old sample number
-            let left_index = old_sample_number
-                .clamp(1.0, old_sample_count as f32)
-                .floor() as usize
-                - 1;
-            let right_index = (left_index + 1).min(old_sample_count - 1);
+        // get the indices of the two samples that surround the old sample number
+        let left_index = old_sample_number
+            .clamp(1.0, old_sample_count as f32)
+            .floor() as usize
+            - 1;
+        let right_index = (left_index + 1).min(old_sample_count - 1);
 
-            let left_sample = &samples[left_index];
-            if left_index == right_index {
-                left_sample.to_vec()
-            } else {
-                let right_sample = &samples[right_index];
-                let t = old_sample_number % 1.0;
-                (0..channels)
-                    .map(|channel| (1.0 - t) * left_sample[channel] + t * right_sample[channel])
-                    .collect::<Vec<_>>()
-            }
-        })
-        .collect()
+        let left_sample = samples[left_index];
+        result.push(if left_index == right_index {
+            left_sample
+        } else {
+            let right_sample = samples[right_index];
+            let t = old_sample_number - old_sample_number.floor();
+            [
+                (1.0 - t) * left_sample[0] + t * right_sample[0],
+                (1.0 - t) * left_sample[1] + t * right_sample[1],
+            ]
+        });
+    }
+    result
 }
 
 impl Sound {

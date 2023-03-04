@@ -86,8 +86,12 @@ async fn start() {
     let run_result = async {
         let game_scene = Scene::default();
         let render_buffers = RenderBuffers::default();
+        let mut timer = std::time::Instant::now();
         let mut renderer_state = RendererState::new(render_buffers, base_render_state).await?;
+        dbg!("make renderer state", timer.elapsed());
+        timer = std::time::Instant::now();
         let game_state = init_game_state(game_scene, &mut renderer_state)?;
+        dbg!("make game state", timer.elapsed());
         gameloop::run(window, event_loop, game_state, renderer_state); // this will block while the game is running
         anyhow::Ok(())
     }

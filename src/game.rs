@@ -90,6 +90,8 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
 
     // load in gltf files
 
+    let mut timer = std::time::Instant::now();
+
     // player's revolver
     #[allow(unused_assignments)]
     let mut revolver: Option<Revolver> = None;
@@ -130,6 +132,9 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         ));
     }
 
+    println!("revolver: {:?}", timer.elapsed());
+    timer = std::time::Instant::now();
+
     // forest
     {
         let (document, buffers, images) =
@@ -151,6 +156,9 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
     }
 
+    println!("forest: {:?}", timer.elapsed());
+    timer = std::time::Instant::now();
+
     // robot
     // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
     {
@@ -169,6 +177,9 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         }
         scene.merge_scene(renderer_state, other_scene, other_render_buffers);
     }
+
+    println!("robot: {:?}", timer.elapsed());
+    timer = std::time::Instant::now();
 
     // maze
     {
@@ -191,6 +202,9 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             physics_state.add_static_box(&scene, renderer_state, node_id);
         }
     }
+
+    println!("maze: {:?}", timer.elapsed());
+    timer = std::time::Instant::now();
 
     // other
     {
@@ -232,9 +246,15 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         // scene.merge_scene(renderer_state, other_scene, other_render_buffers);
     }
 
+    println!("other: {:?}", timer.elapsed());
+    timer = std::time::Instant::now();
+
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
     let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
     let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
+
+    println!("basic meshes: {:?}", timer.elapsed());
+    timer = std::time::Instant::now();
 
     // add lights to the scene
     let directional_lights = vec![
@@ -299,6 +319,9 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         });
     }
 
+    println!("lights: {:?}", timer.elapsed());
+    timer = std::time::Instant::now();
+
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
     // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
     // let simple_normal_map = Texture::from_encoded_image(
@@ -362,66 +385,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         },
     )?;
 
-    let test_object_metallic_roughness_map = Texture::from_color(
-        &mut renderer_state.base,
-        [
-            255,
-            (0.12 * 255.0f32).round() as u8,
-            (0.8 * 255.0f32).round() as u8,
-            255,
-        ],
-    )?;
-
-    let test_object_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
-        &sphere_mesh,
-        &PbrMaterial {
-            base_color: Some(&earth_texture),
-            normal: Some(&earth_normal_map),
-            metallic_roughness: Some(&test_object_metallic_roughness_map),
-            ..Default::default()
-        },
-        Default::default(),
-    )?;
-    let test_object_node_id = scene
-        .add_node(
-            GameNodeDescBuilder::new()
-                .mesh(Some(GameNodeMesh::from_pbr_mesh_index(
-                    test_object_pbr_mesh_index,
-                )))
-                .transform(
-                    TransformBuilder::new()
-                        .position(Vec3::new(4.0, 10.0, 4.0))
-                        // .scale(Vec3::new(0.0, 0.0, 0.0))
-                        .build(),
-                )
-                .build(),
-        )
-        .id();
-    scene.remove_node(test_object_node_id);
-
-    let legendary_robot_root_node_id = scene
-        .nodes()
-        .find(|node| node.name == Some(String::from("robot")))
-        .map(|legendary_robot_root_node| legendary_robot_root_node.id());
-
-    let legendary_robot = legendary_robot_root_node_id.map(|legendary_robot_root_node_id| {
-        scene
-            .get_node_mut(legendary_robot_root_node_id)
-            .unwrap()
-            .transform
-            .set_position(Vec3::new(2.0, 0.0, 0.0));
-
-        let legendary_robot_skin_index = 0;
-        Character::new(
-            &mut scene,
-            &mut physics_state,
-            renderer_state,
-            legendary_robot_root_node_id,
-            legendary_robot_skin_index,
-            &cube_mesh,
-        )
-    });
-    // add floor to scene
     let big_checkerboard_texture_img = {
         let mut img = image::RgbaImage::new(4096, 4096);
         for x in 0..img.width() {
@@ -520,6 +483,76 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         },
     )?;
 
+    let test_object_metallic_roughness_map = Texture::from_color(
+        &mut renderer_state.base,
+        [
+            255,
+            (0.12 * 255.0f32).round() as u8,
+            (0.8 * 255.0f32).round() as u8,
+            255,
+        ],
+    )?;
+
+    println!("textures: {:?}", timer.elapsed());
+    timer = std::time::Instant::now();
+
+    let test_object_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
+        &sphere_mesh,
+        &PbrMaterial {
+            base_color: Some(&earth_texture),
+            normal: Some(&earth_normal_map),
+            metallic_roughness: Some(&test_object_metallic_roughness_map),
+            ..Default::default()
+        },
+        Default::default(),
+    )?;
+    let test_object_node_id = scene
+        .add_node(
+            GameNodeDescBuilder::new()
+                .mesh(Some(GameNodeMesh::from_pbr_mesh_index(
+                    test_object_pbr_mesh_index,
+                )))
+                .transform(
+                    TransformBuilder::new()
+                        .position(Vec3::new(4.0, 10.0, 4.0))
+                        // .scale(Vec3::new(0.0, 0.0, 0.0))
+                        .build(),
+                )
+                .build(),
+        )
+        .id();
+    scene.remove_node(test_object_node_id);
+
+    println!("test object: {:?}", timer.elapsed());
+    timer = std::time::Instant::now();
+
+    let legendary_robot_root_node_id = scene
+        .nodes()
+        .find(|node| node.name == Some(String::from("robot")))
+        .map(|legendary_robot_root_node| legendary_robot_root_node.id());
+
+    let legendary_robot = legendary_robot_root_node_id.map(|legendary_robot_root_node_id| {
+        scene
+            .get_node_mut(legendary_robot_root_node_id)
+            .unwrap()
+            .transform
+            .set_position(Vec3::new(2.0, 0.0, 0.0));
+
+        let legendary_robot_skin_index = 0;
+        Character::new(
+            &mut scene,
+            &mut physics_state,
+            renderer_state,
+            legendary_robot_root_node_id,
+            legendary_robot_skin_index,
+            &cube_mesh,
+        )
+    });
+    // add floor to scene
+
+    println!("legendary robot character: {:?}", timer.elapsed());
+    timer = std::time::Instant::now();
+
     let ball_count = 0;
     let balls: Vec<_> = (0..ball_count)
         .into_iter()
@@ -546,6 +579,9 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         ball_node_ids.push(node.id());
     }
 
+    println!("balls: {:?}", timer.elapsed());
+    timer = std::time::Instant::now();
+
     let physics_ball_count = 500;
     let physics_balls: Vec<_> = (0..physics_ball_count)
         .into_iter()
@@ -557,6 +593,9 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             )
         })
         .collect();
+
+    println!("physics balls: {:?}", timer.elapsed());
+    timer = std::time::Instant::now();
 
     // let box_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
     //     &cube_mesh,
@@ -620,6 +659,9 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     .build();
     physics_state.collider_set.insert(floor_collider);
 
+    println!("floor: {:?}", timer.elapsed());
+    timer = std::time::Instant::now();
+
     // create the checkerboarded bouncing ball and add it to the scene
     let (bouncing_ball_node_id, bouncing_ball_body_handle) = {
         let bouncing_ball_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
@@ -672,6 +714,9 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         (bouncing_ball_node.id(), bouncing_ball_body_handle)
     };
     scene.remove_node(bouncing_ball_node_id);
+
+    println!("bouncing ball: {:?}", timer.elapsed());
+    timer = std::time::Instant::now();
 
     // add crosshair to scene
     let crosshair_texture_img = {
@@ -775,10 +820,18 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             .id(),
     );
 
+    println!("crosshair: {:?}", timer.elapsed());
+    timer = std::time::Instant::now();
+
     let mut audio_manager = AudioManager::new()?;
+
+    let timer_2 = std::time::Instant::now();
 
     let bgm_data =
         AudioManager::decode_mp3(audio_manager.device_sample_rate(), "./src/sounds/bgm.mp3")?;
+
+    println!("bgm decode: {:?}", timer_2.elapsed());
+
     let bgm_sound_index = audio_manager.add_sound(&bgm_data, 0.5, false, None);
     audio_manager.play_sound(bgm_sound_index);
 
@@ -787,6 +840,9 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         "./src/sounds/gunshot.wav",
     )?;
     let gunshot_sound_index = audio_manager.add_sound(&gunshot_sound_data, 0.75, true, None);
+
+    println!("audio: {:?}", timer.elapsed());
+    timer = std::time::Instant::now();
 
     // logger_log(&format!("{:?}", &revolver));
 
