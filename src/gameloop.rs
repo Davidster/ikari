@@ -25,8 +25,7 @@ pub fn run(
                 profiling::finish_frame!();
                 LOGGER.lock().unwrap().on_frame_completed();
 
-                update_game_state(&mut game_state, &renderer_state);
-                renderer_state.update(&mut game_state);
+                update_game_state(&mut game_state, &renderer_state.base.lock().unwrap());
 
                 /* let last_log_time_clone = last_log_time;
                 let mut write_logs = || {
@@ -47,11 +46,11 @@ pub fn run(
                     _ => {}
                 } */
 
-                match renderer_state.render(&game_state) {
+                match renderer_state.render(&mut game_state) {
                     Ok(_) => {}
                     // Reconfigure the surface if lost
                     Err(wgpu::SurfaceError::Lost) => {
-                        renderer_state.resize(renderer_state.base.window_size)
+                        renderer_state.resize(renderer_state.base.lock().unwrap().window_size)
                     }
                     // The system is out of memory, we should probably quit
                     Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,

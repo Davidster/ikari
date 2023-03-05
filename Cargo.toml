@@ -3,7 +3,7 @@ name = "ikari"
 version = "0.1.0"
 authors = [
     "David Huculak https://github.com/Davidster",
-    "Ikari Contributors https://github.com/Davidster/ikari/graphs/contributors"
+    "Ikari Contributors https://github.com/Davidster/ikari/graphs/contributors",
 ]
 edition = "2021"
 rust-version = "1.66"
@@ -33,7 +33,10 @@ smallvec = { version = "1.10", features = ["union", "const_generics"] }
 # log
 anyhow = { version = "1.0", features = ["backtrace"] }
 console = "0.15"
-env_logger = { version = "0.10", default-features = false, features = ["auto-color", "humantime"] }
+env_logger = { version = "0.10", default-features = false, features = [
+    "auto-color",
+    "humantime",
+] }
 log = "0.4"
 
 # profile
@@ -41,7 +44,10 @@ profiling = "1.0.7" # The version should be the one used by wgpu-core/hal
 
 # assets
 gltf = "1.0"
-image = { version = "0.23.14", default-features = false, features = ["hdr", "jpeg"] } # The version should be the one used by gltf crate
+image = { version = "0.23.14", default-features = false, features = [
+    "hdr",
+    "jpeg",
+] } # The version should be the one used by gltf crate
 obj-rs = "0.7"
 wavefront_obj = "10.0"
 
@@ -63,6 +69,6 @@ oddio = "0.6"
 
 [profile.release]
 #debug = true
-incremental = false
-codegen-units = 1
+# incremental = false
+# codegen-units = 1
 debug = true

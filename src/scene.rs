@@ -223,12 +223,12 @@ impl Scene {
 
     pub fn merge_scene(
         &mut self,
-        renderer_state: &mut RendererState,
+        renderer_data: &mut RendererStatePublicData,
         mut other_scene: Scene,
         mut other_render_buffers: RenderBuffers,
     ) {
-        let pbr_mesh_index_offset = renderer_state.buffers.binded_pbr_meshes.len();
-        let unlit_mesh_index_offset = renderer_state.buffers.binded_unlit_meshes.len();
+        let pbr_mesh_index_offset = renderer_data.binded_pbr_meshes.len();
+        let unlit_mesh_index_offset = renderer_data.binded_unlit_meshes.len();
 
         for binded_wireframe_mesh in &mut other_render_buffers.binded_wireframe_meshes {
             match binded_wireframe_mesh.source_mesh_type {
@@ -241,20 +241,16 @@ impl Scene {
             }
         }
 
-        renderer_state
-            .buffers
+        renderer_data
             .binded_pbr_meshes
             .append(&mut other_render_buffers.binded_pbr_meshes);
-        renderer_state
-            .buffers
+        renderer_data
             .binded_unlit_meshes
             .append(&mut other_render_buffers.binded_unlit_meshes);
-        renderer_state
-            .buffers
+        renderer_data
             .binded_wireframe_meshes
             .append(&mut other_render_buffers.binded_wireframe_meshes);
-        renderer_state
-            .buffers
+        renderer_data
             .textures
             .append(&mut other_render_buffers.textures);
         let skin_index_offset = self.skins.len();
@@ -322,7 +318,7 @@ impl Scene {
     pub fn get_node_bounding_sphere(
         &self,
         node_id: GameNodeId,
-        renderer_state: &RendererState,
+        renderer_state_data: &RendererStatePublicData,
     ) -> Option<Sphere> {
         self.get_node(node_id)
             .and_then(|node| node.mesh.as_ref())
@@ -330,7 +326,7 @@ impl Scene {
                 build_node_bounding_sphere(
                     mesh,
                     &self.get_global_transform_for_node(node_id),
-                    renderer_state,
+                    renderer_state_data,
                 )
             })
     }
@@ -338,7 +334,7 @@ impl Scene {
     pub fn get_node_bounding_sphere_opt(
         &self,
         node_id: GameNodeId,
-        renderer_state: &RendererState,
+        renderer_data: &RendererStatePublicData,
     ) -> Option<Sphere> {
         self.get_node(node_id)
             .and_then(|node| node.mesh.as_ref())
@@ -346,7 +342,7 @@ impl Scene {
                 build_node_bounding_sphere(
                     mesh,
                     &self.get_global_transform_for_node_opt(node_id),
-                    renderer_state,
+                    renderer_data,
                 )
             })
     }
@@ -545,7 +541,7 @@ impl Scene {
 fn build_node_bounding_sphere(
     mesh: &GameNodeMesh,
     global_transform: &transform::Transform,
-    renderer_state: &RendererState,
+    renderer_data: &RendererStatePublicData,
 ) -> Sphere {
     let global_node_scale = global_transform.scale();
     let largest_axis_scale = global_node_scale
@@ -559,12 +555,12 @@ fn build_node_bounding_sphere(
         .copied()
         .map(|mesh_index| match mesh.mesh_type {
             GameNodeMeshType::Pbr { .. } => {
-                renderer_state.buffers.binded_pbr_meshes[mesh_index]
+                renderer_data.binded_pbr_meshes[mesh_index]
                     .geometry_buffers
                     .bounding_box
             }
             GameNodeMeshType::Unlit { .. } => {
-                renderer_state.buffers.binded_unlit_meshes[mesh_index].bounding_box
+                renderer_data.binded_unlit_meshes[mesh_index].bounding_box
             }
         });
 

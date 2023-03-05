@@ -72,7 +72,7 @@ impl PhysicsState {
     pub fn add_static_box(
         &mut self,
         scene: &Scene,
-        renderer_state: &RendererState,
+        renderer_data: &RendererStatePublicData,
         node_id: GameNodeId,
     ) {
         #[allow(clippy::or_fun_call)]
@@ -85,12 +85,12 @@ impl PhysicsState {
                 for mesh_index in mesh.mesh_indices.iter() {
                     let bounding_box = match mesh.mesh_type {
                         GameNodeMeshType::Pbr { .. } => {
-                            renderer_state.buffers.binded_pbr_meshes[*mesh_index]
+                            renderer_data.binded_pbr_meshes[*mesh_index]
                                 .geometry_buffers
                                 .bounding_box
                         }
                         GameNodeMeshType::Unlit { .. } => {
-                            renderer_state.buffers.binded_unlit_meshes[*mesh_index].bounding_box
+                            renderer_data.binded_unlit_meshes[*mesh_index].bounding_box
                         }
                     };
                     let base_scale = (bounding_box.max - bounding_box.min) / 2.0;

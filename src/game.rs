@@ -52,28 +52,28 @@ pub fn get_skybox_path() -> (
 
     // Milkyway
     // src: http://www.hdrlabs.com/sibl/archive/
-    let skybox_background = SkyboxBackground::Equirectangular {
+    let _skybox_background = SkyboxBackground::Equirectangular {
         image_path: "./src/textures/milkyway/background.jpg",
     };
-    let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
         Some(SkyboxHDREnvironment::Equirectangular {
             image_path: "./src/textures/milkyway/radiance.hdr",
         });
 
     // My photosphere pic
     // src: me
-    let _skybox_background = SkyboxBackground::Equirectangular {
-        image_path: "./src/textures/photosphere_skybox.jpg",
+    let skybox_background = SkyboxBackground::Equirectangular {
+        image_path: "./src/textures/photosphere_skybox_small.jpg",
     };
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-        Some(SkyboxHDREnvironment::Equirectangular {
-            image_path: "./src/textures/photosphere_skybox_small.jpg",
-        });
+    let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
 
     (skybox_background, skybox_hdr_environment)
 }
 
 pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> Result<GameState> {
+    let mut renderer_base_guard = renderer_state.base.lock().unwrap();
+    let mut renderer_data_guard = renderer_state.data.lock().unwrap();
+
     let mut physics_state = PhysicsState::new();
 
     // create player
@@ -100,8 +100,8 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
         let (other_scene, other_render_buffers) =
-            build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
-        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+            build_scene(&mut renderer_base_guard, (&document, &buffers, &images))?;
+        scene.merge_scene(&mut renderer_data_guard, other_scene, other_render_buffers);
 
         let node_id = scene.nodes().last().unwrap().id();
         let animation_index = scene.animations.len() - 1;
@@ -135,6 +135,8 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     println!("revolver: {:?}", timer.elapsed());
     timer = std::time::Instant::now();
 
+    // anyhow::bail!("suhh dude");
+
     // forest
     {
         let mut subtimer = std::time::Instant::now();
@@ -145,7 +147,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         subtimer = std::time::Instant::now();
 
         let (mut other_scene, other_render_buffers) =
-            build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
+            build_scene(&mut renderer_base_guard, (&document, &buffers, &images))?;
 
         println!("build_scene: {:?}", subtimer.elapsed());
 
@@ -161,7 +163,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             node.transform
                 .set_position(node.transform.position() + Vec3::new(0.0, 29.0, 0.0));
         }
-        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+        scene.merge_scene(&mut renderer_data_guard, other_scene, other_render_buffers);
     }
 
     println!("forest: {:?}", timer.elapsed());
@@ -173,7 +175,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf")?;
         let (mut other_scene, other_render_buffers) =
-            build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
+            build_scene(&mut renderer_base_guard, (&document, &buffers, &images))?;
         if let Some(jump_up_animation) = other_scene
             .animations
             .iter_mut()
@@ -183,7 +185,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             jump_up_animation.state.is_playing = true;
             jump_up_animation.state.loop_type = LoopType::Wrap;
         }
-        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+        scene.merge_scene(&mut renderer_data_guard, other_scene, other_render_buffers);
     }
 
     println!("legendary robot: {:?}", timer.elapsed());
@@ -195,8 +197,8 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
         let (other_scene, other_render_buffers) =
-            build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
-        scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+            build_scene(&mut renderer_base_guard, (&document, &buffers, &images))?;
+        scene.merge_scene(&mut renderer_data_guard, other_scene, other_render_buffers);
 
         let test_level_node_ids: Vec<_> = scene
             .nodes()
@@ -207,11 +209,11 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             if let Some(_mesh) = scene.get_node_mut(node_id).unwrap().mesh.as_mut() {
                 // _mesh.wireframe = true;
             }
-            physics_state.add_static_box(&scene, renderer_state, node_id);
+            physics_state.add_static_box(&scene, &renderer_data_guard, node_id);
         }
     }
 
-    println!("maze: {:?}", timer.elapsed());
+    // println!("maze: {:?}", timer.elapsed());
     timer = std::time::Instant::now();
 
     // other
@@ -238,20 +240,20 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
         // let gltf_path = "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf";
         // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
-        // let gltf_path =
-        //     "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
+        let gltf_path =
+            "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
         // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/Lantern/glTF/Lantern.gltf";
         // let gltf_path = "./src/models/gltf/VC/VC.gltf";
         // let gltf_path =
         //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
-        // let (document, buffers, images) = gltf::import(gltf_path)?;
-        // let (mut other_scene, other_render_buffers) =
-        //     build_scene(&mut renderer_state.base, (&document, &buffers, &images))?;
-        // for animation in other_scene.animations.iter_mut() {
-        //     animation.state.is_playing = true;
-        //     animation.state.loop_type = LoopType::Wrap;
-        // }
-        // scene.merge_scene(renderer_state, other_scene, other_render_buffers);
+        let (document, buffers, images) = gltf::import(gltf_path)?;
+        let (mut other_scene, other_render_buffers) =
+            build_scene(&mut renderer_base_guard, (&document, &buffers, &images))?;
+        for animation in other_scene.animations.iter_mut() {
+            animation.state.is_playing = true;
+            animation.state.loop_type = LoopType::Wrap;
+        }
+        scene.merge_scene(&mut renderer_data_guard, other_scene, other_render_buffers);
     }
 
     println!("other: {:?}", timer.elapsed());
@@ -298,7 +300,11 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     ];
     // let point_lights: Vec<(transform::Transform, Vec3, f32)> = vec![];
 
-    let point_light_unlit_mesh_index = renderer_state.bind_basic_unlit_mesh(&sphere_mesh);
+    let point_light_unlit_mesh_index = RendererState::bind_basic_unlit_mesh(
+        &renderer_base_guard,
+        &mut renderer_data_guard,
+        &sphere_mesh,
+    );
     let mut point_light_node_ids: Vec<GameNodeId> = Vec::new();
     let mut point_light_components: Vec<PointLightComponent> = Vec::new();
     for (transform, color, intensity) in point_lights {
@@ -354,7 +360,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     let earth_texture_path = "./src/textures/8k_earth.jpg";
     let earth_texture_bytes = std::fs::read(earth_texture_path)?;
     let earth_texture = Texture::from_encoded_image(
-        &mut renderer_state.base,
+        &mut renderer_base_guard,
         &earth_texture_bytes,
         earth_texture_path,
         None,
@@ -373,7 +379,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     let earth_normal_map_path = "./src/textures/8k_earth_normal_map.jpg";
     let earth_normal_map_bytes = std::fs::read(earth_normal_map_path)?;
     let earth_normal_map = Texture::from_encoded_image(
-        &mut renderer_state.base,
+        &mut renderer_base_guard,
         &earth_normal_map_bytes,
         earth_normal_map_path,
         wgpu::TextureFormat::Rgba8Unorm.into(),
@@ -410,7 +416,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         img
     };
     let big_checkerboard_texture = Texture::from_decoded_image(
-        &mut renderer_state.base,
+        &mut renderer_base_guard,
         &big_checkerboard_texture_img,
         big_checkerboard_texture_img.dimensions(),
         Some("big_checkerboard_texture"),
@@ -448,7 +454,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         img
     };
     let small_checkerboard_texture = Texture::from_decoded_image(
-        &mut renderer_state.base,
+        &mut renderer_base_guard,
         &small_checkerboard_texture_img,
         small_checkerboard_texture_img.dimensions(),
         Some("small_checkerboard_texture"),
@@ -471,7 +477,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     let mars_texture_path = "./src/textures/8k_mars.jpg";
     let mars_texture_bytes = std::fs::read(mars_texture_path)?;
     let mars_texture = Texture::from_encoded_image(
-        &mut renderer_state.base,
+        &mut renderer_base_guard,
         &mars_texture_bytes,
         mars_texture_path,
         None,
@@ -488,7 +494,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     )?;
 
     let test_object_metallic_roughness_map = Texture::from_color(
-        &mut renderer_state.base,
+        &mut renderer_base_guard,
         [
             255,
             (0.12 * 255.0f32).round() as u8,
@@ -500,7 +506,9 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     println!("textures: {:?}", timer.elapsed());
     timer = std::time::Instant::now();
 
-    let test_object_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
+    let test_object_pbr_mesh_index = RendererState::bind_basic_pbr_mesh(
+        &mut renderer_base_guard,
+        &mut renderer_data_guard,
         &sphere_mesh,
         &PbrMaterial {
             base_color: Some(&earth_texture),
@@ -543,7 +551,8 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         Character::new(
             &mut scene,
             &mut physics_state,
-            renderer_state,
+            &renderer_base_guard,
+            &mut renderer_data_guard,
             legendary_robot_root_node_id,
             legendary_robot_skin_index,
             &cube_mesh,
@@ -557,7 +566,9 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         .map(|_| BallComponent::rand())
         .collect();
 
-    let ball_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
+    let ball_pbr_mesh_index = RendererState::bind_basic_pbr_mesh(
+        &mut renderer_base_guard,
+        &mut renderer_data_guard,
         &sphere_mesh,
         &PbrMaterial {
             base_color: Some(&mars_texture),
@@ -613,7 +624,9 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     // );
 
     // create the floor and add it to the scene
-    let floor_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
+    let floor_pbr_mesh_index = RendererState::bind_basic_pbr_mesh(
+        &mut renderer_base_guard,
+        &mut renderer_data_guard,
         &plane_mesh,
         &PbrMaterial {
             base_color: Some(&big_checkerboard_texture),
@@ -653,7 +666,9 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
 
     // create the checkerboarded bouncing ball and add it to the scene
     let (bouncing_ball_node_id, bouncing_ball_body_handle) = {
-        let bouncing_ball_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
+        let bouncing_ball_pbr_mesh_index = RendererState::bind_basic_pbr_mesh(
+            &mut renderer_base_guard,
+            &mut renderer_data_guard,
             &sphere_mesh,
             &PbrMaterial {
                 base_color: Some(&small_checkerboard_texture),
@@ -737,7 +752,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     #[allow(unused_assignments)]
     let mut crosshair_node_id: Option<GameNodeId> = None;
     let crosshair_texture = Texture::from_decoded_image(
-        &mut renderer_state.base,
+        &mut renderer_base_guard,
         &crosshair_texture_img,
         crosshair_texture_img.dimensions(),
         Some("crosshair_texture"),
@@ -769,10 +784,12 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             .collect(),
         indices: vec![0, 2, 1, 0, 3, 2],
     };
-    let crosshair_ambient_occlusion = Texture::from_color(&mut renderer_state.base, [0, 0, 0, 0])?;
+    let crosshair_ambient_occlusion = Texture::from_color(&mut renderer_base_guard, [0, 0, 0, 0])?;
     let crosshair_metallic_roughness =
-        Texture::from_color(&mut renderer_state.base, [0, 0, 255, 0])?;
-    let crosshair_mesh_index = renderer_state.bind_basic_pbr_mesh(
+        Texture::from_color(&mut renderer_base_guard, [0, 0, 255, 0])?;
+    let crosshair_mesh_index = RendererState::bind_basic_pbr_mesh(
+        &mut renderer_base_guard,
+        &mut renderer_data_guard,
         &crosshair_quad,
         &PbrMaterial {
             ambient_occlusion: Some(&crosshair_ambient_occlusion),
@@ -827,6 +844,8 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
 
     // logger_log(&format!("{:?}", &revolver));
 
+    anyhow::bail!("suhh dude");
+
     Ok(GameState {
         scene,
         time_tracker: None,
@@ -873,45 +892,50 @@ pub fn process_device_input(game_state: &mut GameState, event: &winit::event::De
     game_state.player_controller.process_device_events(event);
 }
 
-pub fn increment_render_scale(renderer_state: &mut RendererState, increase: bool) {
+pub fn increment_render_scale(
+    renderer_state: &RendererState,
+    renderer_base: &BaseRendererState,
+    renderer_data: &mut RendererStatePublicData,
+    increase: bool,
+) {
     let delta = 0.1;
     let change = if increase { delta } else { -delta };
-    renderer_state.render_scale = (renderer_state.render_scale + change).clamp(0.1, 4.0);
+    renderer_data.render_scale = (renderer_data.render_scale + change).clamp(0.1, 4.0);
     logger_log(&format!(
         "Render scale: {:?} ({:?}x{:?})",
-        renderer_state.render_scale,
-        (renderer_state.base.surface_config.width as f32 * renderer_state.render_scale.sqrt())
-            .round() as u32,
-        (renderer_state.base.surface_config.height as f32 * renderer_state.render_scale.sqrt())
-            .round() as u32,
+        renderer_data.render_scale,
+        (renderer_base.surface_config.width as f32 * renderer_data.render_scale.sqrt()).round()
+            as u32,
+        (renderer_base.surface_config.height as f32 * renderer_data.render_scale.sqrt()).round()
+            as u32,
     ));
-    renderer_state.resize(renderer_state.base.window_size);
+    renderer_state.resize(renderer_base.window_size);
 }
 
-pub fn increment_exposure(renderer_state: &mut RendererState, increase: bool) {
+pub fn increment_exposure(renderer_data: &mut RendererStatePublicData, increase: bool) {
     let delta = 0.05;
     let change = if increase { delta } else { -delta };
-    renderer_state.tone_mapping_exposure =
-        (renderer_state.tone_mapping_exposure + change).clamp(0.0, 20.0);
+    renderer_data.tone_mapping_exposure =
+        (renderer_data.tone_mapping_exposure + change).clamp(0.0, 20.0);
     logger_log(&format!(
         "Exposure: {:?}",
-        renderer_state.tone_mapping_exposure
+        renderer_data.tone_mapping_exposure
     ));
 }
 
-pub fn increment_bloom_threshold(renderer_state: &mut RendererState, increase: bool) {
+pub fn increment_bloom_threshold(renderer_data: &mut RendererStatePublicData, increase: bool) {
     let delta = 0.05;
     let change = if increase { delta } else { -delta };
-    renderer_state.bloom_threshold = (renderer_state.bloom_threshold + change).clamp(0.0, 20.0);
+    renderer_data.bloom_threshold = (renderer_data.bloom_threshold + change).clamp(0.0, 20.0);
     logger_log(&format!(
         "Bloom Threshold: {:?}",
-        renderer_state.bloom_threshold
+        renderer_data.bloom_threshold
     ));
 }
 
 pub fn process_window_input(
     game_state: &mut GameState,
-    renderer_state: &mut RendererState,
+    renderer_state: &RendererState,
     event: &winit::event::WindowEvent,
     window: &mut winit::window::Window,
 ) {
@@ -934,40 +958,55 @@ pub fn process_window_input(
     } = event
     {
         if *state == ElementState::Released {
+            let mut render_data_guard = renderer_state.data.lock().unwrap();
+
             match keycode {
                 VirtualKeyCode::Z => {
-                    increment_render_scale(renderer_state, false);
+                    let render_base_guard = renderer_state.base.lock().unwrap();
+                    increment_render_scale(
+                        renderer_state,
+                        &render_base_guard,
+                        &mut render_data_guard,
+                        false,
+                    );
                 }
                 VirtualKeyCode::X => {
-                    increment_render_scale(renderer_state, true);
+                    let render_base_guard = renderer_state.base.lock().unwrap();
+                    increment_render_scale(
+                        renderer_state,
+                        &render_base_guard,
+                        &mut render_data_guard,
+                        true,
+                    );
                 }
                 VirtualKeyCode::E => {
-                    increment_exposure(renderer_state, false);
+                    increment_exposure(&mut render_data_guard, false);
                 }
                 VirtualKeyCode::R => {
-                    increment_exposure(renderer_state, true);
+                    increment_exposure(&mut render_data_guard, true);
                 }
                 VirtualKeyCode::T => {
-                    increment_bloom_threshold(renderer_state, false);
+                    increment_bloom_threshold(&mut render_data_guard, false);
                 }
                 VirtualKeyCode::Y => {
-                    increment_bloom_threshold(renderer_state, true);
+                    increment_bloom_threshold(&mut render_data_guard, true);
                 }
                 VirtualKeyCode::P => {
                     game_state.is_playing_animations = !game_state.is_playing_animations;
                 }
                 VirtualKeyCode::M => {
-                    renderer_state.enable_shadows = !renderer_state.enable_shadows;
+                    render_data_guard.enable_shadows = !render_data_guard.enable_shadows;
                 }
                 VirtualKeyCode::B => {
-                    renderer_state.enable_bloom = !renderer_state.enable_bloom;
+                    render_data_guard.enable_bloom = !render_data_guard.enable_bloom;
                 }
                 VirtualKeyCode::F => {
-                    renderer_state.enable_wireframe_mode = !renderer_state.enable_wireframe_mode;
+                    render_data_guard.enable_wireframe_mode =
+                        !render_data_guard.enable_wireframe_mode;
                 }
                 VirtualKeyCode::J => {
-                    renderer_state.draw_node_bounding_spheres =
-                        !renderer_state.draw_node_bounding_spheres;
+                    render_data_guard.draw_node_bounding_spheres =
+                        !render_data_guard.draw_node_bounding_spheres;
                 }
                 VirtualKeyCode::C => {
                     if let Some(character) = game_state.character.as_mut() {
@@ -984,7 +1023,7 @@ pub fn process_window_input(
 }
 
 #[profiling::function]
-pub fn update_game_state(game_state: &mut GameState, renderer_state: &RendererState) {
+pub fn update_game_state(game_state: &mut GameState, renderer_base: &BaseRendererState) {
     let time_tracker = game_state.time();
     let global_time_seconds = time_tracker.global_time_seconds();
 
@@ -1189,7 +1228,7 @@ pub fn update_game_state(game_state: &mut GameState, renderer_state: &RendererSt
                     deg_to_rad(90.0),
                 ))
                 .scale(
-                    (1080.0 / renderer_state.base.window_size.height as f32)
+                    (1080.0 / renderer_base.window_size.height as f32)
                         * 0.06
                         * Vec3::new(1.0, 1.0, 1.0),
                 )

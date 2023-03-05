@@ -49,20 +49,15 @@ impl GpuBuffer {
             panic!("Tried to create a buffer with data that won't fit in the capacity");
         }
 
-        let padding: Vec<u8> = (0..(capacity_bytes - initial_contents.len()))
-            .map(|_| 0u8)
-            .collect();
-
-        let contents: Vec<u8> = initial_contents
-            .iter()
-            .chain(padding.iter())
-            .copied()
-            .collect();
+        let mut contents_padded = initial_contents.to_vec();
+        let padding_count = capacity_bytes - initial_contents.len();
+        contents_padded.reserve(padding_count);
+        contents_padded.resize(capacity_bytes, 0);
 
         Self {
             src: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("GpuBuffer"),
-                contents: &contents,
+                contents: &contents_padded,
                 usage,
             }),
             capacity,

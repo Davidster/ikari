@@ -1,10 +1,24 @@
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 
 use anyhow::{bail, Result};
 use approx::abs_diff_eq;
 use glam::f32::{Mat4, Vec2, Vec3, Vec4};
 
 use super::*;
+
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+pub struct ChannelPropertyStr<'a>(&'a str);
+
+impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
+    fn from(prop: gltf::animation::Property) -> Self {
+        Self(match prop {
+            gltf::animation::Property::Translation => "Translation",
+            gltf::animation::Property::Scale => "Scale",
+            gltf::animation::Property::Rotation => "Rotation",
+            gltf::animation::Property::MorphTargetWeights => "MorphTargetWeights",
+        })
+    }
+}
 
 pub fn build_scene(
     base_renderer_state: &mut BaseRendererState,
@@ -21,77 +35,12 @@ pub fn build_scene(
 
     let materials: Vec<_> = document.materials().collect();
 
-    let textures = document
-        .textures()
-        .map(|texture| {
-            let source_image_index = texture.source().index();
-            let image_data = &images[source_image_index];
+    let mut timer = std::time::Instant::now();
 
-            let srgb = materials.iter().any(|material| {
-                vec![
-                    material.emissive_texture(),
-                    material.pbr_metallic_roughness().base_color_texture(),
-                ]
-                .iter()
-                .flatten()
-                .any(|texture_info| texture_info.texture().index() == texture.index())
-            });
+    let textures = get_textures(document, images, materials, base_renderer_state)?;
 
-            let (image_pixels, texture_format) = get_image_pixels(image_data, srgb)?;
-
-            let gltf_sampler = texture.sampler();
-            let default_sampler = SamplerDescriptor::default();
-            let address_mode_u = sampler_wrapping_mode_to_wgpu(gltf_sampler.wrap_s());
-            let address_mode_v = sampler_wrapping_mode_to_wgpu(gltf_sampler.wrap_t());
-            let mag_filter = gltf_sampler
-                .mag_filter()
-                .map(|gltf_mag_filter| match gltf_mag_filter {
-                    gltf::texture::MagFilter::Nearest => wgpu::FilterMode::Nearest,
-                    gltf::texture::MagFilter::Linear => wgpu::FilterMode::Linear,
-                })
-                .unwrap_or(default_sampler.mag_filter);
-            let (min_filter, mipmap_filter) = gltf_sampler
-                .min_filter()
-                .map(|gltf_min_filter| match gltf_min_filter {
-                    gltf::texture::MinFilter::Nearest => {
-                        (wgpu::FilterMode::Nearest, default_sampler.mipmap_filter)
-                    }
-                    gltf::texture::MinFilter::Linear => {
-                        (wgpu::FilterMode::Linear, default_sampler.mipmap_filter)
-                    }
-                    gltf::texture::MinFilter::NearestMipmapNearest => {
-                        (wgpu::FilterMode::Nearest, wgpu::FilterMode::Nearest)
-                    }
-                    gltf::texture::MinFilter::LinearMipmapNearest => {
-                        (wgpu::FilterMode::Linear, wgpu::FilterMode::Nearest)
-                    }
-                    gltf::texture::MinFilter::NearestMipmapLinear => {
-                        (wgpu::FilterMode::Nearest, wgpu::FilterMode::Linear)
-                    }
-                    gltf::texture::MinFilter::LinearMipmapLinear => {
-                        (wgpu::FilterMode::Linear, wgpu::FilterMode::Linear)
-                    }
-                })
-                .unwrap_or((default_sampler.min_filter, default_sampler.mipmap_filter));
-
-            Texture::from_decoded_image(
-                base_renderer_state,
-                &image_pixels,
-                (image_data.width, image_data.height),
-                texture.name(),
-                texture_format.into(),
-                true,
-                &SamplerDescriptor {
-                    address_mode_u,
-                    address_mode_v,
-                    mag_filter,
-                    min_filter,
-                    mipmap_filter,
-                    ..Default::default()
-                },
-            )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    /* println!("textures: {:?}", timer.elapsed());
+    timer = std::time::Instant::now(); */
 
     // node index -> parent node index
     let parent_index_map: HashMap<usize, usize> = document
@@ -111,35 +60,69 @@ pub fn build_scene(
             .ok_or_else(|| anyhow::anyhow!("Expected scene with index: {:?}", scene_index))?,
     );
 
+    // mesh index -> node indices
+    let mut mesh_node_map: HashMap<usize, Vec<usize>> = HashMap::new();
+    for node in &scene_nodes {
+        if node.mesh().is_none() {
+            continue;
+        }
+        let mesh_index = node.mesh().unwrap().index();
+        match mesh_node_map.entry(mesh_index) {
+            Entry::Occupied(mut entry) => {
+                entry.get_mut().push(node.index());
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(vec![node.index()]);
+            }
+        }
+    }
+
+    /* println!("nodes: {:?}", timer.elapsed());
+    timer = std::time::Instant::now(); */
+
     let meshes: Vec<_> = document.meshes().collect();
 
-    let mut binded_pbr_meshes: Vec<BindedPbrMesh> = Vec::new();
-    let mut binded_wireframe_meshes: Vec<BindedWireframeMesh> = Vec::new();
-    let mut pbr_mesh_vertices: Vec<Vec<Vertex>> = Vec::new();
+    let make_supported_mesh_iterator = || {
+        meshes
+            .iter()
+            .flat_map(|mesh| mesh.primitives().map(|prim| (&meshes[mesh.index()], prim)))
+            .filter(|(_, prim)| {
+                prim.mode() == gltf::mesh::Mode::Triangles
+                    && (prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
+                        || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask)
+            })
+    };
+
+    let supported_mesh_count = make_supported_mesh_iterator().count();
+
+    let mut binded_pbr_meshes: Vec<BindedPbrMesh> = Vec::with_capacity(supported_mesh_count);
+    let mut binded_wireframe_meshes: Vec<BindedWireframeMesh> =
+        Vec::with_capacity(supported_mesh_count);
+    let mut pbr_mesh_vertices: Vec<Vec<Vertex>> = Vec::with_capacity(supported_mesh_count);
     // gltf node index -> game node
     let mut node_mesh_links: HashMap<usize, Vec<usize>> = HashMap::new();
 
-    for (binded_pbr_mesh_index, (mesh, primitive_group)) in meshes
-        .iter()
-        .flat_map(|mesh| mesh.primitives().map(|prim| (&meshes[mesh.index()], prim)))
-        .filter(|(_, prim)| {
-            prim.mode() == gltf::mesh::Mode::Triangles
-                && (prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
-                    || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask)
-        })
-        .enumerate()
+    /* let mut phase_1_duration = std::time::Duration::ZERO;
+    let mut phase_2_duration = std::time::Duration::ZERO;
+    let mut phase_3_duration = std::time::Duration::ZERO; */
+
+    for (binded_pbr_mesh_index, (mesh, primitive_group)) in
+        make_supported_mesh_iterator().enumerate()
     {
+        let mut timer = std::time::Instant::now();
         let dynamic_pbr_params = get_dynamic_pbr_params(&primitive_group.material());
         let pbr_material = get_pbr_material(&primitive_group.material(), &textures);
         let textures_bind_group =
             base_renderer_state.make_pbr_textures_bind_group(&pbr_material, true)?;
 
+        /* phase_1_duration += timer.elapsed();
+        timer = std::time::Instant::now(); */
+
         let (vertices, geometry_buffers, wireframe_index_buffer, wireframe_index_buffer_format) =
             build_geometry_buffers(&base_renderer_state.device, &primitive_group, buffers)?;
-        let initial_instances: Vec<_> = scene_nodes
-            .iter()
-            .filter(|node| node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index())
-            .collect();
+
+        /* phase_2_duration += timer.elapsed();
+        timer = std::time::Instant::now(); */
 
         let primitive_mode = crate::renderer::PrimitiveMode::Triangles;
 
@@ -151,12 +134,24 @@ pub fn build_scene(
             }
         };
 
-        for gltf_node in initial_instances.iter() {
-            #[allow(clippy::or_fun_call)]
+        if let Some(gltf_node_indices) = mesh_node_map.get(&mesh.index()) {
+            for gltf_node_index in gltf_node_indices {
+                // #[allow(clippy::or_fun_call)]
+                let binded_pbr_mesh_indices =
+                    node_mesh_links.entry(*gltf_node_index).or_insert(vec![]);
+                binded_pbr_mesh_indices.push(binded_pbr_mesh_index);
+            }
+        }
+
+        /* let instance_iterator = scene_nodes
+            .iter()
+            .filter(|node| node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index());
+        for gltf_node in instance_iterator {
+            // #[allow(clippy::or_fun_call)]
             let binded_pbr_mesh_indices =
                 node_mesh_links.entry(gltf_node.index()).or_insert(vec![]);
             binded_pbr_mesh_indices.push(binded_pbr_mesh_index);
-        }
+        } */
 
         binded_pbr_meshes.push(BindedPbrMesh {
             geometry_buffers,
@@ -174,7 +169,16 @@ pub fn build_scene(
         });
 
         pbr_mesh_vertices.push(vertices);
+
+        /* phase_3_duration += timer.elapsed();
+        timer = std::time::Instant::now(); */
     }
+
+    /* println!("binded pbr meshes: {:?}", timer.elapsed());
+    println!("phase 1: {:?}", phase_1_duration);
+    println!("phase 2: {:?}", phase_2_duration);
+    println!("phase 3: {:?}", phase_3_duration);
+    timer = std::time::Instant::now(); */
 
     // it is important that the node indices from the gltf document are preserved
     // for any of the other stuff that refers to the nodes by index such as the animations
@@ -197,6 +201,9 @@ pub fn build_scene(
         })
         .collect();
 
+    /*  println!("nodes 2: {:?}", timer.elapsed());
+    timer = std::time::Instant::now(); */
+
     let animations = get_animations(document, buffers)?;
 
     let skins: Vec<_> = document
@@ -216,7 +223,7 @@ pub fn build_scene(
                         bail!("Expected f32 data but found: {:?}", data_type);
                     }
                     let matrices_u8 = get_buffer_slice_from_accessor(accessor, buffers);
-                    Ok(bytemuck::cast_slice::<_, [[f32; 4]; 4]>(&matrices_u8)
+                    Ok(bytemuck::cast_slice::<_, [[f32; 4]; 4]>(matrices_u8)
                         .to_vec()
                         .iter()
                         .map(Mat4::from_cols_array_2d)
@@ -296,6 +303,9 @@ pub fn build_scene(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    /* println!("skins: {:?}", timer.elapsed());
+    timer = std::time::Instant::now(); */
+
     let render_buffers = RenderBuffers {
         binded_pbr_meshes,
         binded_unlit_meshes: vec![],
@@ -331,6 +341,86 @@ pub fn build_scene(
     Ok((scene, render_buffers))
 }
 
+fn get_textures(
+    document: &gltf::Document,
+    images: &[gltf::image::Data],
+    materials: Vec<gltf::Material>,
+    base_renderer_state: &mut BaseRendererState,
+) -> Result<Vec<Texture>, anyhow::Error> {
+    let textures = document
+        .textures()
+        .map(|texture| {
+            let source_image_index = texture.source().index();
+            let image_data = &images[source_image_index];
+
+            let srgb = materials.iter().any(|material| {
+                vec![
+                    material.emissive_texture(),
+                    material.pbr_metallic_roughness().base_color_texture(),
+                ]
+                .iter()
+                .flatten()
+                .any(|texture_info| texture_info.texture().index() == texture.index())
+            });
+
+            let (image_pixels, texture_format) = get_image_pixels(image_data, srgb)?;
+
+            let gltf_sampler = texture.sampler();
+            let default_sampler = SamplerDescriptor::default();
+            let address_mode_u = sampler_wrapping_mode_to_wgpu(gltf_sampler.wrap_s());
+            let address_mode_v = sampler_wrapping_mode_to_wgpu(gltf_sampler.wrap_t());
+            let mag_filter = gltf_sampler
+                .mag_filter()
+                .map(|gltf_mag_filter| match gltf_mag_filter {
+                    gltf::texture::MagFilter::Nearest => wgpu::FilterMode::Nearest,
+                    gltf::texture::MagFilter::Linear => wgpu::FilterMode::Linear,
+                })
+                .unwrap_or(default_sampler.mag_filter);
+            let (min_filter, mipmap_filter) = gltf_sampler
+                .min_filter()
+                .map(|gltf_min_filter| match gltf_min_filter {
+                    gltf::texture::MinFilter::Nearest => {
+                        (wgpu::FilterMode::Nearest, default_sampler.mipmap_filter)
+                    }
+                    gltf::texture::MinFilter::Linear => {
+                        (wgpu::FilterMode::Linear, default_sampler.mipmap_filter)
+                    }
+                    gltf::texture::MinFilter::NearestMipmapNearest => {
+                        (wgpu::FilterMode::Nearest, wgpu::FilterMode::Nearest)
+                    }
+                    gltf::texture::MinFilter::LinearMipmapNearest => {
+                        (wgpu::FilterMode::Linear, wgpu::FilterMode::Nearest)
+                    }
+                    gltf::texture::MinFilter::NearestMipmapLinear => {
+                        (wgpu::FilterMode::Nearest, wgpu::FilterMode::Linear)
+                    }
+                    gltf::texture::MinFilter::LinearMipmapLinear => {
+                        (wgpu::FilterMode::Linear, wgpu::FilterMode::Linear)
+                    }
+                })
+                .unwrap_or((default_sampler.min_filter, default_sampler.mipmap_filter));
+
+            Texture::from_decoded_image(
+                base_renderer_state,
+                &image_pixels,
+                (image_data.width, image_data.height),
+                texture.name(),
+                texture_format.into(),
+                true,
+                &SamplerDescriptor {
+                    address_mode_u,
+                    address_mode_v,
+                    mag_filter,
+                    min_filter,
+                    mipmap_filter,
+                    ..Default::default()
+                },
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(textures)
+}
+
 pub fn get_animations(
     document: &gltf::Document,
     buffers: &[gltf::buffer::Data],
@@ -359,7 +449,8 @@ pub fn get_animations(
                         property: channel.target().property(),
                         interpolation_type: sampler.interpolation(),
                         keyframe_timings: channel_timings[channel_index].clone(),
-                        keyframe_values_u8: get_buffer_slice_from_accessor(accessor, buffers),
+                        keyframe_values_u8: get_buffer_slice_from_accessor(accessor, buffers)
+                            .to_vec(),
                     })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
@@ -415,7 +506,7 @@ fn get_keyframe_times(
             bail!("Expected f32 data but found: {:?}", data_type);
         }
         let result_u8 = get_buffer_slice_from_accessor(accessor, buffers);
-        bytemuck::cast_slice::<_, f32>(&result_u8).to_vec()
+        bytemuck::cast_slice::<_, f32>(result_u8).to_vec()
     };
 
     Ok(keyframe_times)
@@ -556,7 +647,7 @@ fn get_dynamic_pbr_params(material: &gltf::material::Material) -> DynamicPbrPara
     }
 }
 
-pub fn get_buffer_slice_from_accessor(
+pub fn get_buffer_slice_from_accessor_old(
     accessor: gltf::Accessor,
     buffers: &[gltf::buffer::Data],
 ) -> Vec<u8> {
@@ -564,14 +655,35 @@ pub fn get_buffer_slice_from_accessor(
     let buffer = &buffers[buffer_view.buffer().index()];
     let first_byte_offset = buffer_view.offset() + accessor.offset();
     let stride = buffer_view.stride().unwrap_or_else(|| accessor.size());
-    (0..accessor.count())
-        .flat_map(|i| {
-            let byte_range_start = first_byte_offset + i * stride;
-            let byte_range_end = byte_range_start + accessor.size();
-            let byte_range = byte_range_start..byte_range_end;
-            buffer[byte_range].to_vec()
-        })
-        .collect()
+    let mut result: Vec<u8> = Vec::new();
+    result.reserve(accessor.count() * accessor.size());
+    for i in 0..accessor.count() {
+        let byte_range_start = first_byte_offset + i * stride;
+        let byte_range_end = byte_range_start + accessor.size();
+        let byte_range = byte_range_start..byte_range_end;
+        result.extend(&buffer[byte_range]);
+    }
+    result
+}
+
+pub fn get_buffer_slice_from_accessor<'a>(
+    accessor: gltf::Accessor<'a>,
+    buffers: &'a [gltf::buffer::Data],
+) -> &'a [u8] {
+    let buffer_view = accessor.view().unwrap();
+    let buffer = &buffers[buffer_view.buffer().index()];
+    let first_byte_offset = buffer_view.offset() + accessor.offset();
+    // let stride = buffer_view.stride().unwrap_or_else(|| accessor.size());
+    // let mut result: Vec<u8> = Vec::new();
+    // result.reserve(accessor.count() * accessor.size());
+    // for i in 0..accessor.count() {
+    //     let byte_range_start = first_byte_offset + i * stride;
+    //     let byte_range_end = byte_range_start + accessor.size();
+    //     let byte_range = byte_range_start..byte_range_end;
+    //     result.extend(&buffer[byte_range]);
+    // }
+    // result
+    &buffer[first_byte_offset..(first_byte_offset + accessor.count() * accessor.size())]
 }
 
 pub fn build_geometry_buffers(
@@ -579,23 +691,7 @@ pub fn build_geometry_buffers(
     primitive_group: &gltf::mesh::Primitive,
     buffers: &[gltf::buffer::Data],
 ) -> Result<(Vec<Vertex>, GeometryBuffers, GpuBuffer, wgpu::IndexFormat)> {
-    let vertex_positions: Vec<Vec3> = {
-        let (_, accessor) = primitive_group
-            .attributes()
-            .find(|(semantic, _)| *semantic == gltf::Semantic::Positions)
-            .ok_or_else(|| anyhow::anyhow!("No positions found"))?;
-        let data_type = accessor.data_type();
-        let dimensions = accessor.dimensions();
-        if dimensions != gltf::accessor::Dimensions::Vec3 {
-            bail!("Expected vec3 data but found: {:?}", dimensions);
-        }
-        if data_type != gltf::accessor::DataType::F32 {
-            bail!("Expected f32 data but found: {:?}", data_type);
-        }
-        let positions_u8 = get_buffer_slice_from_accessor(accessor, buffers);
-        let positions: &[[f32; 3]] = bytemuck::cast_slice(&positions_u8);
-        anyhow::Ok(positions.to_vec().iter().copied().map(Vec3::from).collect())
-    }?;
+    let vertex_positions = get_vertex_positions(primitive_group, buffers)?;
     let vertex_position_count = vertex_positions.len();
     let bounding_box = {
         let mut min_point = vertex_positions[0];
@@ -614,230 +710,41 @@ pub fn build_geometry_buffers(
         }
     };
 
-    let indices: Vec<u32> = primitive_group
-        .indices()
-        .map(|accessor| {
-            let data_type = accessor.data_type();
-            let buffer_slice = get_buffer_slice_from_accessor(accessor, buffers);
-
-            let indices: Vec<u32> = match data_type {
-                gltf::accessor::DataType::U16 => anyhow::Ok(
-                    bytemuck::cast_slice::<_, u16>(&buffer_slice)
-                        .iter()
-                        .map(|&x| x as u32)
-                        .collect::<Vec<_>>(),
-                ),
-                gltf::accessor::DataType::U8 => {
-                    anyhow::Ok(buffer_slice.iter().map(|&x| x as u32).collect::<Vec<_>>())
-                }
-                gltf::accessor::DataType::U32 => {
-                    anyhow::Ok(bytemuck::cast_slice::<_, u32>(&buffer_slice).to_vec())
-                }
-                data_type => {
-                    bail!("Expected u32, u16 or u8 indices but found: {:?}", data_type)
-                }
-            }?;
-            anyhow::Ok(indices)
-        })
-        .unwrap_or_else(|| {
-            let vertex_position_count_u32 = u32::try_from(vertex_position_count)?;
-            Ok((0..vertex_position_count_u32).collect())
-        })?;
+    let indices = get_indices(primitive_group, buffers, vertex_position_count)?;
 
     let triangle_count = indices.len() / 3;
 
-    let triangles_as_index_tuples: Vec<_> = (0..triangle_count)
-        .map(|triangle_index| {
-            let i_left = triangle_index * 3;
-            (
-                indices[i_left] as usize,
-                indices[i_left + 1] as usize,
-                indices[i_left + 2] as usize,
-            )
-        })
-        .collect();
+    let mut triangles_as_index_tuples = Vec::with_capacity(triangle_count);
+    for triangle_index in 0..triangle_count {
+        let i_left = triangle_index * 3;
+        triangles_as_index_tuples.push((
+            indices[i_left] as usize,
+            indices[i_left + 1] as usize,
+            indices[i_left + 2] as usize,
+        ));
+    }
 
-    let vertex_tex_coords: Vec<[f32; 2]> = primitive_group
-        .attributes()
-        .find(|(semantic, _)| *semantic == gltf::Semantic::TexCoords(0))
-        .map(|(_, accessor)| {
-            let data_type = accessor.data_type();
-            let dimensions = accessor.dimensions();
-            if dimensions != gltf::accessor::Dimensions::Vec2 {
-                bail!("Expected vec2 data but found: {:?}", dimensions);
-            }
-            if data_type != gltf::accessor::DataType::F32 {
-                bail!("Expected f32 data but found: {:?}", data_type);
-            }
-            Ok(bytemuck::cast_slice(&get_buffer_slice_from_accessor(accessor, buffers)).to_vec())
-        })
-        .transpose()?
-        .unwrap_or_else(|| (0..vertex_position_count).map(|_| [0.5, 0.5]).collect());
+    let vertex_tex_coords = get_vertex_tex_coords(primitive_group, buffers, vertex_position_count)?;
     let vertex_tex_coord_count = vertex_tex_coords.len();
 
-    let vertex_colors: Vec<[f32; 4]> = primitive_group
-        .attributes()
-        .find(|(semantic, _)| *semantic == gltf::Semantic::Colors(0))
-        .map(|(_, accessor)| {
-            let data_type = accessor.data_type();
-            let dimensions = accessor.dimensions();
-            if dimensions != gltf::accessor::Dimensions::Vec4 {
-                bail!("Expected vec4 data but found: {:?}", dimensions);
-            }
-            let buffer_slice = match data_type {
-                gltf::accessor::DataType::F32 => {
-                    Some(get_buffer_slice_from_accessor(accessor, buffers))
-                }
-                gltf::accessor::DataType::U8 => Some(
-                    bytemuck::cast_slice::<_, u8>(
-                        &get_buffer_slice_from_accessor(accessor, buffers)
-                            .iter()
-                            .map(|res| *res as f32 / 255.0)
-                            .collect::<Vec<_>>(),
-                    )
-                    .to_vec(),
-                ),
-                gltf::accessor::DataType::U16 => Some(
-                    bytemuck::cast_slice::<_, u8>(
-                        &bytemuck::cast_slice::<_, u16>(&get_buffer_slice_from_accessor(
-                            accessor, buffers,
-                        ))
-                        .iter()
-                        .map(|res| *res as f32 / 255.0)
-                        .collect::<Vec<_>>(),
-                    )
-                    .to_vec(),
-                ),
-                _ => None,
-            }
-            .ok_or_else(|| {
-                anyhow::anyhow!("Expected f32, u8, or u16 data but found: {:?}", data_type)
-            })?;
-            Ok(bytemuck::cast_slice(&buffer_slice).to_vec())
-        })
-        .transpose()?
-        .unwrap_or_else(|| {
-            (0..vertex_position_count)
-                .map(|_| [1.0, 1.0, 1.0, 1.0])
-                .collect()
-        });
+    let vertex_colors = get_vertex_colors(primitive_group, buffers, vertex_position_count)?;
     let vertex_color_count = vertex_colors.len();
 
-    let vertex_normals: Vec<Vec3> = primitive_group
-        .attributes()
-        .find(|(semantic, _)| *semantic == gltf::Semantic::Normals)
-        .map(|(_, accessor)| {
-            let data_type = accessor.data_type();
-            let dimensions = accessor.dimensions();
-            if dimensions != gltf::accessor::Dimensions::Vec3 {
-                bail!("Expected vec3 data but found: {:?}", dimensions);
-            }
-            if data_type != gltf::accessor::DataType::F32 {
-                bail!("Expected f32 data but found: {:?}", data_type);
-            }
-            let normals_u8 = get_buffer_slice_from_accessor(accessor, buffers);
-            let normals: &[[f32; 3]] = bytemuck::cast_slice(&normals_u8);
-            Ok(normals.to_vec().iter().copied().map(Vec3::from).collect())
-        })
-        .transpose()?
-        .unwrap_or_else(|| {
-            // compute normals
-            // key is flattened vertex position, value is accumulated normal and count
-            let mut vertex_normal_accumulators: HashMap<usize, (Vec3, usize)> = HashMap::new();
-            triangles_as_index_tuples
-                .iter()
-                .copied()
-                .for_each(|(index_a, index_b, index_c)| {
-                    let a = vertex_positions[index_a];
-                    let b = vertex_positions[index_b];
-                    let c = vertex_positions[index_c];
-                    let a_to_b = Vec3::new(b[0], b[1], b[2]) - Vec3::new(a[0], a[1], a[2]);
-                    let a_to_c = Vec3::new(c[0], c[1], c[2]) - Vec3::new(a[0], a[1], a[2]);
-                    let normal = a_to_b.cross(a_to_c).normalize();
-                    vec![index_a, index_b, index_c]
-                        .iter()
-                        .for_each(|vertex_index| {
-                            let (accumulated_normal, count) = vertex_normal_accumulators
-                                .entry(*vertex_index)
-                                .or_insert((Vec3::new(0.0, 0.0, 0.0), 0));
-                            *accumulated_normal += normal;
-                            *count += 1;
-                        });
-                });
-            (0..vertex_position_count)
-                .map(|vertex_index| {
-                    let (accumulated_normal, count) =
-                        vertex_normal_accumulators.get(&vertex_index).unwrap();
-                    *accumulated_normal / (*count as f32)
-                })
-                .collect()
-        });
+    let vertex_normals = get_vertex_normals(
+        primitive_group,
+        buffers,
+        &triangles_as_index_tuples,
+        &vertex_positions,
+        vertex_position_count,
+    )?;
     let vertex_normal_count = vertex_normals.len();
 
-    let vertex_bone_indices: Vec<[u32; 4]> = primitive_group
-        .attributes()
-        .find(|(semantic, _)| *semantic == gltf::Semantic::Joints(0))
-        .map(|(_, accessor)| {
-            let data_type = accessor.data_type();
-            let dimensions = accessor.dimensions();
-            if dimensions != gltf::accessor::Dimensions::Vec4 {
-                bail!("Expected vec4 data but found: {:?}", dimensions);
-            }
-            let bone_indices_u16 = match data_type {
-                gltf::accessor::DataType::U16 => Some(
-                    bytemuck::cast_slice::<_, u16>(&get_buffer_slice_from_accessor(
-                        accessor, buffers,
-                    ))
-                    .to_vec(),
-                ),
-                gltf::accessor::DataType::U8 => Some(
-                    get_buffer_slice_from_accessor(accessor, buffers)
-                        .iter()
-                        .map(|res| *res as u16)
-                        .collect::<Vec<_>>(),
-                ),
-                _ => None,
-            }
-            .ok_or_else(|| anyhow::anyhow!("Expected u8 or u16 data but found: {:?}", data_type))?;
-            let bone_indices_u16_grouped = bytemuck::cast_slice::<_, [u16; 4]>(&bone_indices_u16);
-            Ok(bone_indices_u16_grouped
-                .to_vec()
-                .iter()
-                .map(|indices| {
-                    [
-                        indices[0] as u32,
-                        indices[1] as u32,
-                        indices[2] as u32,
-                        indices[3] as u32,
-                    ]
-                })
-                .collect())
-        })
-        .transpose()?
-        .unwrap_or_else(|| (0..vertex_position_count).map(|_| [0, 0, 0, 0]).collect());
+    let vertex_bone_indices =
+        get_vertex_bone_indices(primitive_group, buffers, vertex_position_count)?;
     let vertex_bone_indices_count = vertex_bone_indices.len();
 
-    let vertex_bone_weights: Vec<[f32; 4]> = primitive_group
-        .attributes()
-        .find(|(semantic, _)| *semantic == gltf::Semantic::Weights(0))
-        .map(|(_, accessor)| {
-            let data_type = accessor.data_type();
-            let dimensions = accessor.dimensions();
-            if dimensions != gltf::accessor::Dimensions::Vec4 {
-                bail!("Expected vec4 data but found: {:?}", dimensions);
-            }
-            if data_type != gltf::accessor::DataType::F32 {
-                bail!("Expected f32 data but found: {:?}", data_type);
-            }
-            let bone_weights_u8 = get_buffer_slice_from_accessor(accessor, buffers);
-            Ok(bytemuck::cast_slice::<_, [f32; 4]>(&bone_weights_u8).to_vec())
-        })
-        .transpose()?
-        .unwrap_or_else(|| {
-            (0..vertex_position_count)
-                .map(|_| [1.0, 0.0, 0.0, 0.0])
-                .collect()
-        });
+    let vertex_bone_weights =
+        get_vertex_bone_weights(primitive_group, buffers, vertex_position_count)?;
     let vertex_bone_weights_count = vertex_bone_weights.len();
 
     if vertex_normal_count != vertex_position_count {
@@ -876,106 +783,31 @@ pub fn build_geometry_buffers(
       );
     }
 
-    let vertex_tangents_and_bitangents: Vec<_> = primitive_group
-        .attributes()
-        .find(|(semantic, _)| *semantic == gltf::Semantic::Tangents)
-        .map(|(_, accessor)| {
-            let data_type = accessor.data_type();
-            let dimensions = accessor.dimensions();
-            if dimensions != gltf::accessor::Dimensions::Vec4 {
-                bail!("Expected vec3 data but found: {:?}", dimensions);
-            }
-            if data_type != gltf::accessor::DataType::F32 {
-                bail!("Expected f32 data but found: {:?}", data_type);
-            }
-            let tangents_u8 = get_buffer_slice_from_accessor(accessor, buffers);
-            let tangents: &[[f32; 4]] = bytemuck::cast_slice(&tangents_u8);
+    let vertex_tangents_and_bitangents = get_vertex_tangents(
+        primitive_group,
+        buffers,
+        &vertex_normals,
+        triangles_as_index_tuples,
+        &vertex_positions,
+        &vertex_tex_coords,
+    )?;
 
-            Ok(tangents
-                .to_vec()
-                .iter()
-                .enumerate()
-                .map(|(vertex_index, tangent_slice)| {
-                    let normal = vertex_normals[vertex_index];
-                    let tangent = Vec3::new(tangent_slice[0], tangent_slice[1], tangent_slice[2]);
-                    // handedness is stored in w component: http://foundationsofgameenginedev.com/FGED2-sample.pdf
-                    let coordinate_system_handedness =
-                        if tangent_slice[3] > 0.0 { -1.0 } else { 1.0 };
-                    let bitangent = coordinate_system_handedness * normal.cross(tangent);
-                    (tangent, bitangent)
-                })
-                .collect())
-        })
-        .transpose()?
-        .unwrap_or_else(|| {
-            triangles_as_index_tuples
-                .iter()
-                .copied()
-                .flat_map(|(index_a, index_b, index_c)| {
-                    let points_with_attribs: Vec<_> = vec![index_a, index_b, index_c]
-                        .iter()
-                        .copied()
-                        .map(|index| {
-                            let pos = vertex_positions[index];
-                            let norm = vertex_normals[index];
-                            let tc = vertex_tex_coords[index];
-                            (
-                                Vec3::new(pos[0], pos[1], pos[2]),
-                                Vec3::new(norm[0], norm[1], norm[2]),
-                                Vec2::new(tc[0], tc[1]),
-                            )
-                        })
-                        .collect();
+    let mut vertices_with_all_data = Vec::with_capacity(vertex_position_count);
+    for index in 0..vertex_position_count {
+        let to_arr = |vec: &Vec3| [vec.x, vec.y, vec.z];
+        let (tangent, bitangent) = vertex_tangents_and_bitangents[index];
 
-                    let edge_1 = points_with_attribs[1].0 - points_with_attribs[0].0;
-                    let edge_2 = points_with_attribs[2].0 - points_with_attribs[0].0;
-
-                    let delta_uv_1 = points_with_attribs[1].2 - points_with_attribs[0].2;
-                    let delta_uv_2 = points_with_attribs[2].2 - points_with_attribs[0].2;
-
-                    let f = 1.0 / (delta_uv_1.x * delta_uv_2.y - delta_uv_2.x * delta_uv_1.y);
-
-                    let (tangent, bitangent) = {
-                        if abs_diff_eq!(f, 0.0, epsilon = 0.00001) || !f.is_finite() {
-                            (Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0))
-                        } else {
-                            let tangent = Vec3::new(
-                                f * (delta_uv_2.y * edge_1.x - delta_uv_1.y * edge_2.x),
-                                f * (delta_uv_2.y * edge_1.y - delta_uv_1.y * edge_2.y),
-                                f * (delta_uv_2.y * edge_1.z - delta_uv_1.y * edge_2.z),
-                            );
-
-                            let bitangent = Vec3::new(
-                                f * (-delta_uv_2.x * edge_1.x + delta_uv_1.x * edge_2.x),
-                                f * (-delta_uv_2.x * edge_1.y + delta_uv_1.x * edge_2.y),
-                                f * (-delta_uv_2.x * edge_1.z + delta_uv_1.x * edge_2.z),
-                            );
-
-                            (tangent, bitangent)
-                        }
-                    };
-
-                    (0..3).map(|_| (tangent, bitangent)).collect::<Vec<_>>()
-                })
-                .collect()
+        vertices_with_all_data.push(Vertex {
+            position: vertex_positions[index].into(),
+            normal: vertex_normals[index].into(),
+            tex_coords: vertex_tex_coords[index],
+            tangent: to_arr(&tangent),
+            bitangent: to_arr(&bitangent),
+            color: vertex_colors[index],
+            bone_indices: vertex_bone_indices[index],
+            bone_weights: vertex_bone_weights[index],
         });
-
-    let vertices_with_all_data: Vec<_> = (0..(vertex_position_count))
-        .map(|index| {
-            let to_arr = |vec: &Vec3| [vec.x, vec.y, vec.z];
-            let (tangent, bitangent) = vertex_tangents_and_bitangents[index];
-            Vertex {
-                position: vertex_positions[index].into(),
-                normal: vertex_normals[index].into(),
-                tex_coords: vertex_tex_coords[index],
-                tangent: to_arr(&tangent),
-                bitangent: to_arr(&bitangent),
-                color: vertex_colors[index],
-                bone_indices: vertex_bone_indices[index],
-                bone_weights: vertex_bone_weights[index],
-            }
-        })
-        .collect();
+    }
 
     let vertex_buffer = GpuBuffer::from_bytes(
         device,
@@ -985,21 +817,27 @@ pub fn build_geometry_buffers(
     );
 
     let into_index_buffer = |indices: &Vec<u32>| {
-        let index_buffer_u16_result: Result<Vec<_>, _> =
-            indices.iter().map(|index| u16::try_from(*index)).collect();
-        let index_buffer_u16;
-        let (index_buffer_bytes, index_buffer_format) = match index_buffer_u16_result {
-            Ok(as_u16) => {
-                index_buffer_u16 = as_u16;
-                (
-                    bytemuck::cast_slice::<u16, u8>(&index_buffer_u16),
-                    wgpu::IndexFormat::Uint16,
-                )
-            }
-            Err(_) => (
+        let mut indices_u16 = Vec::with_capacity(indices.len());
+        for index in indices {
+            match u16::try_from(*index) {
+                Ok(index_u16) => {
+                    indices_u16.push(index_u16);
+                }
+                Err(_) => {
+                    break;
+                }
+            };
+        }
+        let (index_buffer_bytes, index_buffer_format) = if indices_u16.len() == indices.len() {
+            (
+                bytemuck::cast_slice::<u16, u8>(&indices_u16),
+                wgpu::IndexFormat::Uint16,
+            )
+        } else {
+            (
                 bytemuck::cast_slice::<u32, u8>(indices),
                 wgpu::IndexFormat::Uint32,
-            ),
+            )
         };
 
         (
@@ -1018,21 +856,19 @@ pub fn build_geometry_buffers(
 
     let (index_buffer, index_buffer_format) = into_index_buffer(&indices);
 
-    let (wireframe_index_buffer, wireframe_index_buffer_format) = into_index_buffer(
-        &indices
-            .chunks(3)
-            .flat_map(|triangle| {
-                vec![
-                    triangle[0],
-                    triangle[1],
-                    triangle[1],
-                    triangle[2],
-                    triangle[2],
-                    triangle[0],
-                ]
-            })
-            .collect(),
-    );
+    let mut wireframe_indices = Vec::with_capacity(indices.len() * 2);
+    for triangle in indices.chunks(3) {
+        wireframe_indices.extend([
+            triangle[0],
+            triangle[1],
+            triangle[1],
+            triangle[2],
+            triangle[2],
+            triangle[0],
+        ]);
+    }
+    let (wireframe_index_buffer, wireframe_index_buffer_format) =
+        into_index_buffer(&wireframe_indices);
 
     Ok((
         vertices_with_all_data,
@@ -1047,16 +883,364 @@ pub fn build_geometry_buffers(
     ))
 }
 
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
-pub struct ChannelPropertyStr<'a>(&'a str);
+fn get_vertex_tangents(
+    primitive_group: &gltf::Primitive,
+    buffers: &[gltf::buffer::Data],
+    vertex_normals: &[Vec3],
+    triangles_as_index_tuples: Vec<(usize, usize, usize)>,
+    vertex_positions: &[Vec3],
+    vertex_tex_coords: &[[f32; 2]],
+) -> Result<Vec<(Vec3, Vec3)>, anyhow::Error> {
+    let vertex_tangents_and_bitangents: Vec<_> = primitive_group
+        .attributes()
+        .find(|(semantic, _)| *semantic == gltf::Semantic::Tangents)
+        .map(|(_, accessor)| {
+            let data_type = accessor.data_type();
+            let dimensions = accessor.dimensions();
+            if dimensions != gltf::accessor::Dimensions::Vec4 {
+                bail!("Expected vec3 data but found: {:?}", dimensions);
+            }
+            if data_type != gltf::accessor::DataType::F32 {
+                bail!("Expected f32 data but found: {:?}", data_type);
+            }
+            let tangents_u8 = get_buffer_slice_from_accessor(accessor, buffers);
+            let tangents: &[[f32; 4]] = bytemuck::cast_slice(tangents_u8);
 
-impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
-    fn from(prop: gltf::animation::Property) -> Self {
-        Self(match prop {
-            gltf::animation::Property::Translation => "Translation",
-            gltf::animation::Property::Scale => "Scale",
-            gltf::animation::Property::Rotation => "Rotation",
-            gltf::animation::Property::MorphTargetWeights => "MorphTargetWeights",
+            let mut result = Vec::with_capacity(tangents.len());
+            for (vertex_index, tangent_slice) in tangents.iter().enumerate() {
+                let normal = vertex_normals[vertex_index];
+                let tangent = Vec3::new(tangent_slice[0], tangent_slice[1], tangent_slice[2]);
+                // handedness is stored in w component: http://foundationsofgameenginedev.com/FGED2-sample.pdf
+                let coordinate_system_handedness = if tangent_slice[3] > 0.0 { -1.0 } else { 1.0 };
+                let bitangent = coordinate_system_handedness * normal.cross(tangent);
+                result.push((tangent, bitangent));
+            }
+            Ok(result)
         })
-    }
+        .transpose()?
+        .unwrap_or_else(|| {
+            let mut result = Vec::with_capacity(triangles_as_index_tuples.len() * 3);
+            for (index_a, index_b, index_c) in triangles_as_index_tuples {
+                let make_attributed_point = |index| {
+                    (
+                        vertex_positions[index],
+                        vertex_normals[index],
+                        Vec2::from(vertex_tex_coords[index]),
+                    )
+                };
+                let points_with_attribs = [
+                    make_attributed_point(index_a),
+                    make_attributed_point(index_b),
+                    make_attributed_point(index_c),
+                ];
+
+                let edge_1 = points_with_attribs[1].0 - points_with_attribs[0].0;
+                let edge_2 = points_with_attribs[2].0 - points_with_attribs[0].0;
+
+                let delta_uv_1 = points_with_attribs[1].2 - points_with_attribs[0].2;
+                let delta_uv_2 = points_with_attribs[2].2 - points_with_attribs[0].2;
+
+                let f = 1.0 / (delta_uv_1.x * delta_uv_2.y - delta_uv_2.x * delta_uv_1.y);
+
+                let (tangent, bitangent) = {
+                    if abs_diff_eq!(f, 0.0, epsilon = 0.00001) || !f.is_finite() {
+                        (Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0))
+                    } else {
+                        let tangent = Vec3::new(
+                            f * (delta_uv_2.y * edge_1.x - delta_uv_1.y * edge_2.x),
+                            f * (delta_uv_2.y * edge_1.y - delta_uv_1.y * edge_2.y),
+                            f * (delta_uv_2.y * edge_1.z - delta_uv_1.y * edge_2.z),
+                        );
+
+                        let bitangent = Vec3::new(
+                            f * (-delta_uv_2.x * edge_1.x + delta_uv_1.x * edge_2.x),
+                            f * (-delta_uv_2.x * edge_1.y + delta_uv_1.x * edge_2.y),
+                            f * (-delta_uv_2.x * edge_1.z + delta_uv_1.x * edge_2.z),
+                        );
+
+                        (tangent, bitangent)
+                    }
+                };
+
+                result.extend((0..3).map(|_| (tangent, bitangent)));
+            }
+            result
+        });
+    Ok(vertex_tangents_and_bitangents)
+}
+
+fn get_vertex_bone_weights(
+    primitive_group: &gltf::Primitive,
+    buffers: &[gltf::buffer::Data],
+    vertex_position_count: usize,
+) -> Result<Vec<[f32; 4]>, anyhow::Error> {
+    let vertex_bone_weights: Vec<[f32; 4]> = primitive_group
+        .attributes()
+        .find(|(semantic, _)| *semantic == gltf::Semantic::Weights(0))
+        .map(|(_, accessor)| {
+            let data_type = accessor.data_type();
+            let dimensions = accessor.dimensions();
+            if dimensions != gltf::accessor::Dimensions::Vec4 {
+                bail!("Expected vec4 data but found: {:?}", dimensions);
+            }
+            if data_type != gltf::accessor::DataType::F32 {
+                bail!("Expected f32 data but found: {:?}", data_type);
+            }
+            let bone_weights_u8 = get_buffer_slice_from_accessor(accessor, buffers);
+            Ok(bytemuck::cast_slice::<_, [f32; 4]>(bone_weights_u8).to_vec())
+        })
+        .transpose()?
+        .unwrap_or_else(|| {
+            (0..vertex_position_count)
+                .map(|_| [1.0, 0.0, 0.0, 0.0])
+                .collect()
+        });
+    Ok(vertex_bone_weights)
+}
+
+fn get_vertex_bone_indices(
+    primitive_group: &gltf::Primitive,
+    buffers: &[gltf::buffer::Data],
+    vertex_position_count: usize,
+) -> Result<Vec<[u32; 4]>, anyhow::Error> {
+    let vertex_bone_indices: Vec<[u32; 4]> = primitive_group
+        .attributes()
+        .find(|(semantic, _)| *semantic == gltf::Semantic::Joints(0))
+        .map(|(_, accessor)| {
+            let data_type = accessor.data_type();
+            let dimensions = accessor.dimensions();
+            if dimensions != gltf::accessor::Dimensions::Vec4 {
+                bail!("Expected vec4 data but found: {:?}", dimensions);
+            }
+            let bone_indices_u16 = match data_type {
+                gltf::accessor::DataType::U16 => Some(
+                    bytemuck::cast_slice::<_, u16>(get_buffer_slice_from_accessor(
+                        accessor, buffers,
+                    ))
+                    .to_vec(),
+                ),
+                gltf::accessor::DataType::U8 => Some(
+                    get_buffer_slice_from_accessor(accessor, buffers)
+                        .iter()
+                        .map(|res| *res as u16)
+                        .collect::<Vec<_>>(),
+                ),
+                _ => None,
+            }
+            .ok_or_else(|| anyhow::anyhow!("Expected u8 or u16 data but found: {:?}", data_type))?;
+            let bone_indices_u16_grouped = bytemuck::cast_slice::<_, [u16; 4]>(&bone_indices_u16);
+            Ok(bone_indices_u16_grouped
+                .to_vec()
+                .iter()
+                .map(|indices| {
+                    [
+                        indices[0] as u32,
+                        indices[1] as u32,
+                        indices[2] as u32,
+                        indices[3] as u32,
+                    ]
+                })
+                .collect())
+        })
+        .transpose()?
+        .unwrap_or_else(|| (0..vertex_position_count).map(|_| [0, 0, 0, 0]).collect());
+    Ok(vertex_bone_indices)
+}
+
+fn get_vertex_normals(
+    primitive_group: &gltf::Primitive,
+    buffers: &[gltf::buffer::Data],
+    triangles_as_index_tuples: &[(usize, usize, usize)],
+    vertex_positions: &[Vec3],
+    vertex_position_count: usize,
+) -> Result<Vec<Vec3>, anyhow::Error> {
+    let vertex_normals: Vec<Vec3> = primitive_group
+        .attributes()
+        .find(|(semantic, _)| *semantic == gltf::Semantic::Normals)
+        .map(|(_, accessor)| {
+            let data_type = accessor.data_type();
+            let dimensions = accessor.dimensions();
+            if dimensions != gltf::accessor::Dimensions::Vec3 {
+                bail!("Expected vec3 data but found: {:?}", dimensions);
+            }
+            if data_type != gltf::accessor::DataType::F32 {
+                bail!("Expected f32 data but found: {:?}", data_type);
+            }
+            let normals_u8 = get_buffer_slice_from_accessor(accessor, buffers);
+            let normals: &[[f32; 3]] = bytemuck::cast_slice(normals_u8);
+            Ok(normals.to_vec().iter().copied().map(Vec3::from).collect())
+        })
+        .transpose()?
+        .unwrap_or_else(|| {
+            // compute normals
+            // key is flattened vertex position, value is accumulated normal and count
+            let mut vertex_normal_accumulators: HashMap<usize, (Vec3, usize)> = HashMap::new();
+            triangles_as_index_tuples
+                .iter()
+                .copied()
+                .for_each(|(index_a, index_b, index_c)| {
+                    let a = vertex_positions[index_a];
+                    let b = vertex_positions[index_b];
+                    let c = vertex_positions[index_c];
+                    let a_to_b = Vec3::new(b[0], b[1], b[2]) - Vec3::new(a[0], a[1], a[2]);
+                    let a_to_c = Vec3::new(c[0], c[1], c[2]) - Vec3::new(a[0], a[1], a[2]);
+                    let normal = a_to_b.cross(a_to_c).normalize();
+                    vec![index_a, index_b, index_c]
+                        .iter()
+                        .for_each(|vertex_index| {
+                            let (accumulated_normal, count) = vertex_normal_accumulators
+                                .entry(*vertex_index)
+                                .or_insert((Vec3::new(0.0, 0.0, 0.0), 0));
+                            *accumulated_normal += normal;
+                            *count += 1;
+                        });
+                });
+            (0..vertex_position_count)
+                .map(|vertex_index| {
+                    let (accumulated_normal, count) =
+                        vertex_normal_accumulators.get(&vertex_index).unwrap();
+                    *accumulated_normal / (*count as f32)
+                })
+                .collect()
+        });
+    Ok(vertex_normals)
+}
+
+// TODO: optimize this function!
+// currently sitting at 14% in the flamegraph, lets try to get it down to 2%
+fn get_vertex_positions(
+    primitive_group: &gltf::Primitive,
+    buffers: &[gltf::buffer::Data],
+) -> Result<Vec<Vec3>, anyhow::Error> {
+    let vertex_positions: Vec<Vec3> = {
+        let (_, accessor) = primitive_group
+            .attributes()
+            .find(|(semantic, _)| *semantic == gltf::Semantic::Positions)
+            .ok_or_else(|| anyhow::anyhow!("No positions found"))?;
+        let data_type = accessor.data_type();
+        let dimensions = accessor.dimensions();
+        if dimensions != gltf::accessor::Dimensions::Vec3 {
+            bail!("Expected vec3 data but found: {:?}", dimensions);
+        }
+        if data_type != gltf::accessor::DataType::F32 {
+            bail!("Expected f32 data but found: {:?}", data_type);
+        }
+        let positions_u8 = get_buffer_slice_from_accessor(accessor, buffers);
+        let positions: &[[f32; 3]] = bytemuck::cast_slice(positions_u8);
+        anyhow::Ok(positions.to_vec().iter().copied().map(Vec3::from).collect())
+    }?;
+    Ok(vertex_positions)
+}
+
+fn get_vertex_colors(
+    primitive_group: &gltf::Primitive,
+    buffers: &[gltf::buffer::Data],
+    vertex_position_count: usize,
+) -> Result<Vec<[f32; 4]>, anyhow::Error> {
+    let vertex_colors: Vec<[f32; 4]> = primitive_group
+        .attributes()
+        .find(|(semantic, _)| *semantic == gltf::Semantic::Colors(0))
+        .map(|(_, accessor)| {
+            let data_type = accessor.data_type();
+            let dimensions = accessor.dimensions();
+            if dimensions != gltf::accessor::Dimensions::Vec4 {
+                bail!("Expected vec4 data but found: {:?}", dimensions);
+            }
+            let buffer_slice = match data_type {
+                gltf::accessor::DataType::F32 => {
+                    Some(get_buffer_slice_from_accessor(accessor, buffers))
+                }
+                gltf::accessor::DataType::U8 => {
+                    let buffer_slice = get_buffer_slice_from_accessor(accessor, buffers);
+                    let mut result: Vec<f32> = Vec::with_capacity(buffer_slice.len());
+                    for num in buffer_slice {
+                        result.push(*num as f32 / 255.0);
+                    }
+                    Some(bytemuck::cast_slice::<_, u8>(buffer_slice))
+                }
+                gltf::accessor::DataType::U16 => {
+                    let buffer_slice = bytemuck::cast_slice::<_, u16>(
+                        get_buffer_slice_from_accessor(accessor, buffers),
+                    );
+                    let mut result: Vec<f32> = Vec::with_capacity(buffer_slice.len());
+                    for num in buffer_slice {
+                        result.push(*num as f32 / 255.0);
+                    }
+                    Some(bytemuck::cast_slice::<_, u8>(buffer_slice))
+                }
+                _ => None,
+            }
+            .ok_or_else(|| {
+                anyhow::anyhow!("Expected f32, u8, or u16 data but found: {:?}", data_type)
+            })?;
+            Ok(bytemuck::cast_slice(buffer_slice).to_vec())
+        })
+        .transpose()?
+        .unwrap_or_else(|| {
+            let mut result = Vec::with_capacity(vertex_position_count);
+            result.extend((0..vertex_position_count).map(|_| [1.0, 1.0, 1.0, 1.0]));
+            result
+        });
+    Ok(vertex_colors)
+}
+
+fn get_vertex_tex_coords(
+    primitive_group: &gltf::Primitive,
+    buffers: &[gltf::buffer::Data],
+    vertex_position_count: usize,
+) -> Result<Vec<[f32; 2]>, anyhow::Error> {
+    let vertex_tex_coords: Vec<[f32; 2]> = primitive_group
+        .attributes()
+        .find(|(semantic, _)| *semantic == gltf::Semantic::TexCoords(0))
+        .map(|(_, accessor)| {
+            let data_type = accessor.data_type();
+            let dimensions = accessor.dimensions();
+            if dimensions != gltf::accessor::Dimensions::Vec2 {
+                bail!("Expected vec2 data but found: {:?}", dimensions);
+            }
+            if data_type != gltf::accessor::DataType::F32 {
+                bail!("Expected f32 data but found: {:?}", data_type);
+            }
+            Ok(bytemuck::cast_slice(get_buffer_slice_from_accessor(accessor, buffers)).to_vec())
+        })
+        .transpose()?
+        .unwrap_or_else(|| (0..vertex_position_count).map(|_| [0.5, 0.5]).collect());
+    Ok(vertex_tex_coords)
+}
+
+fn get_indices(
+    primitive_group: &gltf::Primitive,
+    buffers: &[gltf::buffer::Data],
+    vertex_position_count: usize,
+) -> Result<Vec<u32>, anyhow::Error> {
+    let indices: Vec<u32> = primitive_group
+        .indices()
+        .map(|accessor| {
+            let data_type = accessor.data_type();
+            let buffer_slice = get_buffer_slice_from_accessor(accessor, buffers);
+
+            let indices: Vec<u32> = match data_type {
+                gltf::accessor::DataType::U16 => anyhow::Ok(
+                    bytemuck::cast_slice::<_, u16>(buffer_slice)
+                        .iter()
+                        .map(|&x| x as u32)
+                        .collect::<Vec<_>>(),
+                ),
+                gltf::accessor::DataType::U8 => {
+                    anyhow::Ok(buffer_slice.iter().map(|&x| x as u32).collect::<Vec<_>>())
+                }
+                gltf::accessor::DataType::U32 => {
+                    anyhow::Ok(bytemuck::cast_slice::<_, u32>(buffer_slice).to_vec())
+                }
+                data_type => {
+                    bail!("Expected u32, u16 or u8 indices but found: {:?}", data_type)
+                }
+            }?;
+            anyhow::Ok(indices)
+        })
+        .unwrap_or_else(|| {
+            let vertex_position_count_u32 = u32::try_from(vertex_position_count)?;
+            Ok((0..vertex_position_count_u32).collect())
+        })?;
+    Ok(indices)
 }
