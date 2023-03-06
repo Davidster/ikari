@@ -1,3 +1,8 @@
+use std::{
+    collections::hash_map::Entry,
+    sync::{Arc, Mutex},
+};
+
 use super::*;
 
 use anyhow::Result;
@@ -88,6 +93,8 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         },
     );
 
+    let asset_loader = AssetLoader::new(renderer_state.base.clone());
+
     // load in gltf files
 
     let mut timer = std::time::Instant::now();
@@ -96,12 +103,17 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     #[allow(unused_assignments)]
     let mut revolver: Option<Revolver> = None;
     {
+        asset_loader.load_asset("./src/models/gltf/ColtPython/colt_python.gltf");
+    }
+    /* {
         // or ./src/models/gltf/Revolver/revolver_low_poly.gltf
         let (document, buffers, images) =
             gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
         let (other_scene, other_render_buffers) =
             build_scene(&mut renderer_base_guard, (&document, &buffers, &images))?;
         scene.merge_scene(&mut renderer_data_guard, other_scene, other_render_buffers);
+
+
 
         let node_id = scene.nodes().last().unwrap().id();
         let animation_index = scene.animations.len() - 1;
@@ -130,7 +142,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
                 .scale(2.0f32 * Vec3::new(1.0, 1.0, 1.0))
                 .build(),
         ));
-    }
+    } */
 
     println!("revolver: {:?}", timer.elapsed());
     timer = std::time::Instant::now();
@@ -844,7 +856,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
 
     // logger_log(&format!("{:?}", &revolver));
 
-    anyhow::bail!("suhh dude");
+    // anyhow::bail!("suhh dude");
 
     Ok(GameState {
         scene,
@@ -885,6 +897,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
 
         character: legendary_robot,
         player_controller,
+        asset_loader,
     })
 }
 
@@ -1023,7 +1036,54 @@ pub fn process_window_input(
 }
 
 #[profiling::function]
-pub fn update_game_state(game_state: &mut GameState, renderer_base: &BaseRendererState) {
+pub fn update_game_state(
+    game_state: &mut GameState,
+    renderer_base: &BaseRendererState,
+    renderer_data: Arc<Mutex<RendererStatePublicData>>,
+) {
+    if let Entry::Occupied(mut entry) = game_state
+        .asset_loader
+        .loaded_assets
+        .lock()
+        .unwrap()
+        .entry("./src/models/gltf/ColtPython/colt_python.gltf".to_string())
+    {
+        let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
+        game_state.scene.merge_scene(
+            &mut renderer_data.lock().unwrap(),
+            other_scene,
+            other_render_buffers,
+        );
+
+        let node_id = game_state.scene.nodes().last().unwrap().id();
+        let animation_index = game_state.scene.animations.len() - 1;
+        // revolver_indices = Some((revolver_model_node_id, animation_index));
+        game_state.revolver = Some(Revolver::new(
+            &mut game_state.scene,
+            game_state.player_node_id,
+            node_id,
+            animation_index,
+            // revolver model
+            // TransformBuilder::new()
+            //     .position(Vec3::new(0.21, -0.09, -1.0))
+            //     .rotation(make_quat_from_axis_angle(
+            //         Vec3::new(0.0, 1.0, 0.0),
+            //         deg_to_rad(180.0).into(),
+            //     ))
+            //     .scale(0.17f32 * Vec3::new(1.0, 1.0, 1.0))
+            //     .build(),
+            // colt python model
+            TransformBuilder::new()
+                .position(Vec3::new(0.21, -0.13, -1.0))
+                .rotation(
+                    make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), deg_to_rad(180.0))
+                        * make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.1),
+                )
+                .scale(2.0f32 * Vec3::new(1.0, 1.0, 1.0))
+                .build(),
+        ));
+    }
+
     let time_tracker = game_state.time();
     let global_time_seconds = time_tracker.global_time_seconds();
 

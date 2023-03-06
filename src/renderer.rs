@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::num::NonZeroU64;
 use std::rc::Rc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use super::*;
 
@@ -245,7 +245,7 @@ pub struct BaseRendererState {
     pub two_texture_bind_group_layout: wgpu::BindGroupLayout,
     pub bones_and_instances_bind_group_layout: wgpu::BindGroupLayout,
     pub pbr_textures_bind_group_layout: wgpu::BindGroupLayout,
-    default_texture_cache: HashMap<DefaultTextureType, Rc<Texture>>,
+    default_texture_cache: HashMap<DefaultTextureType, Arc<Texture>>,
     pub sampler_cache: SamplerCache,
 }
 
@@ -614,7 +614,7 @@ impl BaseRendererState {
     pub fn get_default_texture(
         &mut self,
         default_texture_type: DefaultTextureType,
-    ) -> anyhow::Result<Rc<Texture>> {
+    ) -> anyhow::Result<Arc<Texture>> {
         let default_texture = match self.default_texture_cache.entry(default_texture_type) {
             Entry::Occupied(texture) => texture.get().clone(),
             Entry::Vacant(_) => {
@@ -627,7 +627,7 @@ impl BaseRendererState {
                     DefaultTextureType::EmissiveGLTF => [255, 255, 255, 255],
                     DefaultTextureType::AmbientOcclusion => [255, 255, 255, 255],
                 };
-                Rc::new(Texture::from_color(self, color)?)
+                Arc::new(Texture::from_color(self, color)?)
             }
         };
         if let Entry::Vacant(entry) = self.default_texture_cache.entry(default_texture_type) {
@@ -708,8 +708,8 @@ pub struct RendererStatePublicData {
 
 // TODO: rename to Renderer
 pub struct RendererState {
-    pub base: Mutex<BaseRendererState>,
-    pub data: Mutex<RendererStatePublicData>,
+    pub base: Arc<Mutex<BaseRendererState>>,
+    pub data: Arc<Mutex<RendererStatePublicData>>,
 
     // TODO: does this need a mutex?
     private_data: Mutex<RendererStatePrivateData>,
@@ -2117,8 +2117,8 @@ impl RendererState {
             .unwrap();
 
         let renderer_state = Self {
-            base: Mutex::new(base),
-            data: Mutex::new(data),
+            base: Arc::new(Mutex::new(base)),
+            data: Arc::new(Mutex::new(data)),
 
             private_data: Mutex::new(RendererStatePrivateData {
                 all_bone_transforms: AllBoneTransforms {

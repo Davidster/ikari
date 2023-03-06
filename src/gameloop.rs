@@ -25,7 +25,11 @@ pub fn run(
                 profiling::finish_frame!();
                 LOGGER.lock().unwrap().on_frame_completed();
 
-                update_game_state(&mut game_state, &renderer_state.base.lock().unwrap());
+                update_game_state(
+                    &mut game_state,
+                    &renderer_state.base.lock().unwrap(),
+                    renderer_state.data.clone(),
+                );
 
                 /* let last_log_time_clone = last_log_time;
                 let mut write_logs = || {

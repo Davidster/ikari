@@ -1,4 +1,63 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
 use super::*;
+
+pub struct AssetLoader {
+    pub pending_assets: Arc<Mutex<Vec<String>>>,
+    pub loaded_assets: Arc<Mutex<HashMap<String, (Scene, RenderBuffers)>>>,
+    pub renderer_base: Arc<Mutex<BaseRendererState>>,
+    // pub renderer_data: Arc<Mutex<RendererStatePublicData>>,
+}
+
+impl AssetLoader {
+    pub fn new(renderer_base: Arc<Mutex<BaseRendererState>>) -> Self {
+        Self {
+            pending_assets: Arc::new(Mutex::new(Vec::new())),
+            loaded_assets: Arc::new(Mutex::new(HashMap::new())),
+            renderer_base,
+        }
+    }
+
+    pub fn load_asset(&self, path: &str) {
+        let pending_assets_clone = self.pending_assets.clone();
+        let mut pending_assets_clone_guard = pending_assets_clone.lock().unwrap();
+        pending_assets_clone_guard.push(path.to_string());
+
+        if pending_assets_clone_guard.len() == 1 {
+            let pending_assets = self.pending_assets.clone();
+            let loaded_assets = self.loaded_assets.clone();
+            let renderer_base = self.renderer_base.clone();
+            // let renderer_data = self.renderer_data.clone();
+
+            // start a thread to load the assets
+            std::thread::spawn(move || {
+                while pending_assets.lock().unwrap().len() > 0 {
+                    let next_asset = pending_assets.lock().unwrap().remove(0);
+
+                    let do_load = || {
+                        std::thread::sleep(std::time::Duration::from_secs_f32(5.0));
+                        let (document, buffers, images) = gltf::import(&next_asset)?;
+                        let (other_scene, other_render_buffers) = build_scene(
+                            &mut renderer_base.lock().unwrap(),
+                            (&document, &buffers, &images),
+                        )?;
+                        anyhow::Ok((other_scene, other_render_buffers))
+                    };
+                    match do_load() {
+                        Ok(result) => {
+                            let _replaced_ignored =
+                                loaded_assets.lock().unwrap().insert(next_asset, result);
+                        }
+                        Err(err) => {
+                            logger_log(&format!("Error loading asset {:?}: {:?}", next_asset, err));
+                        }
+                    }
+                }
+            });
+        }
+    }
+}
 
 pub struct GameState {
     pub scene: Scene,
@@ -40,6 +99,8 @@ pub struct GameState {
 
     pub character: Option<Character>,
     pub player_controller: PlayerController,
+
+    pub asset_loader: AssetLoader,
 }
 
 impl GameState {
