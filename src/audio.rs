@@ -44,6 +44,11 @@ pub enum SoundSignal {
     },
 }
 
+pub enum AudioFileFormat {
+    MP3,
+    WAV,
+}
+
 pub struct SpacialParams {
     initial_position: Vec3,
     initial_velocity: Vec3,

@@ -125,16 +125,16 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     // load in gltf files
 
     // player's revolver
-    asset_loader.load_asset("./src/models/gltf/ColtPython/colt_python.gltf");
+    asset_loader.load_gltf_asset("./src/models/gltf/ColtPython/colt_python.gltf");
     // forest
-    asset_loader.load_asset("./src/models/gltf/free_low_poly_forest/scene.gltf");
+    asset_loader.load_gltf_asset("./src/models/gltf/free_low_poly_forest/scene.gltf");
     // legendary robot
     // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-    asset_loader.load_asset("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf");
+    asset_loader.load_gltf_asset("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf");
     // maze
-    asset_loader.load_asset("./src/models/gltf/TestLevel/test_level.gltf");
+    asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
     // other
-    asset_loader.load_asset(get_misc_gltf_path());
+    asset_loader.load_gltf_asset(get_misc_gltf_path());
 
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
     let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
@@ -883,7 +883,7 @@ pub fn update_game_state(
     renderer_data: Arc<Mutex<RendererStatePublicData>>,
 ) {
     {
-        let mut loaded_assets_guard = game_state.asset_loader.loaded_assets.lock().unwrap();
+        let mut loaded_assets_guard = game_state.asset_loader.loaded_gltf_scenes.lock().unwrap();
         let mut renderer_data_guard = renderer_data.lock().unwrap();
         if let Entry::Occupied(entry) =
             loaded_assets_guard.entry("./src/models/gltf/ColtPython/colt_python.gltf".to_string())
