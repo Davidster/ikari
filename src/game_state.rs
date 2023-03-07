@@ -6,12 +6,12 @@ use super::*;
 pub struct AssetLoader {
     pub pending_assets: Arc<Mutex<Vec<String>>>,
     pub loaded_assets: Arc<Mutex<HashMap<String, (Scene, RenderBuffers)>>>,
-    pub renderer_base: Arc<Mutex<BaseRendererState>>,
+    pub renderer_base: Arc<BaseRendererState>,
     // pub renderer_data: Arc<Mutex<RendererStatePublicData>>,
 }
 
 impl AssetLoader {
-    pub fn new(renderer_base: Arc<Mutex<BaseRendererState>>) -> Self {
+    pub fn new(renderer_base: Arc<BaseRendererState>) -> Self {
         Self {
             pending_assets: Arc::new(Mutex::new(Vec::new())),
             loaded_assets: Arc::new(Mutex::new(HashMap::new())),
@@ -36,12 +36,9 @@ impl AssetLoader {
                     let next_asset = pending_assets.lock().unwrap().remove(0);
 
                     let do_load = || {
-                        std::thread::sleep(std::time::Duration::from_secs_f32(5.0));
                         let (document, buffers, images) = gltf::import(&next_asset)?;
-                        let (other_scene, other_render_buffers) = build_scene(
-                            &mut renderer_base.lock().unwrap(),
-                            (&document, &buffers, &images),
-                        )?;
+                        let (other_scene, other_render_buffers) =
+                            build_scene(&renderer_base, (&document, &buffers, &images))?;
                         anyhow::Ok((other_scene, other_render_buffers))
                     };
                     match do_load() {
@@ -99,6 +96,8 @@ pub struct GameState {
 
     pub character: Option<Character>,
     pub player_controller: PlayerController,
+
+    pub cube_mesh: BasicMesh,
 
     pub asset_loader: AssetLoader,
 }

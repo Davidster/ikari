@@ -27,11 +27,11 @@ pub fn run(
 
                 update_game_state(
                     &mut game_state,
-                    &renderer_state.base.lock().unwrap(),
+                    &renderer_state.base,
                     renderer_state.data.clone(),
                 );
 
-                /* let last_log_time_clone = last_log_time;
+                let last_log_time_clone = last_log_time;
                 let mut write_logs = || {
                     if let Err(err) = LOGGER.lock().unwrap().write_to_term() {
                         eprintln!("Error writing to terminal: {}", err);
@@ -48,13 +48,13 @@ pub fn run(
                     }
                     None => write_logs(),
                     _ => {}
-                } */
+                }
 
                 match renderer_state.render(&mut game_state) {
                     Ok(_) => {}
                     // Reconfigure the surface if lost
                     Err(wgpu::SurfaceError::Lost) => {
-                        renderer_state.resize(renderer_state.base.lock().unwrap().window_size)
+                        renderer_state.resize(*renderer_state.base.window_size.lock().unwrap())
                     }
                     // The system is out of memory, we should probably quit
                     Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
@@ -73,7 +73,7 @@ pub fn run(
             Event::WindowEvent {
                 event, window_id, ..
             } if window_id == window.id() => {
-                process_window_input(&mut game_state, &mut renderer_state, &event, &mut window);
+                process_window_input(&mut game_state, &renderer_state, &event, &mut window);
                 match event {
                     WindowEvent::Resized(size) => {
                         if size.width > 0 && size.height > 0 {

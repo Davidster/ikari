@@ -75,8 +75,35 @@ pub fn get_skybox_path() -> (
     (skybox_background, skybox_hdr_environment)
 }
 
+fn get_misc_gltf_path() -> &'static str {
+    // "/home/david/Downloads/adamHead/adamHead.gltf"
+    // "./src/models/gltf/free_low_poly_forest/scene.gltf"
+    // "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf"
+    // "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf"
+    // "./src/models/gltf/Triangle/Triangle.gltf"
+    // "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf"
+    // "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf"
+    // "./src/models/gltf/Arrow/Arrow.gltf"
+    "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf"
+    // "./src/models/gltf/VertexColorTest/VertexColorTest.gltf"
+    // "./src/models/gltf/Revolver/revolver_low_poly.gltf"
+    // "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf"
+    // "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb"
+    // "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.gltf"
+    // "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf"
+    // "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf"
+    // "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf"
+    // "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf"
+    // "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf"
+    // "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf"
+    // "/home/david/Programming/glTF-Sample-Models/2.0/Lantern/glTF/Lantern.gltf"
+    // "./src/models/gltf/VC/VC.gltf"
+    //  "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf"
+    // "./src/models/gltf/Sponza/Sponza.gltf"
+}
+
 pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> Result<GameState> {
-    let mut renderer_base_guard = renderer_state.base.lock().unwrap();
+    // let mut renderer_base_guard = renderer_state.base.lock().unwrap();
     let mut renderer_data_guard = renderer_state.data.lock().unwrap();
 
     let mut physics_state = PhysicsState::new();
@@ -97,179 +124,17 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
 
     // load in gltf files
 
-    let mut timer = std::time::Instant::now();
-
     // player's revolver
-    #[allow(unused_assignments)]
-    let mut revolver: Option<Revolver> = None;
-    {
-        asset_loader.load_asset("./src/models/gltf/ColtPython/colt_python.gltf");
-    }
-    /* {
-        // or ./src/models/gltf/Revolver/revolver_low_poly.gltf
-        let (document, buffers, images) =
-            gltf::import("./src/models/gltf/ColtPython/colt_python.gltf")?;
-        let (other_scene, other_render_buffers) =
-            build_scene(&mut renderer_base_guard, (&document, &buffers, &images))?;
-        scene.merge_scene(&mut renderer_data_guard, other_scene, other_render_buffers);
-
-
-
-        let node_id = scene.nodes().last().unwrap().id();
-        let animation_index = scene.animations.len() - 1;
-        // revolver_indices = Some((revolver_model_node_id, animation_index));
-        revolver = Some(Revolver::new(
-            &mut scene,
-            player_node_id,
-            node_id,
-            animation_index,
-            // revolver model
-            // TransformBuilder::new()
-            //     .position(Vec3::new(0.21, -0.09, -1.0))
-            //     .rotation(make_quat_from_axis_angle(
-            //         Vec3::new(0.0, 1.0, 0.0),
-            //         deg_to_rad(180.0).into(),
-            //     ))
-            //     .scale(0.17f32 * Vec3::new(1.0, 1.0, 1.0))
-            //     .build(),
-            // colt python model
-            TransformBuilder::new()
-                .position(Vec3::new(0.21, -0.13, -1.0))
-                .rotation(
-                    make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), deg_to_rad(180.0))
-                        * make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.1),
-                )
-                .scale(2.0f32 * Vec3::new(1.0, 1.0, 1.0))
-                .build(),
-        ));
-    } */
-
-    println!("revolver: {:?}", timer.elapsed());
-    timer = std::time::Instant::now();
-
-    // anyhow::bail!("suhh dude");
-
+    asset_loader.load_asset("./src/models/gltf/ColtPython/colt_python.gltf");
     // forest
-    {
-        let mut subtimer = std::time::Instant::now();
-        let (document, buffers, images) =
-            gltf::import("./src/models/gltf/free_low_poly_forest/scene.gltf")?;
-
-        println!("gltf::import: {:?}", subtimer.elapsed());
-        subtimer = std::time::Instant::now();
-
-        let (mut other_scene, other_render_buffers) =
-            build_scene(&mut renderer_base_guard, (&document, &buffers, &images))?;
-
-        println!("build_scene: {:?}", subtimer.elapsed());
-
-        // hack to get the terrain to be at the same height as the ground.
-        let node_has_parent: Vec<_> = other_scene
-            .nodes()
-            .map(|node| node.parent_id.is_some())
-            .collect();
-        for (i, node) in other_scene.nodes_mut().enumerate() {
-            if node_has_parent[i] {
-                continue;
-            }
-            node.transform
-                .set_position(node.transform.position() + Vec3::new(0.0, 29.0, 0.0));
-        }
-        scene.merge_scene(&mut renderer_data_guard, other_scene, other_render_buffers);
-    }
-
-    println!("forest: {:?}", timer.elapsed());
-    timer = std::time::Instant::now();
-
-    // robot
+    asset_loader.load_asset("./src/models/gltf/free_low_poly_forest/scene.gltf");
+    // legendary robot
     // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-    {
-        let (document, buffers, images) =
-            gltf::import("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf")?;
-        let (mut other_scene, other_render_buffers) =
-            build_scene(&mut renderer_base_guard, (&document, &buffers, &images))?;
-        if let Some(jump_up_animation) = other_scene
-            .animations
-            .iter_mut()
-            .find(|animation| animation.name == Some(String::from("jump_up_root_motion")))
-        {
-            jump_up_animation.speed = 0.25;
-            jump_up_animation.state.is_playing = true;
-            jump_up_animation.state.loop_type = LoopType::Wrap;
-        }
-        scene.merge_scene(&mut renderer_data_guard, other_scene, other_render_buffers);
-    }
-
-    println!("legendary robot: {:?}", timer.elapsed());
-    timer = std::time::Instant::now();
-
+    asset_loader.load_asset("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf");
     // maze
-    {
-        let skip_nodes = scene.node_count();
-        let (document, buffers, images) =
-            gltf::import("./src/models/gltf/TestLevel/test_level.gltf")?;
-        let (other_scene, other_render_buffers) =
-            build_scene(&mut renderer_base_guard, (&document, &buffers, &images))?;
-        scene.merge_scene(&mut renderer_data_guard, other_scene, other_render_buffers);
-
-        let test_level_node_ids: Vec<_> = scene
-            .nodes()
-            .skip(skip_nodes)
-            .map(|node| node.id())
-            .collect();
-        for node_id in test_level_node_ids {
-            if let Some(_mesh) = scene.get_node_mut(node_id).unwrap().mesh.as_mut() {
-                // _mesh.wireframe = true;
-            }
-            physics_state.add_static_box(&scene, &renderer_data_guard, node_id);
-        }
-    }
-
-    // println!("maze: {:?}", timer.elapsed());
-    timer = std::time::Instant::now();
-
+    asset_loader.load_asset("./src/models/gltf/TestLevel/test_level.gltf");
     // other
-    {
-        // let gltf_path = "/home/david/Downloads/adamHead/adamHead.gltf";
-        // let gltf_path = "./src/models/gltf/free_low_poly_forest/scene.gltf";
-        // let gltf_path = "./src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf";
-        // let gltf_path = "./src/models/gltf/SimpleMeshes/SimpleMeshes.gltf";
-        // let gltf_path = "./src/models/gltf/Triangle/Triangle.gltf";
-        // let gltf_path = "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf";
-        // let gltf_path = "./src/models/gltf/Sponza/Sponza.gltf";
-        // let gltf_path = "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf";
-        // let gltf_path = "./src/models/gltf/Arrow/Arrow.gltf";
-        // let gltf_path = "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf";
-        // let gltf_path = "./src/models/gltf/VertexColorTest/VertexColorTest.gltf";
-        // let gltf_path = "./src/models/gltf/Revolver/revolver_low_poly.gltf";
-        // let gltf_path =
-        //     "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf";
-        // let gltf_path =
-        //     "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb";
-        // let gltf_path = "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.gltf";
-        // let gltf_path = "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf";
-        // let gltf_path = "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf";
-        // let gltf_path = "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf";
-        // let gltf_path = "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf";
-        // let gltf_path = "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf";
-        let gltf_path =
-            "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf";
-        // let gltf_path = "/home/david/Programming/glTF-Sample-Models/2.0/Lantern/glTF/Lantern.gltf";
-        // let gltf_path = "./src/models/gltf/VC/VC.gltf";
-        // let gltf_path =
-        //     "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf";
-        let (document, buffers, images) = gltf::import(gltf_path)?;
-        let (mut other_scene, other_render_buffers) =
-            build_scene(&mut renderer_base_guard, (&document, &buffers, &images))?;
-        for animation in other_scene.animations.iter_mut() {
-            animation.state.is_playing = true;
-            animation.state.loop_type = LoopType::Wrap;
-        }
-        scene.merge_scene(&mut renderer_data_guard, other_scene, other_render_buffers);
-    }
-
-    println!("other: {:?}", timer.elapsed());
-    timer = std::time::Instant::now();
+    asset_loader.load_asset(get_misc_gltf_path());
 
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
     let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
@@ -313,7 +178,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     // let point_lights: Vec<(transform::Transform, Vec3, f32)> = vec![];
 
     let point_light_unlit_mesh_index = RendererState::bind_basic_unlit_mesh(
-        &renderer_base_guard,
+        &renderer_state.base,
         &mut renderer_data_guard,
         &sphere_mesh,
     );
@@ -342,8 +207,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         });
     }
 
-    timer = std::time::Instant::now();
-
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
     // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
     // let simple_normal_map = Texture::from_encoded_image(
@@ -356,23 +219,33 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     //     &Default::default(),
     // )?;
 
-    // let brick_normal_map_path = "./src/textures/brick_normal_map.jpg";
-    // let brick_normal_map_bytes = std::fs::read(brick_normal_map_path)?;
-    // let brick_normal_map = Texture::from_encoded_image(
-    //     &renderer_state.base.device,
-    //     &renderer_state.base.queue,
-    //     &brick_normal_map_bytes,
-    //     brick_normal_map_path,
-    //     wgpu::TextureFormat::Rgba8Unorm.into(),
-    //     false,
-    //     &Default::default(),
-    // )?;
+    let rainbow_texture_path = "./src/textures/rainbow_gradient_vertical.jpg";
+    let rainbow_texture_bytes = std::fs::read(rainbow_texture_path)?;
+    let rainbow_texture = Texture::from_encoded_image(
+        &renderer_state.base,
+        &rainbow_texture_bytes,
+        rainbow_texture_path,
+        wgpu::TextureFormat::Rgba8Unorm.into(),
+        false,
+        &Default::default(),
+    )?;
+
+    let brick_normal_map_path = "./src/textures/brick_normal_map.jpg";
+    let brick_normal_map_bytes = std::fs::read(brick_normal_map_path)?;
+    let brick_normal_map = Texture::from_encoded_image(
+        &renderer_state.base,
+        &brick_normal_map_bytes,
+        brick_normal_map_path,
+        wgpu::TextureFormat::Rgba8Unorm.into(),
+        false,
+        &Default::default(),
+    )?;
 
     // add test object to scene
-    let earth_texture_path = "./src/textures/8k_earth.jpg";
+    /* let earth_texture_path = "./src/textures/8k_earth.jpg";
     let earth_texture_bytes = std::fs::read(earth_texture_path)?;
     let earth_texture = Texture::from_encoded_image(
-        &mut renderer_base_guard,
+        &renderer_state.base,
         &earth_texture_bytes,
         earth_texture_path,
         None,
@@ -386,12 +259,12 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         },
-    )?;
+    )?; */
 
-    let earth_normal_map_path = "./src/textures/8k_earth_normal_map.jpg";
+    /* let earth_normal_map_path = "./src/textures/8k_earth_normal_map.jpg";
     let earth_normal_map_bytes = std::fs::read(earth_normal_map_path)?;
     let earth_normal_map = Texture::from_encoded_image(
-        &mut renderer_base_guard,
+        &renderer_state.base,
         &earth_normal_map_bytes,
         earth_normal_map_path,
         wgpu::TextureFormat::Rgba8Unorm.into(),
@@ -405,10 +278,10 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         },
-    )?;
+    )?; */
 
     let big_checkerboard_texture_img = {
-        let mut img = image::RgbaImage::new(4096, 4096);
+        let mut img = image::RgbaImage::new(1024, 1024);
         for x in 0..img.width() {
             for y in 0..img.height() {
                 let scale = 10;
@@ -428,7 +301,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         img
     };
     let big_checkerboard_texture = Texture::from_decoded_image(
-        &mut renderer_base_guard,
+        &renderer_state.base,
         &big_checkerboard_texture_img,
         big_checkerboard_texture_img.dimensions(),
         Some("big_checkerboard_texture"),
@@ -446,7 +319,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     )?;
 
     let small_checkerboard_texture_img = {
-        let mut img = image::RgbaImage::new(1080, 1080);
+        let mut img = image::RgbaImage::new(1024, 1024);
         for x in 0..img.width() {
             for y in 0..img.height() {
                 let scale = 25;
@@ -466,7 +339,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         img
     };
     let small_checkerboard_texture = Texture::from_decoded_image(
-        &mut renderer_base_guard,
+        &renderer_state.base,
         &small_checkerboard_texture_img,
         small_checkerboard_texture_img.dimensions(),
         Some("small_checkerboard_texture"),
@@ -486,10 +359,10 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     // add balls to scene
 
     // source: https://www.solarsystemscope.com/textures/
-    let mars_texture_path = "./src/textures/8k_mars.jpg";
+    /* let mars_texture_path = "./src/textures/8k_mars.jpg";
     let mars_texture_bytes = std::fs::read(mars_texture_path)?;
     let mars_texture = Texture::from_encoded_image(
-        &mut renderer_base_guard,
+        &renderer_state.base,
         &mars_texture_bytes,
         mars_texture_path,
         None,
@@ -503,10 +376,10 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         },
-    )?;
+    )?; */
 
     let test_object_metallic_roughness_map = Texture::from_color(
-        &mut renderer_base_guard,
+        &renderer_state.base,
         [
             255,
             (0.12 * 255.0f32).round() as u8,
@@ -515,16 +388,13 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         ],
     )?;
 
-    println!("textures: {:?}", timer.elapsed());
-    timer = std::time::Instant::now();
-
     let test_object_pbr_mesh_index = RendererState::bind_basic_pbr_mesh(
-        &mut renderer_base_guard,
+        &renderer_state.base,
         &mut renderer_data_guard,
         &sphere_mesh,
         &PbrMaterial {
-            base_color: Some(&earth_texture),
-            normal: Some(&earth_normal_map),
+            base_color: Some(&rainbow_texture),
+            normal: Some(&brick_normal_map),
             metallic_roughness: Some(&test_object_metallic_roughness_map),
             ..Default::default()
         },
@@ -547,29 +417,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         .id();
     scene.remove_node(test_object_node_id);
 
-    let legendary_robot_root_node_id = scene
-        .nodes()
-        .find(|node| node.name == Some(String::from("robot")))
-        .map(|legendary_robot_root_node| legendary_robot_root_node.id());
-
-    let legendary_robot = legendary_robot_root_node_id.map(|legendary_robot_root_node_id| {
-        scene
-            .get_node_mut(legendary_robot_root_node_id)
-            .unwrap()
-            .transform
-            .set_position(Vec3::new(2.0, 0.0, 0.0));
-
-        let legendary_robot_skin_index = 0;
-        Character::new(
-            &mut scene,
-            &mut physics_state,
-            &renderer_base_guard,
-            &mut renderer_data_guard,
-            legendary_robot_root_node_id,
-            legendary_robot_skin_index,
-            &cube_mesh,
-        )
-    });
     // add floor to scene
 
     let ball_count = 0;
@@ -579,11 +426,11 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         .collect();
 
     let ball_pbr_mesh_index = RendererState::bind_basic_pbr_mesh(
-        &mut renderer_base_guard,
+        &renderer_state.base,
         &mut renderer_data_guard,
         &sphere_mesh,
         &PbrMaterial {
-            base_color: Some(&mars_texture),
+            base_color: Some(&rainbow_texture),
             ..Default::default()
         },
         Default::default(),
@@ -637,7 +484,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
 
     // create the floor and add it to the scene
     let floor_pbr_mesh_index = RendererState::bind_basic_pbr_mesh(
-        &mut renderer_base_guard,
+        &renderer_state.base,
         &mut renderer_data_guard,
         &plane_mesh,
         &PbrMaterial {
@@ -647,6 +494,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         Default::default(),
     )?;
     let floor_transform = TransformBuilder::new()
+        .position(Vec3::new(0.0, -0.01, 0.0))
         .scale(Vec3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH))
         .build();
     let _floor_node = scene.add_node(
@@ -679,7 +527,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     // create the checkerboarded bouncing ball and add it to the scene
     let (bouncing_ball_node_id, bouncing_ball_body_handle) = {
         let bouncing_ball_pbr_mesh_index = RendererState::bind_basic_pbr_mesh(
-            &mut renderer_base_guard,
+            &renderer_state.base,
             &mut renderer_data_guard,
             &sphere_mesh,
             &PbrMaterial {
@@ -764,7 +612,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     #[allow(unused_assignments)]
     let mut crosshair_node_id: Option<GameNodeId> = None;
     let crosshair_texture = Texture::from_decoded_image(
-        &mut renderer_base_guard,
+        &renderer_state.base,
         &crosshair_texture_img,
         crosshair_texture_img.dimensions(),
         Some("crosshair_texture"),
@@ -796,11 +644,10 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             .collect(),
         indices: vec![0, 2, 1, 0, 3, 2],
     };
-    let crosshair_ambient_occlusion = Texture::from_color(&mut renderer_base_guard, [0, 0, 0, 0])?;
-    let crosshair_metallic_roughness =
-        Texture::from_color(&mut renderer_base_guard, [0, 0, 255, 0])?;
+    let crosshair_ambient_occlusion = Texture::from_color(&renderer_state.base, [0, 0, 0, 0])?;
+    let crosshair_metallic_roughness = Texture::from_color(&renderer_state.base, [0, 0, 255, 0])?;
     let crosshair_mesh_index = RendererState::bind_basic_pbr_mesh(
-        &mut renderer_base_guard,
+        &renderer_state.base,
         &mut renderer_data_guard,
         &crosshair_quad,
         &PbrMaterial {
@@ -835,8 +682,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             .id(),
     );
 
-    timer = std::time::Instant::now();
-
     let mut audio_manager = AudioManager::new()?;
 
     let bgm_data =
@@ -850,9 +695,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         "./src/sounds/gunshot.wav",
     )?;
     let gunshot_sound_index = audio_manager.add_sound(&gunshot_sound_data, 0.75, true, None);
-
-    println!("audio: {:?}", timer.elapsed());
-    timer = std::time::Instant::now();
 
     // logger_log(&format!("{:?}", &revolver));
 
@@ -885,7 +727,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
 
         test_object_node_id,
         crosshair_node_id,
-        revolver,
+        revolver: None,
 
         bouncing_ball_node_id,
         bouncing_ball_body_handle,
@@ -895,8 +737,11 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         physics_balls,
         mouse_button_pressed: false,
 
-        character: legendary_robot,
+        character: None,
         player_controller,
+
+        cube_mesh,
+
         asset_loader,
     })
 }
@@ -908,21 +753,27 @@ pub fn process_device_input(game_state: &mut GameState, event: &winit::event::De
 pub fn increment_render_scale(
     renderer_state: &RendererState,
     renderer_base: &BaseRendererState,
-    renderer_data: &mut RendererStatePublicData,
     increase: bool,
 ) {
     let delta = 0.1;
     let change = if increase { delta } else { -delta };
-    renderer_data.render_scale = (renderer_data.render_scale + change).clamp(0.1, 4.0);
-    logger_log(&format!(
-        "Render scale: {:?} ({:?}x{:?})",
-        renderer_data.render_scale,
-        (renderer_base.surface_config.width as f32 * renderer_data.render_scale.sqrt()).round()
-            as u32,
-        (renderer_base.surface_config.height as f32 * renderer_data.render_scale.sqrt()).round()
-            as u32,
-    ));
-    renderer_state.resize(renderer_base.window_size);
+
+    {
+        let mut renderer_data_guard = renderer_state.data.lock().unwrap();
+        let surface_config_guard = renderer_base.surface_config.lock().unwrap();
+        renderer_data_guard.render_scale =
+            (renderer_data_guard.render_scale + change).clamp(0.1, 4.0);
+        logger_log(&format!(
+            "Render scale: {:?} ({:?}x{:?})",
+            renderer_data_guard.render_scale,
+            (surface_config_guard.width as f32 * renderer_data_guard.render_scale.sqrt()).round()
+                as u32,
+            (surface_config_guard.height as f32 * renderer_data_guard.render_scale.sqrt()).round()
+                as u32,
+        ));
+    }
+    let window_size = *renderer_base.window_size.lock().unwrap();
+    renderer_state.resize(window_size);
 }
 
 pub fn increment_exposure(renderer_data: &mut RendererStatePublicData, increase: bool) {
@@ -975,22 +826,12 @@ pub fn process_window_input(
 
             match keycode {
                 VirtualKeyCode::Z => {
-                    let render_base_guard = renderer_state.base.lock().unwrap();
-                    increment_render_scale(
-                        renderer_state,
-                        &render_base_guard,
-                        &mut render_data_guard,
-                        false,
-                    );
+                    drop(render_data_guard);
+                    increment_render_scale(renderer_state, &renderer_state.base, false);
                 }
                 VirtualKeyCode::X => {
-                    let render_base_guard = renderer_state.base.lock().unwrap();
-                    increment_render_scale(
-                        renderer_state,
-                        &render_base_guard,
-                        &mut render_data_guard,
-                        true,
-                    );
+                    drop(render_data_guard);
+                    increment_render_scale(renderer_state, &renderer_state.base, true);
                 }
                 VirtualKeyCode::E => {
                     increment_exposure(&mut render_data_guard, false);
@@ -1041,48 +882,171 @@ pub fn update_game_state(
     renderer_base: &BaseRendererState,
     renderer_data: Arc<Mutex<RendererStatePublicData>>,
 ) {
-    if let Entry::Occupied(mut entry) = game_state
-        .asset_loader
-        .loaded_assets
-        .lock()
-        .unwrap()
-        .entry("./src/models/gltf/ColtPython/colt_python.gltf".to_string())
     {
-        let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
-        game_state.scene.merge_scene(
-            &mut renderer_data.lock().unwrap(),
-            other_scene,
-            other_render_buffers,
-        );
+        let mut loaded_assets_guard = game_state.asset_loader.loaded_assets.lock().unwrap();
+        let mut renderer_data_guard = renderer_data.lock().unwrap();
+        if let Entry::Occupied(entry) =
+            loaded_assets_guard.entry("./src/models/gltf/ColtPython/colt_python.gltf".to_string())
+        {
+            let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
+            game_state.scene.merge_scene(
+                &mut renderer_data_guard,
+                other_scene,
+                other_render_buffers,
+            );
 
-        let node_id = game_state.scene.nodes().last().unwrap().id();
-        let animation_index = game_state.scene.animations.len() - 1;
-        // revolver_indices = Some((revolver_model_node_id, animation_index));
-        game_state.revolver = Some(Revolver::new(
-            &mut game_state.scene,
-            game_state.player_node_id,
-            node_id,
-            animation_index,
-            // revolver model
-            // TransformBuilder::new()
-            //     .position(Vec3::new(0.21, -0.09, -1.0))
-            //     .rotation(make_quat_from_axis_angle(
-            //         Vec3::new(0.0, 1.0, 0.0),
-            //         deg_to_rad(180.0).into(),
-            //     ))
-            //     .scale(0.17f32 * Vec3::new(1.0, 1.0, 1.0))
-            //     .build(),
-            // colt python model
-            TransformBuilder::new()
-                .position(Vec3::new(0.21, -0.13, -1.0))
-                .rotation(
-                    make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), deg_to_rad(180.0))
-                        * make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.1),
-                )
-                .scale(2.0f32 * Vec3::new(1.0, 1.0, 1.0))
-                .build(),
-        ));
+            let node_id = game_state.scene.nodes().last().unwrap().id();
+            let animation_index = game_state.scene.animations.len() - 1;
+            // revolver_indices = Some((revolver_model_node_id, animation_index));
+            game_state.revolver = Some(Revolver::new(
+                &mut game_state.scene,
+                game_state.player_node_id,
+                node_id,
+                animation_index,
+                // revolver model
+                // TransformBuilder::new()
+                //     .position(Vec3::new(0.21, -0.09, -1.0))
+                //     .rotation(make_quat_from_axis_angle(
+                //         Vec3::new(0.0, 1.0, 0.0),
+                //         deg_to_rad(180.0).into(),
+                //     ))
+                //     .scale(0.17f32 * Vec3::new(1.0, 1.0, 1.0))
+                //     .build(),
+                // colt python model
+                TransformBuilder::new()
+                    .position(Vec3::new(0.21, -0.13, -1.0))
+                    .rotation(
+                        make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), deg_to_rad(180.0))
+                            * make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.1),
+                    )
+                    .scale(2.0f32 * Vec3::new(1.0, 1.0, 1.0))
+                    .build(),
+            ));
+        }
+
+        if let Entry::Occupied(entry) = loaded_assets_guard
+            .entry("./src/models/gltf/free_low_poly_forest/scene.gltf".to_string())
+        {
+            let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
+            // hack to get the terrain to be at the same height as the ground.
+            let node_has_parent: Vec<_> = other_scene
+                .nodes()
+                .map(|node| node.parent_id.is_some())
+                .collect();
+            for (i, node) in other_scene.nodes_mut().enumerate() {
+                if node_has_parent[i] {
+                    continue;
+                }
+                node.transform
+                    .set_position(node.transform.position() + Vec3::new(0.0, 29.0, 0.0));
+            }
+            game_state.scene.merge_scene(
+                &mut renderer_data_guard,
+                other_scene,
+                other_render_buffers,
+            );
+        }
+
+        if let Entry::Occupied(entry) = loaded_assets_guard
+            .entry("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf".to_string())
+        {
+            let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
+            if let Some(jump_up_animation) = other_scene
+                .animations
+                .iter_mut()
+                .find(|animation| animation.name == Some(String::from("jump_up_root_motion")))
+            {
+                jump_up_animation.speed = 0.25;
+                jump_up_animation.state.is_playing = true;
+                jump_up_animation.state.loop_type = LoopType::Wrap;
+            }
+            game_state.scene.merge_scene(
+                &mut renderer_data_guard,
+                other_scene,
+                other_render_buffers,
+            );
+        }
+
+        if let Entry::Occupied(entry) =
+            loaded_assets_guard.entry("./src/models/gltf/TestLevel/test_level.gltf".to_string())
+        {
+            let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
+            let skip_nodes = game_state.scene.node_count();
+            game_state.scene.merge_scene(
+                &mut renderer_data_guard,
+                other_scene,
+                other_render_buffers,
+            );
+
+            let test_level_node_ids: Vec<_> = game_state
+                .scene
+                .nodes()
+                .skip(skip_nodes)
+                .map(|node| node.id())
+                .collect();
+            for node_id in test_level_node_ids {
+                if let Some(_mesh) = game_state
+                    .scene
+                    .get_node_mut(node_id)
+                    .unwrap()
+                    .mesh
+                    .as_mut()
+                {
+                    // _mesh.wireframe = true;
+                }
+                game_state.physics_state.add_static_box(
+                    &game_state.scene,
+                    &renderer_data_guard,
+                    node_id,
+                );
+            }
+        }
+
+        if let Entry::Occupied(entry) = loaded_assets_guard.entry(get_misc_gltf_path().to_string())
+        {
+            let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
+            for animation in other_scene.animations.iter_mut() {
+                animation.state.is_playing = true;
+                animation.state.loop_type = LoopType::Wrap;
+            }
+            game_state.scene.merge_scene(
+                &mut renderer_data_guard,
+                other_scene,
+                other_render_buffers,
+            );
+        }
     }
+
+    if game_state.character.is_none() {
+        let legendary_robot_root_node_id = game_state
+            .scene
+            .nodes()
+            .find(|node| node.name == Some(String::from("robot")))
+            .map(|legendary_robot_root_node| legendary_robot_root_node.id());
+
+        game_state.character = legendary_robot_root_node_id.map(|legendary_robot_root_node_id| {
+            game_state
+                .scene
+                .get_node_mut(legendary_robot_root_node_id)
+                .unwrap()
+                .transform
+                .set_position(Vec3::new(2.0, 0.0, 0.0));
+
+            let legendary_robot_skin_index = 0;
+
+            Character::new(
+                &mut game_state.scene,
+                &mut game_state.physics_state,
+                renderer_base,
+                &mut renderer_data.lock().unwrap(),
+                legendary_robot_root_node_id,
+                legendary_robot_skin_index,
+                &game_state.cube_mesh,
+            )
+        });
+    }
+
+    // "./src/models/gltf/free_low_poly_forest/scene.gltf"
 
     let time_tracker = game_state.time();
     let global_time_seconds = time_tracker.global_time_seconds();
@@ -1288,7 +1252,7 @@ pub fn update_game_state(
                     deg_to_rad(90.0),
                 ))
                 .scale(
-                    (1080.0 / renderer_base.window_size.height as f32)
+                    (1080.0 / renderer_base.window_size.lock().unwrap().height as f32)
                         * 0.06
                         * Vec3::new(1.0, 1.0, 1.0),
                 )

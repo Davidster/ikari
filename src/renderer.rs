@@ -2,7 +2,6 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::fs::File;
 use std::io::BufReader;
 use std::num::NonZeroU64;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use super::*;
@@ -238,15 +237,15 @@ pub struct BaseRendererState {
     pub queue: wgpu::Queue,
     pub adapter: wgpu::Adapter,
     pub surface: wgpu::Surface,
-    pub surface_config: wgpu::SurfaceConfiguration,
+    pub surface_config: Mutex<wgpu::SurfaceConfiguration>,
     pub limits: wgpu::Limits,
-    pub window_size: winit::dpi::PhysicalSize<u32>,
+    pub window_size: Mutex<winit::dpi::PhysicalSize<u32>>,
     pub single_texture_bind_group_layout: wgpu::BindGroupLayout,
     pub two_texture_bind_group_layout: wgpu::BindGroupLayout,
     pub bones_and_instances_bind_group_layout: wgpu::BindGroupLayout,
     pub pbr_textures_bind_group_layout: wgpu::BindGroupLayout,
-    default_texture_cache: HashMap<DefaultTextureType, Arc<Texture>>,
-    pub sampler_cache: SamplerCache,
+    default_texture_cache: Mutex<HashMap<DefaultTextureType, Arc<Texture>>>,
+    pub sampler_cache: Mutex<SamplerCache>,
 }
 
 impl BaseRendererState {
@@ -477,20 +476,20 @@ impl BaseRendererState {
             adapter,
             queue,
             surface,
-            surface_config,
+            surface_config: Mutex::new(surface_config),
             limits,
-            window_size,
+            window_size: Mutex::new(window_size),
             single_texture_bind_group_layout,
             two_texture_bind_group_layout,
             bones_and_instances_bind_group_layout,
             pbr_textures_bind_group_layout,
-            default_texture_cache: HashMap::new(),
-            sampler_cache: SamplerCache::new(),
+            default_texture_cache: Mutex::new(HashMap::new()),
+            sampler_cache: Mutex::new(SamplerCache::new()),
         }
     }
 
     pub fn make_pbr_textures_bind_group(
-        &mut self,
+        &self,
         material: &PbrMaterial,
         use_gltf_defaults: bool,
     ) -> Result<wgpu::BindGroup> {
@@ -546,6 +545,8 @@ impl BaseRendererState {
             }
         };
 
+        let sampler_cache_guard = self.sampler_cache.lock().unwrap();
+
         let textures_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &self.pbr_textures_bind_group_layout,
             entries: &[
@@ -556,8 +557,7 @@ impl BaseRendererState {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(
-                        self.sampler_cache
-                            .get_sampler_by_index(diffuse_texture.sampler_index),
+                        sampler_cache_guard.get_sampler_by_index(diffuse_texture.sampler_index),
                     ),
                 },
                 wgpu::BindGroupEntry {
@@ -567,8 +567,7 @@ impl BaseRendererState {
                 wgpu::BindGroupEntry {
                     binding: 3,
                     resource: wgpu::BindingResource::Sampler(
-                        self.sampler_cache
-                            .get_sampler_by_index(normal_map.sampler_index),
+                        sampler_cache_guard.get_sampler_by_index(normal_map.sampler_index),
                     ),
                 },
                 wgpu::BindGroupEntry {
@@ -578,7 +577,7 @@ impl BaseRendererState {
                 wgpu::BindGroupEntry {
                     binding: 5,
                     resource: wgpu::BindingResource::Sampler(
-                        self.sampler_cache
+                        sampler_cache_guard
                             .get_sampler_by_index(metallic_roughness_map.sampler_index),
                     ),
                 },
@@ -589,8 +588,7 @@ impl BaseRendererState {
                 wgpu::BindGroupEntry {
                     binding: 7,
                     resource: wgpu::BindingResource::Sampler(
-                        self.sampler_cache
-                            .get_sampler_by_index(emissive_map.sampler_index),
+                        sampler_cache_guard.get_sampler_by_index(emissive_map.sampler_index),
                     ),
                 },
                 wgpu::BindGroupEntry {
@@ -600,7 +598,7 @@ impl BaseRendererState {
                 wgpu::BindGroupEntry {
                     binding: 9,
                     resource: wgpu::BindingResource::Sampler(
-                        self.sampler_cache
+                        sampler_cache_guard
                             .get_sampler_by_index(ambient_occlusion_map.sampler_index),
                     ),
                 },
@@ -612,10 +610,11 @@ impl BaseRendererState {
     }
 
     pub fn get_default_texture(
-        &mut self,
+        &self,
         default_texture_type: DefaultTextureType,
     ) -> anyhow::Result<Arc<Texture>> {
-        let default_texture = match self.default_texture_cache.entry(default_texture_type) {
+        let mut default_texture_cache_guard = self.default_texture_cache.lock().unwrap();
+        let default_texture = match default_texture_cache_guard.entry(default_texture_type) {
             Entry::Occupied(texture) => texture.get().clone(),
             Entry::Vacant(_) => {
                 let color: [u8; 4] = match default_texture_type {
@@ -630,7 +629,7 @@ impl BaseRendererState {
                 Arc::new(Texture::from_color(self, color)?)
             }
         };
-        if let Entry::Vacant(entry) = self.default_texture_cache.entry(default_texture_type) {
+        if let Entry::Vacant(entry) = default_texture_cache_guard.entry(default_texture_type) {
             entry.insert(default_texture.clone());
         }
         Ok(default_texture)
@@ -708,7 +707,7 @@ pub struct RendererStatePublicData {
 
 // TODO: rename to Renderer
 pub struct RendererState {
-    pub base: Arc<Mutex<BaseRendererState>>,
+    pub base: Arc<BaseRendererState>,
     pub data: Arc<Mutex<RendererStatePublicData>>,
 
     // TODO: does this need a mutex?
@@ -725,13 +724,15 @@ pub struct RendererState {
     bloom_threshold_pipeline: wgpu::RenderPipeline,
     bloom_blur_pipeline: wgpu::RenderPipeline,
 
+    #[allow(dead_code)]
     box_mesh_index: i32,
     sphere_mesh_index: i32,
+    #[allow(dead_code)]
     plane_mesh_index: i32,
 }
 
 impl RendererState {
-    pub async fn new(mut base: BaseRendererState) -> Result<Self> {
+    pub async fn new(base: BaseRendererState) -> Result<Self> {
         logger_log("Controls:");
         vec![
             "Move Around:             WASD, Space Bar, Ctrl",
@@ -1167,7 +1168,7 @@ impl RendererState {
             .create_render_pipeline(&bloom_blur_pipeline_descriptor);
 
         let surface_blit_color_targets = &[Some(wgpu::ColorTargetState {
-            format: base.surface_config.format,
+            format: base.surface_config.lock().unwrap().format,
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
         })];
@@ -1537,28 +1538,18 @@ impl RendererState {
 
         let skybox_mesh = Self::bind_geometry_buffers_for_basic_mesh_impl(&base.device, &cube_mesh);
 
-        let shading_texture = Texture::create_scaled_surface_texture(
-            &mut base,
-            initial_render_scale,
-            "shading_texture",
-        );
+        let shading_texture =
+            Texture::create_scaled_surface_texture(&base, initial_render_scale, "shading_texture");
         let bloom_pingpong_textures = [
-            Texture::create_scaled_surface_texture(
-                &mut base,
-                initial_render_scale,
-                "bloom_texture_1",
-            ),
-            Texture::create_scaled_surface_texture(
-                &mut base,
-                initial_render_scale,
-                "bloom_texture_2",
-            ),
+            Texture::create_scaled_surface_texture(&base, initial_render_scale, "bloom_texture_1"),
+            Texture::create_scaled_surface_texture(&base, initial_render_scale, "bloom_texture_2"),
         ];
         let tone_mapping_texture = Texture::create_scaled_surface_texture(
-            &mut base,
+            &base,
             initial_render_scale,
             "tone_mapping_texture",
         );
+        let sampler_cache_guard = base.sampler_cache.lock().unwrap();
         let shading_texture_bind_group =
             base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &base.single_texture_bind_group_layout,
@@ -1570,8 +1561,7 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(
-                            base.sampler_cache
-                                .get_sampler_by_index(shading_texture.sampler_index),
+                            sampler_cache_guard.get_sampler_by_index(shading_texture.sampler_index),
                         ),
                     },
                 ],
@@ -1588,7 +1578,7 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(
-                            base.sampler_cache
+                            sampler_cache_guard
                                 .get_sampler_by_index(tone_mapping_texture.sampler_index),
                         ),
                     },
@@ -1606,8 +1596,7 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(
-                            base.sampler_cache
-                                .get_sampler_by_index(shading_texture.sampler_index),
+                            sampler_cache_guard.get_sampler_by_index(shading_texture.sampler_index),
                         ),
                     },
                     wgpu::BindGroupEntry {
@@ -1619,13 +1608,14 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: wgpu::BindingResource::Sampler(
-                            base.sampler_cache
+                            sampler_cache_guard
                                 .get_sampler_by_index(bloom_pingpong_textures[0].sampler_index),
                         ),
                     },
                 ],
                 label: Some("surface_blit_textures_bind_group"),
             });
+
         let bloom_pingpong_texture_bind_groups = [
             base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &base.single_texture_bind_group_layout,
@@ -1639,7 +1629,7 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(
-                            base.sampler_cache
+                            sampler_cache_guard
                                 .get_sampler_by_index(bloom_pingpong_textures[0].sampler_index),
                         ),
                     },
@@ -1658,7 +1648,7 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(
-                            base.sampler_cache
+                            sampler_cache_guard
                                 .get_sampler_by_index(bloom_pingpong_textures[1].sampler_index),
                         ),
                     },
@@ -1666,6 +1656,7 @@ impl RendererState {
                 label: Some("bloom_texture_bind_group_2"),
             }),
         ];
+        drop(sampler_cache_guard);
 
         let bloom_config_buffer =
             base.device
@@ -1703,7 +1694,7 @@ impl RendererState {
             });
 
         let depth_texture =
-            Texture::create_depth_texture(&mut base, initial_render_scale, "depth_texture");
+            Texture::create_depth_texture(&base, initial_render_scale, "depth_texture");
 
         let (skybox_background, skybox_hdr_environment) = get_skybox_path();
 
@@ -1711,7 +1702,7 @@ impl RendererState {
             SkyboxBackground::Equirectangular { image_path } => {
                 let er_skybox_texture_bytes = std::fs::read(image_path)?;
                 let er_skybox_texture = Texture::from_encoded_image(
-                    &mut base,
+                    &base,
                     &er_skybox_texture_bytes,
                     image_path,
                     None,
@@ -1728,7 +1719,7 @@ impl RendererState {
                 )?;
 
                 Texture::create_cubemap_from_equirectangular(
-                    &mut base,
+                    &base,
                     Some(image_path),
                     &skybox_mesh,
                     &equirectangular_to_cubemap_pipeline,
@@ -1743,7 +1734,7 @@ impl RendererState {
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Texture::create_cubemap(
-                    &mut base,
+                    &base,
                     CreateCubeMapImagesParam {
                         pos_x: &cubemap_skybox_images[0],
                         neg_x: &cubemap_skybox_images[1],
@@ -1784,7 +1775,7 @@ impl RendererState {
                 };
 
                 let skybox_rad_texture_er = Texture::from_decoded_image(
-                    &mut base,
+                    &base,
                     bytemuck::cast_slice(&skybox_rad_texture_decoded),
                     skybox_rad_texture_dimensions,
                     image_path.into(),
@@ -1802,7 +1793,7 @@ impl RendererState {
                 )?;
 
                 er_to_cube_texture = Texture::create_cubemap_from_equirectangular(
-                    &mut base,
+                    &base,
                     Some(image_path),
                     &skybox_mesh,
                     &equirectangular_to_cubemap_pipeline,
@@ -1816,7 +1807,7 @@ impl RendererState {
         };
 
         let diffuse_env_map = Texture::create_diffuse_env_map(
-            &mut base,
+            &base,
             Some("diffuse env map"),
             &skybox_mesh,
             &diffuse_env_map_gen_pipeline,
@@ -1825,14 +1816,14 @@ impl RendererState {
         );
 
         let specular_env_map = Texture::create_specular_env_map(
-            &mut base,
+            &base,
             Some("specular env map"),
             &skybox_mesh,
             &specular_env_map_gen_pipeline,
             skybox_rad_texture,
         );
 
-        let brdf_lut = Texture::create_brdf_lut(&mut base, &brdf_lut_gen_pipeline);
+        let brdf_lut = Texture::create_brdf_lut(&base, &brdf_lut_gen_pipeline);
 
         let camera_buffer = base
             .device
@@ -1992,19 +1983,20 @@ impl RendererState {
             });
 
         let point_shadow_map_textures = Texture::create_cube_depth_texture_array(
-            &mut base,
+            &base,
             1024,
             Some("point_shadow_map_texture"),
             2, // TODO: this currently puts on hard limit on number of point lights at a time
         );
 
         let directional_shadow_map_textures = Texture::create_depth_texture_array(
-            &mut base,
+            &base,
             2048,
             Some("directional_shadow_map_texture"),
             2, // TODO: this currently puts on hard limit on number of directional lights at a time
         );
 
+        let sampler_cache_guard = base.sampler_cache.lock().unwrap();
         let environment_textures_bind_group =
             base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &environment_textures_bind_group_layout,
@@ -2016,8 +2008,7 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(
-                            base.sampler_cache
-                                .get_sampler_by_index(skybox_texture.sampler_index),
+                            sampler_cache_guard.get_sampler_by_index(skybox_texture.sampler_index),
                         ),
                     },
                     wgpu::BindGroupEntry {
@@ -2027,8 +2018,7 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: wgpu::BindingResource::Sampler(
-                            base.sampler_cache
-                                .get_sampler_by_index(diffuse_env_map.sampler_index),
+                            sampler_cache_guard.get_sampler_by_index(diffuse_env_map.sampler_index),
                         ),
                     },
                     wgpu::BindGroupEntry {
@@ -2038,7 +2028,7 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 5,
                         resource: wgpu::BindingResource::Sampler(
-                            base.sampler_cache
+                            sampler_cache_guard
                                 .get_sampler_by_index(specular_env_map.sampler_index),
                         ),
                     },
@@ -2049,8 +2039,7 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 7,
                         resource: wgpu::BindingResource::Sampler(
-                            base.sampler_cache
-                                .get_sampler_by_index(brdf_lut.sampler_index),
+                            sampler_cache_guard.get_sampler_by_index(brdf_lut.sampler_index),
                         ),
                     },
                     wgpu::BindGroupEntry {
@@ -2062,7 +2051,7 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 9,
                         resource: wgpu::BindingResource::Sampler(
-                            base.sampler_cache
+                            sampler_cache_guard
                                 .get_sampler_by_index(point_shadow_map_textures.sampler_index),
                         ),
                     },
@@ -2075,7 +2064,7 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 11,
                         resource: wgpu::BindingResource::Sampler(
-                            base.sampler_cache.get_sampler_by_index(
+                            sampler_cache_guard.get_sampler_by_index(
                                 directional_shadow_map_textures.sampler_index,
                             ),
                         ),
@@ -2083,6 +2072,7 @@ impl RendererState {
                 ],
                 label: Some("skybox_texture_bind_group"),
             });
+        drop(sampler_cache_guard);
 
         let mut data = RendererStatePublicData {
             binded_pbr_meshes: vec![],
@@ -2117,7 +2107,7 @@ impl RendererState {
             .unwrap();
 
         let renderer_state = Self {
-            base: Arc::new(Mutex::new(base)),
+            base: Arc::new(base),
             data: Arc::new(Mutex::new(data)),
 
             private_data: Mutex::new(RendererStatePrivateData {
@@ -2204,7 +2194,7 @@ impl RendererState {
 
     // returns index of mesh in the RenderScene::binded_pbr_meshes list
     pub fn bind_basic_pbr_mesh(
-        base: &mut BaseRendererState,
+        base: &BaseRendererState,
         data: &mut RendererStatePublicData,
         mesh: &BasicMesh,
         material: &PbrMaterial,
@@ -2325,48 +2315,52 @@ impl RendererState {
     }
 
     pub fn resize(&self, new_window_size: winit::dpi::PhysicalSize<u32>) {
-        let mut base_guard = self.base.lock().unwrap();
+        // let mut base_guard = self.base.lock().unwrap();
         let data_guard = self.data.lock().unwrap();
         let mut private_data_guard = self.private_data.lock().unwrap();
 
-        base_guard.window_size = new_window_size;
-        base_guard.surface_config.width = new_window_size.width;
-        base_guard.surface_config.height = new_window_size.height;
-        base_guard
-            .surface
-            .configure(&base_guard.device, &base_guard.surface_config);
+        *self.base.window_size.lock().unwrap() = new_window_size;
+        {
+            let mut surface_config_guard = self.base.surface_config.lock().unwrap();
+            surface_config_guard.width = new_window_size.width;
+            surface_config_guard.height = new_window_size.height;
+
+            // TODO: probably don't need to hold onto surface config mutex while runnig this.
+            self.base
+                .surface
+                .configure(&self.base.device, &surface_config_guard);
+        }
+
         private_data_guard.shading_texture = Texture::create_scaled_surface_texture(
-            &mut base_guard,
+            &self.base,
             data_guard.render_scale,
             "shading_texture",
         );
         private_data_guard.bloom_pingpong_textures = [
             Texture::create_scaled_surface_texture(
-                &mut base_guard,
+                &self.base,
                 data_guard.render_scale,
                 "bloom_texture_1",
             ),
             Texture::create_scaled_surface_texture(
-                &mut base_guard,
+                &self.base,
                 data_guard.render_scale,
                 "bloom_texture_2",
             ),
         ];
         private_data_guard.tone_mapping_texture = Texture::create_scaled_surface_texture(
-            &mut base_guard,
+            &self.base,
             data_guard.render_scale,
             "tone_mapping_texture",
         );
-        private_data_guard.depth_texture = Texture::create_depth_texture(
-            &mut base_guard,
-            data_guard.render_scale,
-            "depth_texture",
-        );
+        private_data_guard.depth_texture =
+            Texture::create_depth_texture(&self.base, data_guard.render_scale, "depth_texture");
 
-        let device = &base_guard.device;
-        let single_texture_bind_group_layout = &base_guard.single_texture_bind_group_layout;
-        let two_texture_bind_group_layout = &base_guard.two_texture_bind_group_layout;
+        let device = &self.base.device;
+        let single_texture_bind_group_layout = &self.base.single_texture_bind_group_layout;
+        let two_texture_bind_group_layout = &self.base.two_texture_bind_group_layout;
 
+        let sampler_cache_guard = self.base.sampler_cache.lock().unwrap();
         private_data_guard.shading_texture_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: single_texture_bind_group_layout,
@@ -2380,7 +2374,7 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(
-                            base_guard.sampler_cache.get_sampler_by_index(
+                            sampler_cache_guard.get_sampler_by_index(
                                 private_data_guard.shading_texture.sampler_index,
                             ),
                         ),
@@ -2402,7 +2396,7 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(
-                            base_guard.sampler_cache.get_sampler_by_index(
+                            sampler_cache_guard.get_sampler_by_index(
                                 private_data_guard.tone_mapping_texture.sampler_index,
                             ),
                         ),
@@ -2423,7 +2417,7 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(
-                            base_guard.sampler_cache.get_sampler_by_index(
+                            sampler_cache_guard.get_sampler_by_index(
                                 private_data_guard.shading_texture.sampler_index,
                             ),
                         ),
@@ -2437,7 +2431,7 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: wgpu::BindingResource::Sampler(
-                            base_guard.sampler_cache.get_sampler_by_index(
+                            sampler_cache_guard.get_sampler_by_index(
                                 private_data_guard.bloom_pingpong_textures[0].sampler_index,
                             ),
                         ),
@@ -2458,7 +2452,7 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(
-                            base_guard.sampler_cache.get_sampler_by_index(
+                            sampler_cache_guard.get_sampler_by_index(
                                 private_data_guard.bloom_pingpong_textures[0].sampler_index,
                             ),
                         ),
@@ -2478,7 +2472,7 @@ impl RendererState {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(
-                            base_guard.sampler_cache.get_sampler_by_index(
+                            sampler_cache_guard.get_sampler_by_index(
                                 private_data_guard.bloom_pingpong_textures[1].sampler_index,
                             ),
                         ),
@@ -2546,17 +2540,17 @@ impl RendererState {
     }
 
     pub fn render(&mut self, game_state: &mut GameState) -> Result<(), wgpu::SurfaceError> {
-        let mut base_guard = self.base.lock().unwrap();
+        // let mut base_guard = self.base.lock().unwrap();
         let mut data_guard = self.data.lock().unwrap();
         let mut private_data_guard = self.private_data.lock().unwrap();
         self.update_internal(
-            &mut base_guard,
+            &self.base,
             &mut data_guard,
             &mut private_data_guard,
             game_state,
         );
         self.render_internal(
-            &mut base_guard,
+            &self.base,
             &mut data_guard,
             &mut private_data_guard,
             game_state,
@@ -2567,7 +2561,7 @@ impl RendererState {
     #[profiling::function]
     fn update_internal(
         &self,
-        base: &mut BaseRendererState,
+        base: &BaseRendererState,
         data: &mut RendererStatePublicData,
         private_data: &mut RendererStatePrivateData,
         game_state: &mut GameState,
@@ -2577,9 +2571,10 @@ impl RendererState {
         // game_state.scene.recompute_node_transforms();
         game_state.scene.recompute_global_node_transforms();
 
+        let window_size = *base.window_size.lock().unwrap();
         let camera_frustum = game_state.player_controller.frustum(
             &game_state.physics_state,
-            base.window_size.width as f32 / base.window_size.height as f32,
+            window_size.width as f32 / window_size.height as f32,
         );
 
         // private_data: &mut RendererStatePrivateData,
@@ -2613,8 +2608,8 @@ impl RendererState {
         }
 
         let scene = &mut game_state.scene;
-        let limits = &mut base.limits;
-        let queue = &mut base.queue;
+        let limits = &base.limits;
+        let queue = &base.queue;
         let device = &base.device;
         let bones_and_instances_bind_group_layout = &base.bones_and_instances_bind_group_layout;
 
@@ -2973,7 +2968,7 @@ impl RendererState {
     #[profiling::function]
     pub fn render_internal(
         &self,
-        base: &mut BaseRendererState,
+        base: &BaseRendererState,
         data: &mut RendererStatePublicData,
         private_data: &mut RendererStatePrivateData,
         game_state: &mut GameState,
@@ -3120,12 +3115,13 @@ impl RendererState {
         let player_transform = game_state
             .scene
             .get_global_transform_for_node(game_state.player_node_id);
+        let window_size = *base.window_size.lock().unwrap();
         base.queue.write_buffer(
             &private_data.camera_buffer,
             0,
             bytemuck::cast_slice(&[CameraUniform::from(ShaderCameraView::from_mat4(
                 player_transform.into(),
-                base.window_size.width as f32 / base.window_size.height as f32,
+                window_size.width as f32 / window_size.height as f32,
                 NEAR_PLANE_DISTANCE,
                 FAR_PLANE_DISTANCE,
                 deg_to_rad(FOV_Y_DEG),

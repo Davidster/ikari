@@ -21,7 +21,7 @@ impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
 }
 
 pub fn build_scene(
-    base_renderer_state: &mut BaseRendererState,
+    base_renderer_state: &BaseRendererState,
     (document, buffers, images): (
         &gltf::Document,
         &Vec<gltf::buffer::Data>,
@@ -35,12 +35,7 @@ pub fn build_scene(
 
     let materials: Vec<_> = document.materials().collect();
 
-    let mut timer = std::time::Instant::now();
-
     let textures = get_textures(document, images, materials, base_renderer_state)?;
-
-    /* println!("textures: {:?}", timer.elapsed());
-    timer = std::time::Instant::now(); */
 
     // node index -> parent node index
     let parent_index_map: HashMap<usize, usize> = document
@@ -77,9 +72,6 @@ pub fn build_scene(
         }
     }
 
-    /* println!("nodes: {:?}", timer.elapsed());
-    timer = std::time::Instant::now(); */
-
     let meshes: Vec<_> = document.meshes().collect();
 
     let make_supported_mesh_iterator = || {
@@ -102,27 +94,21 @@ pub fn build_scene(
     // gltf node index -> game node
     let mut node_mesh_links: HashMap<usize, Vec<usize>> = HashMap::new();
 
-    /* let mut phase_1_duration = std::time::Duration::ZERO;
-    let mut phase_2_duration = std::time::Duration::ZERO;
-    let mut phase_3_duration = std::time::Duration::ZERO; */
-
     for (binded_pbr_mesh_index, (mesh, primitive_group)) in
         make_supported_mesh_iterator().enumerate()
     {
-        let mut timer = std::time::Instant::now();
         let dynamic_pbr_params = get_dynamic_pbr_params(&primitive_group.material());
         let pbr_material = get_pbr_material(&primitive_group.material(), &textures);
         let textures_bind_group =
             base_renderer_state.make_pbr_textures_bind_group(&pbr_material, true)?;
 
-        /* phase_1_duration += timer.elapsed();
-        timer = std::time::Instant::now(); */
-
         let (vertices, geometry_buffers, wireframe_index_buffer, wireframe_index_buffer_format) =
-            build_geometry_buffers(&base_renderer_state.device, &primitive_group, buffers)?;
-
-        /* phase_2_duration += timer.elapsed();
-        timer = std::time::Instant::now(); */
+            build_geometry_buffers(
+                &base_renderer_state.device,
+                &base_renderer_state.limits,
+                &primitive_group,
+                buffers,
+            )?;
 
         let primitive_mode = crate::renderer::PrimitiveMode::Triangles;
 
@@ -136,22 +122,11 @@ pub fn build_scene(
 
         if let Some(gltf_node_indices) = mesh_node_map.get(&mesh.index()) {
             for gltf_node_index in gltf_node_indices {
-                // #[allow(clippy::or_fun_call)]
                 let binded_pbr_mesh_indices =
                     node_mesh_links.entry(*gltf_node_index).or_insert(vec![]);
                 binded_pbr_mesh_indices.push(binded_pbr_mesh_index);
             }
         }
-
-        /* let instance_iterator = scene_nodes
-            .iter()
-            .filter(|node| node.mesh().is_some() && node.mesh().unwrap().index() == mesh.index());
-        for gltf_node in instance_iterator {
-            // #[allow(clippy::or_fun_call)]
-            let binded_pbr_mesh_indices =
-                node_mesh_links.entry(gltf_node.index()).or_insert(vec![]);
-            binded_pbr_mesh_indices.push(binded_pbr_mesh_index);
-        } */
 
         binded_pbr_meshes.push(BindedPbrMesh {
             geometry_buffers,
@@ -169,16 +144,7 @@ pub fn build_scene(
         });
 
         pbr_mesh_vertices.push(vertices);
-
-        /* phase_3_duration += timer.elapsed();
-        timer = std::time::Instant::now(); */
     }
-
-    /* println!("binded pbr meshes: {:?}", timer.elapsed());
-    println!("phase 1: {:?}", phase_1_duration);
-    println!("phase 2: {:?}", phase_2_duration);
-    println!("phase 3: {:?}", phase_3_duration);
-    timer = std::time::Instant::now(); */
 
     // it is important that the node indices from the gltf document are preserved
     // for any of the other stuff that refers to the nodes by index such as the animations
@@ -200,9 +166,6 @@ pub fn build_scene(
             parent_index: parent_index_map.get(&node.index()).copied(),
         })
         .collect();
-
-    /*  println!("nodes 2: {:?}", timer.elapsed());
-    timer = std::time::Instant::now(); */
 
     let animations = get_animations(document, buffers)?;
 
@@ -303,9 +266,6 @@ pub fn build_scene(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    /* println!("skins: {:?}", timer.elapsed());
-    timer = std::time::Instant::now(); */
-
     let render_buffers = RenderBuffers {
         binded_pbr_meshes,
         binded_unlit_meshes: vec![],
@@ -345,7 +305,7 @@ fn get_textures(
     document: &gltf::Document,
     images: &[gltf::image::Data],
     materials: Vec<gltf::Material>,
-    base_renderer_state: &mut BaseRendererState,
+    base_renderer_state: &BaseRendererState,
 ) -> Result<Vec<Texture>, anyhow::Error> {
     let textures = document
         .textures()
@@ -647,25 +607,6 @@ fn get_dynamic_pbr_params(material: &gltf::material::Material) -> DynamicPbrPara
     }
 }
 
-pub fn get_buffer_slice_from_accessor_old(
-    accessor: gltf::Accessor,
-    buffers: &[gltf::buffer::Data],
-) -> Vec<u8> {
-    let buffer_view = accessor.view().unwrap();
-    let buffer = &buffers[buffer_view.buffer().index()];
-    let first_byte_offset = buffer_view.offset() + accessor.offset();
-    let stride = buffer_view.stride().unwrap_or_else(|| accessor.size());
-    let mut result: Vec<u8> = Vec::new();
-    result.reserve(accessor.count() * accessor.size());
-    for i in 0..accessor.count() {
-        let byte_range_start = first_byte_offset + i * stride;
-        let byte_range_end = byte_range_start + accessor.size();
-        let byte_range = byte_range_start..byte_range_end;
-        result.extend(&buffer[byte_range]);
-    }
-    result
-}
-
 pub fn get_buffer_slice_from_accessor<'a>(
     accessor: gltf::Accessor<'a>,
     buffers: &'a [gltf::buffer::Data],
@@ -673,21 +614,13 @@ pub fn get_buffer_slice_from_accessor<'a>(
     let buffer_view = accessor.view().unwrap();
     let buffer = &buffers[buffer_view.buffer().index()];
     let first_byte_offset = buffer_view.offset() + accessor.offset();
-    // let stride = buffer_view.stride().unwrap_or_else(|| accessor.size());
-    // let mut result: Vec<u8> = Vec::new();
-    // result.reserve(accessor.count() * accessor.size());
-    // for i in 0..accessor.count() {
-    //     let byte_range_start = first_byte_offset + i * stride;
-    //     let byte_range_end = byte_range_start + accessor.size();
-    //     let byte_range = byte_range_start..byte_range_end;
-    //     result.extend(&buffer[byte_range]);
-    // }
-    // result
-    &buffer[first_byte_offset..(first_byte_offset + accessor.count() * accessor.size())]
+    let last_byte_offset = first_byte_offset + accessor.count() * accessor.size();
+    &buffer[first_byte_offset..last_byte_offset]
 }
 
 pub fn build_geometry_buffers(
     device: &wgpu::Device,
+    limits: &wgpu::Limits,
     primitive_group: &gltf::mesh::Primitive,
     buffers: &[gltf::buffer::Data],
 ) -> Result<(Vec<Vertex>, GeometryBuffers, GpuBuffer, wgpu::IndexFormat)> {
@@ -809,9 +742,15 @@ pub fn build_geometry_buffers(
         });
     }
 
+    let vertex_buffer_bytes = bytemuck::cast_slice(&vertices_with_all_data);
+
+    if vertex_buffer_bytes.len() as u64 > limits.max_buffer_size {
+        bail!("Tried to upload a vertex buffer of size {:?} which is larger than the max buffer size of {:?}", vertex_buffer_bytes.len(), limits.max_buffer_size);
+    }
+
     let vertex_buffer = GpuBuffer::from_bytes(
         device,
-        bytemuck::cast_slice(&vertices_with_all_data),
+        vertex_buffer_bytes,
         std::mem::size_of::<Vertex>(),
         wgpu::BufferUsages::VERTEX,
     );
@@ -840,7 +779,11 @@ pub fn build_geometry_buffers(
             )
         };
 
-        (
+        if index_buffer_bytes.len() as u64 > limits.max_buffer_size {
+            bail!("Tried to upload an index buffer of size {:?} which is larger than the max buffer size of {:?}", index_buffer_bytes.len(), limits.max_buffer_size);
+        }
+
+        Ok((
             GpuBuffer::from_bytes(
                 device,
                 index_buffer_bytes,
@@ -851,10 +794,10 @@ pub fn build_geometry_buffers(
                 wgpu::BufferUsages::INDEX,
             ),
             index_buffer_format,
-        )
+        ))
     };
 
-    let (index_buffer, index_buffer_format) = into_index_buffer(&indices);
+    let (index_buffer, index_buffer_format) = into_index_buffer(&indices)?;
 
     let mut wireframe_indices = Vec::with_capacity(indices.len() * 2);
     for triangle in indices.chunks(3) {
@@ -868,7 +811,7 @@ pub fn build_geometry_buffers(
         ]);
     }
     let (wireframe_index_buffer, wireframe_index_buffer_format) =
-        into_index_buffer(&wireframe_indices);
+        into_index_buffer(&wireframe_indices)?;
 
     Ok((
         vertices_with_all_data,
