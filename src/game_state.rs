@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use super::*;
@@ -46,7 +45,7 @@ pub struct GameState {
 
     pub cube_mesh: BasicMesh,
 
-    pub asset_loader: AssetLoader,
+    pub asset_loader: Arc<AssetLoader>,
 }
 
 impl GameState {

@@ -9,7 +9,7 @@ pub struct AssetLoader {
     pub loaded_gltf_scenes: Arc<Mutex<HashMap<String, (Scene, RenderBuffers)>>>,
 
     pub audio_manager: Arc<Mutex<AudioManager>>,
-    pub pending_audio: Arc<Mutex<Vec<(String, SoundParams)>>>,
+    pub pending_audio: Arc<Mutex<Vec<(String, AudioFileFormat, SoundParams)>>>,
     pub loaded_audio: Arc<Mutex<HashMap<String, usize>>>,
 }
 
@@ -68,10 +68,10 @@ impl AssetLoader {
         }
     }
 
-    pub fn load_audio(&self, path: &str, params: SoundParams, format: AudioFileFormat) {
+    pub fn load_audio(&self, path: &str, format: AudioFileFormat, params: SoundParams) {
         let pending_audio_clone = self.pending_audio.clone();
         let mut pending_audio_clone_guard = pending_audio_clone.lock().unwrap();
-        pending_audio_clone_guard.push((path.to_string(), params));
+        pending_audio_clone_guard.push((path.to_string(), format, params));
 
         if pending_audio_clone_guard.len() == 1 {
             let pending_audio = self.pending_audio.clone();
@@ -80,23 +80,30 @@ impl AssetLoader {
 
             std::thread::spawn(move || {
                 while pending_audio.lock().unwrap().len() > 0 {
-                    let (next_audio_path, next_audio_params) =
+                    let (next_audio_path, next_audio_format, next_audio_params) =
                         pending_audio.lock().unwrap().remove(0);
 
                     let do_load = || {
-                        let device_sample_date = audio_manager.lock().unwrap().device_sample_rate();
-                        let sound_data = match format {
+                        let device_sample_rate = audio_manager.lock().unwrap().device_sample_rate();
+                        let sound_data = match next_audio_format {
                             AudioFileFormat::Mp3 => {
-                                AudioManager::decode_mp3(device_sample_date, &next_audio_path)?
+                                AudioManager::decode_mp3(device_sample_rate, &next_audio_path)?
                             }
                             AudioFileFormat::Wav => {
-                                AudioManager::decode_wav(device_sample_date, &next_audio_path)?
+                                AudioManager::decode_wav(device_sample_rate, &next_audio_path)?
                             }
                         };
-                        let sound_index = audio_manager
-                            .lock()
-                            .unwrap()
-                            .add_sound(&sound_data, next_audio_params);
+                        // let sound = Sound::new(self, sound_data, params);
+                        let signal = AudioManager::get_signal(
+                            &sound_data,
+                            next_audio_params.clone(),
+                            device_sample_rate,
+                        );
+                        let sound_index = audio_manager.lock().unwrap().add_sound(
+                            sound_data,
+                            next_audio_params,
+                            signal,
+                        );
                         anyhow::Ok(sound_index)
                     };
                     match do_load() {

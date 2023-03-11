@@ -12,6 +12,8 @@ use oddio::{
     Stop,
 };
 
+use super::*;
+
 pub struct AudioStreams {
     _spatial_scene_output_stream: Stream,
     _mixer_output_stream: Stream,
@@ -34,11 +36,16 @@ pub struct SoundData(Vec<[f32; CHANNEL_COUNT]>);
 pub struct Sound {
     volume: f32,
     is_playing: bool,
-    signal: SoundSignal,
+    signal_handle: SoundSignalHandle,
     data: SoundData,
 }
 
 pub enum SoundSignal {
+    Mono { signal: FramesSignal<f32> },
+    Stereo { signal: FramesSignal<[f32; 2]> },
+}
+
+pub enum SoundSignalHandle {
     Spacial {
         signal_handle: Handle<SpatialBuffered<Stop<Gain<FramesSignal<f32>>>>>,
     },
@@ -55,11 +62,13 @@ pub enum AudioFileFormat {
     Wav,
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct SpacialParams {
     initial_position: Vec3,
     initial_velocity: Vec3,
 }
 
+#[derive(Debug, Clone)]
 pub struct SoundParams {
     pub initial_volume: f32,
     pub fixed_volume: bool,
@@ -209,8 +218,45 @@ impl AudioManager {
         Ok(SoundData(samples))
     }
 
-    pub fn add_sound(&mut self, sound_data: &SoundData, params: SoundParams) -> usize {
-        let sound = Sound::new(self, sound_data, params);
+    pub fn get_signal(
+        sound_data: &SoundData,
+        params: SoundParams,
+        device_sample_rate: u32,
+    ) -> SoundSignal {
+        let SoundParams { spacial_params, .. } = params;
+
+        let SoundData(samples) = sound_data;
+
+        let channels = samples[0].len();
+
+        match spacial_params {
+            Some(SpacialParams { .. }) => {
+                let signal = FramesSignal::from(oddio::Frames::from_iter(
+                    device_sample_rate,
+                    samples.iter().map(|sample| sample[0]).collect::<Vec<_>>(),
+                ));
+
+                SoundSignal::Mono { signal }
+            }
+            None => {
+                let signal = FramesSignal::from(oddio::Frames::from_iter(
+                    device_sample_rate,
+                    samples.iter().map(|sample| {
+                        [sample[0], if channels > 1 { sample[1] } else { sample[0] }]
+                    }),
+                ));
+                SoundSignal::Stereo { signal }
+            }
+        }
+    }
+
+    pub fn add_sound(
+        &mut self,
+        sound_data: SoundData,
+        params: SoundParams,
+        signal: SoundSignal,
+    ) -> usize {
+        let sound = Sound::new(self, sound_data, params, signal);
         self.sounds.push(sound);
         self.sounds.len() - 1
     }
@@ -220,8 +266,10 @@ impl AudioManager {
     }
 
     pub fn reload_sound(&mut self, sound_index: usize, params: SoundParams) {
+        // TODO: can avoid clone here by taking self.sounds[sound_index] out of the vec?
         let data_copy = self.sounds[sound_index].data.clone();
-        self.sounds[sound_index] = Sound::new(self, &data_copy, params);
+        let signal = Self::get_signal(&data_copy, params.clone(), self.device_sample_rate);
+        self.sounds[sound_index] = Sound::new(self, data_copy, params, signal);
     }
 
     pub fn set_sound_volume(&mut self, sound_index: usize, volume: f32) {
@@ -269,26 +317,27 @@ fn resample_linear(
 }
 
 impl Sound {
-    fn new(audio_manager: &mut AudioManager, sound_data: &SoundData, params: SoundParams) -> Self {
+    fn new(
+        audio_manager: &mut AudioManager,
+        sound_data: SoundData,
+        params: SoundParams,
+        signal: SoundSignal,
+    ) -> Self {
         let SoundParams {
             initial_volume,
             fixed_volume,
             spacial_params,
         } = params;
 
-        let SoundData(samples) = sound_data;
-
-        let channels = samples[0].len();
-
-        let mut sound = match spacial_params {
-            Some(SpacialParams {
-                initial_position,
-                initial_velocity,
-            }) => {
-                let signal = Gain::new(FramesSignal::from(oddio::Frames::from_iter(
-                    audio_manager.device_sample_rate,
-                    samples.iter().map(|sample| sample[0]).collect::<Vec<_>>(),
-                )));
+        let mut sound = match (spacial_params, signal) {
+            (
+                Some(SpacialParams {
+                    initial_position,
+                    initial_velocity,
+                }),
+                SoundSignal::Mono { signal },
+            ) => {
+                let signal = Gain::new(signal);
 
                 let signal_handle = audio_manager
                     .spatial_scene_handle
@@ -310,23 +359,16 @@ impl Sound {
                 Sound {
                     is_playing: true,
                     volume: initial_volume,
-                    signal: SoundSignal::Spacial { signal_handle },
-                    data: sound_data.clone(),
+                    signal_handle: SoundSignalHandle::Spacial { signal_handle },
+                    data: sound_data,
                 }
             }
-            None => {
-                let frames_signal = FramesSignal::from(oddio::Frames::from_iter(
-                    audio_manager.device_sample_rate,
-                    samples
-                        .iter()
-                        .map(|sample| [sample[0], if channels > 1 { sample[1] } else { sample[0] }])
-                        .collect::<Vec<_>>(),
-                ));
+            (None, SoundSignal::Stereo { signal }) => {
                 if fixed_volume {
                     let volume_amplitude_ratio =
                         (audio_manager.master_volume * initial_volume).powf(2.0);
                     let volume_db = 20.0 * volume_amplitude_ratio.log10();
-                    let signal = FixedGain::new(frames_signal, volume_db);
+                    let signal = FixedGain::new(signal, volume_db);
                     let signal_handle = audio_manager
                         .mixer_handle
                         .control::<Mixer<_>, _>()
@@ -334,11 +376,11 @@ impl Sound {
                     Sound {
                         is_playing: true,
                         volume: initial_volume,
-                        signal: SoundSignal::AmbientFixed { signal_handle },
-                        data: sound_data.clone(),
+                        signal_handle: SoundSignalHandle::AmbientFixed { signal_handle },
+                        data: sound_data,
                     }
                 } else {
-                    let signal = Gain::new(frames_signal);
+                    let signal = Gain::new(signal);
                     let signal_handle = audio_manager
                         .mixer_handle
                         .control::<Mixer<_>, _>()
@@ -346,12 +388,15 @@ impl Sound {
                     let mut sound = Sound {
                         is_playing: true,
                         volume: initial_volume,
-                        signal: SoundSignal::Ambient { signal_handle },
-                        data: sound_data.clone(),
+                        signal_handle: SoundSignalHandle::Ambient { signal_handle },
+                        data: sound_data,
                     };
                     sound.set_volume(audio_manager.master_volume, initial_volume);
                     sound
                 }
+            }
+            _ => {
+                panic!("Signal didn't match spatial params");
             }
         };
 
@@ -361,14 +406,14 @@ impl Sound {
 
     fn pause(&mut self) {
         self.is_playing = false;
-        match &mut self.signal {
-            SoundSignal::Spacial { signal_handle } => {
+        match &mut self.signal_handle {
+            SoundSignalHandle::Spacial { signal_handle } => {
                 signal_handle.control::<Stop<_>, _>().pause();
             }
-            SoundSignal::Ambient { signal_handle } => {
+            SoundSignalHandle::Ambient { signal_handle } => {
                 signal_handle.control::<Stop<_>, _>().pause();
             }
-            SoundSignal::AmbientFixed { signal_handle } => {
+            SoundSignalHandle::AmbientFixed { signal_handle } => {
                 signal_handle.control::<Stop<_>, _>().pause();
             }
         }
@@ -376,14 +421,14 @@ impl Sound {
 
     fn resume(&mut self) {
         self.is_playing = true;
-        match &mut self.signal {
-            SoundSignal::Spacial { signal_handle } => {
+        match &mut self.signal_handle {
+            SoundSignalHandle::Spacial { signal_handle } => {
                 signal_handle.control::<Stop<_>, _>().resume();
             }
-            SoundSignal::Ambient { signal_handle } => {
+            SoundSignalHandle::Ambient { signal_handle } => {
                 signal_handle.control::<Stop<_>, _>().resume();
             }
-            SoundSignal::AmbientFixed { signal_handle } => {
+            SoundSignalHandle::AmbientFixed { signal_handle } => {
                 signal_handle.control::<Stop<_>, _>().resume();
             }
         }
@@ -391,23 +436,23 @@ impl Sound {
 
     fn set_volume(&mut self, master_volume: f32, volume: f32) {
         self.volume = volume;
-        match &mut self.signal {
-            SoundSignal::Spacial { signal_handle } => {
+        match &mut self.signal_handle {
+            SoundSignalHandle::Spacial { signal_handle } => {
                 signal_handle
                     .control::<Gain<_>, _>()
                     .set_amplitude_ratio((master_volume * self.volume).powf(2.0));
             }
-            SoundSignal::Ambient { signal_handle } => {
+            SoundSignalHandle::Ambient { signal_handle } => {
                 signal_handle
                     .control::<Gain<_>, _>()
                     .set_amplitude_ratio((master_volume * self.volume).powf(2.0));
             }
-            SoundSignal::AmbientFixed { .. } => {}
+            SoundSignalHandle::AmbientFixed { .. } => {}
         }
     }
 
     fn _set_motion(&mut self, position: Vec3, velocity: Vec3, discontinuity: bool) {
-        if let SoundSignal::Spacial { signal_handle } = &mut self.signal {
+        if let SoundSignalHandle::Spacial { signal_handle } = &mut self.signal_handle {
             signal_handle.control::<SpatialBuffered<_>, _>().set_motion(
                 [position.x, position.y, position.z].into(),
                 [velocity.x, velocity.y, velocity.z].into(),

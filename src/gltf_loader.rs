@@ -273,7 +273,7 @@ pub fn build_scene(
         textures,
     };
 
-    logger_log("Scene loaded:");
+    /* logger_log("Scene loaded:");
 
     logger_log(&format!("  - node count: {:?}", nodes.len()));
     logger_log(&format!("  - skin count: {:?}", skins.len()));
@@ -294,7 +294,7 @@ pub fn build_scene(
     logger_log(&format!(
         "    - Texture count: {:?}",
         render_buffers.textures.len()
-    ));
+    )); */
 
     let scene = Scene::new(nodes, skins, animations);
 

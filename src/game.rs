@@ -124,40 +124,48 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
 
     let audio_manager_mutex = Arc::new(Mutex::new(audio_manager));
 
-    let asset_loader = AssetLoader::new(renderer_state.base.clone(), audio_manager_mutex.clone());
+    let asset_loader = Arc::new(AssetLoader::new(
+        renderer_state.base.clone(),
+        audio_manager_mutex.clone(),
+    ));
 
-    // load in gltf files
+    let asset_loader_clone = asset_loader.clone();
 
-    // player's revolver
-    asset_loader.load_gltf_asset("./src/models/gltf/ColtPython/colt_python.gltf");
-    // forest
-    asset_loader.load_gltf_asset("./src/models/gltf/free_low_poly_forest/scene.gltf");
-    // legendary robot
-    // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-    asset_loader.load_gltf_asset("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf");
-    // maze
-    asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
-    // other
-    asset_loader.load_gltf_asset(get_misc_gltf_path());
+    std::thread::spawn(move || {
+        // std::thread::sleep(std::time::Duration::from_secs_f32(5.0));
+        // load in gltf files
 
-    asset_loader.load_audio(
-        "./src/sounds/bgm.mp3",
-        SoundParams {
-            initial_volume: 0.5,
-            fixed_volume: false,
-            spacial_params: None,
-        },
-        AudioFileFormat::Mp3,
-    );
-    asset_loader.load_audio(
-        "./src/sounds/gunshot.wav",
-        SoundParams {
-            initial_volume: 0.75,
-            fixed_volume: true,
-            spacial_params: None,
-        },
-        AudioFileFormat::Wav,
-    );
+        // player's revolver
+        asset_loader.load_gltf_asset("./src/models/gltf/ColtPython/colt_python.gltf");
+        // forest
+        asset_loader.load_gltf_asset("./src/models/gltf/free_low_poly_forest/scene.gltf");
+        // legendary robot
+        // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
+        asset_loader.load_gltf_asset("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf");
+        // maze
+        asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
+        // other
+        asset_loader.load_gltf_asset(get_misc_gltf_path());
+
+        asset_loader.load_audio(
+            "./src/sounds/bgm.mp3",
+            AudioFileFormat::Mp3,
+            SoundParams {
+                initial_volume: 0.5,
+                fixed_volume: false,
+                spacial_params: None,
+            },
+        );
+        asset_loader.load_audio(
+            "./src/sounds/gunshot.wav",
+            AudioFileFormat::Wav,
+            SoundParams {
+                initial_volume: 0.75,
+                fixed_volume: true,
+                spacial_params: None,
+            },
+        );
+    });
 
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
     let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
@@ -751,7 +759,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
 
         cube_mesh,
 
-        asset_loader,
+        asset_loader: asset_loader_clone,
     })
 }
 
@@ -1032,20 +1040,20 @@ pub fn update_game_state(
         let mut loaded_audio_guard = game_state.asset_loader.loaded_audio.lock().unwrap();
         let mut audio_manager_guard = game_state.audio_manager.lock().unwrap();
 
-        // asset_loader.load_audio("./src/sounds/bgm.mp3", AudioFileFormat::MP3);
-        // asset_loader.load_audio("./src/sounds/gunshot.wav", AudioFileFormat::WAV);
-        // if let Entry::Occupied(entry) = loaded_audio_guard.entry("./src/sounds/bgm.mp3".to_string())
-        // {
-        //     let (_, bgm_sound_index) = entry.remove_entry();
-        //     audio_manager_guard.play_sound(bgm_sound_index);
-        //     game_state.bgm_sound_index = Some(bgm_sound_index);
-        // }
+        if let Entry::Occupied(entry) = loaded_audio_guard.entry("./src/sounds/bgm.mp3".to_string())
+        {
+            let (_, bgm_sound_index) = entry.remove_entry();
+            audio_manager_guard.play_sound(bgm_sound_index);
+            game_state.bgm_sound_index = Some(bgm_sound_index);
+            // logger_log("loaded bgm sound");
+        }
 
         if let Entry::Occupied(entry) =
             loaded_audio_guard.entry("./src/sounds/gunshot.wav".to_string())
         {
             let (_, gunshot_sound_index) = entry.remove_entry();
             game_state.gunshot_sound_index = Some(gunshot_sound_index);
+            // logger_log("loaded gunshot sound");
             // audio_manager_guard.set_sound_volume(gunshot_sound_index, 0.001);
         }
     }
