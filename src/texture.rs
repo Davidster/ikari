@@ -28,7 +28,7 @@ impl Texture {
 
     // supports jpg and png
     pub fn from_encoded_image(
-        base_renderer_state: &mut BaseRendererState,
+        base_renderer_state: &BaseRendererState,
         img_bytes: &[u8],
         label: &str,
         format: Option<wgpu::TextureFormat>,
@@ -50,7 +50,7 @@ impl Texture {
 
     #[allow(clippy::too_many_arguments)]
     pub fn from_decoded_image(
-        base_renderer_state: &mut BaseRendererState,
+        base_renderer_state: &BaseRendererState,
         img_bytes: &[u8],
         dimensions: (u32, u32),
         label: Option<&str>,
@@ -103,6 +103,8 @@ impl Texture {
         let view = texture.create_view(&Default::default());
         let sampler_index = base_renderer_state
             .sampler_cache
+            .lock()
+            .unwrap()
             .get_sampler_index(&base_renderer_state.device, sampler_descriptor);
 
         let mip_encoder =
@@ -131,7 +133,7 @@ impl Texture {
     }
 
     pub fn _from_color_srgb(
-        base_renderer_state: &mut BaseRendererState,
+        base_renderer_state: &BaseRendererState,
         color: [u8; 4],
     ) -> Result<Self> {
         let one_pixel_image = {
@@ -154,7 +156,7 @@ impl Texture {
         )
     }
 
-    pub fn from_color(base_renderer_state: &mut BaseRendererState, color: [u8; 4]) -> Result<Self> {
+    pub fn from_color(base_renderer_state: &BaseRendererState, color: [u8; 4]) -> Result<Self> {
         let one_pixel_image = {
             let mut img = image::RgbaImage::new(1, 1);
             img.put_pixel(0, 0, image::Rgba(color));
@@ -175,7 +177,7 @@ impl Texture {
         )
     }
 
-    pub fn _from_gray(base_renderer_state: &mut BaseRendererState, gray_value: u8) -> Result<Self> {
+    pub fn _from_gray(base_renderer_state: &BaseRendererState, gray_value: u8) -> Result<Self> {
         let one_pixel_gray_image = {
             let mut img = image::GrayImage::new(1, 1);
             img.put_pixel(0, 0, image::Luma([gray_value]));
@@ -196,21 +198,22 @@ impl Texture {
         )
     }
 
-    pub fn _flat_normal_map(base_renderer_state: &mut BaseRendererState) -> Result<Self> {
+    pub fn _flat_normal_map(base_renderer_state: &BaseRendererState) -> Result<Self> {
         Self::from_color(base_renderer_state, [127, 127, 255, 255])
     }
 
     pub fn create_scaled_surface_texture(
-        base_renderer_state: &mut BaseRendererState,
+        base_renderer_state: &BaseRendererState,
         render_scale: f32,
         label: &str,
     ) -> Self {
-        let size = wgpu::Extent3d {
-            width: ((base_renderer_state.surface_config.width as f32) * render_scale.sqrt()).round()
-                as u32,
-            height: ((base_renderer_state.surface_config.height as f32) * render_scale.sqrt())
-                .round() as u32,
-            depth_or_array_layers: 1,
+        let size = {
+            let surface_config_guard = base_renderer_state.surface_config.lock().unwrap();
+            wgpu::Extent3d {
+                width: ((surface_config_guard.width as f32) * render_scale.sqrt()).round() as u32,
+                height: ((surface_config_guard.height as f32) * render_scale.sqrt()).round() as u32,
+                depth_or_array_layers: 1,
+            }
         };
         let texture = base_renderer_state
             .device
@@ -228,18 +231,22 @@ impl Texture {
             });
 
         let view = texture.create_view(&Default::default());
-        let sampler_index = base_renderer_state.sampler_cache.get_sampler_index(
-            &base_renderer_state.device,
-            &SamplerDescriptor {
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Nearest,
-                ..Default::default()
-            },
-        );
+        let sampler_index = base_renderer_state
+            .sampler_cache
+            .lock()
+            .unwrap()
+            .get_sampler_index(
+                &base_renderer_state.device,
+                &SamplerDescriptor {
+                    address_mode_u: wgpu::AddressMode::ClampToEdge,
+                    address_mode_v: wgpu::AddressMode::ClampToEdge,
+                    address_mode_w: wgpu::AddressMode::ClampToEdge,
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    mipmap_filter: wgpu::FilterMode::Nearest,
+                    ..Default::default()
+                },
+            );
 
         Self {
             texture,
@@ -250,16 +257,17 @@ impl Texture {
     }
 
     pub fn create_depth_texture(
-        base_renderer_state: &mut BaseRendererState,
+        base_renderer_state: &BaseRendererState,
         render_scale: f32,
         label: &str,
     ) -> Self {
-        let size = wgpu::Extent3d {
-            width: ((base_renderer_state.surface_config.width as f32) * render_scale.sqrt()).round()
-                as u32,
-            height: ((base_renderer_state.surface_config.height as f32) * render_scale.sqrt())
-                .round() as u32,
-            depth_or_array_layers: 1,
+        let size = {
+            let surface_config_guard = base_renderer_state.surface_config.lock().unwrap();
+            wgpu::Extent3d {
+                width: ((surface_config_guard.width as f32) * render_scale.sqrt()).round() as u32,
+                height: ((surface_config_guard.height as f32) * render_scale.sqrt()).round() as u32,
+                depth_or_array_layers: 1,
+            }
         };
         let texture = base_renderer_state
             .device
@@ -276,19 +284,23 @@ impl Texture {
             });
 
         let view = texture.create_view(&Default::default());
-        let sampler_index = base_renderer_state.sampler_cache.get_sampler_index(
-            &base_renderer_state.device,
-            &SamplerDescriptor {
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Nearest,
-                min_filter: wgpu::FilterMode::Nearest,
-                mipmap_filter: wgpu::FilterMode::Nearest,
-                compare: Some(wgpu::CompareFunction::GreaterEqual),
-                ..Default::default()
-            },
-        );
+        let sampler_index = base_renderer_state
+            .sampler_cache
+            .lock()
+            .unwrap()
+            .get_sampler_index(
+                &base_renderer_state.device,
+                &SamplerDescriptor {
+                    address_mode_u: wgpu::AddressMode::ClampToEdge,
+                    address_mode_v: wgpu::AddressMode::ClampToEdge,
+                    address_mode_w: wgpu::AddressMode::ClampToEdge,
+                    mag_filter: wgpu::FilterMode::Nearest,
+                    min_filter: wgpu::FilterMode::Nearest,
+                    mipmap_filter: wgpu::FilterMode::Nearest,
+                    compare: Some(wgpu::CompareFunction::GreaterEqual),
+                    ..Default::default()
+                },
+            );
 
         Self {
             texture,
@@ -299,7 +311,7 @@ impl Texture {
     }
 
     pub fn create_cube_depth_texture_array(
-        base_renderer_state: &mut BaseRendererState,
+        base_renderer_state: &BaseRendererState,
         size: u32,
         label: Option<&str>,
         length: u32,
@@ -329,19 +341,23 @@ impl Texture {
             ..Default::default()
         });
 
-        let sampler_index = base_renderer_state.sampler_cache.get_sampler_index(
-            &base_renderer_state.device,
-            &SamplerDescriptor {
-                address_mode_u: wgpu::AddressMode::Repeat,
-                address_mode_v: wgpu::AddressMode::Repeat,
-                address_mode_w: wgpu::AddressMode::Repeat,
-                mag_filter: wgpu::FilterMode::Nearest,
-                min_filter: wgpu::FilterMode::Nearest,
-                mipmap_filter: wgpu::FilterMode::Nearest,
-                // compare: Some(wgpu::CompareFunction::LessEqual),
-                ..Default::default()
-            },
-        );
+        let sampler_index = base_renderer_state
+            .sampler_cache
+            .lock()
+            .unwrap()
+            .get_sampler_index(
+                &base_renderer_state.device,
+                &SamplerDescriptor {
+                    address_mode_u: wgpu::AddressMode::Repeat,
+                    address_mode_v: wgpu::AddressMode::Repeat,
+                    address_mode_w: wgpu::AddressMode::Repeat,
+                    mag_filter: wgpu::FilterMode::Nearest,
+                    min_filter: wgpu::FilterMode::Nearest,
+                    mipmap_filter: wgpu::FilterMode::Nearest,
+                    // compare: Some(wgpu::CompareFunction::LessEqual),
+                    ..Default::default()
+                },
+            );
 
         Self {
             texture,
@@ -352,7 +368,7 @@ impl Texture {
     }
 
     pub fn create_depth_texture_array(
-        base_renderer_state: &mut BaseRendererState,
+        base_renderer_state: &BaseRendererState,
         size: u32,
         label: Option<&str>,
         length: u32,
@@ -382,19 +398,23 @@ impl Texture {
             ..Default::default()
         });
 
-        let sampler_index = base_renderer_state.sampler_cache.get_sampler_index(
-            &base_renderer_state.device,
-            &SamplerDescriptor {
-                address_mode_u: wgpu::AddressMode::Repeat,
-                address_mode_v: wgpu::AddressMode::Repeat,
-                address_mode_w: wgpu::AddressMode::Repeat,
-                mag_filter: wgpu::FilterMode::Nearest,
-                min_filter: wgpu::FilterMode::Nearest,
-                mipmap_filter: wgpu::FilterMode::Nearest,
-                // compare: Some(wgpu::CompareFunction::LessEqual),
-                ..Default::default()
-            },
-        );
+        let sampler_index = base_renderer_state
+            .sampler_cache
+            .lock()
+            .unwrap()
+            .get_sampler_index(
+                &base_renderer_state.device,
+                &SamplerDescriptor {
+                    address_mode_u: wgpu::AddressMode::Repeat,
+                    address_mode_v: wgpu::AddressMode::Repeat,
+                    address_mode_w: wgpu::AddressMode::Repeat,
+                    mag_filter: wgpu::FilterMode::Nearest,
+                    min_filter: wgpu::FilterMode::Nearest,
+                    mipmap_filter: wgpu::FilterMode::Nearest,
+                    // compare: Some(wgpu::CompareFunction::LessEqual),
+                    ..Default::default()
+                },
+            );
 
         Self {
             texture,
@@ -405,7 +425,7 @@ impl Texture {
     }
 
     pub fn create_cubemap_from_equirectangular(
-        base_renderer_state: &mut BaseRendererState,
+        base_renderer_state: &BaseRendererState,
         label: Option<&str>,
         skybox_buffers: &GeometryBuffers,
         er_to_cubemap_pipeline: &wgpu::RenderPipeline,
@@ -465,19 +485,6 @@ impl Texture {
                     ],
                     label: Some("single_texture_bind_group_layout"),
                 });
-
-        let sampler = base_renderer_state.sampler_cache.get_sampler(
-            &base_renderer_state.device,
-            &SamplerDescriptor {
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Nearest,
-                ..Default::default()
-            },
-        );
 
         let cubemap_texture = base_renderer_state
             .device
@@ -541,23 +548,40 @@ impl Texture {
                     label: Some("create_cubemap_texture_from_equirectangular encoder"),
                 },
             );
-            let er_texture_bind_group =
-                base_renderer_state
-                    .device
-                    .create_bind_group(&wgpu::BindGroupDescriptor {
-                        layout: &single_texture_bind_group_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: wgpu::BindingResource::TextureView(&er_texture.view),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::Sampler(sampler),
-                            },
-                        ],
-                        label: None,
-                    });
+            let er_texture_bind_group;
+            {
+                let mut sampler_cache_guard = base_renderer_state.sampler_cache.lock().unwrap();
+                let sampler = sampler_cache_guard.get_sampler(
+                    &base_renderer_state.device,
+                    &SamplerDescriptor {
+                        address_mode_u: wgpu::AddressMode::ClampToEdge,
+                        address_mode_v: wgpu::AddressMode::ClampToEdge,
+                        address_mode_w: wgpu::AddressMode::ClampToEdge,
+                        mag_filter: wgpu::FilterMode::Linear,
+                        min_filter: wgpu::FilterMode::Linear,
+                        mipmap_filter: wgpu::FilterMode::Nearest,
+                        ..Default::default()
+                    },
+                );
+                er_texture_bind_group =
+                    base_renderer_state
+                        .device
+                        .create_bind_group(&wgpu::BindGroupDescriptor {
+                            layout: &single_texture_bind_group_layout,
+                            entries: &[
+                                wgpu::BindGroupEntry {
+                                    binding: 0,
+                                    resource: wgpu::BindingResource::TextureView(&er_texture.view),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 1,
+                                    resource: wgpu::BindingResource::Sampler(sampler),
+                                },
+                            ],
+                            label: None,
+                        });
+            }
+
             base_renderer_state.queue.write_buffer(
                 &camera_buffer,
                 0,
@@ -598,18 +622,22 @@ impl Texture {
             ..Default::default()
         });
 
-        let sampler_index = base_renderer_state.sampler_cache.get_sampler_index(
-            &base_renderer_state.device,
-            &SamplerDescriptor {
-                address_mode_u: wgpu::AddressMode::Repeat,
-                address_mode_v: wgpu::AddressMode::Repeat,
-                address_mode_w: wgpu::AddressMode::Repeat,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Linear,
-                ..Default::default()
-            },
-        );
+        let sampler_index = base_renderer_state
+            .sampler_cache
+            .lock()
+            .unwrap()
+            .get_sampler_index(
+                &base_renderer_state.device,
+                &SamplerDescriptor {
+                    address_mode_u: wgpu::AddressMode::Repeat,
+                    address_mode_v: wgpu::AddressMode::Repeat,
+                    address_mode_w: wgpu::AddressMode::Repeat,
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    mipmap_filter: wgpu::FilterMode::Linear,
+                    ..Default::default()
+                },
+            );
 
         Self {
             texture: cubemap_texture,
@@ -621,7 +649,7 @@ impl Texture {
 
     /// Each image should have the same dimensions!
     pub fn create_cubemap(
-        base_renderer_state: &mut BaseRendererState,
+        base_renderer_state: &BaseRendererState,
         images: CreateCubeMapImagesParam,
         label: Option<&str>,
         generate_mipmaps: bool,
@@ -681,18 +709,22 @@ impl Texture {
             ..Default::default()
         });
 
-        let sampler_index = base_renderer_state.sampler_cache.get_sampler_index(
-            &base_renderer_state.device,
-            &SamplerDescriptor {
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Linear,
-                ..Default::default()
-            },
-        );
+        let sampler_index = base_renderer_state
+            .sampler_cache
+            .lock()
+            .unwrap()
+            .get_sampler_index(
+                &base_renderer_state.device,
+                &SamplerDescriptor {
+                    address_mode_u: wgpu::AddressMode::ClampToEdge,
+                    address_mode_v: wgpu::AddressMode::ClampToEdge,
+                    address_mode_w: wgpu::AddressMode::ClampToEdge,
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    mipmap_filter: wgpu::FilterMode::Linear,
+                    ..Default::default()
+                },
+            );
 
         Self {
             texture,
@@ -703,7 +735,7 @@ impl Texture {
     }
 
     pub fn create_diffuse_env_map(
-        base_renderer_state: &mut BaseRendererState,
+        base_renderer_state: &BaseRendererState,
         label: Option<&str>,
         skybox_buffers: &GeometryBuffers,
         env_map_gen_pipeline: &wgpu::RenderPipeline,
@@ -842,6 +874,8 @@ impl Texture {
                                 resource: wgpu::BindingResource::Sampler(
                                     base_renderer_state
                                         .sampler_cache
+                                        .lock()
+                                        .unwrap()
                                         .get_sampler_by_index(skybox_rad_texture.sampler_index),
                                 ),
                             },
@@ -888,18 +922,22 @@ impl Texture {
             ..Default::default()
         });
 
-        let sampler_index = base_renderer_state.sampler_cache.get_sampler_index(
-            &base_renderer_state.device,
-            &SamplerDescriptor {
-                address_mode_u: wgpu::AddressMode::Repeat,
-                address_mode_v: wgpu::AddressMode::Repeat,
-                address_mode_w: wgpu::AddressMode::Repeat,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Linear,
-                ..Default::default()
-            },
-        );
+        let sampler_index = base_renderer_state
+            .sampler_cache
+            .lock()
+            .unwrap()
+            .get_sampler_index(
+                &base_renderer_state.device,
+                &SamplerDescriptor {
+                    address_mode_u: wgpu::AddressMode::Repeat,
+                    address_mode_v: wgpu::AddressMode::Repeat,
+                    address_mode_w: wgpu::AddressMode::Repeat,
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    mipmap_filter: wgpu::FilterMode::Linear,
+                    ..Default::default()
+                },
+            );
 
         Self {
             texture: env_map,
@@ -910,7 +948,7 @@ impl Texture {
     }
 
     pub fn create_specular_env_map(
-        base_renderer_state: &mut BaseRendererState,
+        base_renderer_state: &BaseRendererState,
         label: Option<&str>,
         skybox_buffers: &GeometryBuffers,
         env_map_gen_pipeline: &wgpu::RenderPipeline,
@@ -1074,9 +1112,13 @@ impl Texture {
                                     wgpu::BindGroupEntry {
                                         binding: 1,
                                         resource: wgpu::BindingResource::Sampler(
-                                            base_renderer_state.sampler_cache.get_sampler_by_index(
-                                                skybox_rad_texture.sampler_index,
-                                            ),
+                                            base_renderer_state
+                                                .sampler_cache
+                                                .lock()
+                                                .unwrap()
+                                                .get_sampler_by_index(
+                                                    skybox_rad_texture.sampler_index,
+                                                ),
                                         ),
                                     },
                                 ],
@@ -1130,18 +1172,22 @@ impl Texture {
             ..Default::default()
         });
 
-        let sampler_index = base_renderer_state.sampler_cache.get_sampler_index(
-            &base_renderer_state.device,
-            &SamplerDescriptor {
-                address_mode_u: wgpu::AddressMode::Repeat,
-                address_mode_v: wgpu::AddressMode::Repeat,
-                address_mode_w: wgpu::AddressMode::Repeat,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Linear,
-                ..Default::default()
-            },
-        );
+        let sampler_index = base_renderer_state
+            .sampler_cache
+            .lock()
+            .unwrap()
+            .get_sampler_index(
+                &base_renderer_state.device,
+                &SamplerDescriptor {
+                    address_mode_u: wgpu::AddressMode::Repeat,
+                    address_mode_v: wgpu::AddressMode::Repeat,
+                    address_mode_w: wgpu::AddressMode::Repeat,
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    mipmap_filter: wgpu::FilterMode::Linear,
+                    ..Default::default()
+                },
+            );
 
         Self {
             texture: env_map,
@@ -1152,7 +1198,7 @@ impl Texture {
     }
 
     pub fn create_brdf_lut(
-        base_renderer_state: &mut BaseRendererState,
+        base_renderer_state: &BaseRendererState,
         brdf_lut_gen_pipeline: &wgpu::RenderPipeline,
     ) -> Self {
         let size = wgpu::Extent3d {
@@ -1180,17 +1226,21 @@ impl Texture {
             ..Default::default()
         });
 
-        let sampler_index = base_renderer_state.sampler_cache.get_sampler_index(
-            &base_renderer_state.device,
-            &SamplerDescriptor {
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                ..Default::default()
-            },
-        );
+        let sampler_index = base_renderer_state
+            .sampler_cache
+            .lock()
+            .unwrap()
+            .get_sampler_index(
+                &base_renderer_state.device,
+                &SamplerDescriptor {
+                    address_mode_u: wgpu::AddressMode::ClampToEdge,
+                    address_mode_v: wgpu::AddressMode::ClampToEdge,
+                    address_mode_w: wgpu::AddressMode::ClampToEdge,
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    ..Default::default()
+                },
+            );
 
         let mut encoder =
             base_renderer_state
@@ -1226,7 +1276,7 @@ impl Texture {
 }
 
 fn generate_mipmaps_for_texture(
-    base_renderer_state: &mut BaseRendererState,
+    base_renderer_state: &BaseRendererState,
     mut mip_encoder: wgpu::CommandEncoder,
     texture: &wgpu::Texture,
     mip_level_count: u32,
@@ -1265,18 +1315,6 @@ fn generate_mipmaps_for_texture(
                 multisample: Default::default(),
                 multiview: None,
             });
-    let mip_sampler = base_renderer_state.sampler_cache.get_sampler(
-        &base_renderer_state.device,
-        &SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        },
-    );
     let single_texture_bind_group_layout =
         base_renderer_state
             .device
@@ -1317,24 +1355,40 @@ fn generate_mipmaps_for_texture(
         .collect::<Vec<_>>();
 
     for target_mip in 1..mip_level_count as usize {
-        let bind_group = base_renderer_state
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &single_texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(
-                            &mip_texure_views[target_mip - 1],
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(mip_sampler),
-                    },
-                ],
-                label: None,
-            });
+        let bind_group;
+        {
+            let mut sampler_cache_guard = base_renderer_state.sampler_cache.lock().unwrap();
+            let mip_sampler = sampler_cache_guard.get_sampler(
+                &base_renderer_state.device,
+                &SamplerDescriptor {
+                    address_mode_u: wgpu::AddressMode::ClampToEdge,
+                    address_mode_v: wgpu::AddressMode::ClampToEdge,
+                    address_mode_w: wgpu::AddressMode::ClampToEdge,
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    mipmap_filter: wgpu::FilterMode::Nearest,
+                    ..Default::default()
+                },
+            );
+            bind_group = base_renderer_state
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &single_texture_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(
+                                &mip_texure_views[target_mip - 1],
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(mip_sampler),
+                        },
+                    ],
+                    label: None,
+                });
+        }
 
         let mut rpass = mip_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: None,

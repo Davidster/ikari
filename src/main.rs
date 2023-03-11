@@ -1,4 +1,5 @@
 mod animation;
+mod asset_loader;
 mod audio;
 mod ball;
 mod buffer;
@@ -27,6 +28,7 @@ mod time_tracker;
 mod transform;
 
 use animation::*;
+use asset_loader::*;
 use audio::*;
 use ball::*;
 use buffer::*;
@@ -85,8 +87,7 @@ async fn start() {
 
     let run_result = async {
         let game_scene = Scene::default();
-        let render_buffers = RenderBuffers::default();
-        let mut renderer_state = RendererState::new(render_buffers, base_render_state).await?;
+        let mut renderer_state = RendererState::new(base_render_state).await?;
         let game_state = init_game_state(game_scene, &mut renderer_state)?;
         gameloop::run(window, event_loop, game_state, renderer_state); // this will block while the game is running
         anyhow::Ok(())

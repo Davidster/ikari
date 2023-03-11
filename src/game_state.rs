@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use super::*;
 
 pub struct GameState {
@@ -6,11 +8,11 @@ pub struct GameState {
     pub state_update_time_accumulator: f32,
     pub is_playing_animations: bool,
 
-    pub audio_manager: Option<AudioManager>,
-    pub bgm_sound_index: usize,
-    pub gunshot_sound_index: usize,
-    pub gunshot_sound_data: SoundData,
-
+    pub audio_streams: AudioStreams,
+    pub audio_manager: Arc<Mutex<AudioManager>>,
+    pub bgm_sound_index: Option<usize>,
+    pub gunshot_sound_index: Option<usize>,
+    // pub gunshot_sound_data: SoundData,
     pub player_node_id: GameNodeId,
 
     pub point_lights: Vec<PointLightComponent>,
@@ -40,6 +42,10 @@ pub struct GameState {
 
     pub character: Option<Character>,
     pub player_controller: PlayerController,
+
+    pub cube_mesh: BasicMesh,
+
+    pub asset_loader: Arc<AssetLoader>,
 }
 
 impl GameState {
