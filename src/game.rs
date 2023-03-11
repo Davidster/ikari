@@ -120,7 +120,11 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         },
     );
 
-    let asset_loader = AssetLoader::new(renderer_state.base.clone());
+    let (audio_manager, audio_streams) = AudioManager::new()?;
+
+    let audio_manager_mutex = Arc::new(Mutex::new(audio_manager));
+
+    let asset_loader = AssetLoader::new(renderer_state.base.clone(), audio_manager_mutex.clone());
 
     // load in gltf files
 
@@ -135,6 +139,25 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
     // other
     asset_loader.load_gltf_asset(get_misc_gltf_path());
+
+    asset_loader.load_audio(
+        "./src/sounds/bgm.mp3",
+        SoundParams {
+            initial_volume: 0.5,
+            fixed_volume: false,
+            spacial_params: None,
+        },
+        AudioFileFormat::Mp3,
+    );
+    asset_loader.load_audio(
+        "./src/sounds/gunshot.wav",
+        SoundParams {
+            initial_volume: 0.75,
+            fixed_volume: true,
+            spacial_params: None,
+        },
+        AudioFileFormat::Wav,
+    );
 
     let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
     let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
@@ -682,20 +705,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             .id(),
     );
 
-    let mut audio_manager = AudioManager::new()?;
-
-    let bgm_data =
-        AudioManager::decode_mp3(audio_manager.device_sample_rate(), "./src/sounds/bgm.mp3")?;
-
-    let bgm_sound_index = audio_manager.add_sound(&bgm_data, 0.5, false, None);
-    audio_manager.play_sound(bgm_sound_index);
-
-    let gunshot_sound_data = AudioManager::decode_wav(
-        audio_manager.device_sample_rate(),
-        "./src/sounds/gunshot.wav",
-    )?;
-    let gunshot_sound_index = audio_manager.add_sound(&gunshot_sound_data, 0.75, true, None);
-
     // logger_log(&format!("{:?}", &revolver));
 
     // anyhow::bail!("suhh dude");
@@ -706,11 +715,11 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         state_update_time_accumulator: 0.0,
         is_playing_animations: true,
 
-        audio_manager: Some(audio_manager),
-        bgm_sound_index,
-        gunshot_sound_index,
-        gunshot_sound_data,
-
+        audio_streams,
+        audio_manager: audio_manager_mutex,
+        bgm_sound_index: None,
+        gunshot_sound_index: None,
+        // gunshot_sound_data,
         player_node_id,
 
         point_lights: point_light_components,
@@ -885,43 +894,45 @@ pub fn update_game_state(
     {
         let mut loaded_assets_guard = game_state.asset_loader.loaded_gltf_scenes.lock().unwrap();
         let mut renderer_data_guard = renderer_data.lock().unwrap();
-        if let Entry::Occupied(entry) =
-            loaded_assets_guard.entry("./src/models/gltf/ColtPython/colt_python.gltf".to_string())
-        {
-            let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
-            game_state.scene.merge_scene(
-                &mut renderer_data_guard,
-                other_scene,
-                other_render_buffers,
-            );
+        if game_state.gunshot_sound_index.is_some() {
+            if let Entry::Occupied(entry) = loaded_assets_guard
+                .entry("./src/models/gltf/ColtPython/colt_python.gltf".to_string())
+            {
+                let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
+                game_state.scene.merge_scene(
+                    &mut renderer_data_guard,
+                    other_scene,
+                    other_render_buffers,
+                );
 
-            let node_id = game_state.scene.nodes().last().unwrap().id();
-            let animation_index = game_state.scene.animations.len() - 1;
-            // revolver_indices = Some((revolver_model_node_id, animation_index));
-            game_state.revolver = Some(Revolver::new(
-                &mut game_state.scene,
-                game_state.player_node_id,
-                node_id,
-                animation_index,
-                // revolver model
-                // TransformBuilder::new()
-                //     .position(Vec3::new(0.21, -0.09, -1.0))
-                //     .rotation(make_quat_from_axis_angle(
-                //         Vec3::new(0.0, 1.0, 0.0),
-                //         deg_to_rad(180.0).into(),
-                //     ))
-                //     .scale(0.17f32 * Vec3::new(1.0, 1.0, 1.0))
-                //     .build(),
-                // colt python model
-                TransformBuilder::new()
-                    .position(Vec3::new(0.21, -0.13, -1.0))
-                    .rotation(
-                        make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), deg_to_rad(180.0))
-                            * make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.1),
-                    )
-                    .scale(2.0f32 * Vec3::new(1.0, 1.0, 1.0))
-                    .build(),
-            ));
+                let node_id = game_state.scene.nodes().last().unwrap().id();
+                let animation_index = game_state.scene.animations.len() - 1;
+                // revolver_indices = Some((revolver_model_node_id, animation_index));
+                game_state.revolver = Some(Revolver::new(
+                    &mut game_state.scene,
+                    game_state.player_node_id,
+                    node_id,
+                    animation_index,
+                    // revolver model
+                    // TransformBuilder::new()
+                    //     .position(Vec3::new(0.21, -0.09, -1.0))
+                    //     .rotation(make_quat_from_axis_angle(
+                    //         Vec3::new(0.0, 1.0, 0.0),
+                    //         deg_to_rad(180.0).into(),
+                    //     ))
+                    //     .scale(0.17f32 * Vec3::new(1.0, 1.0, 1.0))
+                    //     .build(),
+                    // colt python model
+                    TransformBuilder::new()
+                        .position(Vec3::new(0.21, -0.13, -1.0))
+                        .rotation(
+                            make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), deg_to_rad(180.0))
+                                * make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.1),
+                        )
+                        .scale(2.0f32 * Vec3::new(1.0, 1.0, 1.0))
+                        .build(),
+                ));
+            }
         }
 
         if let Entry::Occupied(entry) = loaded_assets_guard
@@ -1014,6 +1025,28 @@ pub fn update_game_state(
                 other_scene,
                 other_render_buffers,
             );
+        }
+    }
+
+    {
+        let mut loaded_audio_guard = game_state.asset_loader.loaded_audio.lock().unwrap();
+        let mut audio_manager_guard = game_state.audio_manager.lock().unwrap();
+
+        // asset_loader.load_audio("./src/sounds/bgm.mp3", AudioFileFormat::MP3);
+        // asset_loader.load_audio("./src/sounds/gunshot.wav", AudioFileFormat::WAV);
+        // if let Entry::Occupied(entry) = loaded_audio_guard.entry("./src/sounds/bgm.mp3".to_string())
+        // {
+        //     let (_, bgm_sound_index) = entry.remove_entry();
+        //     audio_manager_guard.play_sound(bgm_sound_index);
+        //     game_state.bgm_sound_index = Some(bgm_sound_index);
+        // }
+
+        if let Entry::Occupied(entry) =
+            loaded_audio_guard.entry("./src/sounds/gunshot.wav".to_string())
+        {
+            let (_, gunshot_sound_index) = entry.remove_entry();
+            game_state.gunshot_sound_index = Some(gunshot_sound_index);
+            // audio_manager_guard.set_sound_volume(gunshot_sound_index, 0.001);
         }
     }
 
@@ -1266,10 +1299,23 @@ pub fn update_game_state(
         );
 
         if game_state.mouse_button_pressed && revolver.fire(&mut game_state.scene) {
-            if let Some(audio_manager) = game_state.audio_manager.as_mut() {
-                audio_manager.play_sound(game_state.gunshot_sound_index)
+            if let Some(gunshot_sound_index) = game_state.gunshot_sound_index {
+                {
+                    let mut audio_manager_guard = game_state.audio_manager.lock().unwrap();
+                    audio_manager_guard.play_sound(gunshot_sound_index);
+                    audio_manager_guard.reload_sound(
+                        gunshot_sound_index,
+                        SoundParams {
+                            initial_volume: 0.75,
+                            fixed_volume: true,
+                            spacial_params: None,
+                        },
+                    )
+                }
             }
-            // setting gunshot_sound_index to 0 is a hacky way to deal with the audio_manager not being initialized
+
+            // TODO: how to fix this issue with the async audio loading?
+            /* // setting gunshot_sound_index to 0 is a hacky way to deal with the audio_manager not being initialized
             // such as when we dont want to play audio
             game_state.gunshot_sound_index = game_state
                 .audio_manager
@@ -1277,7 +1323,7 @@ pub fn update_game_state(
                 .map(|audio_manager| {
                     audio_manager.add_sound(&game_state.gunshot_sound_data, 0.75, true, None)
                 })
-                .unwrap_or(0);
+                .unwrap_or(0); */
 
             // logger_log("Fired!");
             let player_position = game_state

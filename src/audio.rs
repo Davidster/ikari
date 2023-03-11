@@ -1,7 +1,9 @@
+use std::ops::Add;
+
 use anyhow::Result;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Stream,
+    Device, Stream,
 };
 use glam::f32::Vec3;
 use hound::{WavReader, WavSpec};
@@ -10,26 +12,30 @@ use oddio::{
     Stop,
 };
 
+pub struct AudioStreams {
+    _spatial_scene_output_stream: Stream,
+    _mixer_output_stream: Stream,
+}
+
 pub struct AudioManager {
     master_volume: f32,
     device_sample_rate: u32,
 
     spatial_scene_handle: Handle<SpatialScene>,
-    _spatial_scene_output_stream: Stream,
-
     mixer_handle: Handle<Mixer<[f32; 2]>>,
-    _mixer_output_stream: Stream,
-
     sounds: Vec<Sound>,
 }
 
 const CHANNEL_COUNT: usize = 2;
+
+#[derive(Debug, Clone)]
 pub struct SoundData(Vec<[f32; CHANNEL_COUNT]>);
 
 pub struct Sound {
     volume: f32,
     is_playing: bool,
     signal: SoundSignal,
+    data: SoundData,
 }
 
 pub enum SoundSignal {
@@ -45,8 +51,8 @@ pub enum SoundSignal {
 }
 
 pub enum AudioFileFormat {
-    MP3,
-    WAV,
+    Mp3,
+    Wav,
 }
 
 pub struct SpacialParams {
@@ -54,8 +60,14 @@ pub struct SpacialParams {
     initial_velocity: Vec3,
 }
 
+pub struct SoundParams {
+    pub initial_volume: f32,
+    pub fixed_volume: bool,
+    pub spacial_params: Option<SpacialParams>,
+}
+
 impl AudioManager {
-    pub fn new() -> Result<Self> {
+    pub fn new() -> Result<(AudioManager, AudioStreams)> {
         let host = cpal::default_host();
         let device = host
             .default_output_device()
@@ -96,18 +108,20 @@ impl AudioManager {
         spatial_scene_output_stream.play()?;
         mixer_output_stream.play()?;
 
-        Ok(Self {
-            master_volume: 1.0,
-            device_sample_rate,
+        Ok((
+            AudioManager {
+                master_volume: 1.0,
+                device_sample_rate,
 
-            spatial_scene_handle,
-            _spatial_scene_output_stream: spatial_scene_output_stream,
-
-            mixer_handle,
-            _mixer_output_stream: mixer_output_stream,
-
-            sounds: vec![],
-        })
+                spatial_scene_handle,
+                mixer_handle,
+                sounds: vec![],
+            },
+            AudioStreams {
+                _spatial_scene_output_stream: spatial_scene_output_stream,
+                _mixer_output_stream: mixer_output_stream,
+            },
+        ))
     }
 
     pub fn decode_wav(sample_rate: u32, file_path: &str) -> Result<SoundData> {
@@ -192,30 +206,26 @@ impl AudioManager {
                 samples.push(sample);
             }
         }
-
         Ok(SoundData(samples))
     }
 
-    pub fn add_sound(
-        &mut self,
-        sound_data: &SoundData,
-        initial_volume: f32,
-        fixed_volume: bool,
-        spacial_params: Option<SpacialParams>,
-    ) -> usize {
-        let sound = Sound::new(
-            self,
-            sound_data,
-            initial_volume,
-            fixed_volume,
-            spacial_params,
-        );
+    pub fn add_sound(&mut self, sound_data: &SoundData, params: SoundParams) -> usize {
+        let sound = Sound::new(self, sound_data, params);
         self.sounds.push(sound);
         self.sounds.len() - 1
     }
 
     pub fn play_sound(&mut self, sound_index: usize) {
         self.sounds[sound_index].resume();
+    }
+
+    pub fn reload_sound(&mut self, sound_index: usize, params: SoundParams) {
+        let data_copy = self.sounds[sound_index].data.clone();
+        self.sounds[sound_index] = Sound::new(self, &data_copy, params);
+    }
+
+    pub fn set_sound_volume(&mut self, sound_index: usize, volume: f32) {
+        self.sounds[sound_index].set_volume(self.master_volume, volume);
     }
 
     pub fn device_sample_rate(&self) -> u32 {
@@ -259,13 +269,13 @@ fn resample_linear(
 }
 
 impl Sound {
-    fn new(
-        audio_manager: &mut AudioManager,
-        sound_data: &SoundData,
-        initial_volume: f32,
-        fixed_volume: bool,
-        spacial_params: Option<SpacialParams>,
-    ) -> Self {
+    fn new(audio_manager: &mut AudioManager, sound_data: &SoundData, params: SoundParams) -> Self {
+        let SoundParams {
+            initial_volume,
+            fixed_volume,
+            spacial_params,
+        } = params;
+
         let SoundData(samples) = sound_data;
 
         let channels = samples[0].len();
@@ -301,6 +311,7 @@ impl Sound {
                     is_playing: true,
                     volume: initial_volume,
                     signal: SoundSignal::Spacial { signal_handle },
+                    data: sound_data.clone(),
                 }
             }
             None => {
@@ -324,6 +335,7 @@ impl Sound {
                         is_playing: true,
                         volume: initial_volume,
                         signal: SoundSignal::AmbientFixed { signal_handle },
+                        data: sound_data.clone(),
                     }
                 } else {
                     let signal = Gain::new(frames_signal);
@@ -335,6 +347,7 @@ impl Sound {
                         is_playing: true,
                         volume: initial_volume,
                         signal: SoundSignal::Ambient { signal_handle },
+                        data: sound_data.clone(),
                     };
                     sound.set_volume(audio_manager.master_volume, initial_volume);
                     sound

@@ -1,4 +1,5 @@
 mod animation;
+mod asset_loader;
 mod audio;
 mod ball;
 mod buffer;
@@ -27,6 +28,7 @@ mod time_tracker;
 mod transform;
 
 use animation::*;
+use asset_loader::*;
 use audio::*;
 use ball::*;
 use buffer::*;
