@@ -1322,17 +1322,6 @@ pub fn update_game_state(
                 }
             }
 
-            // TODO: how to fix this issue with the async audio loading?
-            /* // setting gunshot_sound_index to 0 is a hacky way to deal with the audio_manager not being initialized
-            // such as when we dont want to play audio
-            game_state.gunshot_sound_index = game_state
-                .audio_manager
-                .as_mut()
-                .map(|audio_manager| {
-                    audio_manager.add_sound(&game_state.gunshot_sound_data, 0.75, true, None)
-                })
-                .unwrap_or(0); */
-
             // logger_log("Fired!");
             let player_position = game_state
                 .player_controller
