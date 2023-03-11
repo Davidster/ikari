@@ -1,9 +1,7 @@
-use std::ops::Add;
-
 use anyhow::Result;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Device, Stream,
+    Stream,
 };
 use glam::f32::Vec3;
 use hound::{WavReader, WavSpec};
@@ -11,8 +9,6 @@ use oddio::{
     FixedGain, FramesSignal, Gain, Handle, Mixer, SpatialBuffered, SpatialOptions, SpatialScene,
     Stop,
 };
-
-use super::*;
 
 pub struct AudioStreams {
     _spatial_scene_output_stream: Stream,
@@ -272,7 +268,7 @@ impl AudioManager {
         self.sounds[sound_index] = Sound::new(self, data_copy, params, signal);
     }
 
-    pub fn set_sound_volume(&mut self, sound_index: usize, volume: f32) {
+    pub fn _set_sound_volume(&mut self, sound_index: usize, volume: f32) {
         self.sounds[sound_index].set_volume(self.master_volume, volume);
     }
 
