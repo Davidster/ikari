@@ -1,7 +1,11 @@
+use crate::audio::*;
+use crate::gltf_loader::*;
+use crate::logger::*;
+use crate::renderer::*;
+use crate::scene::*;
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-
-use super::*;
 
 pub struct AssetLoader {
     pub renderer_base: Arc<BaseRendererState>,

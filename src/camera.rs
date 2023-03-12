@@ -1,4 +1,6 @@
-use super::*;
+use crate::math::*;
+use crate::transform::*;
+
 use glam::{
     f32::{Mat4, Quat, Vec3},
     EulerRot,

@@ -1,6 +1,9 @@
-use glam::f32::Vec3;
+use crate::game::*;
+use crate::physics::*;
+use crate::scene::*;
+use crate::transform::*;
 
-use super::*;
+use glam::f32::Vec3;
 
 const RESTITUTION: f32 = 0.1;
 

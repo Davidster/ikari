@@ -1,9 +1,27 @@
+use crate::animation::*;
+use crate::asset_loader::*;
+use crate::audio::*;
+use crate::ball::*;
+use crate::character::*;
+use crate::game_state::*;
+use crate::light::*;
+use crate::logger::*;
+use crate::math::*;
+use crate::mesh::*;
+use crate::physics::*;
+use crate::physics_ball::*;
+use crate::player_controller::*;
+use crate::renderer::*;
+use crate::revolver::*;
+use crate::sampler_cache::*;
+use crate::scene::*;
+use crate::texture::*;
+use crate::transform::*;
+
 use std::{
     collections::hash_map::Entry,
     sync::{Arc, Mutex},
 };
-
-use super::*;
 
 use anyhow::Result;
 use glam::f32::{Vec3, Vec4};
@@ -138,7 +156,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         // player's revolver
         asset_loader.load_gltf_asset("./src/models/gltf/ColtPython/colt_python.gltf");
         // forest
-        asset_loader.load_gltf_asset("./src/models/gltf/free_low_poly_forest/scene.gltf");
+        asset_loader.load_gltf_asset("./src/models/gltf/free_low_poly_forest_2/scene.glb");
         // legendary robot
         // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
         asset_loader.load_gltf_asset("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf");
@@ -188,7 +206,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     ];
     // let directional_lights: Vec<DirectionalLightComponent> = vec![];
 
-    let point_lights: Vec<(transform::Transform, Vec3, f32)> = vec![
+    let point_lights: Vec<(crate::transform::Transform, Vec3, f32)> = vec![
         (
             TransformBuilder::new()
                 .scale(Vec3::new(0.05, 0.05, 0.05))
@@ -206,7 +224,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         //     1.0,
         // ),
     ];
-    // let point_lights: Vec<(transform::Transform, Vec3, f32)> = vec![];
+    // let point_lights: Vec<(crate::transform::Transform, Vec3, f32)> = vec![];
 
     let point_light_unlit_mesh_index = RendererState::bind_basic_unlit_mesh(
         &renderer_state.base,
@@ -944,8 +962,9 @@ pub fn update_game_state(
         }
 
         if let Entry::Occupied(entry) = loaded_assets_guard
-            .entry("./src/models/gltf/free_low_poly_forest/scene.gltf".to_string())
+            .entry("./src/models/gltf/free_low_poly_forest_2/scene.glb".to_string())
         {
+            logger_log("loaded forest");
             let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
             // hack to get the terrain to be at the same height as the ground.
             let node_has_parent: Vec<_> = other_scene

@@ -1,15 +1,18 @@
+use crate::animation::*;
+use crate::collisions::*;
+use crate::mesh::*;
+use crate::renderer::*;
+
 use std::{collections::HashMap, hash::BuildHasherDefault};
 
 use glam::f32::{Mat4, Vec3, Vec4};
 use twox_hash::XxHash64;
 
-use super::*;
-
 #[derive(Debug, Default)]
 pub struct Scene {
     nodes: Vec<(Option<GameNode>, usize)>, // (node, generation number). None means the node was removed from the scene
     // node_transforms: Vec<Mat4>,
-    global_node_transforms: Vec<transform::Transform>,
+    global_node_transforms: Vec<crate::transform::Transform>,
     pub skins: Vec<Skin>,
     pub animations: Vec<Animation>,
     // skeleton skin node index -> parent_index_map
@@ -212,7 +215,7 @@ impl Scene {
             let transform = node
                 .as_ref()
                 .map(|node| self.get_global_transform_for_node_internal(node.id()))
-                .unwrap_or(transform::Transform::IDENTITY);
+                .unwrap_or(crate::transform::Transform::IDENTITY);
             if node_index < self.global_node_transforms.len() {
                 self.global_node_transforms[node_index] = transform;
             } else {
@@ -408,7 +411,10 @@ impl Scene {
     }
 
     // #[profiling::function]
-    fn get_global_transform_for_node_internal(&self, node_id: GameNodeId) -> transform::Transform {
+    fn get_global_transform_for_node_internal(
+        &self,
+        node_id: GameNodeId,
+    ) -> crate::transform::Transform {
         let mut node_ancestry_list: [u32; MAX_NODE_HIERARCHY_LEVELS] =
             [0; MAX_NODE_HIERARCHY_LEVELS];
         let mut ancestry_length = 0;
@@ -422,14 +428,17 @@ impl Scene {
             let (node, _) = &self.nodes[node_index as usize];
             node.as_ref().unwrap().transform
         });
-        let mut acc: transform::Transform = ancestry_transforms.next().unwrap();
+        let mut acc: crate::transform::Transform = ancestry_transforms.next().unwrap();
         for ancestry_transform in ancestry_transforms {
             acc = acc * ancestry_transform
         }
         acc
     }
 
-    pub fn get_global_transform_for_node_opt(&self, node_id: GameNodeId) -> transform::Transform {
+    pub fn get_global_transform_for_node_opt(
+        &self,
+        node_id: GameNodeId,
+    ) -> crate::transform::Transform {
         let GameNodeId(node_index, _) = node_id;
         self.global_node_transforms[node_index as usize]
     }
@@ -540,7 +549,7 @@ impl Scene {
 
 fn build_node_bounding_sphere(
     mesh: &GameNodeMesh,
-    global_transform: &transform::Transform,
+    global_transform: &crate::transform::Transform,
     renderer_data: &RendererStatePublicData,
 ) -> Sphere {
     let global_node_scale = global_transform.scale();

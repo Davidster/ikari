@@ -1,10 +1,16 @@
+use crate::buffer::*;
+use crate::mesh::*;
+use crate::renderer::*;
+use crate::sampler_cache::*;
+use crate::scene::*;
+use crate::texture::*;
+use crate::transform::*;
+
 use std::collections::{hash_map::Entry, HashMap};
 
 use anyhow::{bail, Result};
 use approx::abs_diff_eq;
 use glam::f32::{Mat4, Vec2, Vec3, Vec4};
-
-use super::*;
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct ChannelPropertyStr<'a>(&'a str);
@@ -1049,8 +1055,6 @@ fn get_vertex_normals(
     Ok(vertex_normals)
 }
 
-// TODO: optimize this function!
-// currently sitting at 14% in the flamegraph, lets try to get it down to 2%
 fn get_vertex_positions(
     primitive_group: &gltf::Primitive,
     buffers: &[gltf::buffer::Data],

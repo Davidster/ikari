@@ -1,6 +1,8 @@
-use glam::f32::{Vec2, Vec3};
+use crate::game::*;
+use crate::math::*;
+use crate::transform::*;
 
-use super::*;
+use glam::f32::{Vec2, Vec3};
 
 #[derive(Clone, Debug)]
 pub struct BallComponent {

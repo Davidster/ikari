@@ -1,8 +1,11 @@
+use crate::math::*;
+use crate::player_controller::*;
+use crate::scene::*;
+use crate::transform::*;
+
 use std::time::Instant;
 
 use glam::f32::{Quat, Vec3};
-
-use super::*;
 
 // (0, 1], higher means it syncs with the camera more quickly
 const CAMERA_FOLLOW_LERP_FACTOR: f32 = 0.8;

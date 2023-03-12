@@ -14,6 +14,14 @@ keywords = ["renderer", "first person shooter", "3D", "rust", "wgpu", "game"]
 categories = ["rendering", "game framework", "gamedev"]
 publish = false
 
+[lib]
+name = "ikari"
+path = "src/lib.rs"
+
+[[bin]]
+name = "examplegame"
+path = "src/example_game/main.rs"
+
 [features]
 default = []
 #Not supported at this time #profile-with-optick = ["profiling/profile-with-optick"]

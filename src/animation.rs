@@ -1,8 +1,9 @@
+use crate::math::*;
+use crate::scene::*;
+
 use std::ops::{Add, Mul};
 
 use glam::f32::{Quat, Vec3};
-
-use super::*;
 
 #[derive(Debug)]
 pub struct Animation {

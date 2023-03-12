@@ -1,6 +1,17 @@
-use std::sync::{Arc, Mutex};
+use crate::asset_loader::*;
+use crate::audio::*;
+use crate::ball::*;
+use crate::character::*;
+use crate::light::*;
+use crate::mesh::*;
+use crate::physics::*;
+use crate::physics_ball::*;
+use crate::player_controller::*;
+use crate::revolver::*;
+use crate::scene::*;
+use crate::time_tracker::*;
 
-use super::*;
+use std::sync::{Arc, Mutex};
 
 pub struct GameState {
     pub scene: Scene,

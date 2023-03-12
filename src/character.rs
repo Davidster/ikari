@@ -1,6 +1,10 @@
-use glam::f32::Vec3;
+use crate::game::*;
+use crate::mesh::*;
+use crate::physics::*;
+use crate::renderer::*;
+use crate::scene::*;
 
-use super::*;
+use glam::f32::Vec3;
 
 pub struct Character {
     root_node_id: GameNodeId,

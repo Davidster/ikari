@@ -1,59 +1,6 @@
-mod animation;
-mod asset_loader;
-mod audio;
-mod ball;
-mod buffer;
-mod camera;
-mod character;
-mod collisions;
-mod game;
-mod game_state;
-mod gameloop;
-mod gltf_loader;
-mod light;
-mod logger;
-mod math;
-mod mesh;
-mod physics;
-mod physics_ball;
-mod player_controller;
-mod renderer;
-mod revolver;
-mod sampler_cache;
-mod scene;
-mod scene_tree;
-mod skinning;
-mod texture;
-mod time_tracker;
-mod transform;
-
-use animation::*;
-use asset_loader::*;
-use audio::*;
-use ball::*;
-use buffer::*;
-use camera::*;
-use character::*;
-use collisions::*;
-use game::*;
-use game_state::*;
-use gltf_loader::*;
-use light::*;
-use logger::*;
-use math::*;
-use mesh::*;
-use physics::*;
-use physics_ball::*;
-use player_controller::*;
-use rapier3d::prelude::*;
-use renderer::*;
-use revolver::*;
-use sampler_cache::*;
-use scene::*;
-use skinning::*;
-use texture::*;
-use time_tracker::*;
-use transform::*;
+use ikari::game::*;
+use ikari::renderer::*;
+use ikari::scene::*;
 
 async fn start() {
     let event_loop = winit::event_loop::EventLoop::new();
@@ -82,14 +29,14 @@ async fn start() {
             // wgpu::Backends::from(wgpu::Backend::Dx12)
             wgpu::Backends::PRIMARY
         };
-        BaseRendererState::new(&window, backends, wgpu::PresentMode::AutoNoVsync).await
+        BaseRendererState::new(&window, backends, wgpu::PresentMode::AutoVsync).await
     };
 
     let run_result = async {
         let game_scene = Scene::default();
         let mut renderer_state = RendererState::new(base_render_state).await?;
         let game_state = init_game_state(game_scene, &mut renderer_state)?;
-        gameloop::run(window, event_loop, game_state, renderer_state); // this will block while the game is running
+        ikari::gameloop::run(window, event_loop, game_state, renderer_state); // this will block while the game is running
         anyhow::Ok(())
     }
     .await;
