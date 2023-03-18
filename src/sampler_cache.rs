@@ -92,3 +92,9 @@ impl SamplerCache {
         self.get_sampler_by_index(sampler_index)
     }
 }
+
+impl Default for SamplerCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}

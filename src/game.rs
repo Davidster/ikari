@@ -469,10 +469,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     // add floor to scene
 
     let ball_count = 0;
-    let balls: Vec<_> = (0..ball_count)
-        .into_iter()
-        .map(|_| BallComponent::rand())
-        .collect();
+    let balls: Vec<_> = (0..ball_count).map(|_| BallComponent::rand()).collect();
 
     let ball_pbr_mesh_index = RendererState::bind_basic_pbr_mesh(
         &renderer_state.base,
@@ -498,7 +495,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
 
     let physics_ball_count = 500;
     let physics_balls: Vec<_> = (0..physics_ball_count)
-        .into_iter()
         .map(|_| {
             PhysicsBall::new_random(
                 &mut scene,

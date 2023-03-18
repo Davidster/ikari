@@ -29,3 +29,9 @@ impl TimeTracker {
         self.last_frame_start_instant.elapsed().as_secs_f32()
     }
 }
+
+impl Default for TimeTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}

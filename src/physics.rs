@@ -144,3 +144,9 @@ impl PhysicsState {
         );
     }
 }
+
+impl Default for PhysicsState {
+    fn default() -> Self {
+        Self::new()
+    }
+}

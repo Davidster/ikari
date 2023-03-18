@@ -19,7 +19,7 @@ name = "ikari"
 path = "src/lib.rs"
 
 [[bin]]
-name = "examplegame"
+name = "example_game"
 path = "src/example_game/main.rs"
 
 [features]

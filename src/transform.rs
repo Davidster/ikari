@@ -231,6 +231,12 @@ impl TransformBuilder {
     }
 }
 
+impl Default for TransformBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub fn make_quat_from_axis_angle(axis: Vec3, angle: f32) -> Quat {
     Quat::from_axis_angle(axis, angle)
 }

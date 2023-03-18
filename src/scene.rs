@@ -697,6 +697,12 @@ impl GameNodeDescBuilder {
     }
 }
 
+impl Default for GameNodeDescBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // TODO: cache the merged aabb, make mesh_indices no longer public, update the aabb whenever mesh_indices changes
 impl GameNodeMesh {
     pub fn from_pbr_mesh_index(pbr_mesh_index: usize) -> Self {

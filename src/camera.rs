@@ -61,6 +61,12 @@ impl CameraUniform {
     }
 }
 
+impl Default for CameraUniform {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ShaderCameraView {
     pub fn from_mat4(
         transform: Mat4,
