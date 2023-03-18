@@ -16,6 +16,7 @@ use crate::revolver::*;
 use crate::sampler_cache::*;
 use crate::scene::*;
 use crate::texture::*;
+use crate::texture_compression::*;
 use crate::transform::*;
 
 use std::{
@@ -268,13 +269,21 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     //     &Default::default(),
     // )?;
 
-    let rainbow_texture_path = "./src/textures/rainbow_gradient_vertical.jpg";
+    let texture_compressor = TextureCompressor::new();
+    let rainbow_texture_path = "./src/textures/rainbow_gradient_vertical_compressed.bin";
     let rainbow_texture_bytes = std::fs::read(rainbow_texture_path)?;
-    let rainbow_texture = Texture::from_encoded_image(
+    let rainbow_texture_decompressed =
+        texture_compressor.decompress_image(&rainbow_texture_bytes, false)?;
+    let rainbow_texture = Texture::from_decoded_image(
         &renderer_state.base,
-        &rainbow_texture_bytes,
-        rainbow_texture_path,
-        wgpu::TextureFormat::Rgba8Unorm.into(),
+        &rainbow_texture_decompressed.raw,
+        (
+            rainbow_texture_decompressed.width,
+            rainbow_texture_decompressed.height,
+        ),
+        rainbow_texture_decompressed.mip_count,
+        rainbow_texture_path.into(),
+        Some(wgpu::TextureFormat::Bc7RgbaUnormSrgb),
         false,
         &Default::default(),
     )?;
@@ -329,7 +338,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         },
     )?; */
 
-    let big_checkerboard_texture_img = {
+    let checkerboard_texture_img = {
         let mut img = image::RgbaImage::new(1024, 1024);
         for x in 0..img.width() {
             for y in 0..img.height() {
@@ -349,49 +358,12 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         }
         img
     };
-    let big_checkerboard_texture = Texture::from_decoded_image(
+    let checkerboard_texture = Texture::from_decoded_image(
         &renderer_state.base,
-        &big_checkerboard_texture_img,
-        big_checkerboard_texture_img.dimensions(),
-        Some("big_checkerboard_texture"),
-        None,
-        true,
-        &SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        },
-    )?;
-
-    let small_checkerboard_texture_img = {
-        let mut img = image::RgbaImage::new(1024, 1024);
-        for x in 0..img.width() {
-            for y in 0..img.height() {
-                let scale = 25;
-                let x_scaled = x / scale;
-                let y_scaled = y / scale;
-                img.put_pixel(
-                    x,
-                    y,
-                    if (x_scaled + y_scaled) % 2 == 0 {
-                        [100, 100, 100, 100].into()
-                    } else {
-                        [150, 150, 150, 150].into()
-                    },
-                );
-            }
-        }
-        img
-    };
-    let small_checkerboard_texture = Texture::from_decoded_image(
-        &renderer_state.base,
-        &small_checkerboard_texture_img,
-        small_checkerboard_texture_img.dimensions(),
-        Some("small_checkerboard_texture"),
+        &checkerboard_texture_img,
+        checkerboard_texture_img.dimensions(),
+        1,
+        Some("checkerboard_texture"),
         None,
         true,
         &SamplerDescriptor {
@@ -533,7 +505,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         &mut renderer_data_guard,
         &plane_mesh,
         &PbrMaterial {
-            base_color: Some(&big_checkerboard_texture),
+            base_color: Some(&checkerboard_texture),
             ..Default::default()
         },
         Default::default(),
@@ -576,7 +548,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             &mut renderer_data_guard,
             &sphere_mesh,
             &PbrMaterial {
-                base_color: Some(&small_checkerboard_texture),
+                base_color: Some(&checkerboard_texture),
                 ..Default::default()
             },
             Default::default(),
@@ -660,6 +632,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         &renderer_state.base,
         &crosshair_texture_img,
         crosshair_texture_img.dimensions(),
+        1,
         Some("crosshair_texture"),
         None,
         false,

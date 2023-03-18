@@ -370,6 +370,7 @@ fn get_textures(
                 base_renderer_state,
                 &image_pixels,
                 (image_data.width, image_data.height),
+                1,
                 texture.name(),
                 texture_format.into(),
                 true,

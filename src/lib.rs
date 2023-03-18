@@ -24,5 +24,6 @@ pub mod scene;
 pub mod scene_tree;
 pub mod skinning;
 pub mod texture;
+pub mod texture_compression;
 pub mod time_tracker;
 pub mod transform;
