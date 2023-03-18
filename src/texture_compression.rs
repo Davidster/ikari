@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 const BASISU_COMPRESSION_FORMAT: basis_universal::BasisTextureFormat =
     basis_universal::BasisTextureFormat::UASTC4x4;
 
@@ -56,7 +58,7 @@ impl TextureCompressor {
             anyhow::bail!("Error compressing img to basisu {:?}", error_code);
         }
 
-        dbg!(basisu_compressor.basis_file().len());
+        // dbg!(basisu_compressor.basis_file().len());
 
         // 0 = default compression level
         let zstd_encoded_data = zstd::stream::encode_all(basisu_compressor.basis_file(), 0)?;
@@ -138,4 +140,13 @@ impl Default for TextureCompressor {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub fn texture_path_to_compressed_path(path: &Path) -> PathBuf {
+    let mut out_path = path.to_path_buf();
+    out_path.set_file_name(format!(
+        "{:}_compressed.bin",
+        out_path.file_stem().unwrap().to_str().unwrap()
+    ));
+    out_path
 }

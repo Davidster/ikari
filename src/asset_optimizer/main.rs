@@ -13,22 +13,20 @@ const COMPRESSION_THREAD_COUNT: usize = 2;
 fn main() {
     let mut texture_paths = find_gltf_texture_paths().unwrap();
 
-    dbg!(&texture_paths);
-
     let gltf_exlusion_map: HashSet<PathBuf> = texture_paths
         .iter()
         .cloned()
-        .map(|(path, _)| path)
+        .map(|(path, _)| path.canonicalize().unwrap())
         .collect();
 
     // interpret all dangling textures as color (normal map = false)
-    texture_paths.extend(dbg!(find_dangling_texture_paths(gltf_exlusion_map)
-        .unwrap()
-        .iter()
-        .cloned()
-        .map(|path| (path, true))));
-
-    panic!();
+    texture_paths.extend(
+        find_dangling_texture_paths(gltf_exlusion_map)
+            .unwrap()
+            .iter()
+            .cloned()
+            .map(|path| (path, true)),
+    );
 
     let worker_count = num_cpus::get() / COMPRESSION_THREAD_COUNT;
     let texture_count = texture_paths.len();
@@ -45,9 +43,14 @@ fn main() {
             tx.send(texture_index).unwrap();
         });
     }
+    let mut done_count = 0;
     for _ in 0..texture_count {
         let texture_index = rx.recv().unwrap();
-        println!("done {:?}", texture_paths[texture_index]);
+        done_count += 1;
+        println!(
+            "done {:?} ({:?}/{:?})",
+            texture_paths[texture_index], done_count, texture_count
+        );
     }
 }
 
@@ -77,7 +80,7 @@ fn find_gltf_texture_paths() -> anyhow::Result<Vec<(PathBuf, bool)>> {
                     println!("Warning: found inline texture in gltf file {:?}, texture index {:?}. This texture wont be compressed", path, texture.index());
                 }
                 gltf::image::Source::Uri { uri, .. } => {
-                    let path = PathBuf::from(uri);
+                    let path = path.parent().unwrap().join(PathBuf::from(uri));
                     // dbg!(&is_normal_res);
                     result.push((path, is_normal_res.is_some()));
                 }
@@ -93,7 +96,7 @@ fn find_dangling_texture_paths(exclude_list: HashSet<PathBuf>) -> anyhow::Result
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| !e.file_type().is_dir())
-        .filter(|e| !exclude_list.contains(e.path()))
+        .filter(|e| !exclude_list.contains(&e.path().canonicalize().unwrap()))
         .filter(|e| e.path().extension().is_some())
         .filter(|e| {
             e.path().extension().unwrap() == "jpg" || e.path().extension().unwrap() == "png"
@@ -102,7 +105,6 @@ fn find_dangling_texture_paths(exclude_list: HashSet<PathBuf>) -> anyhow::Result
         .collect())
 }
 
-// TODO: add is_normal_map param
 fn compress_file(img_path: &Path, is_normal_map: bool) -> anyhow::Result<()> {
     let img_bytes = std::fs::read(img_path)?;
     let img_decoded = image::load_from_memory(&img_bytes)?.to_rgba8();
@@ -121,20 +123,18 @@ fn compress_file(img_path: &Path, is_normal_map: bool) -> anyhow::Result<()> {
         )
     }?;
 
-    println!(
-        "path: {:?} jpg: {:?}, decoded: {:?}, compressed: {:?}",
-        img_path,
-        img_bytes.len(),
-        img_decoded.len(),
-        compressed_img_bytes.len()
-    );
+    // println!(
+    //     "path: {:?} jpg: {:?}, decoded: {:?}, compressed: {:?}",
+    //     img_path,
+    //     img_bytes.len(),
+    //     img_decoded.len(),
+    //     compressed_img_bytes.len()
+    // );
 
-    let mut out_path = img_path.to_path_buf();
-    out_path.set_file_name(format!(
-        "{:}_compressed.bin",
-        out_path.file_stem().unwrap().to_str().unwrap()
-    ));
-    std::fs::write(out_path, compressed_img_bytes)?;
+    std::fs::write(
+        ikari::texture_compression::texture_path_to_compressed_path(img_path),
+        compressed_img_bytes,
+    )?;
 
     Ok(())
 }
