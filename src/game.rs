@@ -514,14 +514,14 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         .position(Vec3::new(0.0, -0.01, 0.0))
         .scale(Vec3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH))
         .build();
-    /* let _floor_node = scene.add_node(
+    let _floor_node = scene.add_node(
         GameNodeDescBuilder::new()
             .mesh(Some(GameNodeMesh::from_pbr_mesh_index(
                 floor_pbr_mesh_index,
             )))
             .transform(floor_transform)
             .build(),
-    ); */
+    );
     let floor_thickness = 0.1;
     let floor_collider = ColliderBuilder::cuboid(
         floor_transform.scale().x,
