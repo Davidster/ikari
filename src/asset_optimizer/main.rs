@@ -7,6 +7,8 @@ use std::{
 use threadpool::ThreadPool;
 use walkdir::WalkDir;
 
+use ikari::texture_compression::texture_path_to_compressed_path;
+
 const DATA_FOLDER: &str = "./src";
 const COMPRESSION_THREAD_COUNT: usize = 2;
 
@@ -27,6 +29,13 @@ fn main() {
             .cloned()
             .map(|path| (path, true)),
     );
+
+    // remove all paths that have already been processed
+    texture_paths = texture_paths
+        .iter()
+        .cloned()
+        .filter(|(path, _)| !texture_path_to_compressed_path(path).try_exists().unwrap())
+        .collect();
 
     let worker_count = num_cpus::get() / COMPRESSION_THREAD_COUNT;
     let texture_count = texture_paths.len();
@@ -132,7 +141,7 @@ fn compress_file(img_path: &Path, is_normal_map: bool) -> anyhow::Result<()> {
     // );
 
     std::fs::write(
-        ikari::texture_compression::texture_path_to_compressed_path(img_path),
+        texture_path_to_compressed_path(img_path),
         compressed_img_bytes,
     )?;
 
