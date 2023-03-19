@@ -87,7 +87,7 @@ pub fn get_skybox_path() -> (
     // My photosphere pic
     // src: me
     let skybox_background = SkyboxBackground::Equirectangular {
-        image_path: "./src/textures/photosphere_skybox.jpg",
+        image_path: "./src/textures/photosphere_skybox_small.jpg",
     };
     let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
 
@@ -103,10 +103,10 @@ fn get_misc_gltf_path() -> &'static str {
     // "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf"
     // "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf"
     // "./src/models/gltf/Arrow/Arrow.gltf"
-    // "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf"
+    "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf"
     // "./src/models/gltf/VertexColorTest/VertexColorTest.gltf"
     // "./src/models/gltf/Revolver/revolver_low_poly.gltf"
-    "/home/david/Programming/glTF-Sample-Models/2.0/NormalTangentMirrorTest/glTF/NormalTangentMirrorTest.gltf"
+    // "./src/models/gltf/NormalTangentMirrorTest/NormalTangentMirrorTest.gltf"
     // "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb"
     // "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.gltf"
     // "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf"
@@ -155,14 +155,14 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         // load in gltf files
 
         // player's revolver
-        // asset_loader.load_gltf_asset("./src/models/gltf/ColtPython/colt_python.gltf");
+        asset_loader.load_gltf_asset("./src/models/gltf/ColtPython/colt_python.gltf");
         // forest
-        // asset_loader.load_gltf_asset("./src/models/gltf/free_low_poly_forest_2/scene.glb");
+        asset_loader.load_gltf_asset("./src/models/gltf/free_low_poly_forest/scene.gltf");
         // legendary robot
         // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-        // asset_loader.load_gltf_asset("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf");
+        asset_loader.load_gltf_asset("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf");
         // maze
-        // asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
+        asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
         // other
         asset_loader.load_gltf_asset(get_misc_gltf_path());
 
@@ -931,7 +931,7 @@ pub fn update_game_state(
         }
 
         if let Entry::Occupied(entry) = loaded_assets_guard
-            .entry("./src/models/gltf/free_low_poly_forest_2/scene.glb".to_string())
+            .entry("./src/models/gltf/free_low_poly_forest/scene.gltf".to_string())
         {
             logger_log("loaded forest");
             let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();

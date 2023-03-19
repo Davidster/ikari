@@ -31,13 +31,15 @@ fn main() {
     );
 
     // remove all paths that have already been processed
-    texture_paths = texture_paths
-        .iter()
-        .cloned()
-        .filter(|(path, _is_srgb, _is_normal_map)| {
-            !texture_path_to_compressed_path(path).try_exists().unwrap()
-        })
-        .collect();
+    /* texture_paths = texture_paths
+    .iter()
+    .cloned()
+    .filter(|(path, _is_srgb, _is_normal_map)| {
+        !texture_path_to_compressed_path(path).try_exists().unwrap()
+    })
+    .collect(); */
+
+    let texture_paths = Arc::new(texture_paths);
 
     let worker_count = num_cpus::get() / COMPRESSION_THREAD_COUNT;
     let texture_count = texture_paths.len();

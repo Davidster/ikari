@@ -53,7 +53,7 @@ impl TextureCompressor {
         params.set_basis_format(BASISU_COMPRESSION_FORMAT);
         params.set_uastc_quality_level(3); // level 3 takes longer to compress but is higher quality
         params.set_rdo_uastc(Some(1.0)); // default
-        params.set_generate_mipmaps(false);
+        params.set_generate_mipmaps(true);
         params.set_mipmap_smallest_dimension(1); // default
         params.set_color_space(if is_srgb {
             basis_universal::ColorSpace::Srgb
@@ -69,6 +69,16 @@ impl TextureCompressor {
 
         let mut source_image = params.source_image_mut(0);
         source_image.init(img_bytes, img_width, img_height, img_channel_count);
+
+        if is_normal_map {
+            let pixel_count = source_image.pixel_data_u32_mut().len();
+            let image_bytes = source_image.pixel_data_u8_mut();
+            for pixel_index in 0..pixel_count {
+                image_bytes[pixel_index * 4 + 3] = image_bytes[pixel_index * 4 + 1];
+                image_bytes[pixel_index * 4 + 1] = image_bytes[pixel_index * 4];
+                image_bytes[pixel_index * 4 + 2] = image_bytes[pixel_index * 4];
+            }
+        }
 
         let mut basisu_compressor = basis_universal::Compressor::new(thread_count);
         basisu_compressor.init(&params);
@@ -131,7 +141,7 @@ impl TextureCompressor {
                 basis_universal::transcoding::TranscodeParameters {
                     image_index: 0,
                     level_index: mip_level,
-                    decode_flags: None,
+                    decode_flags: Some(basis_universal::transcoding::DecodeFlags::HIGH_QUALITY),
                     output_row_pitch_in_blocks_or_pixels: None,
                     output_rows_in_pixels: None,
                 },

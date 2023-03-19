@@ -757,7 +757,7 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     let tangent_space_normal = vec3<f32>(
         normal_map_normal.x,
         -normal_map_normal.y, // I guess this is needed due to differing uv-mapping conventions
-        normal_map_normal.z
+        sqrt(1.0 - normal_map_normal.x * normal_map_normal.x - normal_map_normal.y * normal_map_normal.y)
     );
     // normal scale helpful comment:
     // https://github.com/KhronosGroup/glTF/issues/885#issuecomment-288320363

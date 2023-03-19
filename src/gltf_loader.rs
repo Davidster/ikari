@@ -335,6 +335,12 @@ fn get_textures(
                 .any(|texture_info| texture_info.texture().index() == texture.index())
             });
 
+            let is_normal_map = !is_srgb
+                && materials.iter().any(|material| {
+                    material.normal_texture().is_some()
+                        && material.normal_texture().unwrap().texture().index() == texture.index()
+                });
+
             let compressed_image_data = match texture.source().source() {
                 gltf::image::Source::Uri { uri, .. } => {
                     let compressed_texture_path = texture_path_to_compressed_path(
@@ -343,7 +349,7 @@ fn get_textures(
                     if compressed_texture_path.try_exists()? {
                         let texture_compressor = TextureCompressor::new();
                         let texture_bytes = std::fs::read(compressed_texture_path)?;
-                        Some(texture_compressor.transcode_image(&texture_bytes, false)?)
+                        Some(texture_compressor.transcode_image(&texture_bytes, is_normal_map)?)
                     } else {
                         None
                     }
