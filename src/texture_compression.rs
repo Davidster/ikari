@@ -5,7 +5,17 @@ const BASISU_COMPRESSION_FORMAT: basis_universal::BasisTextureFormat =
 
 pub struct TextureCompressor(());
 
-pub struct GpuCompressedTexture {
+pub struct TextureCompressionArgs<'a> {
+    pub img_bytes: &'a [u8],
+    pub img_width: u32,
+    pub img_height: u32,
+    pub img_channel_count: u8,
+    pub is_normal_map: bool,
+    pub is_srgb: bool,
+    pub thread_count: u32,
+}
+
+pub struct CompressedTexture {
     pub format: basis_universal::transcoding::TranscoderTextureFormat,
     pub width: u32,
     pub height: u32,
@@ -25,14 +35,19 @@ impl TextureCompressor {
     /// see https://docs.rs/basis-universal/0.2.0/basis_universal/encoding/struct.Compressor.html#method.process
     pub unsafe fn compress_raw_image(
         &self,
-        img_bytes: &[u8],
-        img_width: u32,
-        img_height: u32,
-        img_channel_count: u8,
-        is_normal_map: bool,
-        thread_count: u32,
+        args: TextureCompressionArgs,
     ) -> anyhow::Result<Vec<u8>> {
         basis_universal::encoder_init();
+
+        let TextureCompressionArgs {
+            img_bytes,
+            img_width,
+            img_height,
+            img_channel_count,
+            is_normal_map,
+            is_srgb,
+            thread_count,
+        } = args;
 
         let mut params = basis_universal::CompressorParams::new();
         params.set_basis_format(BASISU_COMPRESSION_FORMAT);
@@ -40,7 +55,11 @@ impl TextureCompressor {
         params.set_rdo_uastc(Some(1.0)); // default
         params.set_generate_mipmaps(false);
         params.set_mipmap_smallest_dimension(1); // default
-        params.set_color_space(basis_universal::ColorSpace::Srgb);
+        params.set_color_space(if is_srgb {
+            basis_universal::ColorSpace::Srgb
+        } else {
+            basis_universal::ColorSpace::Linear
+        });
         params.set_use_global_codebook(false);
         params.set_print_status_to_stdout(false);
 
@@ -66,11 +85,11 @@ impl TextureCompressor {
         Ok(zstd_encoded_data)
     }
 
-    pub fn decompress_image(
+    pub fn transcode_image(
         &self,
         img_bytes: &[u8],
         is_normal_map: bool,
-    ) -> anyhow::Result<GpuCompressedTexture> {
+    ) -> anyhow::Result<CompressedTexture> {
         basis_universal::transcoder_init();
 
         let zstd_decoded_data = zstd::stream::decode_all(img_bytes)?;
@@ -126,7 +145,7 @@ impl TextureCompressor {
             };
         }
 
-        Ok(GpuCompressedTexture {
+        Ok(CompressedTexture {
             format: gpu_texture_format,
             width: img_width,
             height: img_height,

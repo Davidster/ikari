@@ -7,7 +7,7 @@ use std::{
 use threadpool::ThreadPool;
 use walkdir::WalkDir;
 
-use ikari::texture_compression::texture_path_to_compressed_path;
+use ikari::texture_compression::{texture_path_to_compressed_path, TextureCompressionArgs};
 
 const DATA_FOLDER: &str = "./src";
 const COMPRESSION_THREAD_COUNT: usize = 2;
@@ -18,23 +18,25 @@ fn main() {
     let gltf_exlusion_map: HashSet<PathBuf> = texture_paths
         .iter()
         .cloned()
-        .map(|(path, _)| path.canonicalize().unwrap())
+        .map(|(path, _, _)| path.canonicalize().unwrap())
         .collect();
 
-    // interpret all dangling textures as color (normal map = false)
+    // interpret all dangling textures as srgb color maps
     texture_paths.extend(
         find_dangling_texture_paths(gltf_exlusion_map)
             .unwrap()
             .iter()
             .cloned()
-            .map(|path| (path, true)),
+            .map(|path| (path, true, true)),
     );
 
     // remove all paths that have already been processed
     texture_paths = texture_paths
         .iter()
         .cloned()
-        .filter(|(path, _)| !texture_path_to_compressed_path(path).try_exists().unwrap())
+        .filter(|(path, _is_srgb, _is_normal_map)| {
+            !texture_path_to_compressed_path(path).try_exists().unwrap()
+        })
         .collect();
 
     let worker_count = num_cpus::get() / COMPRESSION_THREAD_COUNT;
@@ -47,8 +49,8 @@ fn main() {
         let tx = tx.clone();
         let texture_paths = texture_paths.clone();
         pool.execute(move || {
-            let (path, is_normal_map) = &texture_paths[texture_index];
-            compress_file(path.as_path(), *is_normal_map).unwrap();
+            let (path, is_srgb, is_normal_map) = &texture_paths[texture_index];
+            compress_file(path.as_path(), *is_srgb, *is_normal_map).unwrap();
             tx.send(texture_index).unwrap();
         });
     }
@@ -63,7 +65,7 @@ fn main() {
     }
 }
 
-fn find_gltf_texture_paths() -> anyhow::Result<Vec<(PathBuf, bool)>> {
+fn find_gltf_texture_paths() -> anyhow::Result<Vec<(PathBuf, bool, bool)>> {
     let mut result = Vec::new();
     let gltf_paths: Vec<_> = WalkDir::new(DATA_FOLDER)
         .into_iter()
@@ -80,18 +82,28 @@ fn find_gltf_texture_paths() -> anyhow::Result<Vec<(PathBuf, bool)>> {
         // let images: Vec<_> = gltf.images().collect();
 
         for texture in gltf.textures() {
-            let is_normal_res = gltf.materials().find(|material| {
-                material.normal_texture().is_some()
-                    && material.normal_texture().unwrap().texture().index() == texture.index()
+            let is_srgb = gltf.materials().any(|material| {
+                vec![
+                    material.emissive_texture(),
+                    material.pbr_metallic_roughness().base_color_texture(),
+                ]
+                .iter()
+                .flatten()
+                .any(|texture_info| texture_info.texture().index() == texture.index())
             });
+            let is_normal_map = !is_srgb
+                && gltf.materials().any(|material| {
+                    material.normal_texture().is_some()
+                        && material.normal_texture().unwrap().texture().index() == texture.index()
+                });
+
             match texture.source().source() {
                 gltf::image::Source::View { .. } => {
                     println!("Warning: found inline texture in gltf file {:?}, texture index {:?}. This texture wont be compressed", path, texture.index());
                 }
                 gltf::image::Source::Uri { uri, .. } => {
                     let path = path.parent().unwrap().join(PathBuf::from(uri));
-                    // dbg!(&is_normal_res);
-                    result.push((path, is_normal_res.is_some()));
+                    result.push((path, is_srgb, is_normal_map));
                 }
             };
         }
@@ -114,22 +126,23 @@ fn find_dangling_texture_paths(exclude_list: HashSet<PathBuf>) -> anyhow::Result
         .collect())
 }
 
-fn compress_file(img_path: &Path, is_normal_map: bool) -> anyhow::Result<()> {
+fn compress_file(img_path: &Path, is_srgb: bool, is_normal_map: bool) -> anyhow::Result<()> {
     let img_bytes = std::fs::read(img_path)?;
     let img_decoded = image::load_from_memory(&img_bytes)?.to_rgba8();
     let (img_width, img_height) = img_decoded.dimensions();
-    let img_channels = 4;
+    let img_channel_count = 4;
 
     let compressor = ikari::texture_compression::TextureCompressor::new();
     let compressed_img_bytes = unsafe {
-        compressor.compress_raw_image(
-            &img_decoded,
+        compressor.compress_raw_image(TextureCompressionArgs {
+            img_bytes: &img_decoded,
             img_width,
             img_height,
-            img_channels,
+            img_channel_count,
+            is_srgb,
             is_normal_map,
-            COMPRESSION_THREAD_COUNT as u32,
-        )
+            thread_count: COMPRESSION_THREAD_COUNT as u32,
+        })
     }?;
 
     // println!(

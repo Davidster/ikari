@@ -87,7 +87,7 @@ pub fn get_skybox_path() -> (
     // My photosphere pic
     // src: me
     let skybox_background = SkyboxBackground::Equirectangular {
-        image_path: "./src/textures/photosphere_skybox_small.jpg",
+        image_path: "./src/textures/photosphere_skybox.jpg",
     };
     let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
 
@@ -103,10 +103,10 @@ fn get_misc_gltf_path() -> &'static str {
     // "./src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf"
     // "./src/models/gltf/EnvironmentTest/EnvironmentTest.gltf"
     // "./src/models/gltf/Arrow/Arrow.gltf"
-    "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf"
+    // "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf"
     // "./src/models/gltf/VertexColorTest/VertexColorTest.gltf"
     // "./src/models/gltf/Revolver/revolver_low_poly.gltf"
-    // "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf"
+    "/home/david/Programming/glTF-Sample-Models/2.0/NormalTangentMirrorTest/glTF/NormalTangentMirrorTest.gltf"
     // "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb"
     // "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.gltf"
     // "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf"
@@ -155,14 +155,14 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         // load in gltf files
 
         // player's revolver
-        asset_loader.load_gltf_asset("./src/models/gltf/ColtPython/colt_python.gltf");
+        // asset_loader.load_gltf_asset("./src/models/gltf/ColtPython/colt_python.gltf");
         // forest
-        asset_loader.load_gltf_asset("./src/models/gltf/free_low_poly_forest_2/scene.glb");
+        // asset_loader.load_gltf_asset("./src/models/gltf/free_low_poly_forest_2/scene.glb");
         // legendary robot
         // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-        asset_loader.load_gltf_asset("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf");
+        // asset_loader.load_gltf_asset("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf");
         // maze
-        asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
+        // asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
         // other
         asset_loader.load_gltf_asset(get_misc_gltf_path());
 
@@ -273,7 +273,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     let rainbow_texture_path = "./src/textures/rainbow_gradient_vertical_compressed.bin";
     let rainbow_texture_bytes = std::fs::read(rainbow_texture_path)?;
     let rainbow_texture_decompressed =
-        texture_compressor.decompress_image(&rainbow_texture_bytes, false)?;
+        texture_compressor.transcode_image(&rainbow_texture_bytes, false)?;
     let rainbow_texture = Texture::from_decoded_image(
         &renderer_state.base,
         &rainbow_texture_decompressed.raw,
@@ -514,14 +514,14 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         .position(Vec3::new(0.0, -0.01, 0.0))
         .scale(Vec3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH))
         .build();
-    let _floor_node = scene.add_node(
+    /* let _floor_node = scene.add_node(
         GameNodeDescBuilder::new()
             .mesh(Some(GameNodeMesh::from_pbr_mesh_index(
                 floor_pbr_mesh_index,
             )))
             .transform(floor_transform)
             .build(),
-    );
+    ); */
     let floor_thickness = 0.1;
     let floor_collider = ColliderBuilder::cuboid(
         floor_transform.scale().x,

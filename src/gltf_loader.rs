@@ -4,9 +4,14 @@ use crate::renderer::*;
 use crate::sampler_cache::*;
 use crate::scene::*;
 use crate::texture::*;
+use crate::texture_compression::texture_path_to_compressed_path;
+use crate::texture_compression::CompressedTexture;
+use crate::texture_compression::TextureCompressor;
 use crate::transform::*;
 
 use std::collections::{hash_map::Entry, HashMap};
+use std::path::Path;
+use std::path::PathBuf;
 
 use anyhow::{bail, Result};
 use approx::abs_diff_eq;
@@ -33,6 +38,7 @@ pub fn build_scene(
         &Vec<gltf::buffer::Data>,
         &Vec<gltf::image::Data>,
     ),
+    gltf_path: &Path,
 ) -> Result<(Scene, RenderBuffers)> {
     let scene_index = document
         .default_scene()
@@ -41,7 +47,7 @@ pub fn build_scene(
 
     let materials: Vec<_> = document.materials().collect();
 
-    let textures = get_textures(document, images, materials, base_renderer_state)?;
+    let textures = get_textures(document, images, materials, gltf_path, base_renderer_state)?;
 
     // node index -> parent node index
     let parent_index_map: HashMap<usize, usize> = document
@@ -311,15 +317,15 @@ fn get_textures(
     document: &gltf::Document,
     images: &[gltf::image::Data],
     materials: Vec<gltf::Material>,
+    gltf_path: &Path,
     base_renderer_state: &BaseRendererState,
 ) -> Result<Vec<Texture>, anyhow::Error> {
     let textures = document
         .textures()
         .map(|texture| {
             let source_image_index = texture.source().index();
-            let image_data = &images[source_image_index];
 
-            let srgb = materials.iter().any(|material| {
+            let is_srgb = materials.iter().any(|material| {
                 vec![
                     material.emissive_texture(),
                     material.pbr_metallic_roughness().base_color_texture(),
@@ -329,7 +335,41 @@ fn get_textures(
                 .any(|texture_info| texture_info.texture().index() == texture.index())
             });
 
-            let (image_pixels, texture_format) = get_image_pixels(image_data, srgb)?;
+            let compressed_image_data = match texture.source().source() {
+                gltf::image::Source::Uri { uri, .. } => {
+                    let compressed_texture_path = texture_path_to_compressed_path(
+                        &gltf_path.parent().unwrap().join(PathBuf::from(uri)),
+                    );
+                    if compressed_texture_path.try_exists()? {
+                        let texture_compressor = TextureCompressor::new();
+                        let texture_bytes = std::fs::read(compressed_texture_path)?;
+                        Some(texture_compressor.transcode_image(&texture_bytes, false)?)
+                    } else {
+                        None
+                    }
+                }
+                gltf::image::Source::View { .. } => None,
+            };
+
+            let baked_mip_levels = compressed_image_data
+                .as_ref()
+                .map(|data| data.mip_count)
+                .unwrap_or(1);
+            let image_dimensions = compressed_image_data
+                .as_ref()
+                .map(|data| (data.width, data.height))
+                .unwrap_or((
+                    images[source_image_index].width,
+                    images[source_image_index].height,
+                ));
+            let generate_mipmaps = compressed_image_data.is_none();
+
+            let (image_pixels, texture_format) = match compressed_image_data {
+                Some(compressed_image_data) => {
+                    get_compressed_image_pixels(compressed_image_data, is_srgb)?
+                }
+                None => get_image_pixels(&images[source_image_index], is_srgb)?,
+            };
 
             let gltf_sampler = texture.sampler();
             let default_sampler = SamplerDescriptor::default();
@@ -369,11 +409,11 @@ fn get_textures(
             Texture::from_decoded_image(
                 base_renderer_state,
                 &image_pixels,
-                (image_data.width, image_data.height),
-                1,
+                image_dimensions,
+                baked_mip_levels,
                 texture.name(),
                 texture_format.into(),
-                true,
+                generate_mipmaps,
                 &SamplerDescriptor {
                     address_mode_u,
                     address_mode_v,
@@ -479,12 +519,42 @@ fn get_keyframe_times(
     Ok(keyframe_times)
 }
 
+fn get_compressed_image_pixels(
+    image_data: CompressedTexture,
+    is_srgb: bool,
+) -> Result<(Vec<u8>, wgpu::TextureFormat)> {
+    let CompressedTexture {
+        raw: image_pixels,
+        format,
+        ..
+    } = image_data;
+    let texture_format = match format {
+        basis_universal::transcoding::TranscoderTextureFormat::BC7_RGBA => {
+            if is_srgb {
+                wgpu::TextureFormat::Bc7RgbaUnormSrgb
+            } else {
+                wgpu::TextureFormat::Bc7RgbaUnorm
+            }
+        }
+        basis_universal::transcoding::TranscoderTextureFormat::BC5_RG => {
+            wgpu::TextureFormat::Bc5RgUnorm
+        }
+        _ => {
+            anyhow::bail!(
+                "Passed unsupported compressed texture format to gltf loader: {:?}",
+                format
+            );
+        }
+    };
+    Ok((image_pixels, texture_format))
+}
+
 fn get_image_pixels(
     image_data: &gltf::image::Data,
     srgb: bool,
 ) -> Result<(Vec<u8>, wgpu::TextureFormat)> {
     let image_pixels = &image_data.pixels;
-    match (image_data.format, srgb) {
+    let (image_pixels, texture_format) = match (image_data.format, srgb) {
         (gltf::image::Format::R8G8B8, srgb) => {
             let image = image::RgbImage::from_raw(
                 image_data.width,
@@ -493,7 +563,7 @@ fn get_image_pixels(
             )
             .ok_or_else(|| anyhow::anyhow!("Failed to decode R8G8B8 image"))?;
             let image_pixels_conv = image::DynamicImage::ImageRgb8(image).to_rgba8().to_vec();
-            Ok((
+            anyhow::Ok((
                 image_pixels_conv,
                 if srgb {
                     wgpu::TextureFormat::Rgba8UnormSrgb
@@ -516,7 +586,8 @@ fn get_image_pixels(
             let texture_format = texture_format_to_wgpu(image_data.format, srgb)?;
             Ok((image_pixels.to_vec(), texture_format))
         }
-    }
+    }?;
+    Ok((image_pixels, texture_format))
 }
 
 fn texture_format_to_wgpu(format: gltf::image::Format, srgb: bool) -> Result<wgpu::TextureFormat> {

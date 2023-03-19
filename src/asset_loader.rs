@@ -5,6 +5,7 @@ use crate::renderer::*;
 use crate::scene::*;
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 pub struct AssetLoader {
@@ -49,8 +50,11 @@ impl AssetLoader {
 
                     let do_load = || {
                         let (document, buffers, images) = gltf::import(&next_scene_path)?;
-                        let (other_scene, other_render_buffers) =
-                            build_scene(&renderer_base, (&document, &buffers, &images))?;
+                        let (other_scene, other_render_buffers) = build_scene(
+                            &renderer_base,
+                            (&document, &buffers, &images),
+                            Path::new(&next_scene_path),
+                        )?;
                         anyhow::Ok((other_scene, other_render_buffers))
                     };
                     match do_load() {
