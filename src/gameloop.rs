@@ -1,3 +1,8 @@
+use crate::game::*;
+use crate::game_state::*;
+use crate::logger::*;
+use crate::renderer::*;
+
 use std::time::{Duration, Instant};
 
 use winit::{
@@ -5,8 +10,6 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
-
-use super::*;
 
 const MAX_LOG_RATE: i64 = 24; // 24 logs per second
 

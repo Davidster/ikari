@@ -1,9 +1,28 @@
+use crate::animation::*;
+use crate::asset_loader::*;
+use crate::audio::*;
+use crate::ball::*;
+use crate::character::*;
+use crate::game_state::*;
+use crate::light::*;
+use crate::logger::*;
+use crate::math::*;
+use crate::mesh::*;
+use crate::physics::*;
+use crate::physics_ball::*;
+use crate::player_controller::*;
+use crate::renderer::*;
+use crate::revolver::*;
+use crate::sampler_cache::*;
+use crate::scene::*;
+use crate::texture::*;
+use crate::texture_compression::*;
+use crate::transform::*;
+
 use std::{
     collections::hash_map::Entry,
     sync::{Arc, Mutex},
 };
-
-use super::*;
 
 use anyhow::Result;
 use glam::f32::{Vec3, Vec4};
@@ -87,7 +106,7 @@ fn get_misc_gltf_path() -> &'static str {
     "./src/models/gltf/DamagedHelmet/DamagedHelmet.gltf"
     // "./src/models/gltf/VertexColorTest/VertexColorTest.gltf"
     // "./src/models/gltf/Revolver/revolver_low_poly.gltf"
-    // "/home/david/Programming/glTF-Sample-Models/2.0/BoomBoxWithAxes/glTF/BoomBoxWithAxes.gltf"
+    // "./src/models/gltf/NormalTangentMirrorTest/NormalTangentMirrorTest.gltf"
     // "./src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb"
     // "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.gltf"
     // "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf"
@@ -143,7 +162,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
         asset_loader.load_gltf_asset("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf");
         // maze
-        asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
+        // asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
         // other
         asset_loader.load_gltf_asset(get_misc_gltf_path());
 
@@ -188,7 +207,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     ];
     // let directional_lights: Vec<DirectionalLightComponent> = vec![];
 
-    let point_lights: Vec<(transform::Transform, Vec3, f32)> = vec![
+    let point_lights: Vec<(crate::transform::Transform, Vec3, f32)> = vec![
         (
             TransformBuilder::new()
                 .scale(Vec3::new(0.05, 0.05, 0.05))
@@ -206,7 +225,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         //     1.0,
         // ),
     ];
-    // let point_lights: Vec<(transform::Transform, Vec3, f32)> = vec![];
+    // let point_lights: Vec<(crate::transform::Transform, Vec3, f32)> = vec![];
 
     let point_light_unlit_mesh_index = RendererState::bind_basic_unlit_mesh(
         &renderer_state.base,
@@ -250,13 +269,21 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     //     &Default::default(),
     // )?;
 
-    let rainbow_texture_path = "./src/textures/rainbow_gradient_vertical.jpg";
+    let texture_compressor = TextureCompressor::new();
+    let rainbow_texture_path = "./src/textures/rainbow_gradient_vertical_compressed.bin";
     let rainbow_texture_bytes = std::fs::read(rainbow_texture_path)?;
-    let rainbow_texture = Texture::from_encoded_image(
+    let rainbow_texture_decompressed =
+        texture_compressor.transcode_image(&rainbow_texture_bytes, false)?;
+    let rainbow_texture = Texture::from_decoded_image(
         &renderer_state.base,
-        &rainbow_texture_bytes,
-        rainbow_texture_path,
-        wgpu::TextureFormat::Rgba8Unorm.into(),
+        &rainbow_texture_decompressed.raw,
+        (
+            rainbow_texture_decompressed.width,
+            rainbow_texture_decompressed.height,
+        ),
+        rainbow_texture_decompressed.mip_count,
+        Some(rainbow_texture_path),
+        Some(wgpu::TextureFormat::Bc7RgbaUnormSrgb),
         false,
         &Default::default(),
     )?;
@@ -311,7 +338,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         },
     )?; */
 
-    let big_checkerboard_texture_img = {
+    let checkerboard_texture_img = {
         let mut img = image::RgbaImage::new(1024, 1024);
         for x in 0..img.width() {
             for y in 0..img.height() {
@@ -331,49 +358,12 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         }
         img
     };
-    let big_checkerboard_texture = Texture::from_decoded_image(
+    let checkerboard_texture = Texture::from_decoded_image(
         &renderer_state.base,
-        &big_checkerboard_texture_img,
-        big_checkerboard_texture_img.dimensions(),
-        Some("big_checkerboard_texture"),
-        None,
-        true,
-        &SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        },
-    )?;
-
-    let small_checkerboard_texture_img = {
-        let mut img = image::RgbaImage::new(1024, 1024);
-        for x in 0..img.width() {
-            for y in 0..img.height() {
-                let scale = 25;
-                let x_scaled = x / scale;
-                let y_scaled = y / scale;
-                img.put_pixel(
-                    x,
-                    y,
-                    if (x_scaled + y_scaled) % 2 == 0 {
-                        [100, 100, 100, 100].into()
-                    } else {
-                        [150, 150, 150, 150].into()
-                    },
-                );
-            }
-        }
-        img
-    };
-    let small_checkerboard_texture = Texture::from_decoded_image(
-        &renderer_state.base,
-        &small_checkerboard_texture_img,
-        small_checkerboard_texture_img.dimensions(),
-        Some("small_checkerboard_texture"),
+        &checkerboard_texture_img,
+        checkerboard_texture_img.dimensions(),
+        1,
+        Some("checkerboard_texture"),
         None,
         true,
         &SamplerDescriptor {
@@ -451,10 +441,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     // add floor to scene
 
     let ball_count = 0;
-    let balls: Vec<_> = (0..ball_count)
-        .into_iter()
-        .map(|_| BallComponent::rand())
-        .collect();
+    let balls: Vec<_> = (0..ball_count).map(|_| BallComponent::rand()).collect();
 
     let ball_pbr_mesh_index = RendererState::bind_basic_pbr_mesh(
         &renderer_state.base,
@@ -480,7 +467,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
 
     let physics_ball_count = 500;
     let physics_balls: Vec<_> = (0..physics_ball_count)
-        .into_iter()
         .map(|_| {
             PhysicsBall::new_random(
                 &mut scene,
@@ -519,7 +505,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         &mut renderer_data_guard,
         &plane_mesh,
         &PbrMaterial {
-            base_color: Some(&big_checkerboard_texture),
+            base_color: Some(&checkerboard_texture),
             ..Default::default()
         },
         Default::default(),
@@ -528,14 +514,14 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         .position(Vec3::new(0.0, -0.01, 0.0))
         .scale(Vec3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH))
         .build();
-    let _floor_node = scene.add_node(
+    /* let _floor_node = scene.add_node(
         GameNodeDescBuilder::new()
             .mesh(Some(GameNodeMesh::from_pbr_mesh_index(
                 floor_pbr_mesh_index,
             )))
             .transform(floor_transform)
             .build(),
-    );
+    ); */
     let floor_thickness = 0.1;
     let floor_collider = ColliderBuilder::cuboid(
         floor_transform.scale().x,
@@ -562,7 +548,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             &mut renderer_data_guard,
             &sphere_mesh,
             &PbrMaterial {
-                base_color: Some(&small_checkerboard_texture),
+                base_color: Some(&checkerboard_texture),
                 ..Default::default()
             },
             Default::default(),
@@ -646,6 +632,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         &renderer_state.base,
         &crosshair_texture_img,
         crosshair_texture_img.dimensions(),
+        1,
         Some("crosshair_texture"),
         None,
         false,
@@ -946,6 +933,7 @@ pub fn update_game_state(
         if let Entry::Occupied(entry) = loaded_assets_guard
             .entry("./src/models/gltf/free_low_poly_forest/scene.gltf".to_string())
         {
+            logger_log("loaded forest");
             let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
             // hack to get the terrain to be at the same height as the ground.
             let node_has_parent: Vec<_> = other_scene

@@ -1,3 +1,11 @@
+use crate::collisions::*;
+use crate::game::*;
+use crate::logger::*;
+use crate::math::*;
+use crate::physics::*;
+use crate::renderer::*;
+use crate::transform::*;
+
 use std::time::Instant;
 
 use glam::f32::{Quat, Vec3};
@@ -10,8 +18,6 @@ use winit::{
     },
     window::Window,
 };
-
-use super::*;
 
 #[derive(Clone, Debug)]
 pub struct PlayerController {

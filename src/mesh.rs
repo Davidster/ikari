@@ -1,6 +1,6 @@
-use std::collections::{hash_map, HashMap};
+use crate::texture::*;
 
-use super::*;
+use std::collections::{hash_map, HashMap};
 
 use anyhow::Result;
 use glam::{

@@ -1,4 +1,6 @@
-use super::*;
+use crate::math::*;
+use crate::transform::*;
+
 use glam::{
     f32::{Mat4, Quat, Vec3},
     EulerRot,
@@ -56,6 +58,12 @@ impl CameraUniform {
             far_plane_distance: 0.0,
             padding: [0.0; 2],
         }
+    }
+}
+
+impl Default for CameraUniform {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

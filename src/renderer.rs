@@ -1,10 +1,23 @@
+use crate::buffer::*;
+use crate::camera::*;
+use crate::collisions::*;
+use crate::game::*;
+use crate::game_state::*;
+use crate::light::*;
+use crate::logger::*;
+use crate::math::*;
+use crate::mesh::*;
+use crate::sampler_cache::*;
+use crate::scene::*;
+use crate::skinning::*;
+use crate::texture::*;
+use crate::transform::*;
+
 use std::collections::{hash_map::Entry, HashMap};
 use std::fs::File;
 use std::io::BufReader;
 use std::num::NonZeroU64;
 use std::sync::{Arc, Mutex};
-
-use super::*;
 
 use anyhow::Result;
 use glam::f32::{Mat4, Vec3};
@@ -273,11 +286,14 @@ impl BaseRendererState {
         let adapter_info = adapter.get_info();
         log::info!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
 
+        let mut features = wgpu::Features::empty();
+        features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
+
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    features: wgpu::Features::empty(),
+                    features,
                     limits: wgpu::Limits::default(),
                 },
                 None,
@@ -1744,6 +1760,7 @@ impl RendererState {
                         neg_z: &cubemap_skybox_images[5],
                     },
                     Some("cubemap_skybox_texture"),
+                    wgpu::TextureFormat::Rgba8UnormSrgb,
                     false,
                 )
             }
@@ -1778,6 +1795,7 @@ impl RendererState {
                     &base,
                     bytemuck::cast_slice(&skybox_rad_texture_decoded),
                     skybox_rad_texture_dimensions,
+                    1,
                     image_path.into(),
                     wgpu::TextureFormat::Rgba16Float.into(),
                     false,

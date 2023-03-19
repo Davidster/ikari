@@ -1,4 +1,7 @@
-use super::*;
+use crate::camera::*;
+use crate::renderer::*;
+use crate::sampler_cache::*;
+
 use std::num::NonZeroU32;
 
 use anyhow::*;
@@ -41,6 +44,7 @@ impl Texture {
             base_renderer_state,
             &img_as_rgba,
             img_as_rgba.dimensions(),
+            1,
             Some(label),
             format,
             generate_mipmaps,
@@ -53,6 +57,7 @@ impl Texture {
         base_renderer_state: &BaseRendererState,
         img_bytes: &[u8],
         dimensions: (u32, u32),
+        baked_mip_levels: u32,
         label: Option<&str>,
         format: Option<wgpu::TextureFormat>,
         generate_mipmaps: bool,
@@ -63,58 +68,50 @@ impl Texture {
             height: dimensions.1,
             depth_or_array_layers: 1,
         };
-        let mip_level_count = if generate_mipmaps {
-            size.max_mips(wgpu::TextureDimension::D2)
-        } else {
-            1
-        };
+
+        if generate_mipmaps && baked_mip_levels != 1 {
+            panic!("Generating mips on textures that have baked mips is not supported");
+        }
+
         let format = format.unwrap_or(wgpu::TextureFormat::Rgba8UnormSrgb);
-        let texture = base_renderer_state
-            .device
-            .create_texture(&wgpu::TextureDescriptor {
-                label,
-                size,
-                mip_level_count,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::COPY_DST
-                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
-                view_formats: &[],
-            });
-
-        base_renderer_state.queue.write_texture(
-            wgpu::ImageCopyTexture {
-                aspect: wgpu::TextureAspect::All,
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-            },
-            img_bytes,
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row: NonZeroU32::new(format.block_size(None).unwrap() * dimensions.0),
-                rows_per_image: NonZeroU32::new(dimensions.1),
-            },
-            size,
-        );
-
-        let view = texture.create_view(&Default::default());
-        let sampler_index = base_renderer_state
-            .sampler_cache
-            .lock()
-            .unwrap()
-            .get_sampler_index(&base_renderer_state.device, sampler_descriptor);
-
-        let mip_encoder =
-            base_renderer_state
+        let texture = if generate_mipmaps {
+            let mip_level_count = size.max_mips(wgpu::TextureDimension::D2);
+            let texture = base_renderer_state
                 .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("mip_encoder"),
+                .create_texture(&wgpu::TextureDescriptor {
+                    label,
+                    size,
+                    mip_level_count,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
                 });
+            base_renderer_state.queue.write_texture(
+                wgpu::ImageCopyTexture {
+                    aspect: wgpu::TextureAspect::All,
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                },
+                img_bytes,
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: NonZeroU32::new(format.block_size(None).unwrap() * dimensions.0),
+                    rows_per_image: NonZeroU32::new(dimensions.1),
+                },
+                size,
+            );
 
-        if generate_mipmaps {
+            let mip_encoder = base_renderer_state.device.create_command_encoder(
+                &wgpu::CommandEncoderDescriptor {
+                    label: Some("mip_encoder"),
+                },
+            );
+
             generate_mipmaps_for_texture(
                 base_renderer_state,
                 mip_encoder,
@@ -122,7 +119,38 @@ impl Texture {
                 mip_level_count,
                 format,
             )?;
-        }
+
+            texture
+        } else {
+            base_renderer_state.device.create_texture_with_data(
+                &base_renderer_state.queue,
+                &wgpu::TextureDescriptor {
+                    label,
+                    size,
+                    mip_level_count: baked_mip_levels,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                },
+                img_bytes,
+            )
+        };
+
+        /* dbg!(
+            img_bytes.len(),
+            dimensions,
+            NonZeroU32::new(format.block_size(None).unwrap() * dimensions.0)
+        );
+         */
+
+        let view = texture.create_view(&Default::default());
+        let sampler_index = base_renderer_state
+            .sampler_cache
+            .lock()
+            .unwrap()
+            .get_sampler_index(&base_renderer_state.device, sampler_descriptor);
 
         Ok(Self {
             texture,
@@ -145,6 +173,7 @@ impl Texture {
             base_renderer_state,
             &one_pixel_image,
             one_pixel_image.dimensions(),
+            1,
             Some("from_color texture"),
             wgpu::TextureFormat::Rgba8UnormSrgb.into(),
             false,
@@ -166,6 +195,7 @@ impl Texture {
             base_renderer_state,
             &one_pixel_image,
             one_pixel_image.dimensions(),
+            1,
             Some("from_color texture"),
             wgpu::TextureFormat::Rgba8Unorm.into(),
             false,
@@ -187,6 +217,7 @@ impl Texture {
             base_renderer_state,
             &one_pixel_gray_image,
             one_pixel_gray_image.dimensions(),
+            1,
             Some("from_gray texture"),
             wgpu::TextureFormat::R8Unorm.into(),
             false,
@@ -652,6 +683,7 @@ impl Texture {
         base_renderer_state: &BaseRendererState,
         images: CreateCubeMapImagesParam,
         label: Option<&str>,
+        format: wgpu::TextureFormat,
         generate_mipmaps: bool,
     ) -> Self {
         // order of the images for a cubemap is documented here:
@@ -689,7 +721,7 @@ impl Texture {
                 mip_level_count,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                format,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             },

@@ -1,10 +1,10 @@
+use crate::physics::*;
+
 use glam::{
     f32::{Mat3, Mat4, Quat, Vec3},
     Affine3A,
 };
 use std::ops::{Deref, DerefMut, Mul};
-
-use super::*;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct SimpleTransform {
@@ -228,6 +228,12 @@ impl TransformBuilder {
         result.set_rotation(self.rotation);
         result.set_scale(self.scale);
         result
+    }
+}
+
+impl Default for TransformBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

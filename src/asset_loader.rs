@@ -1,7 +1,12 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use crate::audio::*;
+use crate::gltf_loader::*;
+use crate::logger::*;
+use crate::renderer::*;
+use crate::scene::*;
 
-use super::*;
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 pub struct AssetLoader {
     pub renderer_base: Arc<BaseRendererState>,
@@ -45,8 +50,11 @@ impl AssetLoader {
 
                     let do_load = || {
                         let (document, buffers, images) = gltf::import(&next_scene_path)?;
-                        let (other_scene, other_render_buffers) =
-                            build_scene(&renderer_base, (&document, &buffers, &images))?;
+                        let (other_scene, other_render_buffers) = build_scene(
+                            &renderer_base,
+                            (&document, &buffers, &images),
+                            Path::new(&next_scene_path),
+                        )?;
                         anyhow::Ok((other_scene, other_render_buffers))
                     };
                     match do_load() {

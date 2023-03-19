@@ -1,8 +1,8 @@
+use crate::scene::*;
+
 use std::collections::{hash_map::Entry, HashMap};
 
 use glam::f32::Mat4;
-
-use super::*;
 
 pub struct AllBoneTransforms {
     pub buffer: Vec<u8>,

@@ -1,12 +1,14 @@
+use crate::game::*;
+use crate::renderer::*;
+use crate::scene::*;
+
 use std::collections::HashMap;
 
 use glam::{
     f32::{Vec3, Vec4},
     Mat4,
 };
-use rapier3d::prelude::*;
-
-use super::*;
+pub use rapier3d::prelude::*;
 
 pub struct PhysicsState {
     pub gravity: nalgebra::Vector3<f32>,
@@ -140,5 +142,11 @@ impl PhysicsState {
             &mut self.multibody_joint_set,
             true,
         );
+    }
+}
+
+impl Default for PhysicsState {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -1,4 +1,4 @@
-use super::*;
+use crate::scene::*;
 
 use glam::f32::Vec3;
 
