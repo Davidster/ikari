@@ -372,7 +372,11 @@ fn get_textures(
             };
 
             let gltf_sampler = texture.sampler();
-            let default_sampler = SamplerDescriptor::default();
+            let default_sampler = SamplerDescriptor {
+                min_filter: wgpu::FilterMode::Linear,
+                mag_filter: wgpu::FilterMode::Linear,
+                ..Default::default()
+            };
             let address_mode_u = sampler_wrapping_mode_to_wgpu(gltf_sampler.wrap_s());
             let address_mode_v = sampler_wrapping_mode_to_wgpu(gltf_sampler.wrap_t());
             let mag_filter = gltf_sampler
@@ -382,6 +386,7 @@ fn get_textures(
                     gltf::texture::MagFilter::Linear => wgpu::FilterMode::Linear,
                 })
                 .unwrap_or(default_sampler.mag_filter);
+
             let (min_filter, mipmap_filter) = gltf_sampler
                 .min_filter()
                 .map(|gltf_min_filter| match gltf_min_filter {
