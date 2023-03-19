@@ -17,6 +17,8 @@ use anyhow::{bail, Result};
 use approx::abs_diff_eq;
 use glam::f32::{Mat4, Vec2, Vec3, Vec4};
 
+const USE_TEXTURE_COMPRESSION: bool = true;
+
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct ChannelPropertyStr<'a>(&'a str);
 
@@ -346,7 +348,7 @@ fn get_textures(
                     let compressed_texture_path = texture_path_to_compressed_path(
                         &gltf_path.parent().unwrap().join(PathBuf::from(uri)),
                     );
-                    if compressed_texture_path.try_exists()? {
+                    if USE_TEXTURE_COMPRESSION && compressed_texture_path.try_exists()? {
                         let texture_compressor = TextureCompressor::new();
                         let texture_bytes = std::fs::read(compressed_texture_path)?;
                         Some(texture_compressor.transcode_image(&texture_bytes, is_normal_map)?)

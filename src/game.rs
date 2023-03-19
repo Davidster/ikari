@@ -162,7 +162,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
         asset_loader.load_gltf_asset("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf");
         // maze
-        asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
+        // asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
         // other
         asset_loader.load_gltf_asset(get_misc_gltf_path());
 
@@ -282,7 +282,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             rainbow_texture_decompressed.height,
         ),
         rainbow_texture_decompressed.mip_count,
-        rainbow_texture_path.into(),
+        Some(rainbow_texture_path),
         Some(wgpu::TextureFormat::Bc7RgbaUnormSrgb),
         false,
         &Default::default(),

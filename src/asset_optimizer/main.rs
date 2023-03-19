@@ -10,7 +10,7 @@ use walkdir::WalkDir;
 use ikari::texture_compression::{texture_path_to_compressed_path, TextureCompressionArgs};
 
 const DATA_FOLDER: &str = "./src";
-const COMPRESSION_THREAD_COUNT: usize = 2;
+const COMPRESSION_THREAD_COUNT: usize = 4;
 
 fn main() {
     let mut texture_paths = find_gltf_texture_paths().unwrap();
@@ -27,7 +27,7 @@ fn main() {
             .unwrap()
             .iter()
             .cloned()
-            .map(|path| (path, true, true)),
+            .map(|path| (path, true, false)),
     );
 
     // remove all paths that have already been processed
@@ -52,6 +52,10 @@ fn main() {
         let texture_paths = texture_paths.clone();
         pool.execute(move || {
             let (path, is_srgb, is_normal_map) = &texture_paths[texture_index];
+            println!(
+                "start {:?} (srgb={:?}, is_normal_map={:?})",
+                path, is_srgb, is_normal_map
+            );
             compress_file(path.as_path(), *is_srgb, *is_normal_map).unwrap();
             tx.send(texture_index).unwrap();
         });
@@ -62,7 +66,7 @@ fn main() {
         done_count += 1;
         println!(
             "done {:?} ({:?}/{:?})",
-            texture_paths[texture_index], done_count, texture_count
+            texture_paths[texture_index].0, done_count, texture_count
         );
     }
 }
