@@ -691,6 +691,14 @@ pub struct RendererStatePrivateData {
     tone_mapping_texture: Texture,
     depth_texture: Texture,
     bloom_pingpong_textures: [Texture; 2],
+
+    iced: Iced,
+}
+
+pub struct Iced {
+    debug: iced_winit::Debug,
+    renderer: iced_wgpu::Renderer,
+    state: iced_winit::program::State<crate::controls::Controls>,
 }
 
 #[derive(Debug)]
@@ -2123,6 +2131,24 @@ impl RendererState {
         let plane_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &plane_mesh)
             .try_into()
             .unwrap();
+
+        let controls = crate::controls::Controls::new();
+
+        // use iced_wgpu::{wgpu, Backend, Renderer, Settings, Viewport};
+        // use iced_winit::{
+        //     conversion, futures, program, renderer, winit, Clipboard, Color, Debug,
+        //     Size,
+        // };
+
+        // Initialize iced
+        let mut renderer = iced_wgpu::Renderer::new(iced_wgpu::Backend::new(
+            &base.device,
+            iced_wgpu::Settings::default(),
+            format,
+        ));
+
+        let mut state =
+            program::State::new(controls, viewport.logical_size(), &mut renderer, &mut debug);
 
         let renderer_state = Self {
             base: Arc::new(base),

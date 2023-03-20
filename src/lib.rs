@@ -6,6 +6,7 @@ pub mod buffer;
 pub mod camera;
 pub mod character;
 pub mod collisions;
+pub mod controls;
 pub mod game;
 pub mod game_state;
 pub mod gameloop;
