@@ -83,9 +83,9 @@ oddio = "0.6"
 threadpool = "1.8.1"
 walkdir = "2.3.3"
 num_cpus = "1.15.0"
-iced_wgpu = { path = "../iced-fork/wgpu" }
-iced = { path = "../iced-fork" }
-iced_winit = { path = "../iced-fork/winit" }
+iced_wgpu = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }
+iced = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }
+iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }
 
 [profile.dev.package."basis-universal-sys"]
 opt-level = 3
