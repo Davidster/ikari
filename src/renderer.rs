@@ -12,7 +12,6 @@ use crate::scene::*;
 use crate::skinning::*;
 use crate::texture::*;
 use crate::transform::*;
-use crate::ui_overlay;
 use crate::ui_overlay::*;
 
 use std::collections::{hash_map::Entry, HashMap};
@@ -3411,23 +3410,21 @@ impl RendererState {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("Bloom Clear Encoder"),
                 });
-            {
-                let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &private_data.bloom_pingpong_textures[0].view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(black),
-                            store: true,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                });
-            }
+
+            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &private_data.bloom_pingpong_textures[0].view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(black),
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: None,
+            });
 
             base.queue.submit(std::iter::once(encoder.finish()));
-            // cprivate_data.bloom_pingpong_textures[0]
             private_data.bloom_threshold_cleared = true;
         }
 
