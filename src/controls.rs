@@ -2,6 +2,9 @@ use iced_wgpu::Renderer;
 use iced_winit::widget::{slider, text_input, Column, Row, Text};
 use iced_winit::{Alignment, Color, Command, Element, Length, Program};
 
+use crate::logger::*;
+
+#[derive(Debug)]
 pub struct Controls {
     background_color: Color,
     text: String,
@@ -26,6 +29,12 @@ impl Controls {
     }
 }
 
+impl Default for Controls {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Program for Controls {
     type Renderer = Renderer;
     type Message = Message;
@@ -34,6 +43,7 @@ impl Program for Controls {
         match message {
             Message::BackgroundColorChanged(color) => {
                 self.background_color = color;
+                logger_log(&format!("background_color={:?}", self.background_color));
             }
             Message::TextChanged(text) => {
                 self.text = text;

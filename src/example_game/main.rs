@@ -34,7 +34,7 @@ async fn start() {
 
     let run_result = async {
         let game_scene = Scene::default();
-        let mut renderer_state = RendererState::new(base_render_state).await?;
+        let mut renderer_state = RendererState::new(base_render_state, &window).await?;
         let game_state = init_game_state(game_scene, &mut renderer_state)?;
         ikari::gameloop::run(window, event_loop, game_state, renderer_state); // this will block while the game is running
         anyhow::Ok(())

@@ -53,11 +53,11 @@ pub fn run(
                     _ => {}
                 }
 
-                match renderer_state.render(&mut game_state) {
+                match renderer_state.render(&mut game_state, &window) {
                     Ok(_) => {}
                     // Reconfigure the surface if lost
                     Err(wgpu::SurfaceError::Lost) => {
-                        renderer_state.resize(*renderer_state.base.window_size.lock().unwrap())
+                        renderer_state.resize(window.inner_size(), window.scale_factor())
                     }
                     // The system is out of memory, we should probably quit
                     Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
@@ -76,16 +76,15 @@ pub fn run(
             Event::WindowEvent {
                 event, window_id, ..
             } if window_id == window.id() => {
-                process_window_input(&mut game_state, &renderer_state, &event, &mut window);
-                match event {
+                match &event {
                     WindowEvent::Resized(size) => {
                         if size.width > 0 && size.height > 0 {
-                            renderer_state.resize(size);
+                            renderer_state.resize(*size, window.scale_factor());
                         }
                     }
                     WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                         if new_inner_size.width > 0 && new_inner_size.height > 0 {
-                            renderer_state.resize(*new_inner_size);
+                            renderer_state.resize(**new_inner_size, window.scale_factor());
                         }
                     }
                     WindowEvent::CloseRequested
@@ -100,6 +99,30 @@ pub fn run(
                     } => *control_flow = ControlFlow::Exit,
                     _ => {}
                 };
+
+                {
+                    let mut renderer_state_data_guard = renderer_state.data.lock().unwrap();
+                    // TODO: move this into UI module
+                    match event {
+                        WindowEvent::CursorMoved { position, .. } => {
+                            renderer_state_data_guard.iced.cursor_position = position;
+                        }
+                        WindowEvent::ModifiersChanged(new_modifiers) => {
+                            renderer_state_data_guard.iced.modifiers = new_modifiers;
+                        }
+                        _ => {}
+                    }
+
+                    if let Some(event) = iced_winit::conversion::window_event(
+                        &event,
+                        window.scale_factor(),
+                        renderer_state_data_guard.iced.modifiers,
+                    ) {
+                        renderer_state_data_guard.iced.state.queue_event(event);
+                    }
+                }
+
+                process_window_input(&mut game_state, &renderer_state, &event, &mut window);
             }
             _ => {}
         }

@@ -66,8 +66,8 @@ basis-universal = "0.2.0"
 zstd = "0.12.3"
 
 # surface
-wgpu = { git = "https://github.com/gfx-rs/wgpu", branch = "master" }
-winit = { version = "0.28", default-features = false, features = ["x11"] }
+wgpu = "0.15"
+winit = { version = "0.27", git = "https://github.com/iced-rs/winit.git", rev = "940457522e9fb9f5dac228b0ecfafe0138b4048c" }
 
 # math
 rand = "0.8"
@@ -83,9 +83,9 @@ oddio = "0.6"
 threadpool = "1.8.1"
 walkdir = "2.3.3"
 num_cpus = "1.15.0"
-iced_wgpu = "0.9.0"
-iced = "0.8.0"
-iced_winit = "0.8.0"
+iced_wgpu = { path = "../iced-fork/wgpu" }
+iced = { path = "../iced-fork" }
+iced_winit = { path = "../iced-fork/winit" }
 
 [profile.dev.package."basis-universal-sys"]
 opt-level = 3

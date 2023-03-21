@@ -16,6 +16,7 @@ use crate::transform::*;
 use std::collections::{hash_map::Entry, HashMap};
 use std::fs::File;
 use std::io::BufReader;
+use std::num::NonZeroU32;
 use std::num::NonZeroU64;
 use std::sync::{Arc, Mutex};
 
@@ -24,6 +25,7 @@ use glam::f32::{Mat4, Vec3};
 use image::Pixel;
 use wgpu::util::DeviceExt;
 use wgpu::InstanceDescriptor;
+use winit::window::Window;
 
 pub const MAX_LIGHT_COUNT: usize = 32;
 pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
@@ -661,6 +663,8 @@ pub struct RendererStatePrivateData {
     all_wireframe_instances: ChunkedBuffer<GpuWireframeMeshInstance>,
     debug_nodes: Vec<GameNodeId>,
 
+    bloom_threshold_cleared: bool,
+
     // gpu
     camera_and_lights_bind_group: wgpu::BindGroup,
     bones_and_pbr_instances_bind_group: wgpu::BindGroup,
@@ -691,14 +695,17 @@ pub struct RendererStatePrivateData {
     tone_mapping_texture: Texture,
     depth_texture: Texture,
     bloom_pingpong_textures: [Texture; 2],
-
-    iced: Iced,
 }
 
 pub struct Iced {
     debug: iced_winit::Debug,
     renderer: iced_wgpu::Renderer,
-    state: iced_winit::program::State<crate::controls::Controls>,
+    staging_belt: wgpu::util::StagingBelt,
+    viewport: iced_wgpu::Viewport,
+    clipboard: iced_winit::clipboard::Clipboard,
+    pub state: iced_winit::program::State<crate::controls::Controls>,
+    pub cursor_position: winit::dpi::PhysicalPosition<f64>,
+    pub modifiers: winit::event::ModifiersState,
 }
 
 #[derive(Debug)]
@@ -710,7 +717,6 @@ pub struct RenderBuffers {
 }
 
 // TODO: rename to RendererPublicData
-#[derive(Debug)]
 pub struct RendererStatePublicData {
     pub binded_pbr_meshes: Vec<BindedPbrMesh>,
     pub binded_unlit_meshes: Vec<BindedUnlitMesh>,
@@ -727,6 +733,8 @@ pub struct RendererStatePublicData {
     pub enable_shadows: bool,
     pub enable_wireframe_mode: bool,
     pub draw_node_bounding_spheres: bool,
+
+    pub iced: Iced,
 }
 
 // TODO: rename to Renderer
@@ -756,7 +764,7 @@ pub struct RendererState {
 }
 
 impl RendererState {
-    pub async fn new(base: BaseRendererState) -> Result<Self> {
+    pub async fn new(base: BaseRendererState, window: &Window) -> Result<Self> {
         logger_log("Controls:");
         vec![
             "Move Around:             WASD, Space Bar, Ctrl",
@@ -2100,6 +2108,46 @@ impl RendererState {
             });
         drop(sampler_cache_guard);
 
+        // Initialize iced
+
+        let viewport = iced_wgpu::Viewport::with_physical_size(
+            iced::Size::new(window.inner_size().width, window.inner_size().height),
+            window.scale_factor(),
+        );
+
+        let mut staging_belt = wgpu::util::StagingBelt::new(5 * 1024);
+
+        let controls = crate::controls::Controls::new();
+
+        let mut debug = iced_winit::Debug::new();
+        let mut renderer = iced_wgpu::Renderer::new(iced_wgpu::Backend::new(
+            &base.device,
+            iced_wgpu::Settings::default(),
+            base.surface_config.lock().unwrap().format,
+        ));
+
+        let state = iced_winit::program::State::new(
+            controls,
+            viewport.logical_size(),
+            &mut renderer,
+            &mut debug,
+        );
+
+        let cursor_position = winit::dpi::PhysicalPosition::new(-1.0, -1.0);
+        let modifiers = winit::event::ModifiersState::default();
+        let clipboard = iced_winit::clipboard::Clipboard::connect(window);
+
+        let iced = Iced {
+            debug,
+            renderer,
+            staging_belt,
+            state,
+            cursor_position,
+            modifiers,
+            viewport,
+            clipboard,
+        };
+
         let mut data = RendererStatePublicData {
             binded_pbr_meshes: vec![],
             binded_unlit_meshes: vec![],
@@ -2116,6 +2164,8 @@ impl RendererState {
             enable_shadows: false,
             enable_wireframe_mode: false,
             draw_node_bounding_spheres: false,
+
+            iced,
         };
 
         let box_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &cube_mesh)
@@ -2132,23 +2182,11 @@ impl RendererState {
             .try_into()
             .unwrap();
 
-        let controls = crate::controls::Controls::new();
-
         // use iced_wgpu::{wgpu, Backend, Renderer, Settings, Viewport};
         // use iced_winit::{
         //     conversion, futures, program, renderer, winit, Clipboard, Color, Debug,
         //     Size,
         // };
-
-        // Initialize iced
-        let mut renderer = iced_wgpu::Renderer::new(iced_wgpu::Backend::new(
-            &base.device,
-            iced_wgpu::Settings::default(),
-            format,
-        ));
-
-        let mut state =
-            program::State::new(controls, viewport.logical_size(), &mut renderer, &mut debug);
 
         let renderer_state = Self {
             base: Arc::new(base),
@@ -2164,6 +2202,8 @@ impl RendererState {
                 all_unlit_instances: ChunkedBuffer::empty(),
                 all_wireframe_instances: ChunkedBuffer::empty(),
                 debug_nodes: vec![],
+
+                bloom_threshold_cleared: true,
 
                 camera_and_lights_bind_group,
                 bones_and_pbr_instances_bind_group,
@@ -2358,10 +2398,15 @@ impl RendererState {
         index_buffer
     }
 
-    pub fn resize(&self, new_window_size: winit::dpi::PhysicalSize<u32>) {
+    pub fn resize(&self, new_window_size: winit::dpi::PhysicalSize<u32>, scale_factor: f64) {
         // let mut base_guard = self.base.lock().unwrap();
-        let data_guard = self.data.lock().unwrap();
+        let mut data_guard = self.data.lock().unwrap();
         let mut private_data_guard = self.private_data.lock().unwrap();
+
+        data_guard.iced.viewport = iced_winit::Viewport::with_physical_size(
+            iced::Size::new(new_window_size.width, new_window_size.height),
+            scale_factor,
+        );
 
         *self.base.window_size.lock().unwrap() = new_window_size;
         {
@@ -2583,10 +2628,15 @@ impl RendererState {
         scene.recompute_global_node_transforms();
     }
 
-    pub fn render(&mut self, game_state: &mut GameState) -> Result<(), wgpu::SurfaceError> {
+    pub fn render(
+        &mut self,
+        game_state: &mut GameState,
+        window: &winit::window::Window,
+    ) -> Result<(), wgpu::SurfaceError> {
         // let mut base_guard = self.base.lock().unwrap();
         let mut data_guard = self.data.lock().unwrap();
         let mut private_data_guard = self.private_data.lock().unwrap();
+        // TODO: this holds onto these mutexes for quite a while, could it make sense to make them hold for shorter periods?
         self.update_internal(
             &self.base,
             &mut data_guard,
@@ -2598,6 +2648,7 @@ impl RendererState {
             &mut data_guard,
             &mut private_data_guard,
             game_state,
+            window,
         )
     }
 
@@ -2610,6 +2661,26 @@ impl RendererState {
         private_data: &mut RendererStatePrivateData,
         game_state: &mut GameState,
     ) {
+        let iced = &mut data.iced;
+        // If there are events pending
+        if !iced.state.is_queue_empty() {
+            // We update iced
+            let _ = iced.state.update(
+                iced.viewport.logical_size(),
+                iced_winit::conversion::cursor_position(
+                    iced.cursor_position,
+                    iced.viewport.scale_factor(),
+                ),
+                &mut iced.renderer,
+                &iced_wgpu::Theme::Dark,
+                &iced_winit::renderer::Style {
+                    text_color: iced::Color::WHITE,
+                },
+                &mut iced.clipboard,
+                &mut iced.debug,
+            );
+        }
+
         Self::clear_debug_nodes(private_data, &mut game_state.scene);
 
         // game_state.scene.recompute_node_transforms();
@@ -2626,6 +2697,8 @@ impl RendererState {
         // draw_node_bounding_spheres: bool,
         // sphere_mesh_index: i32,
         Self::add_debug_nodes(data, private_data, game_state, self.sphere_mesh_index);
+
+        let iced_program = data.iced.state.program();
 
         let mut frustum_culled_node_list: Vec<GameNodeId> = Vec::new();
         for node in game_state.scene.nodes() {
@@ -2753,7 +2826,12 @@ impl RendererState {
                                             1.0,
                                         ]
                                     } else {
-                                        DEFAULT_WIREFRAME_COLOR
+                                        [
+                                            iced_program.background_color().r,
+                                            iced_program.background_color().b,
+                                            iced_program.background_color().g,
+                                            1.0,
+                                        ]
                                     }
                                 }
                             };
@@ -3016,7 +3094,10 @@ impl RendererState {
         data: &mut RendererStatePublicData,
         private_data: &mut RendererStatePrivateData,
         game_state: &mut GameState,
+        window: &winit::window::Window,
     ) -> Result<(), wgpu::SurfaceError> {
+        let iced_program = data.iced.state.program();
+
         let surface_texture = base.surface.get_current_texture()?;
         let surface_texture_view = surface_texture
             .texture
@@ -3036,7 +3117,7 @@ impl RendererState {
                         .create_view(&wgpu::TextureViewDescriptor {
                             dimension: Some(wgpu::TextureViewDimension::D2),
                             base_array_layer: light_index.try_into().unwrap(),
-                            array_layer_count: Some(1),
+                            array_layer_count: NonZeroU32::new(1),
                             ..Default::default()
                         });
                     let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
@@ -3086,7 +3167,7 @@ impl RendererState {
                                 &wgpu::TextureViewDescriptor {
                                     dimension: Some(wgpu::TextureViewDimension::D2),
                                     base_array_layer: (6 * light_index + i).try_into().unwrap(),
-                                    array_layer_count: Some(1),
+                                    array_layer_count: NonZeroU32::new(1),
                                     ..Default::default()
                                 },
                             ),
@@ -3300,6 +3381,8 @@ impl RendererState {
             .submit(std::iter::once(unlit_and_wireframe_encoder.finish()));
 
         if data.enable_bloom {
+            private_data.bloom_threshold_cleared = false;
+
             base.queue.write_buffer(
                 &private_data.bloom_config_buffer,
                 0,
@@ -3393,6 +3476,31 @@ impl RendererState {
                     i % 2 == 0,
                 );
             });
+        } else {
+            // clear bloom texture
+            let mut encoder = base
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Bloom Clear Encoder"),
+                });
+            {
+                let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: None,
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &private_data.bloom_pingpong_textures[0].view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(black),
+                            store: true,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                });
+            }
+
+            base.queue.submit(std::iter::once(encoder.finish()));
+            // cprivate_data.bloom_pingpong_textures[0]
+            private_data.bloom_threshold_cleared = true;
         }
 
         let mut skybox_encoder =
@@ -3508,10 +3616,32 @@ impl RendererState {
             surface_blit_render_pass.draw(0..3, 0..1);
         }
 
+        // And then iced on top
+        data.iced.renderer.with_primitives(|backend, primitive| {
+            backend.present(
+                &base.device,
+                &mut data.iced.staging_belt,
+                &mut surface_blit_encoder,
+                &surface_texture_view,
+                primitive,
+                &data.iced.viewport,
+                &data.iced.debug.overlay(),
+            );
+        });
+
+        data.iced.staging_belt.finish();
         base.queue
             .submit(std::iter::once(surface_blit_encoder.finish()));
-
         surface_texture.present();
+
+        // Update the mouse cursor
+        window.set_cursor_icon(iced_winit::conversion::mouse_interaction(
+            data.iced.state.mouse_interaction(),
+        ));
+
+        // And recall staging buffers
+        data.iced.staging_belt.recall();
+
         Ok(())
     }
 
