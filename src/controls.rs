@@ -43,7 +43,6 @@ impl Program for Controls {
         match message {
             Message::BackgroundColorChanged(color) => {
                 self.background_color = color;
-                logger_log(&format!("background_color={:?}", self.background_color));
             }
             Message::TextChanged(text) => {
                 self.text = text;

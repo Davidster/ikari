@@ -2160,8 +2160,8 @@ impl RendererState {
             bloom_threshold: INITIAL_BLOOM_THRESHOLD,
             bloom_ramp_size: INITIAL_BLOOM_RAMP_SIZE,
             render_scale: initial_render_scale,
-            enable_bloom: false,
-            enable_shadows: false,
+            enable_bloom: true,
+            enable_shadows: true,
             enable_wireframe_mode: false,
             draw_node_bounding_spheres: false,
 
