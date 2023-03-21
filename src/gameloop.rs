@@ -100,27 +100,12 @@ pub fn run(
                     _ => {}
                 };
 
-                {
-                    let mut renderer_state_data_guard = renderer_state.data.lock().unwrap();
-                    // TODO: move this into UI module
-                    match event {
-                        WindowEvent::CursorMoved { position, .. } => {
-                            renderer_state_data_guard.iced.cursor_position = position;
-                        }
-                        WindowEvent::ModifiersChanged(new_modifiers) => {
-                            renderer_state_data_guard.iced.modifiers = new_modifiers;
-                        }
-                        _ => {}
-                    }
-
-                    if let Some(event) = iced_winit::conversion::window_event(
-                        &event,
-                        window.scale_factor(),
-                        renderer_state_data_guard.iced.modifiers,
-                    ) {
-                        renderer_state_data_guard.iced.state.queue_event(event);
-                    }
-                }
+                renderer_state
+                    .data
+                    .lock()
+                    .unwrap()
+                    .ui_overlay
+                    .handle_window_event(&window, &event);
 
                 process_window_input(&mut game_state, &renderer_state, &event, &mut window);
             }

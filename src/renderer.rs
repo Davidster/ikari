@@ -12,6 +12,8 @@ use crate::scene::*;
 use crate::skinning::*;
 use crate::texture::*;
 use crate::transform::*;
+use crate::ui_overlay;
+use crate::ui_overlay::*;
 
 use std::collections::{hash_map::Entry, HashMap};
 use std::fs::File;
@@ -697,17 +699,6 @@ pub struct RendererStatePrivateData {
     bloom_pingpong_textures: [Texture; 2],
 }
 
-pub struct Iced {
-    debug: iced_winit::Debug,
-    renderer: iced_wgpu::Renderer,
-    staging_belt: wgpu::util::StagingBelt,
-    viewport: iced_wgpu::Viewport,
-    clipboard: iced_winit::clipboard::Clipboard,
-    pub state: iced_winit::program::State<crate::controls::Controls>,
-    pub cursor_position: winit::dpi::PhysicalPosition<f64>,
-    pub modifiers: winit::event::ModifiersState,
-}
-
 #[derive(Debug)]
 pub struct RenderBuffers {
     pub binded_pbr_meshes: Vec<BindedPbrMesh>,
@@ -734,7 +725,7 @@ pub struct RendererStatePublicData {
     pub enable_wireframe_mode: bool,
     pub draw_node_bounding_spheres: bool,
 
-    pub iced: Iced,
+    pub ui_overlay: UiOverlay,
 }
 
 // TODO: rename to Renderer
@@ -2108,45 +2099,11 @@ impl RendererState {
             });
         drop(sampler_cache_guard);
 
-        // Initialize iced
-
-        let viewport = iced_wgpu::Viewport::with_physical_size(
-            iced::Size::new(window.inner_size().width, window.inner_size().height),
-            window.scale_factor(),
-        );
-
-        let mut staging_belt = wgpu::util::StagingBelt::new(5 * 1024);
-
-        let controls = crate::controls::Controls::new();
-
-        let mut debug = iced_winit::Debug::new();
-        let mut renderer = iced_wgpu::Renderer::new(iced_wgpu::Backend::new(
+        let ui_overlay = UiOverlay::new(
+            window,
             &base.device,
-            iced_wgpu::Settings::default(),
             base.surface_config.lock().unwrap().format,
-        ));
-
-        let state = iced_winit::program::State::new(
-            controls,
-            viewport.logical_size(),
-            &mut renderer,
-            &mut debug,
         );
-
-        let cursor_position = winit::dpi::PhysicalPosition::new(-1.0, -1.0);
-        let modifiers = winit::event::ModifiersState::default();
-        let clipboard = iced_winit::clipboard::Clipboard::connect(window);
-
-        let iced = Iced {
-            debug,
-            renderer,
-            staging_belt,
-            state,
-            cursor_position,
-            modifiers,
-            viewport,
-            clipboard,
-        };
 
         let mut data = RendererStatePublicData {
             binded_pbr_meshes: vec![],
@@ -2165,7 +2122,7 @@ impl RendererState {
             enable_wireframe_mode: false,
             draw_node_bounding_spheres: false,
 
-            iced,
+            ui_overlay,
         };
 
         let box_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &cube_mesh)
@@ -2181,12 +2138,6 @@ impl RendererState {
         let plane_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &plane_mesh)
             .try_into()
             .unwrap();
-
-        // use iced_wgpu::{wgpu, Backend, Renderer, Settings, Viewport};
-        // use iced_winit::{
-        //     conversion, futures, program, renderer, winit, Clipboard, Color, Debug,
-        //     Size,
-        // };
 
         let renderer_state = Self {
             base: Arc::new(base),
@@ -2403,10 +2354,7 @@ impl RendererState {
         let mut data_guard = self.data.lock().unwrap();
         let mut private_data_guard = self.private_data.lock().unwrap();
 
-        data_guard.iced.viewport = iced_winit::Viewport::with_physical_size(
-            iced::Size::new(new_window_size.width, new_window_size.height),
-            scale_factor,
-        );
+        data_guard.ui_overlay.resize(new_window_size, scale_factor);
 
         *self.base.window_size.lock().unwrap() = new_window_size;
         {
@@ -2642,13 +2590,13 @@ impl RendererState {
             &mut data_guard,
             &mut private_data_guard,
             game_state,
+            window,
         );
         self.render_internal(
             &self.base,
             &mut data_guard,
             &mut private_data_guard,
             game_state,
-            window,
         )
     }
 
@@ -2660,26 +2608,9 @@ impl RendererState {
         data: &mut RendererStatePublicData,
         private_data: &mut RendererStatePrivateData,
         game_state: &mut GameState,
+        window: &winit::window::Window,
     ) {
-        let iced = &mut data.iced;
-        // If there are events pending
-        if !iced.state.is_queue_empty() {
-            // We update iced
-            let _ = iced.state.update(
-                iced.viewport.logical_size(),
-                iced_winit::conversion::cursor_position(
-                    iced.cursor_position,
-                    iced.viewport.scale_factor(),
-                ),
-                &mut iced.renderer,
-                &iced_wgpu::Theme::Dark,
-                &iced_winit::renderer::Style {
-                    text_color: iced::Color::WHITE,
-                },
-                &mut iced.clipboard,
-                &mut iced.debug,
-            );
-        }
+        data.ui_overlay.update(window);
 
         Self::clear_debug_nodes(private_data, &mut game_state.scene);
 
@@ -2698,7 +2629,7 @@ impl RendererState {
         // sphere_mesh_index: i32,
         Self::add_debug_nodes(data, private_data, game_state, self.sphere_mesh_index);
 
-        let iced_program = data.iced.state.program();
+        let ui_state = data.ui_overlay.get_state();
 
         let mut frustum_culled_node_list: Vec<GameNodeId> = Vec::new();
         for node in game_state.scene.nodes() {
@@ -2827,9 +2758,9 @@ impl RendererState {
                                         ]
                                     } else {
                                         [
-                                            iced_program.background_color().r,
-                                            iced_program.background_color().b,
-                                            iced_program.background_color().g,
+                                            ui_state.background_color().r,
+                                            ui_state.background_color().b,
+                                            ui_state.background_color().g,
                                             1.0,
                                         ]
                                     }
@@ -3094,10 +3025,7 @@ impl RendererState {
         data: &mut RendererStatePublicData,
         private_data: &mut RendererStatePrivateData,
         game_state: &mut GameState,
-        window: &winit::window::Window,
     ) -> Result<(), wgpu::SurfaceError> {
-        let iced_program = data.iced.state.program();
-
         let surface_texture = base.surface.get_current_texture()?;
         let surface_texture_view = surface_texture
             .texture
@@ -3616,31 +3544,14 @@ impl RendererState {
             surface_blit_render_pass.draw(0..3, 0..1);
         }
 
-        // And then iced on top
-        data.iced.renderer.with_primitives(|backend, primitive| {
-            backend.present(
-                &base.device,
-                &mut data.iced.staging_belt,
-                &mut surface_blit_encoder,
-                &surface_texture_view,
-                primitive,
-                &data.iced.viewport,
-                &data.iced.debug.overlay(),
-            );
-        });
-
-        data.iced.staging_belt.finish();
+        data.ui_overlay.render(
+            &base.device,
+            &mut surface_blit_encoder,
+            &surface_texture_view,
+        );
         base.queue
             .submit(std::iter::once(surface_blit_encoder.finish()));
         surface_texture.present();
-
-        // Update the mouse cursor
-        window.set_cursor_icon(iced_winit::conversion::mouse_interaction(
-            data.iced.state.mouse_interaction(),
-        ));
-
-        // And recall staging buffers
-        data.iced.staging_belt.recall();
 
         Ok(())
     }
