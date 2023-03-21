@@ -30,7 +30,7 @@ use rapier3d::prelude::*;
 use winit::event::{ElementState, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent};
 
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
-pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.3;
+pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
 pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
 pub const ARENA_SIDE_LENGTH: f32 = 500.0;
