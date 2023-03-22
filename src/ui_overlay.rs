@@ -1,12 +1,15 @@
+use std::time::Duration;
+
 use iced_wgpu::Renderer;
-use iced_winit::widget::{slider, text_input, Column, Row, Text};
-use iced_winit::{Alignment, Color, Command, Element, Length, Program};
+use iced_winit::widget::{Container, Row};
+use iced_winit::{Command, Element, Length, Program};
 use winit::{event::WindowEvent, window::Window};
+
+const FRAME_TIME_HISTORY_SIZE: usize = 5000;
 
 #[derive(Debug)]
 pub struct UiState {
-    background_color: Color,
-    text: String,
+    recent_frame_times: Vec<Duration>,
 }
 
 #[derive(Debug)]
@@ -16,20 +19,14 @@ pub struct IcedProgram {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    BackgroundColorChanged(Color),
-    TextChanged(String),
+    FrameCompleted(Duration),
 }
 
 impl UiState {
     pub fn new() -> Self {
         Self {
-            background_color: Color::BLACK,
-            text: Default::default(),
+            recent_frame_times: vec![],
         }
-    }
-
-    pub fn background_color(&self) -> Color {
-        self.background_color
     }
 }
 
@@ -46,11 +43,11 @@ impl Program for IcedProgram {
 
     fn update(&mut self, message: Message) -> Command<Message> {
         match message {
-            Message::BackgroundColorChanged(color) => {
-                self.state.background_color = color;
-            }
-            Message::TextChanged(text) => {
-                self.state.text = text;
+            Message::FrameCompleted(frame_duration) => {
+                self.state.recent_frame_times.push(frame_duration);
+                if self.state.recent_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
+                    self.state.recent_frame_times.remove(0);
+                }
             }
         }
 
@@ -58,61 +55,42 @@ impl Program for IcedProgram {
     }
 
     fn view(&self) -> Element<Message, Renderer> {
-        let background_color = self.state.background_color;
-        let text = &self.state.text;
+        if self.state.recent_frame_times.is_empty() {
+            return Row::new().into();
+        }
 
-        let sliders = Row::new()
-            .width(500)
-            .spacing(20)
-            .push(
-                slider(0.0..=1.0, background_color.r, move |r| {
-                    Message::BackgroundColorChanged(Color {
-                        r,
-                        ..background_color
-                    })
-                })
-                .step(0.01),
-            )
-            .push(
-                slider(0.0..=1.0, background_color.g, move |g| {
-                    Message::BackgroundColorChanged(Color {
-                        g,
-                        ..background_color
-                    })
-                })
-                .step(0.01),
-            )
-            .push(
-                slider(0.0..=1.0, background_color.b, move |b| {
-                    Message::BackgroundColorChanged(Color {
-                        b,
-                        ..background_color
-                    })
-                })
-                .step(0.01),
-            );
+        let avg_frame_time_millis = {
+            let alpha = 0.1;
+            let mut frame_times_iterator = self
+                .state
+                .recent_frame_times
+                .iter()
+                .map(|frame_time| frame_time.as_nanos() as f64 / 1_000_000.0);
+            let mut res = frame_times_iterator.next().unwrap(); // checked that length isn't 0
+            for frame_time in frame_times_iterator {
+                res = (1.0 - alpha) * res + (alpha * frame_time);
+            }
+            res
+        };
 
+        let framerate_msg = String::from(&format!(
+            "Frametime: {:.2}ms ({:.2}fps)",
+            avg_frame_time_millis,
+            1_000.0 / avg_frame_time_millis
+        ));
         Row::new()
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_items(Alignment::End)
+            .width(Length::Shrink)
+            .height(Length::Shrink)
+            .padding(5)
             .push(
-                Column::new()
-                    .width(Length::Fill)
-                    .align_items(Alignment::End)
-                    .push(
-                        Column::new()
-                            .padding(10)
-                            .spacing(10)
-                            .push(Text::new("Background color").style(Color::WHITE))
-                            .push(sliders)
-                            .push(
-                                Text::new(format!("{background_color:?}"))
-                                    .size(14)
-                                    .style(Color::WHITE),
-                            )
-                            .push(text_input("Placeholder", text, Message::TextChanged)),
-                    ),
+                Container::new(
+                    Row::new()
+                        .width(Length::Shrink)
+                        .height(Length::Shrink)
+                        .push(iced_winit::widget::text(framerate_msg.as_str())),
+                )
+                .padding(5)
+                .style(iced::theme::Container::Box),
             )
             .into()
     }
@@ -251,5 +229,9 @@ impl UiOverlay {
 
     pub fn get_state(&self) -> &UiState {
         &self.program_container.program().state
+    }
+
+    pub fn send_message(&mut self, message: Message) {
+        self.program_container.queue_message(message);
     }
 }

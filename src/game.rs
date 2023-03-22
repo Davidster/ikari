@@ -776,7 +776,6 @@ pub fn increment_render_scale(
                 as u32,
         ));
     }
-    let window_size = *renderer_base.window_size.lock().unwrap();
     renderer_state.resize(window.inner_size(), window.scale_factor());
 }
 

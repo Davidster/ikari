@@ -20,13 +20,20 @@ pub fn run(
     mut renderer_state: RendererState,
 ) {
     let mut last_log_time: Option<Instant> = None;
+    let mut last_frame_start_time: Option<Instant> = None;
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
         match event {
             Event::RedrawRequested(_) => {
                 game_state.on_frame_started();
                 profiling::finish_frame!();
-                LOGGER.lock().unwrap().on_frame_completed();
+                if let Some(last_frame_start_time) = last_frame_start_time {
+                    renderer_state.data.lock().unwrap().ui_overlay.send_message(
+                        crate::ui_overlay::Message::FrameCompleted(last_frame_start_time.elapsed()),
+                    );
+                }
+                last_frame_start_time = Some(Instant::now());
 
                 update_game_state(
                     &mut game_state,

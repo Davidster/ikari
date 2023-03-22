@@ -2628,8 +2628,6 @@ impl RendererState {
         // sphere_mesh_index: i32,
         Self::add_debug_nodes(data, private_data, game_state, self.sphere_mesh_index);
 
-        let ui_state = data.ui_overlay.get_state();
-
         let mut frustum_culled_node_list: Vec<GameNodeId> = Vec::new();
         for node in game_state.scene.nodes() {
             if node.mesh.is_none() {
@@ -2756,12 +2754,7 @@ impl RendererState {
                                             1.0,
                                         ]
                                     } else {
-                                        [
-                                            ui_state.background_color().r,
-                                            ui_state.background_color().b,
-                                            ui_state.background_color().g,
-                                            1.0,
-                                        ]
+                                        DEFAULT_WIREFRAME_COLOR
                                     }
                                 }
                             };
