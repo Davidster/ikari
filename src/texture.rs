@@ -140,13 +140,6 @@ impl Texture {
             )
         };
 
-        /* dbg!(
-            img_bytes.len(),
-            dimensions,
-            NonZeroU32::new(format.describe().block_size as u32  * dimensions.0)
-        );
-         */
-
         let view = texture.create_view(&Default::default());
         let sampler_index = base_renderer_state
             .sampler_cache

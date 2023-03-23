@@ -87,8 +87,6 @@ impl TextureCompressor {
             anyhow::bail!("Error compressing img to basisu {:?}", error_code);
         }
 
-        // dbg!(basisu_compressor.basis_file().len());
-
         // 0 = default compression level
         let zstd_encoded_data = zstd::stream::encode_all(basisu_compressor.basis_file(), 0)?;
 

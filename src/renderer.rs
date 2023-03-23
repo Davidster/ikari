@@ -1027,6 +1027,7 @@ impl RendererState {
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
         })];
+
         let mesh_pipeline_layout =
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1039,6 +1040,7 @@ impl RendererState {
                     ],
                     push_constant_ranges: &[],
                 });
+
         let mesh_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: Some("Mesh Pipeline"),
             layout: Some(&mesh_pipeline_layout),
@@ -1075,6 +1077,7 @@ impl RendererState {
             },
             multiview: None,
         };
+
         let mesh_pipeline = base
             .device
             .create_render_pipeline(&mesh_pipeline_descriptor);

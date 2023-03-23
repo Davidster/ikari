@@ -1,8 +1,13 @@
 use std::time::Duration;
 
+use iced::widget::Column;
+use iced::Background;
 use iced_wgpu::Renderer;
 use iced_winit::widget::{Container, Row};
 use iced_winit::{Command, Element, Length, Program};
+use plotters::prelude::*;
+use plotters::style::RED;
+use plotters_iced::{Chart, ChartWidget, DrawingBackend};
 use winit::{event::WindowEvent, window::Window};
 
 const FRAME_TIME_HISTORY_SIZE: usize = 5000;
@@ -14,7 +19,7 @@ pub struct UiState {
 
 #[derive(Debug)]
 pub struct IcedProgram {
-    state: UiState,
+    chart: MyChart,
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +41,103 @@ impl Default for UiState {
     }
 }
 
+pub struct ContainerStyle;
+
+impl iced::widget::container::StyleSheet for ContainerStyle {
+    type Style = iced_wgpu::Theme;
+
+    fn appearance(&self, _: &Self::Style) -> iced::widget::container::Appearance {
+        iced::widget::container::Appearance {
+            background: Some(Background::Color(iced::Color::from_rgba(
+                0.3, 0.3, 0.3, 0.6,
+            ))),
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Debug)]
+struct MyChart {
+    state: UiState,
+}
+
+impl Chart<Message> for MyChart {
+    type State = ();
+
+    // TODO: remove unwraps
+    fn build_chart<DB: DrawingBackend>(
+        &self,
+        _state: &Self::State,
+        mut builder: plotters_iced::ChartBuilder<DB>,
+    ) {
+        let oldest_ft_age_secs = 5.0f32;
+        let mut frame_times_with_ages = Vec::new();
+        let mut acc = std::time::Duration::from_secs(0);
+        for frame_time in self.state.recent_frame_times.iter().rev() {
+            frame_times_with_ages.push((-acc.as_secs_f32(), frame_time.as_secs_f32() * 1000.0));
+            acc += *frame_time;
+
+            if acc.as_secs_f32() > 5.0 {
+                break;
+            }
+        }
+        frame_times_with_ages.reverse();
+
+        let min_y = frame_times_with_ages
+            .iter()
+            .map(|(_frame_age_secs, frame_time_millis)| *frame_time_millis)
+            .reduce(|acc, frame_time_millis| {
+                if acc < frame_time_millis {
+                    acc
+                } else {
+                    frame_time_millis
+                }
+            })
+            .unwrap_or(0.0);
+        let max_y = frame_times_with_ages
+            .iter()
+            .map(|(_frame_age_secs, frame_time_millis)| *frame_time_millis)
+            .reduce(|acc, frame_time_millis| {
+                if acc > frame_time_millis {
+                    acc
+                } else {
+                    frame_time_millis
+                }
+            })
+            .map(|max_frame_time_millis| (max_frame_time_millis * 1.2).ceil().max(5.0))
+            .unwrap_or(5.0);
+
+        let mut chart = builder
+            .margin(5)
+            .x_label_area_size(0)
+            .y_label_area_size(0)
+            .build_cartesian_2d(-oldest_ft_age_secs..0.0, min_y..max_y)
+            .unwrap();
+        chart
+            .configure_mesh()
+            .x_max_light_lines(0)
+            .y_max_light_lines(0)
+            .draw()
+            .unwrap();
+
+        chart
+            .draw_series(plotters::series::LineSeries::new(
+                frame_times_with_ages,
+                RED.stroke_width(1),
+            ))
+            .unwrap();
+    }
+}
+
+impl MyChart {
+    fn view(&self) -> iced::Element<Message> {
+        ChartWidget::new(self)
+            .width(iced::Length::Fixed(200.0))
+            .height(iced::Length::Fixed(200.0))
+            .into()
+    }
+}
+
 // the iced ui
 impl Program for IcedProgram {
     type Renderer = Renderer;
@@ -44,9 +146,9 @@ impl Program for IcedProgram {
     fn update(&mut self, message: Message) -> Command<Message> {
         match message {
             Message::FrameCompleted(frame_duration) => {
-                self.state.recent_frame_times.push(frame_duration);
-                if self.state.recent_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
-                    self.state.recent_frame_times.remove(0);
+                self.chart.state.recent_frame_times.push(frame_duration);
+                if self.chart.state.recent_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
+                    self.chart.state.recent_frame_times.remove(0);
                 }
             }
         }
@@ -55,13 +157,14 @@ impl Program for IcedProgram {
     }
 
     fn view(&self) -> Element<Message, Renderer> {
-        if self.state.recent_frame_times.is_empty() {
+        if self.chart.state.recent_frame_times.is_empty() {
             return Row::new().into();
         }
 
         let avg_frame_time_millis = {
             let alpha = 0.01;
             let mut frame_times_iterator = self
+                .chart
                 .state
                 .recent_frame_times
                 .iter()
@@ -78,19 +181,22 @@ impl Program for IcedProgram {
             avg_frame_time_millis,
             1_000.0 / avg_frame_time_millis
         ));
+
+        let container_style = Box::new(ContainerStyle {});
         Row::new()
             .width(Length::Shrink)
             .height(Length::Shrink)
             .padding(5)
             .push(
                 Container::new(
-                    Row::new()
+                    Column::new()
                         .width(Length::Shrink)
                         .height(Length::Shrink)
-                        .push(iced_winit::widget::text(framerate_msg.as_str())),
+                        .push(iced_winit::widget::text(framerate_msg.as_str()))
+                        .push(self.chart.view()),
                 )
                 .padding(5)
-                .style(iced::theme::Container::Box),
+                .style(iced::theme::Container::Custom(container_style)),
             )
             .into()
     }
@@ -123,7 +229,9 @@ impl UiOverlay {
         let staging_belt = wgpu::util::StagingBelt::new(5 * 1024);
 
         let state = IcedProgram {
-            state: Default::default(),
+            chart: MyChart {
+                state: Default::default(),
+            },
         };
 
         let mut debug = iced_winit::Debug::new();
@@ -225,10 +333,6 @@ impl UiOverlay {
         });
 
         self.staging_belt.finish();
-    }
-
-    pub fn get_state(&self) -> &UiState {
-        &self.program_container.program().state
     }
 
     pub fn send_message(&mut self, message: Message) {
