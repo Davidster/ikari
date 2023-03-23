@@ -60,7 +60,7 @@ impl Program for IcedProgram {
         }
 
         let avg_frame_time_millis = {
-            let alpha = 0.1;
+            let alpha = 0.01;
             let mut frame_times_iterator = self
                 .state
                 .recent_frame_times

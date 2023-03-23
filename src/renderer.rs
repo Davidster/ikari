@@ -185,7 +185,7 @@ pub enum SkyboxHDREnvironment<'a> {
 #[derive(Debug)]
 pub struct BindedPbrMesh {
     pub geometry_buffers: GeometryBuffers,
-    pub textures_bind_group: wgpu::BindGroup,
+    pub textures_bind_group: Arc<wgpu::BindGroup>,
     pub dynamic_pbr_params: DynamicPbrParams,
 
     pub alpha_mode: AlphaMode,
@@ -2236,7 +2236,7 @@ impl RendererState {
     ) -> Result<usize> {
         let geometry_buffers = Self::bind_geometry_buffers_for_basic_mesh(base, mesh);
 
-        let textures_bind_group = base.make_pbr_textures_bind_group(material, false)?;
+        let textures_bind_group = Arc::new(base.make_pbr_textures_bind_group(material, false)?);
 
         data.binded_pbr_meshes.push(BindedPbrMesh {
             geometry_buffers,
