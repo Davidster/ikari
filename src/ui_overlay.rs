@@ -6,7 +6,9 @@ use iced_wgpu::Renderer;
 use iced_winit::widget::{Container, Row};
 use iced_winit::{Command, Element, Length, Program};
 use plotters::prelude::*;
+use plotters::style::text_anchor::Pos;
 use plotters::style::RED;
+use plotters_iced::plotters_backend::BackendColor;
 use plotters_iced::{Chart, ChartWidget, DrawingBackend};
 use winit::{event::WindowEvent, window::Window};
 
@@ -74,7 +76,7 @@ impl Chart<Message> for MyChart {
         let mut frame_times_with_ages = Vec::new();
         let mut acc = std::time::Duration::from_secs(0);
         for frame_time in self.state.recent_frame_times.iter().rev() {
-            frame_times_with_ages.push((-acc.as_secs_f32(), frame_time.as_secs_f32() * 1000.0));
+            frame_times_with_ages.push((-acc.as_secs_f32(), 1.0 / frame_time.as_secs_f32()));
             acc += *frame_time;
 
             if acc.as_secs_f32() > 5.0 {
@@ -83,49 +85,77 @@ impl Chart<Message> for MyChart {
         }
         frame_times_with_ages.reverse();
 
-        let min_y = frame_times_with_ages
-            .iter()
-            .map(|(_frame_age_secs, frame_time_millis)| *frame_time_millis)
-            .reduce(|acc, frame_time_millis| {
-                if acc < frame_time_millis {
-                    acc
-                } else {
-                    frame_time_millis
-                }
-            })
-            .unwrap_or(0.0);
+        /* let min_y = frame_times_with_ages
+        .iter()
+        .map(|(_frame_age_secs, frame_time_millis)| *frame_time_millis)
+        .reduce(|acc, frame_time_millis| {
+            if acc < frame_time_millis {
+                acc
+            } else {
+                frame_time_millis
+            }
+        })
+        .unwrap_or(0.0); */
+
+        let fps_grading_size = 30.0;
+
         let max_y = frame_times_with_ages
             .iter()
-            .map(|(_frame_age_secs, frame_time_millis)| *frame_time_millis)
-            .reduce(|acc, frame_time_millis| {
-                if acc > frame_time_millis {
-                    acc
-                } else {
-                    frame_time_millis
-                }
-            })
-            .map(|max_frame_time_millis| (max_frame_time_millis * 1.2).ceil().max(5.0))
-            .unwrap_or(5.0);
+            .map(|(_frame_age_secs, fps)| *fps)
+            .reduce(|acc, fps| if acc > fps { acc } else { fps })
+            .map(|max_fps| ((max_fps / fps_grading_size).ceil() * fps_grading_size).max(120.0))
+            .unwrap_or(120.0);
+
+        // TODO: use chart.configure_axes to control the tick size
+        // see https://docs.rs/plotters/latest/plotters/chart/struct.ChartContext.html#method.configure_axes
 
         let mut chart = builder
             .margin(5)
-            .x_label_area_size(0)
-            .y_label_area_size(0)
-            .build_cartesian_2d(-oldest_ft_age_secs..0.0, min_y..max_y)
+            .x_label_area_size(20)
+            .y_label_area_size(50)
+            .build_cartesian_2d(-oldest_ft_age_secs..0.0, 0.0f32..max_y)
             .unwrap();
         chart
             .configure_mesh()
+            .x_label_formatter(&|x| format!("{}s", x.round() as i32))
+            .y_label_formatter(&|y| format!("{}fps", y.round() as i32))
             .x_max_light_lines(0)
             .y_max_light_lines(0)
+            .disable_x_mesh()
+            .x_labels(6)
+            .y_labels((max_y / fps_grading_size).round() as usize + 1)
+            .bold_line_style(ShapeStyle {
+                color: RGBAColor(175, 175, 175, 1.0),
+                filled: false,
+                stroke_width: 1,
+            })
+            .axis_style(ShapeStyle {
+                color: WHITE.to_rgba(),
+                filled: false,
+                stroke_width: 2,
+            })
+            .x_label_style(("sans-serif", 15, &WHITE))
+            .y_label_style(("sans-serif", 15, &WHITE))
+            // .axis_desc_style(TextStyle {
+            //     font: FontDesc::from(("sans-serif", 15)),
+            //     color: BackendColor {
+            //         alpha: 1.0,
+            //         rgb: (255, 255, 255),
+            //     },
+            //     pos: Pos::default(),
+            // })
             .draw()
             .unwrap();
+
+        chart.configure_series_labels().draw().unwrap();
 
         chart
             .draw_series(plotters::series::LineSeries::new(
                 frame_times_with_ages,
                 RED.stroke_width(1),
             ))
-            .unwrap();
+            .unwrap()
+            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
     }
 }
 
