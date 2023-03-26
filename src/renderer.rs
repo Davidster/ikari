@@ -961,33 +961,6 @@ impl RendererState {
                     label: Some("single_uniform_bind_group_layout"),
                 });
 
-        let two_uniform_bind_group_layout =
-            base.device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                    ],
-                    label: Some("two_uniform_bind_group_layout"),
-                });
         let lights_bind_group_layout =
             base.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -2554,7 +2527,6 @@ impl RendererState {
 
         Self::clear_debug_nodes(private_data, &mut game_state.scene);
 
-        // game_state.scene.recompute_node_transforms();
         game_state.scene.recompute_global_node_transforms();
 
         let window_size = *base.window_size.lock().unwrap();
@@ -2563,10 +2535,6 @@ impl RendererState {
             window_size.width as f32 / window_size.height as f32,
         );
 
-        // private_data: &mut RendererStatePrivateData,
-        // game_state: &mut GameState,
-        // draw_node_bounding_spheres: bool,
-        // sphere_mesh_index: i32,
         Self::add_debug_nodes(data, private_data, game_state, self.sphere_mesh_index);
 
         let mut frustum_culled_node_list: Vec<GameNodeId> = Vec::new();
@@ -2982,7 +2950,7 @@ impl RendererState {
                             ..Default::default()
                         });
                     let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
-                        label: Some("Shadow Render Pass"),
+                        label: Some("Directional light shadow map"),
                         color_attachments: &[],
                         depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                             view: &texture_view,
@@ -3035,7 +3003,7 @@ impl RendererState {
                     .for_each(
                         |(face_view_proj_matrices, face_texture_view)| {
                             let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
-                                label: Some("Shadow Render Pass"),
+                                label: Some("Point light shadow map"),
                                 color_attachments: &[],
                                 depth_stencil_attachment: Some(
                                     wgpu::RenderPassDepthStencilAttachment {
@@ -3073,7 +3041,7 @@ impl RendererState {
         };
 
         let shading_render_pass_desc = wgpu::RenderPassDescriptor {
-            label: Some("Shading Render Pass"),
+            label: Some("Pbr meshes"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &private_data.shading_texture.view,
                 resolve_target: None,
@@ -3118,20 +3086,10 @@ impl RendererState {
             false,
         );
 
-        /*   let mut unlit_and_wireframe_encoder =
-                   base.device
-                       .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                           label: Some("Unlit And Wireframe Encoder"),
-                       });
-        */
-        // wgpu_profiler!(
-        //     "Unlit And Wireframe Encoder",
-        //     profiler,
-        //     &mut unlit_and_wireframe_encoder,
-        //     &base.device,
         {
+            let label = "Unlit and wireframe";
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Unlit And Wireframe Render Pass"),
+                label: Some(label),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &private_data.shading_texture.view,
                     resolve_target: None,
@@ -3150,128 +3108,142 @@ impl RendererState {
                 }),
             });
 
-            render_pass.set_pipeline(&self.unlit_mesh_pipeline);
-            render_pass.set_bind_group(0, &private_data.lights_bind_group, &[]);
-            for unlit_instance_chunk in private_data.all_unlit_instances.chunks() {
-                let binded_unlit_mesh_index = unlit_instance_chunk.id;
-                let instances_buffer_start_index = unlit_instance_chunk.start_index as u32;
-                let instance_count = (unlit_instance_chunk.end_index
-                    - unlit_instance_chunk.start_index)
-                    / private_data.all_unlit_instances.stride();
+            wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
+                render_pass.set_pipeline(&self.unlit_mesh_pipeline);
+                render_pass.set_bind_group(0, &private_data.lights_bind_group, &[]);
+                for unlit_instance_chunk in private_data.all_unlit_instances.chunks() {
+                    let binded_unlit_mesh_index = unlit_instance_chunk.id;
+                    let instances_buffer_start_index = unlit_instance_chunk.start_index as u32;
+                    let instance_count = (unlit_instance_chunk.end_index
+                        - unlit_instance_chunk.start_index)
+                        / private_data.all_unlit_instances.stride();
 
-                let geometry_buffers = &data.binded_unlit_meshes[binded_unlit_mesh_index];
+                    let geometry_buffers = &data.binded_unlit_meshes[binded_unlit_mesh_index];
 
-                render_pass.set_bind_group(
-                    1,
-                    &private_data.bones_and_unlit_instances_bind_group,
-                    &[0, instances_buffer_start_index],
-                );
-                render_pass.set_vertex_buffer(0, geometry_buffers.vertex_buffer.src().slice(..));
-                render_pass.set_index_buffer(
-                    geometry_buffers.index_buffer.src().slice(..),
-                    geometry_buffers.index_buffer_format,
-                );
-                render_pass.draw_indexed(
-                    0..geometry_buffers.index_buffer.length() as u32,
-                    0,
-                    0..instance_count as u32,
-                );
-            }
-
-            render_pass.set_pipeline(&self.wireframe_pipeline);
-            render_pass.set_push_constants(
-                wgpu::ShaderStages::VERTEX,
-                0,
-                bytemuck::cast_slice(&[CameraUniform::from(main_camera_data)]),
-            );
-
-            for wireframe_instance_chunk in private_data.all_wireframe_instances.chunks() {
-                let binded_wireframe_mesh_index = wireframe_instance_chunk.id;
-                let instances_buffer_start_index = wireframe_instance_chunk.start_index as u32;
-                let instance_count = (wireframe_instance_chunk.end_index
-                    - wireframe_instance_chunk.start_index)
-                    / private_data.all_wireframe_instances.stride();
-
-                let BindedWireframeMesh {
-                    source_mesh_type,
-                    source_mesh_index,
-                    index_buffer,
-                    index_buffer_format,
-                    ..
-                } = &data.binded_wireframe_meshes[binded_wireframe_mesh_index];
-
-                let (vertex_buffer, bone_transforms_buffer_start_index) = match source_mesh_type {
-                    MeshType::Pbr => {
-                        let bone_transforms_buffer_start_index = private_data
-                            .all_bone_transforms
-                            .animated_bone_transforms
-                            .iter()
-                            .find(|bone_slice| {
-                                bone_slice.binded_pbr_mesh_index == *source_mesh_index
-                            })
-                            .map(|bone_slice| bone_slice.start_index.try_into().unwrap())
-                            .unwrap_or(0);
-                        (
-                            &data.binded_pbr_meshes[*source_mesh_index]
-                                .geometry_buffers
-                                .vertex_buffer,
-                            bone_transforms_buffer_start_index,
-                        )
-                    }
-                    MeshType::Unlit => (
-                        &data.binded_unlit_meshes[*source_mesh_index].vertex_buffer,
+                    render_pass.set_bind_group(
+                        1,
+                        &private_data.bones_and_unlit_instances_bind_group,
+                        &[0, instances_buffer_start_index],
+                    );
+                    render_pass
+                        .set_vertex_buffer(0, geometry_buffers.vertex_buffer.src().slice(..));
+                    render_pass.set_index_buffer(
+                        geometry_buffers.index_buffer.src().slice(..),
+                        geometry_buffers.index_buffer_format,
+                    );
+                    render_pass.draw_indexed(
+                        0..geometry_buffers.index_buffer.length() as u32,
                         0,
-                    ),
-                };
-                render_pass.set_bind_group(
-                    1,
-                    &private_data.bones_and_wireframe_instances_bind_group,
-                    &[
-                        bone_transforms_buffer_start_index,
-                        instances_buffer_start_index,
-                    ],
-                );
-                render_pass.set_vertex_buffer(0, vertex_buffer.src().slice(..));
-                render_pass.set_index_buffer(index_buffer.src().slice(..), *index_buffer_format);
-                render_pass.draw_indexed(
-                    0..index_buffer.length() as u32,
-                    0,
-                    0..instance_count as u32,
-                );
-            }
-        }
-        // );
-        // profiler.resolve_queries(&mut unlit_and_wireframe_encoder);
+                        0..instance_count as u32,
+                    );
+                }
 
-        // base.queue
-        //     .submit(std::iter::once(unlit_and_wireframe_encoder.finish()));
+                render_pass.set_pipeline(&self.wireframe_pipeline);
+                render_pass.set_push_constants(
+                    wgpu::ShaderStages::VERTEX,
+                    0,
+                    bytemuck::cast_slice(&[CameraUniform::from(main_camera_data)]),
+                );
+
+                for wireframe_instance_chunk in private_data.all_wireframe_instances.chunks() {
+                    let binded_wireframe_mesh_index = wireframe_instance_chunk.id;
+                    let instances_buffer_start_index = wireframe_instance_chunk.start_index as u32;
+                    let instance_count = (wireframe_instance_chunk.end_index
+                        - wireframe_instance_chunk.start_index)
+                        / private_data.all_wireframe_instances.stride();
+
+                    let BindedWireframeMesh {
+                        source_mesh_type,
+                        source_mesh_index,
+                        index_buffer,
+                        index_buffer_format,
+                        ..
+                    } = &data.binded_wireframe_meshes[binded_wireframe_mesh_index];
+
+                    let (vertex_buffer, bone_transforms_buffer_start_index) = match source_mesh_type
+                    {
+                        MeshType::Pbr => {
+                            let bone_transforms_buffer_start_index = private_data
+                                .all_bone_transforms
+                                .animated_bone_transforms
+                                .iter()
+                                .find(|bone_slice| {
+                                    bone_slice.binded_pbr_mesh_index == *source_mesh_index
+                                })
+                                .map(|bone_slice| bone_slice.start_index.try_into().unwrap())
+                                .unwrap_or(0);
+                            (
+                                &data.binded_pbr_meshes[*source_mesh_index]
+                                    .geometry_buffers
+                                    .vertex_buffer,
+                                bone_transforms_buffer_start_index,
+                            )
+                        }
+                        MeshType::Unlit => (
+                            &data.binded_unlit_meshes[*source_mesh_index].vertex_buffer,
+                            0,
+                        ),
+                    };
+                    render_pass.set_bind_group(
+                        1,
+                        &private_data.bones_and_wireframe_instances_bind_group,
+                        &[
+                            bone_transforms_buffer_start_index,
+                            instances_buffer_start_index,
+                        ],
+                    );
+                    render_pass.set_vertex_buffer(0, vertex_buffer.src().slice(..));
+                    render_pass
+                        .set_index_buffer(index_buffer.src().slice(..), *index_buffer_format);
+                    render_pass.draw_indexed(
+                        0..index_buffer.length() as u32,
+                        0,
+                        0..instance_count as u32,
+                    );
+                }
+            });
+        }
 
         if data.enable_bloom {
             private_data.bloom_threshold_cleared = false;
 
-            // base.queue.write_buffer(
-            //     &private_data.bloom_config_buffer,
-            //     0,
-            //     bytemuck::cast_slice(&[0.0f32, data.bloom_threshold, data.bloom_ramp_size]),
-            // );
-
-            // let mut bloom_threshold_encoder =
-            //     base.device
-            //         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            //             label: Some("Bloom Threshold Encoder"),
-            //         });
-
-            // wgpu_profiler!(
-            //     "Bloom Threshold Encoder",
-            //     profiler,
-            //     &mut bloom_threshold_encoder,
-            //     &base.device,
             {
-                let mut bloom_threshold_render_pass =
-                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: None,
+                let label = "Bloom threshold";
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some(label),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &private_data.bloom_pingpong_textures[0].view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(black),
+                            store: true,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                });
+
+                wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
+                    render_pass.set_pipeline(&self.bloom_threshold_pipeline);
+                    render_pass.set_push_constants(
+                        wgpu::ShaderStages::FRAGMENT,
+                        0,
+                        bytemuck::cast_slice(&[0.0f32, data.bloom_threshold, data.bloom_ramp_size]),
+                    );
+                    render_pass.set_bind_group(0, &private_data.shading_texture_bind_group, &[]);
+                    render_pass.draw(0..3, 0..1);
+                });
+            }
+
+            let mut do_bloom_blur_pass =
+                |encoder: &mut wgpu::CommandEncoder,
+                 src_texture: &wgpu::BindGroup,
+                 dst_texture: &wgpu::TextureView,
+                 horizontal: bool| {
+                    let label = "Bloom blur";
+                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some(label),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &private_data.bloom_pingpong_textures[0].view,
+                            view: dst_texture,
                             resolve_target: None,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(black),
@@ -3281,69 +3253,7 @@ impl RendererState {
                         depth_stencil_attachment: None,
                     });
 
-                bloom_threshold_render_pass.set_pipeline(&self.bloom_threshold_pipeline);
-                bloom_threshold_render_pass.set_push_constants(
-                    wgpu::ShaderStages::FRAGMENT,
-                    0,
-                    bytemuck::cast_slice(&[0.0f32, data.bloom_threshold, data.bloom_ramp_size]),
-                );
-                bloom_threshold_render_pass.set_bind_group(
-                    0,
-                    &private_data.shading_texture_bind_group,
-                    &[],
-                );
-                // bloom_threshold_render_pass.set_bind_group(
-                //     1,
-                //     &private_data.bloom_config_bind_group,
-                //     &[],
-                // );
-                bloom_threshold_render_pass.draw(0..3, 0..1);
-            }
-            // );
-            // profiler.resolve_queries(&mut bloom_threshold_encoder);
-
-            // base.queue
-            //     .submit(std::iter::once(bloom_threshold_encoder.finish()));
-
-            let mut do_bloom_blur_pass =
-                |encoder: &mut wgpu::CommandEncoder,
-                 src_texture: &wgpu::BindGroup,
-                 dst_texture: &wgpu::TextureView,
-                 horizontal: bool| {
-                    // let mut encoder =
-                    //     base.device
-                    //         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    //             label: Some("Bloom Blur Encoder"),
-                    //         });
-                    // wgpu_profiler!(
-                    //     "Bloom Blur Encoder",
-                    //     profiler,
-                    //     &mut encoder,
-                    //     &base.device,
-                    {
-                        let mut render_pass =
-                            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: None,
-                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                    view: dst_texture,
-                                    resolve_target: None,
-                                    ops: wgpu::Operations {
-                                        load: wgpu::LoadOp::Clear(black),
-                                        store: true,
-                                    },
-                                })],
-                                depth_stencil_attachment: None,
-                            });
-
-                        // base.queue.write_buffer(
-                        //     &private_data.bloom_config_buffer,
-                        //     0,
-                        //     bytemuck::cast_slice(&[
-                        //         if horizontal { 0.0f32 } else { 1.0f32 },
-                        //         data.bloom_threshold,
-                        //         data.bloom_ramp_size,
-                        //     ]),
-                        // );
+                    wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
                         render_pass.set_pipeline(&self.bloom_blur_pipeline);
                         render_pass.set_push_constants(
                             wgpu::ShaderStages::FRAGMENT,
@@ -3355,13 +3265,8 @@ impl RendererState {
                             ]),
                         );
                         render_pass.set_bind_group(0, src_texture, &[]);
-                        // render_pass.set_bind_group(1, &private_data.bloom_config_bind_group, &[]);
                         render_pass.draw(0..3, 0..1);
-                    }
-                    // );
-                    // profiler.resolve_queries(&mut encoder);
-
-                    // base.queue.submit(std::iter::once(encoder.finish()));
+                    });
                 };
 
             // do 10 gaussian blur passes, switching between horizontal and vertical and ping ponging between
@@ -3377,51 +3282,27 @@ impl RendererState {
             });
         } else {
             // clear bloom texture
-            // let mut encoder = base
-            //     .device
-            //     .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            //         label: Some("Bloom Clear Encoder"),
-            //     });
-
-            // wgpu_profiler!(
-            //     "Bloom Clear Encoder",
-            //     profiler,
-            //     &mut encoder,
-            //     &base.device,
-            {
-                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &private_data.bloom_pingpong_textures[0].view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(black),
-                            store: true,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                });
-            }
-            // );
-            // profiler.resolve_queries(&mut encoder);
-
-            // base.queue.submit(std::iter::once(encoder.finish()));
+            let label = "Bloom clear";
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &private_data.bloom_pingpong_textures[0].view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(black),
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: None,
+            });
+            wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {});
             private_data.bloom_threshold_cleared = true;
         }
 
-        // let mut skybox_encoder =
-        //     base.device
-        //         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        //             label: Some("Skybox Encoder"),
-        //         });
-        // wgpu_profiler!(
-        //     "Skybox Encoder",
-        //     profiler,
-        //     &mut skybox_encoder,
-        //     &base.device,
         {
-            let mut skybox_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
+            let label = "Skybox";
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some(label),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &private_data.tone_mapping_texture.view,
                     resolve_target: None,
@@ -3439,133 +3320,103 @@ impl RendererState {
                     stencil_ops: None,
                 }),
             });
-            skybox_render_pass.set_pipeline(&self.skybox_pipeline);
-            skybox_render_pass.set_push_constants(
-                wgpu::ShaderStages::VERTEX,
-                0,
-                bytemuck::cast_slice(&[CameraUniform::from(main_camera_data)]),
-            );
-            skybox_render_pass.set_bind_group(
-                0,
-                &private_data.environment_textures_bind_group,
-                &[],
-            );
-            skybox_render_pass.set_vertex_buffer(0, data.skybox_mesh.vertex_buffer.src().slice(..));
-            skybox_render_pass.set_index_buffer(
-                data.skybox_mesh.index_buffer.src().slice(..),
-                data.skybox_mesh.index_buffer_format,
-            );
-            skybox_render_pass.draw_indexed(
-                0..(data.skybox_mesh.index_buffer.length() as u32),
-                0,
-                0..1,
-            );
-        }
-        // );
-        // profiler.resolve_queries(&mut skybox_encoder);
 
-        // base.queue.submit(std::iter::once(skybox_encoder.finish()));
-
-        // let mut tone_mapping_encoder =
-        //     base.device
-        //         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        //             label: Some("Tone Mapping Encoder"),
-        //         });
-        // wgpu_profiler!(
-        //     "Tone Mapping Encoder",
-        //     profiler,
-        //     &mut tone_mapping_encoder,
-        //     &base.device,
-        {
-            let mut tone_mapping_render_pass =
-                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &private_data.tone_mapping_texture.view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: true,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                });
-            tone_mapping_render_pass.set_pipeline(&self.tone_mapping_pipeline);
-            tone_mapping_render_pass.set_push_constants(
-                wgpu::ShaderStages::FRAGMENT,
-                0,
-                bytemuck::cast_slice(&[data.tone_mapping_exposure]),
-            );
-            tone_mapping_render_pass.set_bind_group(
-                0,
-                &private_data.shading_and_bloom_textures_bind_group,
-                &[],
-            );
-            tone_mapping_render_pass.draw(0..3, 0..1);
-        }
-        // );
-        // profiler.resolve_queries(&mut tone_mapping_encoder);
-
-        // base.queue
-        //     .submit(std::iter::once(tone_mapping_encoder.finish()));
-
-        // let mut surface_blit_encoder =
-        //     base.device
-        //         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        //             label: Some("Surface Blit Encoder"),
-        //         });
-
-        // wgpu_profiler!(
-        //     "Surface Blit Encoder",
-        //     profiler,
-        //     &mut surface_blit_encoder,
-        //     &base.device,
-        {
-            {
-                let mut surface_blit_render_pass =
-                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: None,
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &surface_texture_view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(black),
-                                store: true,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                    });
-
-                surface_blit_render_pass.set_pipeline(&self.surface_blit_pipeline);
-                surface_blit_render_pass.set_bind_group(
+            wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
+                render_pass.set_pipeline(&self.skybox_pipeline);
+                render_pass.set_push_constants(
+                    wgpu::ShaderStages::VERTEX,
                     0,
-                    &private_data.tone_mapping_texture_bind_group,
+                    bytemuck::cast_slice(&[CameraUniform::from(main_camera_data)]),
+                );
+                render_pass.set_bind_group(0, &private_data.environment_textures_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, data.skybox_mesh.vertex_buffer.src().slice(..));
+                render_pass.set_index_buffer(
+                    data.skybox_mesh.index_buffer.src().slice(..),
+                    data.skybox_mesh.index_buffer_format,
+                );
+                render_pass.draw_indexed(
+                    0..(data.skybox_mesh.index_buffer.length() as u32),
+                    0,
+                    0..1,
+                );
+            });
+        }
+        {
+            let label = "Tone mapping";
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some(label),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &private_data.tone_mapping_texture.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: None,
+            });
+            wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
+                render_pass.set_pipeline(&self.tone_mapping_pipeline);
+                render_pass.set_push_constants(
+                    wgpu::ShaderStages::FRAGMENT,
+                    0,
+                    bytemuck::cast_slice(&[data.tone_mapping_exposure]),
+                );
+                render_pass.set_bind_group(
+                    0,
+                    &private_data.shading_and_bloom_textures_bind_group,
                     &[],
                 );
-                surface_blit_render_pass.draw(0..3, 0..1);
-            }
-
-            data.ui_overlay
-                .render(&base.device, &mut encoder, &surface_texture_view);
+                render_pass.draw(0..3, 0..1);
+            });
         }
-        // );
+
+        {
+            let label = "Surface blit";
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some(label),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &surface_texture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(black),
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: None,
+            });
+
+            wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
+                {
+                    render_pass.set_pipeline(&self.surface_blit_pipeline);
+                    render_pass.set_bind_group(
+                        0,
+                        &private_data.tone_mapping_texture_bind_group,
+                        &[],
+                    );
+                    render_pass.draw(0..3, 0..1);
+                }
+            });
+        }
+
+        // TODO: pass a difference encoder to the ui overlay so it can be profiled
+        data.ui_overlay
+            .render(&base.device, &mut encoder, &surface_texture_view);
+
         profiler.resolve_queries(&mut encoder);
 
         base.queue.submit(std::iter::once(encoder.finish()));
 
         surface_texture.present();
 
-        profiler
-            .end_frame()
-            .expect("Something went wrong with wgpu_profiler");
-
-        if let Some(results) = profiler.process_finished_frame() {
-            scopes_to_console_recursive(&results, 0);
-        }
+        profiler.end_frame().expect(
+            "Something went wrong with wgpu_profiler. Does the crate still not report error details?",
+        );
 
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn render_pbr_meshes<'a>(
         base: &BaseRendererState,
         data: &RendererStatePublicData,
@@ -3578,82 +3429,91 @@ impl RendererState {
         is_shadow: bool,
     ) {
         let device = &base.device;
-        let queue = &base.queue;
-        let label = String::from(&format!(
-            "render_pbr_meshes Encoder{:?}",
-            if is_shadow { " (shadow)" } else { "" }
-        ));
 
         let mut render_pass = encoder.begin_render_pass(render_pass_descriptor);
 
-        // wgpu_profiler!(&label, profiler, &mut render_pass, device, {
-        render_pass.set_pipeline(pipeline);
-        render_pass.set_push_constants(
-            wgpu::ShaderStages::VERTEX,
-            0,
-            bytemuck::cast_slice(&[CameraUniform::from(camera)]),
-        );
-        render_pass.set_bind_group(0, &private_data.lights_bind_group, &[]);
-        if !is_shadow {
-            render_pass.set_bind_group(1, &private_data.environment_textures_bind_group, &[]);
-        }
-        for pbr_instance_chunk in private_data.all_pbr_instances.chunks() {
-            let binded_pbr_mesh_index = pbr_instance_chunk.id;
-            let bone_transforms_buffer_start_index = private_data
-                .all_bone_transforms
-                .animated_bone_transforms
-                .iter()
-                .find(|bone_slice| bone_slice.binded_pbr_mesh_index == binded_pbr_mesh_index)
-                .map(|bone_slice| bone_slice.start_index.try_into().unwrap())
-                .unwrap_or(0);
-            let instances_buffer_start_index = pbr_instance_chunk.start_index as u32;
-            let instance_count = (pbr_instance_chunk.end_index - pbr_instance_chunk.start_index)
-                / private_data.all_pbr_instances.stride();
+        wgpu_profiler!(
+            render_pass_descriptor
+                .label
+                .unwrap_or("render_pbr_meshes unlabelled"),
+            profiler,
+            &mut render_pass,
+            device,
+            {
+                render_pass.set_pipeline(pipeline);
+                render_pass.set_push_constants(
+                    wgpu::ShaderStages::VERTEX,
+                    0,
+                    bytemuck::cast_slice(&[CameraUniform::from(camera)]),
+                );
+                render_pass.set_bind_group(0, &private_data.lights_bind_group, &[]);
+                if !is_shadow {
+                    render_pass.set_bind_group(
+                        1,
+                        &private_data.environment_textures_bind_group,
+                        &[],
+                    );
+                }
+                for pbr_instance_chunk in private_data.all_pbr_instances.chunks() {
+                    let binded_pbr_mesh_index = pbr_instance_chunk.id;
+                    let bone_transforms_buffer_start_index = private_data
+                        .all_bone_transforms
+                        .animated_bone_transforms
+                        .iter()
+                        .find(|bone_slice| {
+                            bone_slice.binded_pbr_mesh_index == binded_pbr_mesh_index
+                        })
+                        .map(|bone_slice| bone_slice.start_index.try_into().unwrap())
+                        .unwrap_or(0);
+                    let instances_buffer_start_index = pbr_instance_chunk.start_index as u32;
+                    let instance_count = (pbr_instance_chunk.end_index
+                        - pbr_instance_chunk.start_index)
+                        / private_data.all_pbr_instances.stride();
 
-            let BindedPbrMesh {
-                geometry_buffers,
-                textures_bind_group,
-                ..
-            } = &data.binded_pbr_meshes[binded_pbr_mesh_index];
+                    let BindedPbrMesh {
+                        geometry_buffers,
+                        textures_bind_group,
+                        ..
+                    } = &data.binded_pbr_meshes[binded_pbr_mesh_index];
 
-            render_pass.set_bind_group(
-                if is_shadow { 1 } else { 2 },
-                &private_data.bones_and_pbr_instances_bind_group,
-                &[
-                    bone_transforms_buffer_start_index,
-                    instances_buffer_start_index,
-                ],
-            );
-            if !is_shadow {
-                render_pass.set_bind_group(3, textures_bind_group, &[]);
+                    render_pass.set_bind_group(
+                        if is_shadow { 1 } else { 2 },
+                        &private_data.bones_and_pbr_instances_bind_group,
+                        &[
+                            bone_transforms_buffer_start_index,
+                            instances_buffer_start_index,
+                        ],
+                    );
+                    if !is_shadow {
+                        render_pass.set_bind_group(3, textures_bind_group, &[]);
+                    }
+                    render_pass
+                        .set_vertex_buffer(0, geometry_buffers.vertex_buffer.src().slice(..));
+                    render_pass.set_index_buffer(
+                        geometry_buffers.index_buffer.src().slice(..),
+                        geometry_buffers.index_buffer_format,
+                    );
+                    render_pass.draw_indexed(
+                        0..geometry_buffers.index_buffer.length() as u32,
+                        0,
+                        0..instance_count as u32,
+                    );
+                }
             }
-            render_pass.set_vertex_buffer(0, geometry_buffers.vertex_buffer.src().slice(..));
-            render_pass.set_index_buffer(
-                geometry_buffers.index_buffer.src().slice(..),
-                geometry_buffers.index_buffer_format,
-            );
-            render_pass.draw_indexed(
-                0..geometry_buffers.index_buffer.length() as u32,
-                0,
-                0..instance_count as u32,
-            );
-        }
-        // });
-    }
-}
-
-fn scopes_to_console_recursive(results: &[wgpu_profiler::GpuTimerScopeResult], indentation: u32) {
-    for scope in results {
-        if indentation > 0 {
-            print!("{:<width$}", "|", width = 4);
-        }
-        println!(
-            "{:.3}μs - {}",
-            (scope.time.end - scope.time.start) * 1000.0 * 1000.0,
-            scope.label
         );
-        if !scope.nested_scopes.is_empty() {
-            scopes_to_console_recursive(&scope.nested_scopes, indentation + 1);
-        }
+    }
+
+    pub fn process_profiler_frame(&self) -> Option<Vec<GpuTimerScopeResultWrapper>> {
+        self.profiler
+            .lock()
+            .unwrap()
+            .process_finished_frame()
+            .map(|frames| {
+                let mut result: Vec<_> = vec![];
+                for frame in frames {
+                    result.push(GpuTimerScopeResultWrapper(frame));
+                }
+                result
+            })
     }
 }

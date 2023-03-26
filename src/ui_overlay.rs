@@ -19,9 +19,10 @@ pub struct IcedProgram {
     chart: FpsChart,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Message {
     FrameCompleted(Duration),
+    GpuFrameCompleted(Vec<GpuTimerScopeResultWrapper>),
 }
 
 pub struct ContainerStyle;
@@ -42,6 +43,7 @@ impl iced::widget::container::StyleSheet for ContainerStyle {
 #[derive(Debug)]
 struct FpsChart {
     recent_frame_times: Vec<Duration>,
+    recent_gpu_frame_times: Vec<Vec<GpuTimerScopeResultWrapper>>,
 }
 
 impl Chart<Message> for FpsChart {
@@ -166,6 +168,12 @@ impl Program for IcedProgram {
                     self.chart.recent_frame_times.remove(0);
                 }
             }
+            Message::GpuFrameCompleted(frames) => {
+                self.chart.recent_gpu_frame_times.push(frames);
+                if self.chart.recent_gpu_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
+                    self.chart.recent_gpu_frame_times.remove(0);
+                }
+            }
         }
 
         Command::none()
@@ -176,24 +184,37 @@ impl Program for IcedProgram {
             return Row::new().into();
         }
 
-        let avg_frame_time_millis = {
+        let (avg_frame_time_millis, avg_gpu_frame_time_millis) = {
             let alpha = 0.01;
+
             let mut frame_times_iterator = self
                 .chart
                 .recent_frame_times
                 .iter()
                 .map(|frame_time| frame_time.as_nanos() as f64 / 1_000_000.0);
-            let mut res = frame_times_iterator.next().unwrap(); // checked that length isn't 0
+            let mut cpu = frame_times_iterator.next().unwrap(); // checked that length isn't 0
             for frame_time in frame_times_iterator {
-                res = (1.0 - alpha) * res + (alpha * frame_time);
+                cpu = (1.0 - alpha) * cpu + (alpha * frame_time);
             }
-            res
+
+            let mut gpu_frame_times_iterator = self
+                .chart
+                .recent_gpu_frame_times
+                .iter()
+                .map(collect_frame_time_ms);
+            let mut gpu = gpu_frame_times_iterator.next().unwrap_or(0.0);
+            for frame_time in gpu_frame_times_iterator {
+                gpu = (1.0 - alpha) * gpu + (alpha * frame_time);
+            }
+
+            (cpu, gpu)
         };
 
         let framerate_msg = String::from(&format!(
-            "Frametime: {:.2}ms ({:.2}fps)",
+            "Frametime: {:.2}ms ({:.2}fps), GPU: {:.2}ms",
             avg_frame_time_millis,
-            1_000.0 / avg_frame_time_millis
+            1_000.0 / avg_frame_time_millis,
+            avg_gpu_frame_time_millis
         ));
 
         let container_style = Box::new(ContainerStyle {});
@@ -245,6 +266,7 @@ impl UiOverlay {
         let state = IcedProgram {
             chart: FpsChart {
                 recent_frame_times: vec![],
+                recent_gpu_frame_times: vec![],
             },
         };
 
@@ -352,4 +374,32 @@ impl UiOverlay {
     pub fn send_message(&mut self, message: Message) {
         self.program_container.queue_message(message);
     }
+}
+
+pub struct GpuTimerScopeResultWrapper(pub wgpu_profiler::GpuTimerScopeResult);
+
+impl std::ops::Deref for GpuTimerScopeResultWrapper {
+    type Target = wgpu_profiler::GpuTimerScopeResult;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for GpuTimerScopeResultWrapper {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "(TODO implement better formatter for GpuTimerScopeResultWrapper) {:?}",
+            self.label
+        )
+    }
+}
+
+fn collect_frame_time_ms(frame_times: &Vec<GpuTimerScopeResultWrapper>) -> f64 {
+    let mut result = 0.0;
+    for frame_time in frame_times {
+        result += (frame_time.time.end - frame_time.time.start) * 1000.0;
+    }
+    result
 }

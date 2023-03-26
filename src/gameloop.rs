@@ -29,9 +29,15 @@ pub fn run(
                 game_state.on_frame_started();
                 profiling::finish_frame!();
                 if let Some(last_frame_start_time) = last_frame_start_time {
-                    renderer_state.data.lock().unwrap().ui_overlay.send_message(
+                    let mut renderer_data_guard = renderer_state.data.lock().unwrap();
+                    renderer_data_guard.ui_overlay.send_message(
                         crate::ui_overlay::Message::FrameCompleted(last_frame_start_time.elapsed()),
                     );
+                    if let Some(gpu_timing_info) = renderer_state.process_profiler_frame() {
+                        renderer_data_guard.ui_overlay.send_message(
+                            crate::ui_overlay::Message::GpuFrameCompleted(gpu_timing_info),
+                        );
+                    }
                 }
                 last_frame_start_time = Some(Instant::now());
 

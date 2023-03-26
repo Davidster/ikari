@@ -470,23 +470,6 @@ impl Texture {
             1
         };
 
-        let single_uniform_bind_group_layout =
-            base_renderer_state
-                .device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
-                    label: Some("single_uniform_bind_group_layout"),
-                });
-
         let single_texture_bind_group_layout =
             base_renderer_state
                 .device
@@ -759,23 +742,6 @@ impl Texture {
         } else {
             1
         };
-
-        let single_uniform_bind_group_layout =
-            base_renderer_state
-                .device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
-                    label: Some("single_uniform_bind_group_layout"),
-                });
 
         let single_cube_texture_bind_group_layout = base_renderer_state
             .device
