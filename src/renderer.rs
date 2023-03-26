@@ -27,6 +27,7 @@ use glam::f32::{Mat4, Vec3};
 use image::Pixel;
 use wgpu::util::DeviceExt;
 use wgpu::InstanceDescriptor;
+use wgpu_profiler::wgpu_profiler;
 use winit::window::Window;
 
 pub const MAX_LIGHT_COUNT: usize = 32;
@@ -293,17 +294,17 @@ impl BaseRendererState {
         let adapter_info = adapter.get_info();
         log::info!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
 
-        let mut features = wgpu::Features::empty();
-        features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
-        features |= wgpu::Features::TIMESTAMP_QUERY;
-        features |= wgpu::Features::WRITE_TIMESTAMP_INSIDE_PASSES;
+        let features = adapter.features();
 
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
                     features,
-                    limits: wgpu::Limits::default(),
+                    limits: wgpu::Limits {
+                        max_push_constant_size: 256,
+                        ..Default::default()
+                    },
                 },
                 None,
             )
@@ -673,12 +674,10 @@ pub struct RendererStatePrivateData {
     bloom_threshold_cleared: bool,
 
     // gpu
-    camera_and_lights_bind_group: wgpu::BindGroup,
+    lights_bind_group: wgpu::BindGroup,
     bones_and_pbr_instances_bind_group: wgpu::BindGroup,
     bones_and_unlit_instances_bind_group: wgpu::BindGroup,
     bones_and_wireframe_instances_bind_group: wgpu::BindGroup,
-    bloom_config_bind_group: wgpu::BindGroup,
-    tone_mapping_config_bind_group: wgpu::BindGroup,
 
     environment_textures_bind_group: wgpu::BindGroup,
     shading_and_bloom_textures_bind_group: wgpu::BindGroup,
@@ -686,11 +685,8 @@ pub struct RendererStatePrivateData {
     shading_texture_bind_group: wgpu::BindGroup,
     bloom_pingpong_texture_bind_groups: [wgpu::BindGroup; 2],
 
-    camera_buffer: wgpu::Buffer,
     point_lights_buffer: wgpu::Buffer,
     directional_lights_buffer: wgpu::Buffer,
-    bloom_config_buffer: wgpu::Buffer,
-    tone_mapping_config_buffer: wgpu::Buffer,
     bones_buffer: GpuBuffer,
     pbr_instances_buffer: GpuBuffer,
     unlit_instances_buffer: GpuBuffer,
@@ -740,6 +736,8 @@ pub struct RendererState {
 
     // TODO: does this need a mutex?
     private_data: Mutex<RendererStatePrivateData>,
+
+    profiler: Mutex<wgpu_profiler::GpuProfiler>,
 
     mesh_pipeline: wgpu::RenderPipeline,
     unlit_mesh_pipeline: wgpu::RenderPipeline,
@@ -990,7 +988,7 @@ impl RendererState {
                     ],
                     label: Some("two_uniform_bind_group_layout"),
                 });
-        let camera_and_lights_bind_group_layout =
+        let lights_bind_group_layout =
             base.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     entries: &[
@@ -1014,18 +1012,8 @@ impl RendererState {
                             },
                             count: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
                     ],
-                    label: Some("camera_and_lights_uniform_bind_group_layout"),
+                    label: Some("lights_uniform_bind_group_layout"),
                 });
 
         let fragment_shader_color_targets = &[Some(wgpu::ColorTargetState {
@@ -1034,17 +1022,22 @@ impl RendererState {
             write_mask: wgpu::ColorWrites::ALL,
         })];
 
+        let camera_push_constant_range = wgpu::PushConstantRange {
+            stages: wgpu::ShaderStages::VERTEX,
+            range: 0..std::mem::size_of::<CameraUniform>() as u32,
+        };
+
         let mesh_pipeline_layout =
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Mesh Pipeline Layout"),
                     bind_group_layouts: &[
-                        &camera_and_lights_bind_group_layout,
+                        &lights_bind_group_layout,
                         &environment_textures_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
                         &base.pbr_textures_bind_group_layout,
                     ],
-                    push_constant_ranges: &[],
+                    push_constant_ranges: &[camera_push_constant_range.clone()],
                 });
 
         let mesh_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -1093,10 +1086,10 @@ impl RendererState {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Unlit Mesh Pipeline Layout"),
                     bind_group_layouts: &[
-                        &camera_and_lights_bind_group_layout,
+                        &lights_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
                     ],
-                    push_constant_ranges: &[],
+                    push_constant_ranges: &[camera_push_constant_range.clone()],
                 });
         let mut unlit_mesh_pipeline_descriptor = mesh_pipeline_descriptor.clone();
         unlit_mesh_pipeline_descriptor.label = Some("Unlit Mesh Render Pipeline");
@@ -1128,19 +1121,19 @@ impl RendererState {
             .device
             .create_render_pipeline(&wireframe_pipeline_descriptor);
 
-        let bloom_threshold_pipeline_layout =
+        let bloom_pipeline_layout =
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: None,
-                    bind_group_layouts: &[
-                        &base.single_texture_bind_group_layout,
-                        &single_uniform_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
+                    bind_group_layouts: &[&base.single_texture_bind_group_layout],
+                    push_constant_ranges: &[wgpu::PushConstantRange {
+                        stages: wgpu::ShaderStages::FRAGMENT,
+                        range: 0..12,
+                    }],
                 });
         let bloom_threshold_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: Some("Bloom Threshold Pipeline"),
-            layout: Some(&bloom_threshold_pipeline_layout),
+            layout: Some(&bloom_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &blit_shader,
                 entry_point: "vs_main",
@@ -1163,19 +1156,9 @@ impl RendererState {
             .device
             .create_render_pipeline(&bloom_threshold_pipeline_descriptor);
 
-        let bloom_blur_pipeline_layout =
-            base.device
-                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: None,
-                    bind_group_layouts: &[
-                        &base.single_texture_bind_group_layout,
-                        &single_uniform_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
-                });
         let bloom_blur_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: Some("Bloom Blur Pipeline"),
-            layout: Some(&bloom_blur_pipeline_layout),
+            layout: Some(&bloom_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &blit_shader,
                 entry_point: "vs_main",
@@ -1251,11 +1234,11 @@ impl RendererState {
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: None,
-                    bind_group_layouts: &[
-                        &base.two_texture_bind_group_layout,
-                        &single_uniform_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
+                    bind_group_layouts: &[&base.two_texture_bind_group_layout],
+                    push_constant_ranges: &[wgpu::PushConstantRange {
+                        stages: wgpu::ShaderStages::FRAGMENT,
+                        range: 0..4,
+                    }],
                 });
         let tone_mapping_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: Some("Tone Mapping Render Pipeline"),
@@ -1297,11 +1280,8 @@ impl RendererState {
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Skybox Render Pipeline Layout"),
-                    bind_group_layouts: &[
-                        &environment_textures_bind_group_layout,
-                        &camera_and_lights_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
+                    bind_group_layouts: &[&environment_textures_bind_group_layout],
+                    push_constant_ranges: &[camera_push_constant_range.clone()],
                 });
 
         let skybox_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -1335,11 +1315,8 @@ impl RendererState {
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Equirectangular To Cubemap Render Pipeline Layout"),
-                    bind_group_layouts: &[
-                        &base.single_texture_bind_group_layout,
-                        &single_uniform_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
+                    bind_group_layouts: &[&base.single_texture_bind_group_layout],
+                    push_constant_ranges: &[camera_push_constant_range.clone()],
                 });
 
         let equirectangular_to_cubemap_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -1373,11 +1350,8 @@ impl RendererState {
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("diffuse env map Gen Pipeline Layout"),
-                    bind_group_layouts: &[
-                        &single_cube_texture_bind_group_layout,
-                        &single_uniform_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
+                    bind_group_layouts: &[&single_cube_texture_bind_group_layout],
+                    push_constant_ranges: &[camera_push_constant_range.clone()],
                 });
         let diffuse_env_map_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: Some("diffuse env map Gen Pipeline"),
@@ -1412,9 +1386,9 @@ impl RendererState {
                     label: Some("specular env map Gen Pipeline Layout"),
                     bind_group_layouts: &[
                         &single_cube_texture_bind_group_layout,
-                        &two_uniform_bind_group_layout,
+                        &single_uniform_bind_group_layout,
                     ],
-                    push_constant_ranges: &[],
+                    push_constant_ranges: &[camera_push_constant_range.clone()],
                 });
 
         let specular_env_map_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -1482,10 +1456,10 @@ impl RendererState {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Shadow Map Pipeline Layout"),
                     bind_group_layouts: &[
-                        &camera_and_lights_bind_group_layout,
+                        &lights_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
                     ],
-                    push_constant_ranges: &[],
+                    push_constant_ranges: &[camera_push_constant_range],
                 });
         let point_shadow_map_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: Some("Point Shadow Map Pipeline"),
@@ -1689,41 +1663,6 @@ impl RendererState {
         ];
         drop(sampler_cache_guard);
 
-        let bloom_config_buffer =
-            base.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Bloom Config Buffer"),
-                    contents: bytemuck::cast_slice(&[0f32, 0f32, 0f32]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
-
-        let bloom_config_bind_group = base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &single_uniform_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: bloom_config_buffer.as_entire_binding(),
-            }],
-            label: Some("bloom_config_bind_group"),
-        });
-
-        let tone_mapping_config_buffer =
-            base.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Tone Mapping Config Buffer"),
-                    contents: bytemuck::cast_slice(&[0f32]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
-
-        let tone_mapping_config_bind_group =
-            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &single_uniform_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: tone_mapping_config_buffer.as_entire_binding(),
-                }],
-                label: Some("tone_mapping_config_bind_group"),
-            });
-
         let depth_texture =
             Texture::create_depth_texture(&base, initial_render_scale, "depth_texture");
 
@@ -1858,14 +1797,6 @@ impl RendererState {
 
         let brdf_lut = Texture::create_brdf_lut(&base, &brdf_lut_gen_pipeline);
 
-        let camera_buffer = base
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Camera Buffer"),
-                contents: &vec![0u8; std::mem::size_of::<CameraUniform>()],
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-
         let initial_point_lights_buffer: Vec<u8> = (0..(MAX_LIGHT_COUNT
             * std::mem::size_of::<PointLightUniform>()))
             .map(|_| 0u8)
@@ -1890,25 +1821,20 @@ impl RendererState {
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
-        let camera_and_lights_bind_group =
-            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &camera_and_lights_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: camera_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: point_lights_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: directional_lights_buffer.as_entire_binding(),
-                    },
-                ],
-                label: Some("camera_and_lights_bind_group"),
-            });
+        let lights_bind_group = base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &lights_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: point_lights_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: directional_lights_buffer.as_entire_binding(),
+                },
+            ],
+            label: Some("lights_bind_group"),
+        });
 
         let bones_buffer = GpuBuffer::empty(
             &base.device,
@@ -2147,6 +2073,13 @@ impl RendererState {
             .try_into()
             .unwrap();
 
+        // buffer up to 4 frames
+        let profiler = wgpu_profiler::GpuProfiler::new(
+            4,
+            base.queue.get_timestamp_period(),
+            base.device.features(),
+        );
+
         let renderer_state = Self {
             base: Arc::new(base),
             data: Arc::new(Mutex::new(data)),
@@ -2164,12 +2097,10 @@ impl RendererState {
 
                 bloom_threshold_cleared: true,
 
-                camera_and_lights_bind_group,
+                lights_bind_group,
                 bones_and_pbr_instances_bind_group,
                 bones_and_unlit_instances_bind_group,
                 bones_and_wireframe_instances_bind_group,
-                bloom_config_bind_group,
-                tone_mapping_config_bind_group,
 
                 environment_textures_bind_group,
                 shading_and_bloom_textures_bind_group,
@@ -2177,11 +2108,8 @@ impl RendererState {
                 shading_texture_bind_group,
                 bloom_pingpong_texture_bind_groups,
 
-                camera_buffer,
                 point_lights_buffer,
                 directional_lights_buffer,
-                bloom_config_buffer,
-                tone_mapping_config_buffer,
                 bones_buffer,
                 pbr_instances_buffer,
                 unlit_instances_buffer,
@@ -2194,6 +2122,8 @@ impl RendererState {
                 depth_texture,
                 bloom_pingpong_textures,
             }),
+
+            profiler: Mutex::new(profiler),
 
             mesh_pipeline,
             unlit_mesh_pipeline,
@@ -2592,6 +2522,7 @@ impl RendererState {
         // let mut base_guard = self.base.lock().unwrap();
         let mut data_guard = self.data.lock().unwrap();
         let mut private_data_guard = self.private_data.lock().unwrap();
+        let mut profiler_guard = self.profiler.lock().unwrap();
         // TODO: this holds onto these mutexes for quite a while, could it make sense to make them hold for shorter periods?
         self.update_internal(
             &self.base,
@@ -2604,6 +2535,7 @@ impl RendererState {
             &self.base,
             &mut data_guard,
             &mut private_data_guard,
+            &mut profiler_guard,
             game_state,
         )
     }
@@ -3012,11 +2944,6 @@ impl RendererState {
                 &game_state.directional_lights,
             )),
         );
-        queue.write_buffer(
-            &private_data.tone_mapping_config_buffer,
-            0,
-            bytemuck::cast_slice(&[data.tone_mapping_exposure]),
-        );
     }
 
     #[profiling::function]
@@ -3025,12 +2952,17 @@ impl RendererState {
         base: &BaseRendererState,
         data: &mut RendererStatePublicData,
         private_data: &mut RendererStatePrivateData,
+        profiler: &mut wgpu_profiler::GpuProfiler,
         game_state: &mut GameState,
     ) -> Result<(), wgpu::SurfaceError> {
         let surface_texture = base.surface.get_current_texture()?;
         let surface_texture_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder = base
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         if data.enable_shadows {
             game_state
@@ -3061,17 +2993,15 @@ impl RendererState {
                             stencil_ops: None,
                         }),
                     };
-                    base.queue.write_buffer(
-                        &private_data.camera_buffer,
-                        0,
-                        bytemuck::cast_slice(&[CameraUniform::from(view_proj_matrices)]),
-                    );
                     Self::render_pbr_meshes(
                         base,
                         data,
                         private_data,
+                        profiler,
+                        &mut encoder,
                         &shadow_render_pass_desc,
                         &self.directional_shadow_map_pipeline,
+                        view_proj_matrices,
                         true,
                     );
                 });
@@ -3118,19 +3048,15 @@ impl RendererState {
                                     },
                                 ),
                             };
-                            base.queue.write_buffer(
-                                &private_data.camera_buffer,
-                                0,
-                                bytemuck::cast_slice(&[CameraUniform::from(
-                                    face_view_proj_matrices,
-                                )]),
-                            );
                             Self::render_pbr_meshes(
                                 base,
                                 data,
                                 private_data,
+                                profiler,
+                                &mut encoder,
                                 &shadow_render_pass_desc,
                                 &self.point_shadow_map_pipeline,
+                                face_view_proj_matrices,
                                 true,
                             );
                         },
@@ -3170,58 +3096,62 @@ impl RendererState {
             .scene
             .get_global_transform_for_node(game_state.player_node_id);
         let window_size = *base.window_size.lock().unwrap();
-        base.queue.write_buffer(
-            &private_data.camera_buffer,
-            0,
-            bytemuck::cast_slice(&[CameraUniform::from(ShaderCameraView::from_mat4(
-                player_transform.into(),
-                window_size.width as f32 / window_size.height as f32,
-                NEAR_PLANE_DISTANCE,
-                FAR_PLANE_DISTANCE,
-                deg_to_rad(FOV_Y_DEG),
-                true,
-            ))]),
+
+        let main_camera_data = ShaderCameraView::from_mat4(
+            player_transform.into(),
+            window_size.width as f32 / window_size.height as f32,
+            NEAR_PLANE_DISTANCE,
+            FAR_PLANE_DISTANCE,
+            deg_to_rad(FOV_Y_DEG),
+            true,
         );
 
         Self::render_pbr_meshes(
             base,
             data,
             private_data,
+            profiler,
+            &mut encoder,
             &shading_render_pass_desc,
             &self.mesh_pipeline,
+            main_camera_data,
             false,
         );
 
-        let mut unlit_and_wireframe_encoder =
-            base.device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Unlit And Wireframe Encoder"),
-                });
-
+        /*   let mut unlit_and_wireframe_encoder =
+                   base.device
+                       .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                           label: Some("Unlit And Wireframe Encoder"),
+                       });
+        */
+        // wgpu_profiler!(
+        //     "Unlit And Wireframe Encoder",
+        //     profiler,
+        //     &mut unlit_and_wireframe_encoder,
+        //     &base.device,
         {
-            let mut render_pass =
-                unlit_and_wireframe_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Unlit And Wireframe Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &private_data.shading_texture.view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: true,
-                        },
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &private_data.depth_texture.view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: true,
-                        }),
-                        stencil_ops: None,
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Unlit And Wireframe Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &private_data.shading_texture.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &private_data.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
                     }),
-                });
+                    stencil_ops: None,
+                }),
+            });
 
             render_pass.set_pipeline(&self.unlit_mesh_pipeline);
-            render_pass.set_bind_group(0, &private_data.camera_and_lights_bind_group, &[]);
+            render_pass.set_bind_group(0, &private_data.lights_bind_group, &[]);
             for unlit_instance_chunk in private_data.all_unlit_instances.chunks() {
                 let binded_unlit_mesh_index = unlit_instance_chunk.id;
                 let instances_buffer_start_index = unlit_instance_chunk.start_index as u32;
@@ -3249,6 +3179,11 @@ impl RendererState {
             }
 
             render_pass.set_pipeline(&self.wireframe_pipeline);
+            render_pass.set_push_constants(
+                wgpu::ShaderStages::VERTEX,
+                0,
+                bytemuck::cast_slice(&[CameraUniform::from(main_camera_data)]),
+            );
 
             for wireframe_instance_chunk in private_data.all_wireframe_instances.chunks() {
                 let binded_wireframe_mesh_index = wireframe_instance_chunk.id;
@@ -3305,27 +3240,35 @@ impl RendererState {
                 );
             }
         }
+        // );
+        // profiler.resolve_queries(&mut unlit_and_wireframe_encoder);
 
-        base.queue
-            .submit(std::iter::once(unlit_and_wireframe_encoder.finish()));
+        // base.queue
+        //     .submit(std::iter::once(unlit_and_wireframe_encoder.finish()));
 
         if data.enable_bloom {
             private_data.bloom_threshold_cleared = false;
 
-            base.queue.write_buffer(
-                &private_data.bloom_config_buffer,
-                0,
-                bytemuck::cast_slice(&[0.0f32, data.bloom_threshold, data.bloom_ramp_size]),
-            );
+            // base.queue.write_buffer(
+            //     &private_data.bloom_config_buffer,
+            //     0,
+            //     bytemuck::cast_slice(&[0.0f32, data.bloom_threshold, data.bloom_ramp_size]),
+            // );
 
-            let mut bloom_threshold_encoder =
-                base.device
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("Bloom Threshold Encoder"),
-                    });
+            // let mut bloom_threshold_encoder =
+            //     base.device
+            //         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            //             label: Some("Bloom Threshold Encoder"),
+            //         });
+
+            // wgpu_profiler!(
+            //     "Bloom Threshold Encoder",
+            //     profiler,
+            //     &mut bloom_threshold_encoder,
+            //     &base.device,
             {
                 let mut bloom_threshold_render_pass =
-                    bloom_threshold_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: None,
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: &private_data.bloom_pingpong_textures[0].view,
@@ -3339,67 +3282,94 @@ impl RendererState {
                     });
 
                 bloom_threshold_render_pass.set_pipeline(&self.bloom_threshold_pipeline);
+                bloom_threshold_render_pass.set_push_constants(
+                    wgpu::ShaderStages::FRAGMENT,
+                    0,
+                    bytemuck::cast_slice(&[0.0f32, data.bloom_threshold, data.bloom_ramp_size]),
+                );
                 bloom_threshold_render_pass.set_bind_group(
                     0,
                     &private_data.shading_texture_bind_group,
                     &[],
                 );
-                bloom_threshold_render_pass.set_bind_group(
-                    1,
-                    &private_data.bloom_config_bind_group,
-                    &[],
-                );
+                // bloom_threshold_render_pass.set_bind_group(
+                //     1,
+                //     &private_data.bloom_config_bind_group,
+                //     &[],
+                // );
                 bloom_threshold_render_pass.draw(0..3, 0..1);
             }
+            // );
+            // profiler.resolve_queries(&mut bloom_threshold_encoder);
 
-            base.queue
-                .submit(std::iter::once(bloom_threshold_encoder.finish()));
+            // base.queue
+            //     .submit(std::iter::once(bloom_threshold_encoder.finish()));
 
-            let do_bloom_blur_pass = |src_texture: &wgpu::BindGroup,
-                                      dst_texture: &wgpu::TextureView,
-                                      horizontal: bool| {
-                let mut encoder =
-                    base.device
-                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                            label: Some("Bloom Blur Encoder"),
-                        });
-                {
-                    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: None,
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: dst_texture,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(black),
-                                store: true,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                    });
+            let mut do_bloom_blur_pass =
+                |encoder: &mut wgpu::CommandEncoder,
+                 src_texture: &wgpu::BindGroup,
+                 dst_texture: &wgpu::TextureView,
+                 horizontal: bool| {
+                    // let mut encoder =
+                    //     base.device
+                    //         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    //             label: Some("Bloom Blur Encoder"),
+                    //         });
+                    // wgpu_profiler!(
+                    //     "Bloom Blur Encoder",
+                    //     profiler,
+                    //     &mut encoder,
+                    //     &base.device,
+                    {
+                        let mut render_pass =
+                            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                                label: None,
+                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                    view: dst_texture,
+                                    resolve_target: None,
+                                    ops: wgpu::Operations {
+                                        load: wgpu::LoadOp::Clear(black),
+                                        store: true,
+                                    },
+                                })],
+                                depth_stencil_attachment: None,
+                            });
 
-                    base.queue.write_buffer(
-                        &private_data.bloom_config_buffer,
-                        0,
-                        bytemuck::cast_slice(&[
-                            if horizontal { 0.0f32 } else { 1.0f32 },
-                            data.bloom_threshold,
-                            data.bloom_ramp_size,
-                        ]),
-                    );
-                    render_pass.set_pipeline(&self.bloom_blur_pipeline);
-                    render_pass.set_bind_group(0, src_texture, &[]);
-                    render_pass.set_bind_group(1, &private_data.bloom_config_bind_group, &[]);
-                    render_pass.draw(0..3, 0..1);
-                }
+                        // base.queue.write_buffer(
+                        //     &private_data.bloom_config_buffer,
+                        //     0,
+                        //     bytemuck::cast_slice(&[
+                        //         if horizontal { 0.0f32 } else { 1.0f32 },
+                        //         data.bloom_threshold,
+                        //         data.bloom_ramp_size,
+                        //     ]),
+                        // );
+                        render_pass.set_pipeline(&self.bloom_blur_pipeline);
+                        render_pass.set_push_constants(
+                            wgpu::ShaderStages::FRAGMENT,
+                            0,
+                            bytemuck::cast_slice(&[
+                                if horizontal { 0.0f32 } else { 1.0f32 },
+                                data.bloom_threshold,
+                                data.bloom_ramp_size,
+                            ]),
+                        );
+                        render_pass.set_bind_group(0, src_texture, &[]);
+                        // render_pass.set_bind_group(1, &private_data.bloom_config_bind_group, &[]);
+                        render_pass.draw(0..3, 0..1);
+                    }
+                    // );
+                    // profiler.resolve_queries(&mut encoder);
 
-                base.queue.submit(std::iter::once(encoder.finish()));
-            };
+                    // base.queue.submit(std::iter::once(encoder.finish()));
+                };
 
             // do 10 gaussian blur passes, switching between horizontal and vertical and ping ponging between
             // the two textures, effectively doing 5 full blurs
             let blur_passes = 10;
             (0..blur_passes).for_each(|i| {
                 do_bloom_blur_pass(
+                    &mut encoder,
                     &private_data.bloom_pingpong_texture_bind_groups[i % 2],
                     &private_data.bloom_pingpong_textures[(i + 1) % 2].view,
                     i % 2 == 0,
@@ -3407,62 +3377,79 @@ impl RendererState {
             });
         } else {
             // clear bloom texture
-            let mut encoder = base
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Bloom Clear Encoder"),
-                });
+            // let mut encoder = base
+            //     .device
+            //     .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            //         label: Some("Bloom Clear Encoder"),
+            //     });
 
-            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &private_data.bloom_pingpong_textures[0].view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(black),
-                        store: true,
-                    },
-                })],
-                depth_stencil_attachment: None,
-            });
-
-            base.queue.submit(std::iter::once(encoder.finish()));
-            private_data.bloom_threshold_cleared = true;
-        }
-
-        let mut skybox_encoder =
-            base.device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Skybox Encoder"),
-                });
-        {
-            let mut skybox_render_pass =
-                skybox_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            // wgpu_profiler!(
+            //     "Bloom Clear Encoder",
+            //     profiler,
+            //     &mut encoder,
+            //     &base.device,
+            {
+                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: None,
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &private_data.tone_mapping_texture.view,
+                        view: &private_data.bloom_pingpong_textures[0].view,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(black),
                             store: true,
                         },
                     })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &private_data.depth_texture.view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: true,
-                        }),
-                        stencil_ops: None,
-                    }),
+                    depth_stencil_attachment: None,
                 });
+            }
+            // );
+            // profiler.resolve_queries(&mut encoder);
+
+            // base.queue.submit(std::iter::once(encoder.finish()));
+            private_data.bloom_threshold_cleared = true;
+        }
+
+        // let mut skybox_encoder =
+        //     base.device
+        //         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        //             label: Some("Skybox Encoder"),
+        //         });
+        // wgpu_profiler!(
+        //     "Skybox Encoder",
+        //     profiler,
+        //     &mut skybox_encoder,
+        //     &base.device,
+        {
+            let mut skybox_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &private_data.tone_mapping_texture.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(black),
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &private_data.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
+            });
             skybox_render_pass.set_pipeline(&self.skybox_pipeline);
+            skybox_render_pass.set_push_constants(
+                wgpu::ShaderStages::VERTEX,
+                0,
+                bytemuck::cast_slice(&[CameraUniform::from(main_camera_data)]),
+            );
             skybox_render_pass.set_bind_group(
                 0,
                 &private_data.environment_textures_bind_group,
                 &[],
             );
-            skybox_render_pass.set_bind_group(1, &private_data.camera_and_lights_bind_group, &[]);
             skybox_render_pass.set_vertex_buffer(0, data.skybox_mesh.vertex_buffer.src().slice(..));
             skybox_render_pass.set_index_buffer(
                 data.skybox_mesh.index_buffer.src().slice(..),
@@ -3474,17 +3461,24 @@ impl RendererState {
                 0..1,
             );
         }
+        // );
+        // profiler.resolve_queries(&mut skybox_encoder);
 
-        base.queue.submit(std::iter::once(skybox_encoder.finish()));
+        // base.queue.submit(std::iter::once(skybox_encoder.finish()));
 
-        let mut tone_mapping_encoder =
-            base.device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Tone Mapping Encoder"),
-                });
+        // let mut tone_mapping_encoder =
+        //     base.device
+        //         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        //             label: Some("Tone Mapping Encoder"),
+        //         });
+        // wgpu_profiler!(
+        //     "Tone Mapping Encoder",
+        //     profiler,
+        //     &mut tone_mapping_encoder,
+        //     &base.device,
         {
             let mut tone_mapping_render_pass =
-                tone_mapping_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: None,
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &private_data.tone_mapping_texture.view,
@@ -3497,60 +3491,77 @@ impl RendererState {
                     depth_stencil_attachment: None,
                 });
             tone_mapping_render_pass.set_pipeline(&self.tone_mapping_pipeline);
+            tone_mapping_render_pass.set_push_constants(
+                wgpu::ShaderStages::FRAGMENT,
+                0,
+                bytemuck::cast_slice(&[data.tone_mapping_exposure]),
+            );
             tone_mapping_render_pass.set_bind_group(
                 0,
                 &private_data.shading_and_bloom_textures_bind_group,
                 &[],
             );
-            tone_mapping_render_pass.set_bind_group(
-                1,
-                &private_data.tone_mapping_config_bind_group,
-                &[],
-            );
             tone_mapping_render_pass.draw(0..3, 0..1);
         }
+        // );
+        // profiler.resolve_queries(&mut tone_mapping_encoder);
 
-        base.queue
-            .submit(std::iter::once(tone_mapping_encoder.finish()));
+        // base.queue
+        //     .submit(std::iter::once(tone_mapping_encoder.finish()));
 
-        let mut surface_blit_encoder =
-            base.device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Surface Blit Encoder"),
-                });
+        // let mut surface_blit_encoder =
+        //     base.device
+        //         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        //             label: Some("Surface Blit Encoder"),
+        //         });
 
+        // wgpu_profiler!(
+        //     "Surface Blit Encoder",
+        //     profiler,
+        //     &mut surface_blit_encoder,
+        //     &base.device,
         {
-            let mut surface_blit_render_pass =
-                surface_blit_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &surface_texture_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(black),
-                            store: true,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                });
+            {
+                let mut surface_blit_render_pass =
+                    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: None,
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &surface_texture_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(black),
+                                store: true,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                    });
 
-            surface_blit_render_pass.set_pipeline(&self.surface_blit_pipeline);
-            surface_blit_render_pass.set_bind_group(
-                0,
-                &private_data.tone_mapping_texture_bind_group,
-                &[],
-            );
-            surface_blit_render_pass.draw(0..3, 0..1);
+                surface_blit_render_pass.set_pipeline(&self.surface_blit_pipeline);
+                surface_blit_render_pass.set_bind_group(
+                    0,
+                    &private_data.tone_mapping_texture_bind_group,
+                    &[],
+                );
+                surface_blit_render_pass.draw(0..3, 0..1);
+            }
+
+            data.ui_overlay
+                .render(&base.device, &mut encoder, &surface_texture_view);
         }
+        // );
+        profiler.resolve_queries(&mut encoder);
 
-        data.ui_overlay.render(
-            &base.device,
-            &mut surface_blit_encoder,
-            &surface_texture_view,
-        );
-        base.queue
-            .submit(std::iter::once(surface_blit_encoder.finish()));
+        base.queue.submit(std::iter::once(encoder.finish()));
+
         surface_texture.present();
+
+        profiler
+            .end_frame()
+            .expect("Something went wrong with wgpu_profiler");
+
+        if let Some(results) = profiler.process_finished_frame() {
+            scopes_to_console_recursive(&results, 0);
+        }
 
         Ok(())
     }
@@ -3559,66 +3570,90 @@ impl RendererState {
         base: &BaseRendererState,
         data: &RendererStatePublicData,
         private_data: &RendererStatePrivateData,
+        profiler: &mut wgpu_profiler::GpuProfiler,
+        encoder: &mut wgpu::CommandEncoder,
         render_pass_descriptor: &wgpu::RenderPassDescriptor<'a, 'a>,
         pipeline: &'a wgpu::RenderPipeline,
+        camera: ShaderCameraView,
         is_shadow: bool,
     ) {
         let device = &base.device;
         let queue = &base.queue;
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("render_pbr_meshes Encoder"),
-        });
-        {
-            let mut render_pass = encoder.begin_render_pass(render_pass_descriptor);
-            render_pass.set_pipeline(pipeline);
-            render_pass.set_bind_group(0, &private_data.camera_and_lights_bind_group, &[]);
-            if !is_shadow {
-                render_pass.set_bind_group(1, &private_data.environment_textures_bind_group, &[]);
-            }
-            for pbr_instance_chunk in private_data.all_pbr_instances.chunks() {
-                let binded_pbr_mesh_index = pbr_instance_chunk.id;
-                let bone_transforms_buffer_start_index = private_data
-                    .all_bone_transforms
-                    .animated_bone_transforms
-                    .iter()
-                    .find(|bone_slice| bone_slice.binded_pbr_mesh_index == binded_pbr_mesh_index)
-                    .map(|bone_slice| bone_slice.start_index.try_into().unwrap())
-                    .unwrap_or(0);
-                let instances_buffer_start_index = pbr_instance_chunk.start_index as u32;
-                let instance_count = (pbr_instance_chunk.end_index
-                    - pbr_instance_chunk.start_index)
-                    / private_data.all_pbr_instances.stride();
+        let label = String::from(&format!(
+            "render_pbr_meshes Encoder{:?}",
+            if is_shadow { " (shadow)" } else { "" }
+        ));
 
-                let BindedPbrMesh {
-                    geometry_buffers,
-                    textures_bind_group,
-                    ..
-                } = &data.binded_pbr_meshes[binded_pbr_mesh_index];
+        let mut render_pass = encoder.begin_render_pass(render_pass_descriptor);
 
-                render_pass.set_bind_group(
-                    if is_shadow { 1 } else { 2 },
-                    &private_data.bones_and_pbr_instances_bind_group,
-                    &[
-                        bone_transforms_buffer_start_index,
-                        instances_buffer_start_index,
-                    ],
-                );
-                if !is_shadow {
-                    render_pass.set_bind_group(3, textures_bind_group, &[]);
-                }
-                render_pass.set_vertex_buffer(0, geometry_buffers.vertex_buffer.src().slice(..));
-                render_pass.set_index_buffer(
-                    geometry_buffers.index_buffer.src().slice(..),
-                    geometry_buffers.index_buffer_format,
-                );
-                render_pass.draw_indexed(
-                    0..geometry_buffers.index_buffer.length() as u32,
-                    0,
-                    0..instance_count as u32,
-                );
-            }
+        // wgpu_profiler!(&label, profiler, &mut render_pass, device, {
+        render_pass.set_pipeline(pipeline);
+        render_pass.set_push_constants(
+            wgpu::ShaderStages::VERTEX,
+            0,
+            bytemuck::cast_slice(&[CameraUniform::from(camera)]),
+        );
+        render_pass.set_bind_group(0, &private_data.lights_bind_group, &[]);
+        if !is_shadow {
+            render_pass.set_bind_group(1, &private_data.environment_textures_bind_group, &[]);
         }
+        for pbr_instance_chunk in private_data.all_pbr_instances.chunks() {
+            let binded_pbr_mesh_index = pbr_instance_chunk.id;
+            let bone_transforms_buffer_start_index = private_data
+                .all_bone_transforms
+                .animated_bone_transforms
+                .iter()
+                .find(|bone_slice| bone_slice.binded_pbr_mesh_index == binded_pbr_mesh_index)
+                .map(|bone_slice| bone_slice.start_index.try_into().unwrap())
+                .unwrap_or(0);
+            let instances_buffer_start_index = pbr_instance_chunk.start_index as u32;
+            let instance_count = (pbr_instance_chunk.end_index - pbr_instance_chunk.start_index)
+                / private_data.all_pbr_instances.stride();
 
-        queue.submit(std::iter::once(encoder.finish()));
+            let BindedPbrMesh {
+                geometry_buffers,
+                textures_bind_group,
+                ..
+            } = &data.binded_pbr_meshes[binded_pbr_mesh_index];
+
+            render_pass.set_bind_group(
+                if is_shadow { 1 } else { 2 },
+                &private_data.bones_and_pbr_instances_bind_group,
+                &[
+                    bone_transforms_buffer_start_index,
+                    instances_buffer_start_index,
+                ],
+            );
+            if !is_shadow {
+                render_pass.set_bind_group(3, textures_bind_group, &[]);
+            }
+            render_pass.set_vertex_buffer(0, geometry_buffers.vertex_buffer.src().slice(..));
+            render_pass.set_index_buffer(
+                geometry_buffers.index_buffer.src().slice(..),
+                geometry_buffers.index_buffer_format,
+            );
+            render_pass.draw_indexed(
+                0..geometry_buffers.index_buffer.length() as u32,
+                0,
+                0..instance_count as u32,
+            );
+        }
+        // });
+    }
+}
+
+fn scopes_to_console_recursive(results: &[wgpu_profiler::GpuTimerScopeResult], indentation: u32) {
+    for scope in results {
+        if indentation > 0 {
+            print!("{:<width$}", "|", width = 4);
+        }
+        println!(
+            "{:.3}μs - {}",
+            (scope.time.end - scope.time.start) * 1000.0 * 1000.0,
+            scope.label
+        );
+        if !scope.nested_scopes.is_empty() {
+            scopes_to_console_recursive(&scope.nested_scopes, indentation + 1);
+        }
     }
 }

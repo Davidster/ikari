@@ -1,3 +1,4 @@
+// must stay below 256 bytes to fit in push constant
 struct CameraUniform {
     proj: mat4x4<f32>,
     view: mat4x4<f32>,
@@ -6,8 +7,8 @@ struct CameraUniform {
     near_plane_distance: f32,
     far_plane_distance: f32,
 }
-@group(0) @binding(0)
-var<uniform> camera: CameraUniform;
+
+var<push_constant> CAMERA: CameraUniform;
 
 struct Instance {
     model_transform_0: vec4<f32>,
@@ -76,7 +77,7 @@ fn vs_main(
     var out: VertexOutput;
 
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
-    let camera_view_proj = camera.proj * camera.view;
+    let camera_view_proj = CAMERA.proj * CAMERA.view;
     let model_view_matrix = camera_view_proj * skinned_model_transform;
     let clip_position = model_view_matrix * object_position;
 

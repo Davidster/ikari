@@ -25,6 +25,7 @@ impl Camera {
     }
 }
 
+// TODO: rename to ShaderCameraData?
 #[derive(Copy, Clone, Debug)]
 pub struct ShaderCameraView {
     pub proj: Mat4,

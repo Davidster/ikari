@@ -52,10 +52,11 @@ env_logger = { version = "0.10", default-features = false, features = [
 log = "0.4"
 
 # profile
-profiling = "1.0.7" # The version should be the one used by wgpu-core/hal
+profiling = "1.0.7"      # The version should be the one used by wgpu-core/hal
+wgpu-profiler = "0.11.0"
 
 # assets
-gltf = "1.0"
+gltf = "1.1"
 image = { version = "0.23.14", default-features = false, features = [
     "hdr",
     "jpeg",
@@ -72,7 +73,7 @@ winit = { version = "0.27", git = "https://github.com/iced-rs/winit.git", rev = 
 # math
 rand = "0.8"
 rapier3d = "0.17"
-glam = { version = "0.22.0", features = ["approx", "bytemuck"] }
+glam = { version = "0.23.0", features = ["approx", "bytemuck"] }
 approx = "0.5"
 
 # audio
@@ -92,6 +93,7 @@ plotters-iced = "0.7"
 plotters = { version = "0.3", default_features = false, features = [
     "line_series",
 ] }
+
 [patch.crates-io]
 iced_native = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }
 iced_graphics = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }

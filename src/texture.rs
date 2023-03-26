@@ -526,26 +526,6 @@ impl Texture {
                 view_formats: &[],
             });
 
-        let camera_buffer =
-            base_renderer_state
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Cubemap Generation Camera Buffer"),
-                    contents: bytemuck::cast_slice(&[CameraUniform::new()]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
-        let camera_bind_group =
-            base_renderer_state
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &single_uniform_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: camera_buffer.as_entire_binding(),
-                    }],
-                    label: Some("cubemap_gen_camera_bind_group"),
-                });
-
         let faces: Vec<_> = build_cubemap_face_camera_views(
             Vec3::new(0.0, 0.0, 0.0),
             NEAR_PLANE_DISTANCE,
@@ -608,11 +588,6 @@ impl Texture {
                         });
             }
 
-            base_renderer_state.queue.write_buffer(
-                &camera_buffer,
-                0,
-                bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
-            );
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: None,
@@ -627,8 +602,12 @@ impl Texture {
                     depth_stencil_attachment: None,
                 });
                 rpass.set_pipeline(er_to_cubemap_pipeline);
+                rpass.set_push_constants(
+                    wgpu::ShaderStages::VERTEX,
+                    0,
+                    bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
+                );
                 rpass.set_bind_group(0, &er_texture_bind_group, &[]);
-                rpass.set_bind_group(1, &camera_bind_group, &[]);
                 rpass.set_vertex_buffer(0, skybox_buffers.vertex_buffer.src().slice(..));
                 rpass.set_index_buffer(
                     skybox_buffers.index_buffer.src().slice(..),
@@ -836,26 +815,6 @@ impl Texture {
                 view_formats: &[],
             });
 
-        let camera_buffer =
-            base_renderer_state
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Env map Generation Camera Buffer"),
-                    contents: bytemuck::cast_slice(&[CameraUniform::new()]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
-        let camera_bind_group =
-            base_renderer_state
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &single_uniform_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: camera_buffer.as_entire_binding(),
-                    }],
-                    label: Some("env_map_gen_camera_bind_group"),
-                });
-
         let faces: Vec<_> = build_cubemap_face_camera_views(
             Vec3::new(0.0, 0.0, 0.0),
             NEAR_PLANE_DISTANCE,
@@ -909,11 +868,7 @@ impl Texture {
                         ],
                         label: None,
                     });
-            base_renderer_state.queue.write_buffer(
-                &camera_buffer,
-                0,
-                bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
-            );
+
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: None,
@@ -928,8 +883,12 @@ impl Texture {
                     depth_stencil_attachment: None,
                 });
                 rpass.set_pipeline(env_map_gen_pipeline);
+                rpass.set_push_constants(
+                    wgpu::ShaderStages::VERTEX,
+                    0,
+                    bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
+                );
                 rpass.set_bind_group(0, &skybox_ir_texture_bind_group, &[]);
-                rpass.set_bind_group(1, &camera_bind_group, &[]);
                 rpass.set_vertex_buffer(0, skybox_buffers.vertex_buffer.src().slice(..));
                 rpass.set_index_buffer(
                     skybox_buffers.index_buffer.src().slice(..),
@@ -987,32 +946,20 @@ impl Texture {
             depth_or_array_layers: 6,
         };
 
-        let two_uniform_bind_group_layout =
+        let single_uniform_bind_group_layout =
             base_renderer_state
                 .device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                    ],
+                        count: None,
+                    }],
                     label: Some("single_uniform_bind_group_layout"),
                 });
 
@@ -1056,14 +1003,6 @@ impl Texture {
                 view_formats: &[],
             });
 
-        let camera_buffer =
-            base_renderer_state
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Env map Generation Camera Buffer"),
-                    contents: bytemuck::cast_slice(&[CameraUniform::new()]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
         let roughness_buffer =
             base_renderer_state
                 .device
@@ -1072,22 +1011,16 @@ impl Texture {
                     contents: bytemuck::cast_slice(&[0.0f32]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
-        let camera_roughness_bind_group =
+        let roughness_bind_group =
             base_renderer_state
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &two_uniform_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: camera_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: roughness_buffer.as_entire_binding(),
-                        },
-                    ],
-                    label: Some("env_map_gen_camera_bind_group"),
+                    layout: &single_uniform_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: roughness_buffer.as_entire_binding(),
+                    }],
+                    label: Some("spec_env_map_gen_roughness_bind_group"),
                 });
 
         let camera_projection_matrices = build_cubemap_face_camera_views(
@@ -1152,11 +1085,6 @@ impl Texture {
                                 label: None,
                             });
                         base_renderer_state.queue.write_buffer(
-                            &camera_buffer,
-                            0,
-                            bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
-                        );
-                        base_renderer_state.queue.write_buffer(
                             &roughness_buffer,
                             0,
                             bytemuck::cast_slice(&[roughness_level]),
@@ -1176,8 +1104,15 @@ impl Texture {
                                     depth_stencil_attachment: None,
                                 });
                             rpass.set_pipeline(env_map_gen_pipeline);
+                            rpass.set_push_constants(
+                                wgpu::ShaderStages::VERTEX,
+                                0,
+                                bytemuck::cast_slice(&[CameraUniform::from(
+                                    face_view_proj_matrices,
+                                )]),
+                            );
                             rpass.set_bind_group(0, &skybox_ir_texture_bind_group, &[]);
-                            rpass.set_bind_group(1, &camera_roughness_bind_group, &[]);
+                            rpass.set_bind_group(1, &roughness_bind_group, &[]);
                             rpass
                                 .set_vertex_buffer(0, skybox_buffers.vertex_buffer.src().slice(..));
                             rpass.set_index_buffer(

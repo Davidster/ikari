@@ -1,16 +1,16 @@
-struct BloomConfigUniform {
+struct BloomConfig {
     direction: f32, // 0,0 or 1.0
     threshold: f32,
     ramp_size: f32,
 }
-@group(1) @binding(0)
-var<uniform> bloom_config: BloomConfigUniform;
+
+var<push_constant> BLOOM_CONFIG: BloomConfig;
 
 struct ToneMappingConfigUniform {
     exposure: f32,
 }
-@group(1) @binding(0)
-var<uniform> tone_mapping_config: ToneMappingConfigUniform;
+
+var<push_constant> TONE_MAPPING_CONFIG: ToneMappingConfigUniform;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -70,7 +70,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn tone_mapping_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let exposure = tone_mapping_config.exposure;
+    let exposure = TONE_MAPPING_CONFIG.exposure;
     let shaded_color = textureSample(texture_1, sampler_1, in.tex_coords).rgb;
     let bloom_color = textureSample(texture_2, sampler_2, in.tex_coords).rgb;
     let final_color_hdr = shaded_color + bloom_color;
@@ -81,8 +81,8 @@ fn tone_mapping_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn bloom_threshold_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let threshold = bloom_config.threshold;
-    let ramp_size = bloom_config.ramp_size;
+    let threshold = BLOOM_CONFIG.threshold;
+    let ramp_size = BLOOM_CONFIG.ramp_size;
     let hdr_color = textureSample(texture_1, sampler_1, in.tex_coords);
     let brightness = dot(hdr_color.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
 
@@ -105,7 +105,7 @@ fn bloom_blur_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex_dimension_f32 = vec2<f32>(f32(tex_dimensions.x), f32(tex_dimensions.y));
     let tex_offset = 1.0 / tex_dimension_f32;
     var result = textureSample(texture_1, sampler_1, in.tex_coords).rgb * gaussian_blur_weights[0];
-    if bloom_config.direction == 0.0 {
+    if BLOOM_CONFIG.direction == 0.0 {
         for (var i = 1; i < 5; i = i + 1) {
             result = result + textureSample(
                 texture_1,
