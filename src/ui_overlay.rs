@@ -53,7 +53,7 @@ impl Chart<Message> for FpsChart {
         mut builder: plotters_iced::ChartBuilder<DB>,
     ) {
         let result: Result<(), String> = (|| {
-            let oldest_ft_age_secs = 3.0f32;
+            let oldest_ft_age_secs = 5.0f32;
             let mut frame_times_with_ages = Vec::new();
             let mut acc = std::time::Duration::from_secs(0);
             for frame_time in self.recent_frame_times.iter().rev() {
