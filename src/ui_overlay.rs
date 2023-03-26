@@ -390,8 +390,8 @@ impl std::fmt::Debug for GpuTimerScopeResultWrapper {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "(TODO implement better formatter for GpuTimerScopeResultWrapper) {:?}",
-            self.label
+            "(TODO implement better formatter for type) {:?} -> {:?}",
+            self.label, self.time
         )
     }
 }
