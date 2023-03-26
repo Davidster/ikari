@@ -295,6 +295,8 @@ impl BaseRendererState {
 
         let mut features = wgpu::Features::empty();
         features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
+        features |= wgpu::Features::TIMESTAMP_QUERY;
+        features |= wgpu::Features::WRITE_TIMESTAMP_INSIDE_PASSES;
 
         let (device, queue) = adapter
             .request_device(

@@ -29,7 +29,7 @@ async fn start() {
             // wgpu::Backends::from(wgpu::Backend::Dx12)
             wgpu::Backends::PRIMARY
         };
-        BaseRendererState::new(&window, backends, wgpu::PresentMode::AutoNoVsync).await
+        BaseRendererState::new(&window, backends, wgpu::PresentMode::AutoVsync).await
     };
 
     let run_result = async {

@@ -6,41 +6,22 @@ use iced_wgpu::Renderer;
 use iced_winit::widget::{Container, Row};
 use iced_winit::{Command, Element, Length, Program};
 use plotters::prelude::*;
-use plotters::style::text_anchor::Pos;
 use plotters::style::RED;
-use plotters_iced::plotters_backend::BackendColor;
 use plotters_iced::{Chart, ChartWidget, DrawingBackend};
 use winit::{event::WindowEvent, window::Window};
+
+use crate::logger::*;
 
 const FRAME_TIME_HISTORY_SIZE: usize = 5000;
 
 #[derive(Debug)]
-pub struct UiState {
-    recent_frame_times: Vec<Duration>,
-}
-
-#[derive(Debug)]
 pub struct IcedProgram {
-    chart: MyChart,
+    chart: FpsChart,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     FrameCompleted(Duration),
-}
-
-impl UiState {
-    pub fn new() -> Self {
-        Self {
-            recent_frame_times: vec![],
-        }
-    }
-}
-
-impl Default for UiState {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 pub struct ContainerStyle;
@@ -59,111 +40,115 @@ impl iced::widget::container::StyleSheet for ContainerStyle {
 }
 
 #[derive(Debug)]
-struct MyChart {
-    state: UiState,
+struct FpsChart {
+    recent_frame_times: Vec<Duration>,
 }
 
-impl Chart<Message> for MyChart {
+impl Chart<Message> for FpsChart {
     type State = ();
 
-    // TODO: remove unwraps
     fn build_chart<DB: DrawingBackend>(
         &self,
         _state: &Self::State,
         mut builder: plotters_iced::ChartBuilder<DB>,
     ) {
-        let oldest_ft_age_secs = 5.0f32;
-        let mut frame_times_with_ages = Vec::new();
-        let mut acc = std::time::Duration::from_secs(0);
-        for frame_time in self.state.recent_frame_times.iter().rev() {
-            frame_times_with_ages.push((-acc.as_secs_f32(), 1.0 / frame_time.as_secs_f32()));
-            acc += *frame_time;
+        let result: Result<(), String> = (|| {
+            let oldest_ft_age_secs = 3.0f32;
+            let mut frame_times_with_ages = Vec::new();
+            let mut acc = std::time::Duration::from_secs(0);
+            for frame_time in self.recent_frame_times.iter().rev() {
+                frame_times_with_ages.push((
+                    -acc.as_secs_f32(),
+                    (1.0 / frame_time.as_secs_f32()).round() as i32,
+                ));
+                acc += *frame_time;
 
-            if acc.as_secs_f32() > 5.0 {
-                break;
+                if acc.as_secs_f32() > oldest_ft_age_secs {
+                    break;
+                }
             }
-        }
-        frame_times_with_ages.reverse();
+            frame_times_with_ages.reverse();
 
-        /* let min_y = frame_times_with_ages
-        .iter()
-        .map(|(_frame_age_secs, frame_time_millis)| *frame_time_millis)
-        .reduce(|acc, frame_time_millis| {
-            if acc < frame_time_millis {
-                acc
-            } else {
-                frame_time_millis
-            }
-        })
-        .unwrap_or(0.0); */
+            // round up to the nearest multiple of 30fps
+            let roundup_factor = 30.0;
+            let min_y_axis_height = 120;
 
-        let fps_grading_size = 30.0;
+            let max_y = frame_times_with_ages
+                .iter()
+                .map(|(_frame_age_secs, fps)| *fps)
+                .reduce(|acc, fps| if acc > fps { acc } else { fps })
+                .map(|max_fps| {
+                    (((max_fps as f32 / roundup_factor).ceil() * roundup_factor) as i32)
+                        .max(min_y_axis_height)
+                })
+                .unwrap_or(min_y_axis_height);
 
-        let max_y = frame_times_with_ages
-            .iter()
-            .map(|(_frame_age_secs, fps)| *fps)
-            .reduce(|acc, fps| if acc > fps { acc } else { fps })
-            .map(|max_fps| ((max_fps / fps_grading_size).ceil() * fps_grading_size).max(120.0))
-            .unwrap_or(120.0);
+            let fps_grading_size = 30.0;
 
-        // TODO: use chart.configure_axes to control the tick size
-        // see https://docs.rs/plotters/latest/plotters/chart/struct.ChartContext.html#method.configure_axes
+            let mut chart = builder
+                .x_label_area_size(20)
+                .y_label_area_size(52)
+                .build_cartesian_2d(
+                    -oldest_ft_age_secs..0.0,
+                    (0..max_y).group_by(fps_grading_size as usize),
+                )
+                .map_err(|err| err.to_string())?;
 
-        let mut chart = builder
-            .margin(5)
-            .x_label_area_size(20)
-            .y_label_area_size(50)
-            .build_cartesian_2d(-oldest_ft_age_secs..0.0, 0.0f32..max_y)
-            .unwrap();
-        chart
-            .configure_mesh()
-            .x_label_formatter(&|x| format!("{}s", x.round() as i32))
-            .y_label_formatter(&|y| format!("{}fps", y.round() as i32))
-            .x_max_light_lines(0)
-            .y_max_light_lines(0)
-            .disable_x_mesh()
-            .x_labels(6)
-            .y_labels((max_y / fps_grading_size).round() as usize + 1)
-            .bold_line_style(ShapeStyle {
+            let mesh_line_style = ShapeStyle {
                 color: RGBAColor(175, 175, 175, 1.0),
                 filled: false,
                 stroke_width: 1,
-            })
-            .axis_style(ShapeStyle {
+            };
+            let axis_line_style = ShapeStyle {
                 color: WHITE.to_rgba(),
                 filled: false,
                 stroke_width: 2,
-            })
-            .x_label_style(("sans-serif", 15, &WHITE))
-            .y_label_style(("sans-serif", 15, &WHITE))
-            // .axis_desc_style(TextStyle {
-            //     font: FontDesc::from(("sans-serif", 15)),
-            //     color: BackendColor {
-            //         alpha: 1.0,
-            //         rgb: (255, 255, 255),
-            //     },
-            //     pos: Pos::default(),
-            // })
-            .draw()
-            .unwrap();
+            };
+            let axis_labels_style = ("sans-serif", 18, &WHITE);
 
-        chart.configure_series_labels().draw().unwrap();
+            chart
+                .configure_mesh()
+                .x_label_formatter(&|x| format!("{}s", x.abs().round() as i32))
+                .y_label_formatter(&|y| format!("{} fps", y))
+                .disable_x_mesh()
+                .y_max_light_lines(1)
+                .set_all_tick_mark_size(1)
+                .x_labels(oldest_ft_age_secs as usize + 1)
+                .y_labels(((max_y / fps_grading_size as i32) + 1).min(7) as usize)
+                .light_line_style(mesh_line_style)
+                .bold_line_style(mesh_line_style)
+                .axis_style(axis_line_style)
+                .x_label_style(axis_labels_style)
+                .y_label_style(axis_labels_style)
+                .draw()
+                .map_err(|err| err.to_string())?;
 
-        chart
-            .draw_series(plotters::series::LineSeries::new(
-                frame_times_with_ages,
-                RED.stroke_width(1),
-            ))
-            .unwrap()
-            .legend(|(x, y)| PathElement::new(vec![(x, y), (x + 20, y)], &RED));
+            chart
+                .configure_series_labels()
+                .draw()
+                .map_err(|err| err.to_string())?;
+
+            chart
+                .draw_series(plotters::series::LineSeries::new(
+                    frame_times_with_ages,
+                    RED.stroke_width(1),
+                ))
+                .map_err(|err| err.to_string())?;
+
+            Ok(())
+        })();
+
+        if let Err(err) = result {
+            logger_log(&format!("Error building fps chart: {:?}", err));
+        }
     }
 }
 
-impl MyChart {
+impl FpsChart {
     fn view(&self) -> iced::Element<Message> {
         ChartWidget::new(self)
-            .width(iced::Length::Fixed(200.0))
-            .height(iced::Length::Fixed(200.0))
+            .width(iced::Length::Fixed(400.0))
+            .height(iced::Length::Fixed(300.0))
             .into()
     }
 }
@@ -176,9 +161,9 @@ impl Program for IcedProgram {
     fn update(&mut self, message: Message) -> Command<Message> {
         match message {
             Message::FrameCompleted(frame_duration) => {
-                self.chart.state.recent_frame_times.push(frame_duration);
-                if self.chart.state.recent_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
-                    self.chart.state.recent_frame_times.remove(0);
+                self.chart.recent_frame_times.push(frame_duration);
+                if self.chart.recent_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
+                    self.chart.recent_frame_times.remove(0);
                 }
             }
         }
@@ -187,7 +172,7 @@ impl Program for IcedProgram {
     }
 
     fn view(&self) -> Element<Message, Renderer> {
-        if self.chart.state.recent_frame_times.is_empty() {
+        if self.chart.recent_frame_times.is_empty() {
             return Row::new().into();
         }
 
@@ -195,7 +180,6 @@ impl Program for IcedProgram {
             let alpha = 0.01;
             let mut frame_times_iterator = self
                 .chart
-                .state
                 .recent_frame_times
                 .iter()
                 .map(|frame_time| frame_time.as_nanos() as f64 / 1_000_000.0);
@@ -216,16 +200,16 @@ impl Program for IcedProgram {
         Row::new()
             .width(Length::Shrink)
             .height(Length::Shrink)
-            .padding(5)
+            .padding(8)
             .push(
                 Container::new(
                     Column::new()
                         .width(Length::Shrink)
                         .height(Length::Shrink)
                         .push(iced_winit::widget::text(framerate_msg.as_str()))
-                        .push(self.chart.view()),
+                        .push(Container::new(self.chart.view()).padding([16, 20, 16, 0])), // top, right, bottom, left
                 )
-                .padding(5)
+                .padding(8)
                 .style(iced::theme::Container::Custom(container_style)),
             )
             .into()
@@ -259,8 +243,8 @@ impl UiOverlay {
         let staging_belt = wgpu::util::StagingBelt::new(5 * 1024);
 
         let state = IcedProgram {
-            chart: MyChart {
-                state: Default::default(),
+            chart: FpsChart {
+                recent_frame_times: vec![],
             },
         };
 
