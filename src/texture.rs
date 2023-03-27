@@ -588,7 +588,7 @@ impl Texture {
                 rpass.set_push_constants(
                     wgpu::ShaderStages::VERTEX,
                     0,
-                    bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
+                    bytemuck::cast_slice(&[SkyboxShaderCameraRaw::from(face_view_proj_matrices)]),
                 );
                 rpass.set_bind_group(0, &er_texture_bind_group, &[]);
                 rpass.set_vertex_buffer(0, skybox_buffers.vertex_buffer.src().slice(..));
@@ -852,7 +852,7 @@ impl Texture {
                 rpass.set_push_constants(
                     wgpu::ShaderStages::VERTEX,
                     0,
-                    bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
+                    bytemuck::cast_slice(&[SkyboxShaderCameraRaw::from(face_view_proj_matrices)]),
                 );
                 rpass.set_bind_group(0, &skybox_ir_texture_bind_group, &[]);
                 rpass.set_vertex_buffer(0, skybox_buffers.vertex_buffer.src().slice(..));
@@ -1073,7 +1073,7 @@ impl Texture {
                             rpass.set_push_constants(
                                 wgpu::ShaderStages::VERTEX,
                                 0,
-                                bytemuck::cast_slice(&[CameraUniform::from(
+                                bytemuck::cast_slice(&[SkyboxShaderCameraRaw::from(
                                     face_view_proj_matrices,
                                 )]),
                             );

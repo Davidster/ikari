@@ -25,9 +25,8 @@ impl Camera {
     }
 }
 
-// TODO: rename to ShaderCameraData?
 #[derive(Copy, Clone, Debug)]
-pub struct ShaderCameraView {
+pub struct ShaderCameraData {
     pub proj: Mat4,
     pub view: Mat4,
     pub rotation_only_view: Mat4,
@@ -36,39 +35,7 @@ pub struct ShaderCameraView {
     pub far_plane_distance: f32,
 }
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct CameraUniform {
-    proj: [[f32; 4]; 4],
-    view: [[f32; 4]; 4],
-    rotation_only_view: [[f32; 4]; 4],
-    position: [f32; 4],
-    near_plane_distance: f32,
-    far_plane_distance: f32,
-    padding: [f32; 2],
-}
-
-impl CameraUniform {
-    pub fn new() -> Self {
-        Self {
-            proj: Mat4::IDENTITY.to_cols_array_2d(),
-            view: Mat4::IDENTITY.to_cols_array_2d(),
-            rotation_only_view: Mat4::IDENTITY.to_cols_array_2d(),
-            position: [0.0; 4],
-            near_plane_distance: 0.0,
-            far_plane_distance: 0.0,
-            padding: [0.0; 2],
-        }
-    }
-}
-
-impl Default for CameraUniform {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ShaderCameraView {
+impl ShaderCameraData {
     pub fn from_mat4(
         transform: Mat4,
         aspect_ratio: f32,
@@ -107,25 +74,54 @@ impl ShaderCameraView {
     }
 }
 
-impl From<ShaderCameraView> for CameraUniform {
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct MeshShaderCameraRaw {
+    view_proj: [[f32; 4]; 4],
+    position: [f32; 3],
+    far_plane_distance: f32,
+}
+
+impl From<ShaderCameraData> for MeshShaderCameraRaw {
     fn from(
-        ShaderCameraView {
+        ShaderCameraData {
             proj,
             view,
-            rotation_only_view,
             position,
-            near_plane_distance,
             far_plane_distance,
-        }: ShaderCameraView,
-    ) -> CameraUniform {
+            ..
+        }: ShaderCameraData,
+    ) -> Self {
         Self {
-            proj: proj.to_cols_array_2d(),
-            view: view.to_cols_array_2d(),
-            rotation_only_view: rotation_only_view.to_cols_array_2d(),
-            position: [position.x, position.y, position.z, 1.0],
-            near_plane_distance,
+            view_proj: (proj * view).to_cols_array_2d(),
+            position: [position.x, position.y, position.z],
             far_plane_distance,
-            padding: [0.0; 2],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SkyboxShaderCameraRaw {
+    rotation_only_view_proj: [[f32; 4]; 4],
+    position: [f32; 3],
+    far_plane_distance: f32,
+}
+
+impl From<ShaderCameraData> for SkyboxShaderCameraRaw {
+    fn from(
+        ShaderCameraData {
+            proj,
+            position,
+            far_plane_distance,
+            rotation_only_view,
+            ..
+        }: ShaderCameraData,
+    ) -> Self {
+        Self {
+            rotation_only_view_proj: (proj * rotation_only_view).to_cols_array_2d(),
+            position: [position.x, position.y, position.z],
+            far_plane_distance,
         }
     }
 }
@@ -135,7 +131,7 @@ pub fn build_cubemap_face_camera_views(
     near_plane_distance: f32,
     far_plane_distance: f32,
     reverse_z: bool,
-) -> Vec<ShaderCameraView> {
+) -> Vec<ShaderCameraData> {
     vec![
         (90.0, 0.0),    // right
         (-90.0, 0.0),   // left
@@ -153,7 +149,7 @@ pub fn build_cubemap_face_camera_views(
         },
     )
     .map(|camera| {
-        ShaderCameraView::from_mat4(
+        ShaderCameraData::from_mat4(
             camera.to_transform().into(),
             1.0,
             near_plane_distance,
@@ -170,11 +166,11 @@ pub fn build_directional_light_camera_view(
     width: f32,
     height: f32,
     depth: f32,
-) -> ShaderCameraView {
+) -> ShaderCameraData {
     let proj = make_orthographic_proj_matrix(width, height, -depth / 2.0, depth / 2.0, false);
     let rotation_only_view = direction_vector_to_coordinate_frame_matrix(direction).inverse();
     let view = rotation_only_view;
-    ShaderCameraView {
+    ShaderCameraData {
         proj,
         view,
         rotation_only_view,

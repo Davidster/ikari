@@ -1,14 +1,11 @@
-// must stay below 256 bytes to fit in push constant
-struct CameraUniform {
-    proj: mat4x4<f32>,
-    view: mat4x4<f32>,
-    rotation_only_view: mat4x4<f32>,
-    position: vec4<f32>,
-    near_plane_distance: f32,
-    far_plane_distance: f32,
+// must stay below 128 bytes to fit in push constant
+struct MeshShaderCameraRaw {
+    rotation_only_view_proj: mat4x4<f32>,
+    position: vec3<f32>, // not used in this shader
+    far_plane_distance: f32, // not used in this shader
 }
 
-var<push_constant> CAMERA: CameraUniform;
+var<push_constant> CAMERA: MeshShaderCameraRaw;
 
 struct RougnessInput {
     value: f32,
@@ -30,7 +27,7 @@ fn vs_main(
     vshader_input: VertexInput,
 ) -> VertexOutput {
     var out: VertexOutput;
-    let clip_position = CAMERA.proj * CAMERA.rotation_only_view * vec4<f32>(vshader_input.object_position, 1.0);
+    let clip_position = CAMERA.rotation_only_view_proj * vec4<f32>(vshader_input.object_position, 1.0);
     out.clip_position = vec4<f32>(clip_position.x, clip_position.y, 0.0, clip_position.w);
     out.world_position = vshader_input.object_position;
     return out;

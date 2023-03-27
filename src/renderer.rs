@@ -36,13 +36,6 @@ pub const FAR_PLANE_DISTANCE: f32 = 100000.0;
 pub const FOV_Y_DEG: f32 = 45.0;
 pub const DEFAULT_WIREFRAME_COLOR: [f32; 4] = [0.0, 1.0, 1.0, 1.0];
 
-/* #[repr(C)]
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub struct GpuMatrix4(pub Mat4);
-
-unsafe impl bytemuck::Pod for GpuMatrix4 {}
-unsafe impl bytemuck::Zeroable for GpuMatrix4 {} */
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct Float16(half::f16);
@@ -302,7 +295,10 @@ impl BaseRendererState {
                     label: None,
                     features,
                     limits: wgpu::Limits {
-                        max_push_constant_size: 256,
+                        // the camera is the biggest thing we send in the shader
+                        max_push_constant_size: (std::mem::size_of::<MeshShaderCameraRaw>()
+                            .max(std::mem::size_of::<SkyboxShaderCameraRaw>()))
+                            as u32,
                         ..Default::default()
                     },
                 },
@@ -995,9 +991,14 @@ impl RendererState {
             write_mask: wgpu::ColorWrites::ALL,
         })];
 
-        let camera_push_constant_range = wgpu::PushConstantRange {
+        let mesh_camera_push_constant_range = wgpu::PushConstantRange {
             stages: wgpu::ShaderStages::VERTEX,
-            range: 0..std::mem::size_of::<CameraUniform>() as u32,
+            range: 0..std::mem::size_of::<MeshShaderCameraRaw>() as u32,
+        };
+
+        let skybox_camera_push_constant_range = wgpu::PushConstantRange {
+            stages: wgpu::ShaderStages::VERTEX,
+            range: 0..std::mem::size_of::<SkyboxShaderCameraRaw>() as u32,
         };
 
         let mesh_pipeline_layout =
@@ -1010,7 +1011,7 @@ impl RendererState {
                         &base.bones_and_instances_bind_group_layout,
                         &base.pbr_textures_bind_group_layout,
                     ],
-                    push_constant_ranges: &[camera_push_constant_range.clone()],
+                    push_constant_ranges: &[mesh_camera_push_constant_range.clone()],
                 });
 
         let mesh_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -1062,7 +1063,7 @@ impl RendererState {
                         &lights_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
                     ],
-                    push_constant_ranges: &[camera_push_constant_range.clone()],
+                    push_constant_ranges: &[mesh_camera_push_constant_range.clone()],
                 });
         let mut unlit_mesh_pipeline_descriptor = mesh_pipeline_descriptor.clone();
         unlit_mesh_pipeline_descriptor.label = Some("Unlit Mesh Render Pipeline");
@@ -1254,7 +1255,7 @@ impl RendererState {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Skybox Render Pipeline Layout"),
                     bind_group_layouts: &[&environment_textures_bind_group_layout],
-                    push_constant_ranges: &[camera_push_constant_range.clone()],
+                    push_constant_ranges: &[skybox_camera_push_constant_range.clone()],
                 });
 
         let skybox_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -1289,7 +1290,7 @@ impl RendererState {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Equirectangular To Cubemap Render Pipeline Layout"),
                     bind_group_layouts: &[&base.single_texture_bind_group_layout],
-                    push_constant_ranges: &[camera_push_constant_range.clone()],
+                    push_constant_ranges: &[skybox_camera_push_constant_range.clone()],
                 });
 
         let equirectangular_to_cubemap_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -1324,7 +1325,7 @@ impl RendererState {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("diffuse env map Gen Pipeline Layout"),
                     bind_group_layouts: &[&single_cube_texture_bind_group_layout],
-                    push_constant_ranges: &[camera_push_constant_range.clone()],
+                    push_constant_ranges: &[skybox_camera_push_constant_range.clone()],
                 });
         let diffuse_env_map_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: Some("diffuse env map Gen Pipeline"),
@@ -1361,7 +1362,7 @@ impl RendererState {
                         &single_cube_texture_bind_group_layout,
                         &single_uniform_bind_group_layout,
                     ],
-                    push_constant_ranges: &[camera_push_constant_range.clone()],
+                    push_constant_ranges: &[skybox_camera_push_constant_range.clone()],
                 });
 
         let specular_env_map_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -1432,7 +1433,7 @@ impl RendererState {
                         &lights_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
                     ],
-                    push_constant_ranges: &[camera_push_constant_range],
+                    push_constant_ranges: &[mesh_camera_push_constant_range],
                 });
         let point_shadow_map_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: Some("Point Shadow Map Pipeline"),
@@ -3065,7 +3066,7 @@ impl RendererState {
             .get_global_transform_for_node(game_state.player_node_id);
         let window_size = *base.window_size.lock().unwrap();
 
-        let main_camera_data = ShaderCameraView::from_mat4(
+        let main_camera_data = ShaderCameraData::from_mat4(
             player_transform.into(),
             window_size.width as f32 / window_size.height as f32,
             NEAR_PLANE_DISTANCE,
@@ -3142,7 +3143,7 @@ impl RendererState {
                 render_pass.set_push_constants(
                     wgpu::ShaderStages::VERTEX,
                     0,
-                    bytemuck::cast_slice(&[CameraUniform::from(main_camera_data)]),
+                    bytemuck::cast_slice(&[MeshShaderCameraRaw::from(main_camera_data)]),
                 );
 
                 for wireframe_instance_chunk in private_data.all_wireframe_instances.chunks() {
@@ -3326,7 +3327,7 @@ impl RendererState {
                 render_pass.set_push_constants(
                     wgpu::ShaderStages::VERTEX,
                     0,
-                    bytemuck::cast_slice(&[CameraUniform::from(main_camera_data)]),
+                    bytemuck::cast_slice(&[SkyboxShaderCameraRaw::from(main_camera_data)]),
                 );
                 render_pass.set_bind_group(0, &private_data.environment_textures_bind_group, &[]);
                 render_pass.set_vertex_buffer(0, data.skybox_mesh.vertex_buffer.src().slice(..));
@@ -3425,7 +3426,7 @@ impl RendererState {
         encoder: &mut wgpu::CommandEncoder,
         render_pass_descriptor: &wgpu::RenderPassDescriptor<'a, 'a>,
         pipeline: &'a wgpu::RenderPipeline,
-        camera: ShaderCameraView,
+        camera: ShaderCameraData,
         is_shadow: bool,
     ) {
         let device = &base.device;
@@ -3444,7 +3445,7 @@ impl RendererState {
                 render_pass.set_push_constants(
                     wgpu::ShaderStages::VERTEX,
                     0,
-                    bytemuck::cast_slice(&[CameraUniform::from(camera)]),
+                    bytemuck::cast_slice(&[MeshShaderCameraRaw::from(camera)]),
                 );
                 render_pass.set_bind_group(0, &private_data.lights_bind_group, &[]);
                 if !is_shadow {
