@@ -1165,7 +1165,10 @@ impl RendererState {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: None,
                     bind_group_layouts: &[&base.single_texture_bind_group_layout],
-                    push_constant_ranges: &[],
+                    push_constant_ranges: &[wgpu::PushConstantRange {
+                        stages: wgpu::ShaderStages::FRAGMENT,
+                        range: 0..12,
+                    }],
                 });
         let surface_blit_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: Some("Surface Blit Render Pipeline"),
@@ -1397,7 +1400,7 @@ impl RendererState {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Brdf Lut Gen Pipeline Layout"),
                     bind_group_layouts: &[],
-                    push_constant_ranges: &[],
+                    push_constant_ranges: &[skybox_camera_push_constant_range.clone()],
                 });
 
         let brdf_lut_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {

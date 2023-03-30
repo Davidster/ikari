@@ -1219,30 +1219,7 @@ fn generate_mipmaps_for_texture(
                     std::fs::read_to_string("./src/shaders/blit.wgsl")?.into(),
                 ),
             });
-    let mip_render_pipeline =
-        base_renderer_state
-            .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("mip_render_pipeline"),
-                layout: None,
-                vertex: wgpu::VertexState {
-                    module: &blit_shader,
-                    entry_point: "vs_main",
-                    buffers: &[],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &blit_shader,
-                    entry_point: "fs_main",
-                    targets: &[Some(format.into())],
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: Default::default(),
-                multiview: None,
-            });
+
     let single_texture_bind_group_layout =
         base_renderer_state
             .device
@@ -1267,6 +1244,44 @@ fn generate_mipmaps_for_texture(
                 ],
                 label: Some("single_texture_bind_group_layout"),
             });
+
+    let mip_pipeline_layout =
+        base_renderer_state
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Mesh Pipeline Layout"),
+                bind_group_layouts: &[&single_texture_bind_group_layout],
+                push_constant_ranges: &[wgpu::PushConstantRange {
+                    stages: wgpu::ShaderStages::VERTEX,
+                    range: 0..std::mem::size_of::<MeshShaderCameraRaw>() as u32,
+                }],
+            });
+
+    let mip_render_pipeline =
+        base_renderer_state
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("mip_render_pipeline"),
+                layout: Some(&mip_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &blit_shader,
+                    entry_point: "vs_main",
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &blit_shader,
+                    entry_point: "fs_main",
+                    targets: &[Some(format.into())],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: Default::default(),
+                multiview: None,
+            });
+
     let mip_texure_views = (0..mip_level_count)
         .map(|mip| {
             texture.create_view(&wgpu::TextureViewDescriptor {

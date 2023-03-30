@@ -21,7 +21,7 @@ pub struct AudioManager {
 
     spatial_scene_handle: Handle<SpatialScene>,
     mixer_handle: Handle<Mixer<[f32; 2]>>,
-    sounds: Vec<Sound>,
+    sounds: Vec<Option<Sound>>,
 }
 
 const CHANNEL_COUNT: usize = 2;
@@ -253,23 +253,27 @@ impl AudioManager {
         signal: SoundSignal,
     ) -> usize {
         let sound = Sound::new(self, sound_data, params, signal);
-        self.sounds.push(sound);
+        self.sounds.push(Some(sound));
         self.sounds.len() - 1
     }
 
     pub fn play_sound(&mut self, sound_index: usize) {
-        self.sounds[sound_index].resume();
+        if let Some(sound) = self.sounds[sound_index].as_mut() {
+            sound.resume();
+        }
     }
 
     pub fn reload_sound(&mut self, sound_index: usize, params: SoundParams) {
-        // TODO: can avoid clone here by taking self.sounds[sound_index] out of the vec?
-        let data_copy = self.sounds[sound_index].data.clone();
-        let signal = Self::get_signal(&data_copy, params.clone(), self.device_sample_rate);
-        self.sounds[sound_index] = Sound::new(self, data_copy, params, signal);
+        if let Some(sound) = self.sounds[sound_index].take() {
+            let signal = Self::get_signal(&sound.data, params.clone(), self.device_sample_rate);
+            self.sounds[sound_index] = Some(Sound::new(self, sound.data, params, signal));
+        }
     }
 
     pub fn _set_sound_volume(&mut self, sound_index: usize, volume: f32) {
-        self.sounds[sound_index].set_volume(self.master_volume, volume);
+        if let Some(sound) = self.sounds[sound_index].as_mut() {
+            sound.set_volume(self.master_volume, volume)
+        }
     }
 
     pub fn device_sample_rate(&self) -> u32 {

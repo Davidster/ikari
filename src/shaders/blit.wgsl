@@ -2,13 +2,14 @@ struct BloomConfig {
     direction: f32, // 0,0 or 1.0
     threshold: f32,
     ramp_size: f32,
+    padding: f32,
+}
+
+struct ToneMappingConfigUniform {
+    exposure: vec4<f32>,
 }
 
 var<push_constant> BLOOM_CONFIG: BloomConfig;
-
-struct ToneMappingConfigUniform {
-    exposure: f32,
-}
 
 var<push_constant> TONE_MAPPING_CONFIG: ToneMappingConfigUniform;
 
@@ -70,7 +71,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn tone_mapping_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let exposure = TONE_MAPPING_CONFIG.exposure;
+    let exposure = TONE_MAPPING_CONFIG.exposure.x;
     let shaded_color = textureSample(texture_1, sampler_1, in.tex_coords).rgb;
     let bloom_color = textureSample(texture_2, sampler_2, in.tex_coords).rgb;
     let final_color_hdr = shaded_color + bloom_color;
