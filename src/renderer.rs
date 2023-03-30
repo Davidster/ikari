@@ -1400,7 +1400,7 @@ impl RendererState {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Brdf Lut Gen Pipeline Layout"),
                     bind_group_layouts: &[],
-                    push_constant_ranges: &[skybox_camera_push_constant_range.clone()],
+                    push_constant_ranges: &[skybox_camera_push_constant_range],
                 });
 
         let brdf_lut_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
