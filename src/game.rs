@@ -924,7 +924,6 @@ pub fn update_game_state(
         if let Entry::Occupied(entry) = loaded_assets_guard
             .entry("./src/models/gltf/free_low_poly_forest/scene.gltf".to_string())
         {
-            logger_log("loaded forest");
             let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
             // hack to get the terrain to be at the same height as the ground.
             let node_has_parent: Vec<_> = other_scene
