@@ -16,13 +16,15 @@ const FRAME_TIME_HISTORY_SIZE: usize = 5000;
 
 #[derive(Debug)]
 pub struct IcedProgram {
-    chart: FpsChart,
+    fps_chart: FpsChart,
+    show_fps_chart: bool,
 }
 
 #[derive(Debug)]
 pub enum Message {
     FrameCompleted(Duration),
     GpuFrameCompleted(Vec<GpuTimerScopeResultWrapper>),
+    ToggleFpsChart(bool),
 }
 
 pub struct ContainerStyle;
@@ -163,16 +165,19 @@ impl Program for IcedProgram {
     fn update(&mut self, message: Message) -> Command<Message> {
         match message {
             Message::FrameCompleted(frame_duration) => {
-                self.chart.recent_frame_times.push(frame_duration);
-                if self.chart.recent_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
-                    self.chart.recent_frame_times.remove(0);
+                self.fps_chart.recent_frame_times.push(frame_duration);
+                if self.fps_chart.recent_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
+                    self.fps_chart.recent_frame_times.remove(0);
                 }
             }
             Message::GpuFrameCompleted(frames) => {
-                self.chart.recent_gpu_frame_times.push(frames);
-                if self.chart.recent_gpu_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
-                    self.chart.recent_gpu_frame_times.remove(0);
+                self.fps_chart.recent_gpu_frame_times.push(frames);
+                if self.fps_chart.recent_gpu_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
+                    self.fps_chart.recent_gpu_frame_times.remove(0);
                 }
+            }
+            Message::ToggleFpsChart(new_state) => {
+                self.show_fps_chart = new_state;
             }
         }
 
@@ -180,7 +185,7 @@ impl Program for IcedProgram {
     }
 
     fn view(&self) -> Element<Message, Renderer> {
-        if self.chart.recent_frame_times.is_empty() {
+        if self.fps_chart.recent_frame_times.is_empty() {
             return Row::new().into();
         }
 
@@ -188,7 +193,7 @@ impl Program for IcedProgram {
             let alpha = 0.01;
 
             let mut frame_times_iterator = self
-                .chart
+                .fps_chart
                 .recent_frame_times
                 .iter()
                 .map(|frame_time| frame_time.as_nanos() as f64 / 1_000_000.0);
@@ -198,7 +203,7 @@ impl Program for IcedProgram {
             }
 
             let mut gpu_frame_times_iterator = self
-                .chart
+                .fps_chart
                 .recent_gpu_frame_times
                 .iter()
                 .map(collect_frame_time_ms);
@@ -218,20 +223,30 @@ impl Program for IcedProgram {
         ));
 
         let container_style = Box::new(ContainerStyle {});
+
+        let mut rows = Column::new()
+            .width(Length::Shrink)
+            .height(Length::Shrink)
+            .spacing(12)
+            .push(iced_winit::widget::text(framerate_msg.as_str()))
+            .push(iced_winit::widget::checkbox(
+                "Show FPS Chart",
+                self.show_fps_chart,
+                Message::ToggleFpsChart,
+            ));
+        if self.show_fps_chart {
+            let padding = [16, 20, 16, 0]; // top, right, bottom, left
+            rows = rows.push(Container::new(self.fps_chart.view()).padding(padding));
+        }
+
         Row::new()
             .width(Length::Shrink)
             .height(Length::Shrink)
             .padding(8)
             .push(
-                Container::new(
-                    Column::new()
-                        .width(Length::Shrink)
-                        .height(Length::Shrink)
-                        .push(iced_winit::widget::text(framerate_msg.as_str()))
-                        .push(Container::new(self.chart.view()).padding([16, 20, 16, 0])), // top, right, bottom, left
-                )
-                .padding(8)
-                .style(iced::theme::Container::Custom(container_style)),
+                Container::new(rows)
+                    .padding(8)
+                    .style(iced::theme::Container::Custom(container_style)),
             )
             .into()
     }
@@ -248,6 +263,7 @@ pub struct UiOverlay {
     program_container: iced_winit::program::State<IcedProgram>,
     cursor_position: winit::dpi::PhysicalPosition<f64>,
     modifiers: winit::event::ModifiersState,
+    last_cursor_icon: Option<winit::window::CursorIcon>,
 }
 
 impl UiOverlay {
@@ -264,10 +280,11 @@ impl UiOverlay {
         let staging_belt = wgpu::util::StagingBelt::new(5 * 1024);
 
         let state = IcedProgram {
-            chart: FpsChart {
+            fps_chart: FpsChart {
                 recent_frame_times: vec![],
                 recent_gpu_frame_times: vec![],
             },
+            show_fps_chart: false,
         };
 
         let mut debug = iced_winit::Debug::new();
@@ -297,6 +314,7 @@ impl UiOverlay {
             modifiers,
             viewport,
             clipboard,
+            last_cursor_icon: None,
         }
     }
 
@@ -343,9 +361,12 @@ impl UiOverlay {
             );
         }
 
-        window.set_cursor_icon(iced_winit::conversion::mouse_interaction(
-            self.program_container.mouse_interaction(),
-        ));
+        let cursor_icon =
+            iced_winit::conversion::mouse_interaction(self.program_container.mouse_interaction());
+        if self.last_cursor_icon != Some(cursor_icon) {
+            window.set_cursor_icon(cursor_icon);
+            self.last_cursor_icon = Some(cursor_icon);
+        }
     }
 
     pub fn render(
