@@ -269,10 +269,12 @@ impl BaseRendererState {
 
         let instance = wgpu::Instance::new(InstanceDescriptor {
             backends,
-            dx12_shader_compiler: wgpu::Dx12Compiler::Dxc {
-                dxil_path: Some(PathBuf::from("dxc/dxil.dll")),
-                dxc_path: Some(PathBuf::from("dxc/dxccompiler.dll")),
-            },
+            // TODO: why does dxc fail to compile iced's shaders?
+            dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
+            // dx12_shader_compiler: wgpu::Dx12Compiler::Dxc {
+            //     dxil_path: Some(PathBuf::from("dxc/")),
+            //     dxc_path: Some(PathBuf::from("dxc/")),
+            // },
         });
         let surface = unsafe { instance.create_surface(&window).unwrap() };
         let adapter = instance
@@ -757,6 +759,7 @@ impl RendererState {
     pub async fn new(base: BaseRendererState, window: &Window) -> Result<Self> {
         logger_log("Controls:");
         vec![
+            "Control Player:          LAlt",
             "Move Around:             WASD, Space Bar, Ctrl",
             "Look Around:             Mouse",
             "Adjust Speed:            Scroll",
@@ -769,7 +772,6 @@ impl RendererState {
             "Toggle Wireframe:        F",
             "Toggle Collision Boxes:  C",
             "Draw Bounding Spheres:   J",
-            "Draw Scene SP Tree:      K",
             "Exit:                    Escape",
         ]
         .iter()

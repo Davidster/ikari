@@ -26,9 +26,8 @@ async fn start() {
         let backends = if cfg!(target_os = "linux") {
             wgpu::Backends::from(wgpu::Backend::Vulkan)
         } else {
-            // TODO: see if we can fix the 'No bind target was defined for the push constants block'
-            // wgpu::Backends::from(wgpu::Backend::Dx12)
-            wgpu::Backends::PRIMARY
+            wgpu::Backends::from(wgpu::Backend::Dx12)
+            // wgpu::Backends::PRIMARY
         };
         BaseRendererState::new(&window, backends, wgpu::PresentMode::AutoNoVsync).await
     };
