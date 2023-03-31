@@ -1,14 +1,11 @@
-struct CameraUniform {
-    proj: mat4x4<f32>,
-    view: mat4x4<f32>,
-    rotation_only_view: mat4x4<f32>,
-    position: vec4<f32>,
-    near_plane_distance: f32,
+// must stay below 128 bytes to fit in push constant in dx12
+struct MeshShaderCameraRaw {
+    view_proj: mat4x4<f32>,
+    position: vec3<f32>,
     far_plane_distance: f32,
-    padding: vec2<f32>,
 }
-@group(0) @binding(0)
-var<uniform> camera: CameraUniform;
+
+var<push_constant> CAMERA: MeshShaderCameraRaw;
 
 const MAX_LIGHTS = 32u;
 const MAX_BONES = 512u;
@@ -47,9 +44,9 @@ struct InstancesUniform {
     value: array<Instance>,
 }
 
-@group(0) @binding(1)
+@group(0) @binding(0)
 var<uniform> point_lights: PointLightsUniform;
-@group(0) @binding(2)
+@group(0) @binding(1)
 var<uniform> directional_lights: DirectionalLightsUniform;
 
 @group(2) @binding(0)
@@ -108,8 +105,7 @@ struct ShadowMappingFragmentOutput {
 
 fn do_vertex_shade(
     vshader_input: VertexInput,
-    camera_proj: mat4x4<f32>,
-    camera_view: mat4x4<f32>,
+    camera_view_proj: mat4x4<f32>,
     model_transform: mat4x4<f32>,
     skin_transform: mat4x4<f32>,
     base_color_factor: vec4<f32>,
@@ -124,7 +120,6 @@ fn do_vertex_shade(
     out.world_normal = vshader_input.object_normal;
 
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
-    let camera_view_proj = camera_proj * camera_view;
     let skinned_model_transform = model_transform * skin_transform;
     let world_position = skinned_model_transform * object_position;
     let clip_position = camera_view_proj * skinned_model_transform * object_position;
@@ -175,8 +170,7 @@ fn vs_main(
 
     return do_vertex_shade(
         vshader_input,
-        camera.proj,
-        camera.view,
+        CAMERA.view_proj,
         model_transform,
         skin_transform,
         instance.base_color_factor,
@@ -212,10 +206,9 @@ fn shadow_map_vs_main(
     let skin_transform = skin_transform_0 + skin_transform_1 + skin_transform_2 + skin_transform_3;
 
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
-    let camera_view_proj = camera.proj * camera.view;
     let skinned_model_transform = model_transform * skin_transform;
     let world_position = skinned_model_transform * object_position;
-    let clip_position = camera_view_proj * skinned_model_transform * object_position;
+    let clip_position = CAMERA.view_proj * skinned_model_transform * object_position;
 
 
     var out: ShadowMappingVertexOutput;
@@ -229,8 +222,8 @@ fn point_shadow_map_fs_main(
     in: ShadowMappingVertexOutput
 ) -> ShadowMappingFragmentOutput {
     var out: ShadowMappingFragmentOutput;
-    let light_distance = length(in.world_position - camera.position.xyz);
-    out.depth = light_distance / camera.far_plane_distance;
+    let light_distance = length(in.world_position - CAMERA.position.xyz);
+    out.depth = light_distance / CAMERA.far_plane_distance;
     return out;
 }
 
@@ -776,7 +769,7 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
         transformed_normal,
         in.tex_coords,
         in.vertex_color,
-        camera.position.xyz,
+        CAMERA.position.xyz,
         in.base_color_factor,
         in.emissive_factor,
         in.metallicness_factor,

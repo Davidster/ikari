@@ -26,16 +26,19 @@ async fn start() {
         let backends = if cfg!(target_os = "linux") {
             wgpu::Backends::from(wgpu::Backend::Vulkan)
         } else {
-            // wgpu::Backends::from(wgpu::Backend::Dx12)
-            wgpu::Backends::PRIMARY
+            wgpu::Backends::from(wgpu::Backend::Dx12)
+            // wgpu::Backends::PRIMARY
         };
         BaseRendererState::new(&window, backends, wgpu::PresentMode::AutoNoVsync).await
     };
 
     let run_result = async {
         let game_scene = Scene::default();
-        let mut renderer_state = RendererState::new(base_render_state).await?;
+
+        let mut renderer_state = RendererState::new(base_render_state, &window).await?;
+
         let game_state = init_game_state(game_scene, &mut renderer_state)?;
+
         ikari::gameloop::run(window, event_loop, game_state, renderer_state); // this will block while the game is running
         anyhow::Ok(())
     }

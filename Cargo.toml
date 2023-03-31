@@ -52,10 +52,11 @@ env_logger = { version = "0.10", default-features = false, features = [
 log = "0.4"
 
 # profile
-profiling = "1.0.7" # The version should be the one used by wgpu-core/hal
+profiling = "1.0.7"      # The version should be the one used by wgpu-core/hal
+wgpu-profiler = "0.11.0"
 
 # assets
-gltf = "1.0"
+gltf = "1.1"
 image = { version = "0.23.14", default-features = false, features = [
     "hdr",
     "jpeg",
@@ -66,13 +67,13 @@ basis-universal = "0.2.0"
 zstd = "0.12.3"
 
 # surface
-wgpu = { git = "https://github.com/gfx-rs/wgpu", branch = "master" }
-winit = { version = "0.28", default-features = false, features = ["x11"] }
+wgpu = "0.15"
+winit = { version = "0.27", git = "https://github.com/iced-rs/winit.git", rev = "940457522e9fb9f5dac228b0ecfafe0138b4048c" }
 
 # math
 rand = "0.8"
 rapier3d = "0.17"
-glam = { version = "0.22.0", features = ["approx", "bytemuck"] }
+glam = { version = "0.23.0", features = ["approx", "bytemuck"] }
 approx = "0.5"
 
 # audio
@@ -83,6 +84,19 @@ oddio = "0.6"
 threadpool = "1.8.1"
 walkdir = "2.3.3"
 num_cpus = "1.15.0"
+
+# UI
+iced_wgpu = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }
+iced = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }
+iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }
+plotters-iced = "0.7"
+plotters = { version = "0.3", default_features = false, features = [
+    "line_series",
+] }
+
+[patch.crates-io]
+iced_native = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }
+iced_graphics = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }
 
 [profile.dev.package."basis-universal-sys"]
 opt-level = 3

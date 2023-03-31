@@ -100,7 +100,9 @@ impl Texture {
                 img_bytes,
                 wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: NonZeroU32::new(format.block_size(None).unwrap() * dimensions.0),
+                    bytes_per_row: NonZeroU32::new(
+                        format.describe().block_size as u32 * dimensions.0,
+                    ),
                     rows_per_image: NonZeroU32::new(dimensions.1),
                 },
                 size,
@@ -137,13 +139,6 @@ impl Texture {
                 img_bytes,
             )
         };
-
-        /* dbg!(
-            img_bytes.len(),
-            dimensions,
-            NonZeroU32::new(format.block_size(None).unwrap() * dimensions.0)
-        );
-         */
 
         let view = texture.create_view(&Default::default());
         let sampler_index = base_renderer_state
@@ -475,23 +470,6 @@ impl Texture {
             1
         };
 
-        let single_uniform_bind_group_layout =
-            base_renderer_state
-                .device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
-                    label: Some("single_uniform_bind_group_layout"),
-                });
-
         let single_texture_bind_group_layout =
             base_renderer_state
                 .device
@@ -531,26 +509,6 @@ impl Texture {
                 view_formats: &[],
             });
 
-        let camera_buffer =
-            base_renderer_state
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Cubemap Generation Camera Buffer"),
-                    contents: bytemuck::cast_slice(&[CameraUniform::new()]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
-        let camera_bind_group =
-            base_renderer_state
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &single_uniform_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: camera_buffer.as_entire_binding(),
-                    }],
-                    label: Some("cubemap_gen_camera_bind_group"),
-                });
-
         let faces: Vec<_> = build_cubemap_face_camera_views(
             Vec3::new(0.0, 0.0, 0.0),
             NEAR_PLANE_DISTANCE,
@@ -566,7 +524,7 @@ impl Texture {
                 cubemap_texture.create_view(&wgpu::TextureViewDescriptor {
                     dimension: Some(wgpu::TextureViewDimension::D2),
                     base_array_layer: i as u32,
-                    array_layer_count: Some(1),
+                    array_layer_count: NonZeroU32::new(1),
                     ..Default::default()
                 }),
             )
@@ -613,11 +571,6 @@ impl Texture {
                         });
             }
 
-            base_renderer_state.queue.write_buffer(
-                &camera_buffer,
-                0,
-                bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
-            );
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: None,
@@ -632,8 +585,12 @@ impl Texture {
                     depth_stencil_attachment: None,
                 });
                 rpass.set_pipeline(er_to_cubemap_pipeline);
+                rpass.set_push_constants(
+                    wgpu::ShaderStages::VERTEX,
+                    0,
+                    bytemuck::cast_slice(&[SkyboxShaderCameraRaw::from(face_view_proj_matrices)]),
+                );
                 rpass.set_bind_group(0, &er_texture_bind_group, &[]);
-                rpass.set_bind_group(1, &camera_bind_group, &[]);
                 rpass.set_vertex_buffer(0, skybox_buffers.vertex_buffer.src().slice(..));
                 rpass.set_index_buffer(
                     skybox_buffers.index_buffer.src().slice(..),
@@ -786,23 +743,6 @@ impl Texture {
             1
         };
 
-        let single_uniform_bind_group_layout =
-            base_renderer_state
-                .device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
-                    label: Some("single_uniform_bind_group_layout"),
-                });
-
         let single_cube_texture_bind_group_layout = base_renderer_state
             .device
             .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -841,26 +781,6 @@ impl Texture {
                 view_formats: &[],
             });
 
-        let camera_buffer =
-            base_renderer_state
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Env map Generation Camera Buffer"),
-                    contents: bytemuck::cast_slice(&[CameraUniform::new()]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
-        let camera_bind_group =
-            base_renderer_state
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &single_uniform_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: camera_buffer.as_entire_binding(),
-                    }],
-                    label: Some("env_map_gen_camera_bind_group"),
-                });
-
         let faces: Vec<_> = build_cubemap_face_camera_views(
             Vec3::new(0.0, 0.0, 0.0),
             NEAR_PLANE_DISTANCE,
@@ -876,7 +796,7 @@ impl Texture {
                 env_map.create_view(&wgpu::TextureViewDescriptor {
                     dimension: Some(wgpu::TextureViewDimension::D2),
                     base_array_layer: i as u32,
-                    array_layer_count: Some(1),
+                    array_layer_count: NonZeroU32::new(1),
                     ..Default::default()
                 }),
             )
@@ -914,11 +834,7 @@ impl Texture {
                         ],
                         label: None,
                     });
-            base_renderer_state.queue.write_buffer(
-                &camera_buffer,
-                0,
-                bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
-            );
+
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: None,
@@ -933,8 +849,12 @@ impl Texture {
                     depth_stencil_attachment: None,
                 });
                 rpass.set_pipeline(env_map_gen_pipeline);
+                rpass.set_push_constants(
+                    wgpu::ShaderStages::VERTEX,
+                    0,
+                    bytemuck::cast_slice(&[SkyboxShaderCameraRaw::from(face_view_proj_matrices)]),
+                );
                 rpass.set_bind_group(0, &skybox_ir_texture_bind_group, &[]);
-                rpass.set_bind_group(1, &camera_bind_group, &[]);
                 rpass.set_vertex_buffer(0, skybox_buffers.vertex_buffer.src().slice(..));
                 rpass.set_index_buffer(
                     skybox_buffers.index_buffer.src().slice(..),
@@ -992,32 +912,20 @@ impl Texture {
             depth_or_array_layers: 6,
         };
 
-        let two_uniform_bind_group_layout =
+        let single_uniform_bind_group_layout =
             base_renderer_state
                 .device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                    ],
+                        count: None,
+                    }],
                     label: Some("single_uniform_bind_group_layout"),
                 });
 
@@ -1061,14 +969,6 @@ impl Texture {
                 view_formats: &[],
             });
 
-        let camera_buffer =
-            base_renderer_state
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Env map Generation Camera Buffer"),
-                    contents: bytemuck::cast_slice(&[CameraUniform::new()]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
         let roughness_buffer =
             base_renderer_state
                 .device
@@ -1077,22 +977,16 @@ impl Texture {
                     contents: bytemuck::cast_slice(&[0.0f32]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
-        let camera_roughness_bind_group =
+        let roughness_bind_group =
             base_renderer_state
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &two_uniform_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: camera_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: roughness_buffer.as_entire_binding(),
-                        },
-                    ],
-                    label: Some("env_map_gen_camera_bind_group"),
+                    layout: &single_uniform_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: roughness_buffer.as_entire_binding(),
+                    }],
+                    label: Some("spec_env_map_gen_roughness_bind_group"),
                 });
 
         let camera_projection_matrices = build_cubemap_face_camera_views(
@@ -1117,9 +1011,9 @@ impl Texture {
                             env_map.create_view(&wgpu::TextureViewDescriptor {
                                 dimension: Some(wgpu::TextureViewDimension::D2),
                                 base_array_layer: i as u32,
-                                array_layer_count: Some(1),
+                                array_layer_count: NonZeroU32::new(1),
                                 base_mip_level: mip_level,
-                                mip_level_count: Some(1),
+                                mip_level_count: NonZeroU32::new(1),
                                 ..Default::default()
                             }),
                         )
@@ -1157,11 +1051,6 @@ impl Texture {
                                 label: None,
                             });
                         base_renderer_state.queue.write_buffer(
-                            &camera_buffer,
-                            0,
-                            bytemuck::cast_slice(&[CameraUniform::from(face_view_proj_matrices)]),
-                        );
-                        base_renderer_state.queue.write_buffer(
                             &roughness_buffer,
                             0,
                             bytemuck::cast_slice(&[roughness_level]),
@@ -1181,8 +1070,15 @@ impl Texture {
                                     depth_stencil_attachment: None,
                                 });
                             rpass.set_pipeline(env_map_gen_pipeline);
+                            rpass.set_push_constants(
+                                wgpu::ShaderStages::VERTEX,
+                                0,
+                                bytemuck::cast_slice(&[SkyboxShaderCameraRaw::from(
+                                    face_view_proj_matrices,
+                                )]),
+                            );
                             rpass.set_bind_group(0, &skybox_ir_texture_bind_group, &[]);
-                            rpass.set_bind_group(1, &camera_roughness_bind_group, &[]);
+                            rpass.set_bind_group(1, &roughness_bind_group, &[]);
                             rpass
                                 .set_vertex_buffer(0, skybox_buffers.vertex_buffer.src().slice(..));
                             rpass.set_index_buffer(
@@ -1323,30 +1219,7 @@ fn generate_mipmaps_for_texture(
                     std::fs::read_to_string("./src/shaders/blit.wgsl")?.into(),
                 ),
             });
-    let mip_render_pipeline =
-        base_renderer_state
-            .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("mip_render_pipeline"),
-                layout: None,
-                vertex: wgpu::VertexState {
-                    module: &blit_shader,
-                    entry_point: "vs_main",
-                    buffers: &[],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &blit_shader,
-                    entry_point: "fs_main",
-                    targets: &[Some(format.into())],
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: Default::default(),
-                multiview: None,
-            });
+
     let single_texture_bind_group_layout =
         base_renderer_state
             .device
@@ -1371,6 +1244,44 @@ fn generate_mipmaps_for_texture(
                 ],
                 label: Some("single_texture_bind_group_layout"),
             });
+
+    let mip_pipeline_layout =
+        base_renderer_state
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Mesh Pipeline Layout"),
+                bind_group_layouts: &[&single_texture_bind_group_layout],
+                push_constant_ranges: &[wgpu::PushConstantRange {
+                    stages: wgpu::ShaderStages::VERTEX,
+                    range: 0..std::mem::size_of::<MeshShaderCameraRaw>() as u32,
+                }],
+            });
+
+    let mip_render_pipeline =
+        base_renderer_state
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("mip_render_pipeline"),
+                layout: Some(&mip_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &blit_shader,
+                    entry_point: "vs_main",
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &blit_shader,
+                    entry_point: "fs_main",
+                    targets: &[Some(format.into())],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: Default::default(),
+                multiview: None,
+            });
+
     let mip_texure_views = (0..mip_level_count)
         .map(|mip| {
             texture.create_view(&wgpu::TextureViewDescriptor {
@@ -1379,7 +1290,7 @@ fn generate_mipmaps_for_texture(
                 dimension: None,
                 aspect: wgpu::TextureAspect::All,
                 base_mip_level: mip,
-                mip_level_count: Some(1),
+                mip_level_count: NonZeroU32::new(1),
                 base_array_layer: 0,
                 array_layer_count: None,
             })

@@ -27,3 +27,4 @@ pub mod texture;
 pub mod texture_compression;
 pub mod time_tracker;
 pub mod transform;
+pub mod ui_overlay;

@@ -20,13 +20,26 @@ pub fn run(
     mut renderer_state: RendererState,
 ) {
     let mut last_log_time: Option<Instant> = None;
+    let mut last_frame_start_time: Option<Instant> = None;
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
         match event {
             Event::RedrawRequested(_) => {
                 game_state.on_frame_started();
                 profiling::finish_frame!();
-                LOGGER.lock().unwrap().on_frame_completed();
+                if let Some(last_frame_start_time) = last_frame_start_time {
+                    let mut renderer_data_guard = renderer_state.data.lock().unwrap();
+                    renderer_data_guard.ui_overlay.send_message(
+                        crate::ui_overlay::Message::FrameCompleted(last_frame_start_time.elapsed()),
+                    );
+                    if let Some(gpu_timing_info) = renderer_state.process_profiler_frame() {
+                        renderer_data_guard.ui_overlay.send_message(
+                            crate::ui_overlay::Message::GpuFrameCompleted(gpu_timing_info),
+                        );
+                    }
+                }
+                last_frame_start_time = Some(Instant::now());
 
                 update_game_state(
                     &mut game_state,
@@ -53,11 +66,11 @@ pub fn run(
                     _ => {}
                 }
 
-                match renderer_state.render(&mut game_state) {
+                match renderer_state.render(&mut game_state, &window) {
                     Ok(_) => {}
                     // Reconfigure the surface if lost
                     Err(wgpu::SurfaceError::Lost) => {
-                        renderer_state.resize(*renderer_state.base.window_size.lock().unwrap())
+                        renderer_state.resize(window.inner_size(), window.scale_factor())
                     }
                     // The system is out of memory, we should probably quit
                     Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
@@ -76,16 +89,15 @@ pub fn run(
             Event::WindowEvent {
                 event, window_id, ..
             } if window_id == window.id() => {
-                process_window_input(&mut game_state, &renderer_state, &event, &mut window);
-                match event {
+                match &event {
                     WindowEvent::Resized(size) => {
                         if size.width > 0 && size.height > 0 {
-                            renderer_state.resize(size);
+                            renderer_state.resize(*size, window.scale_factor());
                         }
                     }
                     WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                         if new_inner_size.width > 0 && new_inner_size.height > 0 {
-                            renderer_state.resize(*new_inner_size);
+                            renderer_state.resize(**new_inner_size, window.scale_factor());
                         }
                     }
                     WindowEvent::CloseRequested
@@ -100,6 +112,15 @@ pub fn run(
                     } => *control_flow = ControlFlow::Exit,
                     _ => {}
                 };
+
+                renderer_state
+                    .data
+                    .lock()
+                    .unwrap()
+                    .ui_overlay
+                    .handle_window_event(&window, &event);
+
+                process_window_input(&mut game_state, &renderer_state, &event, &mut window);
             }
             _ => {}
         }

@@ -12,6 +12,7 @@ use crate::transform::*;
 use std::collections::{hash_map::Entry, HashMap};
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{bail, Result};
 use approx::abs_diff_eq;
@@ -108,13 +109,27 @@ pub fn build_scene(
     // gltf node index -> game node
     let mut node_mesh_links: HashMap<usize, Vec<usize>> = HashMap::new();
 
+    // IndexedPbrMaterial
+    let mut textures_bind_group_cache: HashMap<IndexedPbrMaterial, Arc<wgpu::BindGroup>> =
+        HashMap::new();
+
     for (binded_pbr_mesh_index, (mesh, primitive_group)) in
         make_supported_mesh_iterator().enumerate()
     {
         let dynamic_pbr_params = get_dynamic_pbr_params(&primitive_group.material());
-        let pbr_material = get_pbr_material(&primitive_group.material(), &textures);
-        let textures_bind_group =
-            base_renderer_state.make_pbr_textures_bind_group(&pbr_material, true)?;
+
+        let indexed_pbr_material = get_indexed_pbr_material(&primitive_group.material());
+        let textures_bind_group = match textures_bind_group_cache.entry(indexed_pbr_material) {
+            Entry::Occupied(entry) => entry.get().clone(),
+            Entry::Vacant(vacant_entry) => {
+                let pbr_material = get_pbr_material(vacant_entry.key(), &textures);
+                let textures_bind_group = Arc::new(
+                    base_renderer_state.make_pbr_textures_bind_group(&pbr_material, true)?,
+                );
+                vacant_entry.insert(textures_bind_group.clone());
+                textures_bind_group
+            }
+        };
 
         let (vertices, geometry_buffers, wireframe_index_buffer, wireframe_index_buffer_format) =
             build_geometry_buffers(
@@ -653,25 +668,37 @@ fn get_full_node_list_impl<'a>(
     }
 }
 
-fn get_pbr_material<'a>(
-    material: &gltf::material::Material,
-    textures: &'a [Texture],
-) -> PbrMaterial<'a> {
+fn get_indexed_pbr_material(material: &gltf::material::Material) -> IndexedPbrMaterial {
     let pbr_info = material.pbr_metallic_roughness();
 
-    let get_texture =
-        |texture: Option<gltf::texture::Texture>| texture.map(|texture| &textures[texture.index()]);
+    let get_texture_index =
+        |texture: Option<gltf::texture::Texture>| texture.map(|texture| texture.index());
 
-    PbrMaterial {
-        base_color: get_texture(pbr_info.base_color_texture().map(|info| info.texture())),
-        normal: get_texture(material.normal_texture().map(|info| info.texture())),
-        emissive: get_texture(material.emissive_texture().map(|info| info.texture())),
-        ambient_occlusion: get_texture(material.occlusion_texture().map(|info| info.texture())),
-        metallic_roughness: get_texture(
+    IndexedPbrMaterial {
+        base_color: get_texture_index(pbr_info.base_color_texture().map(|info| info.texture())),
+        normal: get_texture_index(material.normal_texture().map(|info| info.texture())),
+        emissive: get_texture_index(material.emissive_texture().map(|info| info.texture())),
+        ambient_occlusion: get_texture_index(
+            material.occlusion_texture().map(|info| info.texture()),
+        ),
+        metallic_roughness: get_texture_index(
             pbr_info
                 .metallic_roughness_texture()
                 .map(|info| info.texture()),
         ),
+    }
+}
+
+fn get_pbr_material<'a>(material: &IndexedPbrMaterial, textures: &'a [Texture]) -> PbrMaterial<'a> {
+    let get_texture =
+        |texture_index: Option<usize>| texture_index.map(|texture_index| &textures[texture_index]);
+
+    PbrMaterial {
+        base_color: get_texture(material.base_color),
+        normal: get_texture(material.normal),
+        emissive: get_texture(material.emissive),
+        ambient_occlusion: get_texture(material.ambient_occlusion),
+        metallic_roughness: get_texture(material.metallic_roughness),
     }
 }
 

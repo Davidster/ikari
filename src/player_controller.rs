@@ -10,6 +10,7 @@ use std::time::Instant;
 
 use glam::f32::{Quat, Vec3};
 use glam::EulerRot;
+use winit::event::MouseButton;
 use winit::window::CursorGrabMode;
 use winit::{
     dpi::PhysicalPosition,
@@ -31,11 +32,15 @@ pub struct PlayerController {
     is_up_pressed: bool,
     is_down_pressed: bool,
 
+    pub mouse_button_pressed: bool,
+
     pub view_direction: ControlledViewDirection,
     pub speed: f32,
     pub rigid_body_handle: RigidBodyHandle,
 
     pub last_jump_time: Option<Instant>,
+
+    pub is_focused_on_game: bool,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -92,6 +97,8 @@ impl PlayerController {
             unprocessed_delta: None,
             window_focused: false,
 
+            mouse_button_pressed: false,
+
             is_forward_pressed: false,
             is_backward_pressed: false,
             is_left_pressed: false,
@@ -103,10 +110,15 @@ impl PlayerController {
             speed,
             rigid_body_handle,
             last_jump_time: None,
+
+            is_focused_on_game: false,
         }
     }
 
     pub fn process_device_events(&mut self, event: &DeviceEvent) {
+        if !self.is_focused_on_game {
+            return;
+        }
         match event {
             DeviceEvent::MouseMotion { delta: (d_x, d_y) } if self.window_focused => {
                 self.unprocessed_delta = match self.unprocessed_delta {
@@ -139,27 +151,49 @@ impl PlayerController {
                     },
                 ..
             } => {
-                let is_pressed = *state == ElementState::Pressed;
-                match keycode {
-                    VirtualKeyCode::W => {
-                        self.is_forward_pressed = is_pressed;
+                if *state == ElementState::Released && *keycode == VirtualKeyCode::RAlt {
+                    self.is_focused_on_game = !self.is_focused_on_game;
+                    if let Err(err) = window.set_cursor_grab(if self.is_focused_on_game {
+                        CursorGrabMode::Confined
+                    } else {
+                        CursorGrabMode::None
+                    }) {
+                        logger_log(&format!(
+                            "Couldn't {:?} cursor: {:?}",
+                            if self.is_focused_on_game {
+                                "grab"
+                            } else {
+                                "release"
+                            },
+                            err
+                        ))
                     }
-                    VirtualKeyCode::A => {
-                        self.is_left_pressed = is_pressed;
+                    window.set_cursor_visible(!self.is_focused_on_game);
+                }
+                // TODO: join two if self.is_focused_on_game checks into one block
+                if self.is_focused_on_game {
+                    let is_pressed = *state == ElementState::Pressed;
+                    match keycode {
+                        VirtualKeyCode::W => {
+                            self.is_forward_pressed = is_pressed;
+                        }
+                        VirtualKeyCode::A => {
+                            self.is_left_pressed = is_pressed;
+                        }
+                        VirtualKeyCode::S => {
+                            self.is_backward_pressed = is_pressed;
+                        }
+                        VirtualKeyCode::D => {
+                            self.is_right_pressed = is_pressed;
+                        }
+                        VirtualKeyCode::Space => {
+                            self.is_up_pressed = is_pressed;
+                        }
+                        VirtualKeyCode::LControl => {
+                            self.is_down_pressed = is_pressed;
+                        }
+                        _ => {}
                     }
-                    VirtualKeyCode::S => {
-                        self.is_backward_pressed = is_pressed;
-                    }
-                    VirtualKeyCode::D => {
-                        self.is_right_pressed = is_pressed;
-                    }
-                    VirtualKeyCode::Space => {
-                        self.is_up_pressed = is_pressed;
-                    }
-                    VirtualKeyCode::LControl => {
-                        self.is_down_pressed = is_pressed;
-                    }
-                    _ => {}
                 }
             }
             WindowEvent::Focused(focused) => {
@@ -167,19 +201,25 @@ impl PlayerController {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                 }
                 logger_log(&format!("Window focused: {:?}", focused));
-                if let Err(err) = window.set_cursor_grab(if *focused {
-                    CursorGrabMode::Confined
-                } else {
-                    CursorGrabMode::None
-                }) {
+                if let Err(err) = window.set_cursor_grab(CursorGrabMode::None) {
                     logger_log(&format!(
                         "Couldn't {:?} cursor: {:?}",
                         if *focused { "grab" } else { "release" },
                         err
                     ))
                 }
-                window.set_cursor_visible(!*focused);
+                window.set_cursor_visible(true);
                 self.window_focused = *focused;
+            }
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Left,
+                ..
+            } => {
+                // TODO: join two if self.is_focused_on_game checks into one block
+                if self.is_focused_on_game {
+                    self.mouse_button_pressed = *state == ElementState::Pressed;
+                }
             }
             _ => {}
         };

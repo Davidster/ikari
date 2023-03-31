@@ -27,10 +27,10 @@ use std::{
 use anyhow::Result;
 use glam::f32::{Vec3, Vec4};
 use rapier3d::prelude::*;
-use winit::event::{ElementState, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent};
+use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
-pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 0.3;
+pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
 pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
 pub const ARENA_SIDE_LENGTH: f32 = 500.0;
@@ -739,7 +739,6 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         physics_state,
 
         physics_balls,
-        mouse_button_pressed: false,
 
         character: None,
         player_controller,
@@ -758,6 +757,7 @@ pub fn increment_render_scale(
     renderer_state: &RendererState,
     renderer_base: &BaseRendererState,
     increase: bool,
+    window: &mut winit::window::Window,
 ) {
     let delta = 0.1;
     let change = if increase { delta } else { -delta };
@@ -776,8 +776,7 @@ pub fn increment_render_scale(
                 as u32,
         ));
     }
-    let window_size = *renderer_base.window_size.lock().unwrap();
-    renderer_state.resize(window_size);
+    renderer_state.resize(window.inner_size(), window.scale_factor());
 }
 
 pub fn increment_exposure(renderer_data: &mut RendererStatePublicData, increase: bool) {
@@ -807,14 +806,6 @@ pub fn process_window_input(
     event: &winit::event::WindowEvent,
     window: &mut winit::window::Window,
 ) {
-    if let WindowEvent::MouseInput {
-        state,
-        button: MouseButton::Left,
-        ..
-    } = event
-    {
-        game_state.mouse_button_pressed = *state == ElementState::Pressed;
-    }
     if let WindowEvent::KeyboardInput {
         input:
             KeyboardInput {
@@ -831,11 +822,11 @@ pub fn process_window_input(
             match keycode {
                 VirtualKeyCode::Z => {
                     drop(render_data_guard);
-                    increment_render_scale(renderer_state, &renderer_state.base, false);
+                    increment_render_scale(renderer_state, &renderer_state.base, false, window);
                 }
                 VirtualKeyCode::X => {
                     drop(render_data_guard);
-                    increment_render_scale(renderer_state, &renderer_state.base, true);
+                    increment_render_scale(renderer_state, &renderer_state.base, true, window);
                 }
                 VirtualKeyCode::E => {
                     increment_exposure(&mut render_data_guard, false);
@@ -933,7 +924,6 @@ pub fn update_game_state(
         if let Entry::Occupied(entry) = loaded_assets_guard
             .entry("./src/models/gltf/free_low_poly_forest/scene.gltf".to_string())
         {
-            logger_log("loaded forest");
             let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
             // hack to get the terrain to be at the same height as the ground.
             let node_has_parent: Vec<_> = other_scene
@@ -1294,7 +1284,8 @@ pub fn update_game_state(
             &mut game_state.scene,
         );
 
-        if game_state.mouse_button_pressed && revolver.fire(&mut game_state.scene) {
+        if game_state.player_controller.mouse_button_pressed && revolver.fire(&mut game_state.scene)
+        {
             if let Some(gunshot_sound_index) = game_state.gunshot_sound_index {
                 {
                     let mut audio_manager_guard = game_state.audio_manager.lock().unwrap();
