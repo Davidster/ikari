@@ -19,7 +19,6 @@ use std::fs::File;
 use std::io::BufReader;
 use std::num::NonZeroU32;
 use std::num::NonZeroU64;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
