@@ -20,6 +20,8 @@ Hopefully one day it will be used in a real game 😃
 - Auto-generated box collision meshes, including support for skinned characters
 - [Rapier](https://rapier.rs/) integration for physics
 - [Oddio](https://github.com/Ralith/oddio) integration for audio
+- [Iced](https://github.com/iced-rs/iced) integration for UI
+- [wgpu-profiler](https://github.com/Wumpf/wgpu-profiler)
 - Dynamic render scale
   - Can be used to do supersampling anti-aliasing
 - glTF asset import
@@ -54,6 +56,10 @@ https://user-images.githubusercontent.com/2389735/178186964-c42f44c7-8e3e-475c-8
 ### Auto-generated character collision meshes
 
 https://user-images.githubusercontent.com/2389735/180101651-86ba2084-4196-494b-9a36-3b6847161af1.mp4
+
+### Iced UI + wgpu-profiler
+
+![screenshot_3](https://user-images.githubusercontent.com/2389735/229004532-8c2b21c5-1473-4243-b1f0-821c7abc5fca.png)
 
 ## Profiling
 You can profile ikari with [tracy](https://github.com/wolfpld/tracy) via [profiling](https://github.com/aclysma/profiling) crate.
