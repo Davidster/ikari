@@ -758,7 +758,7 @@ impl RendererState {
     pub async fn new(base: BaseRendererState, window: &Window) -> Result<Self> {
         logger_log("Controls:");
         vec![
-            "Control Player:          LAlt",
+            "Control Player:          RAlt",
             "Move Around:             WASD, Space Bar, Ctrl",
             "Look Around:             Mouse",
             "Adjust Speed:            Scroll",
