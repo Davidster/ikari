@@ -726,7 +726,6 @@ pub struct Renderer {
     pub base: Arc<BaseRenderer>,
     pub data: Arc<Mutex<RendererPublicData>>,
 
-    // TODO: does this need a mutex?
     private_data: Mutex<RendererPrivateData>,
 
     profiler: Mutex<wgpu_profiler::GpuProfiler>,
@@ -2268,16 +2267,16 @@ impl Renderer {
         data_guard.ui_overlay.resize(new_window_size, scale_factor);
 
         *self.base.window_size.lock().unwrap() = new_window_size;
-        {
+        let surface_config = {
             let mut surface_config_guard = self.base.surface_config.lock().unwrap();
             surface_config_guard.width = new_window_size.width;
             surface_config_guard.height = new_window_size.height;
+            surface_config_guard.clone()
+        };
 
-            // TODO: probably don't need to hold onto surface config mutex while runnig this.
-            self.base
-                .surface
-                .configure(&self.base.device, &surface_config_guard);
-        }
+        self.base
+            .surface
+            .configure(&self.base.device, &surface_config);
 
         private_data_guard.shading_texture = Texture::create_scaled_surface_texture(
             &self.base,
@@ -2488,7 +2487,7 @@ impl Renderer {
     }
 
     pub fn render(
-        &mut self,
+        &self,
         game_state: &mut GameState,
         window: &winit::window::Window,
     ) -> Result<(), wgpu::SurfaceError> {
@@ -2496,7 +2495,7 @@ impl Renderer {
         let mut data_guard = self.data.lock().unwrap();
         let mut private_data_guard = self.private_data.lock().unwrap();
         let mut profiler_guard = self.profiler.lock().unwrap();
-        // TODO: this holds onto these mutexes for quite a while, could it make sense to make them hold for shorter periods?
+
         self.update_internal(
             &self.base,
             &mut data_guard,
