@@ -48,7 +48,7 @@ impl Default for SceneTreeNode {
 #[profiling::function]
 pub fn build_scene_tree(
     scene: &Scene,
-    renderer_state: &RendererState,
+    renderer: &Renderer,
     old_scene_tree: Option<SceneTree>,
 ) -> SceneTree {
     let mut scene_tree = SceneTree::new(old_scene_tree);
@@ -58,7 +58,7 @@ pub fn build_scene_tree(
             continue;
         }
         if let Some(node_bounding_sphere) =
-            scene.get_node_bounding_sphere_opt(node.id(), &renderer_state.data.lock().unwrap())
+            scene.get_node_bounding_sphere_opt(node.id(), &renderer.data.lock().unwrap())
         {
             scene_tree.insert(node.id(), node_bounding_sphere);
         }

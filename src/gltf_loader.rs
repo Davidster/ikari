@@ -35,7 +35,7 @@ impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
 }
 
 pub fn build_scene(
-    base_renderer_state: &BaseRendererState,
+    base_renderer: &BaseRenderer,
     (document, buffers, images): (
         &gltf::Document,
         &Vec<gltf::buffer::Data>,
@@ -50,7 +50,7 @@ pub fn build_scene(
 
     let materials: Vec<_> = document.materials().collect();
 
-    let textures = get_textures(document, images, materials, gltf_path, base_renderer_state)?;
+    let textures = get_textures(document, images, materials, gltf_path, base_renderer)?;
 
     // node index -> parent node index
     let parent_index_map: HashMap<usize, usize> = document
@@ -123,9 +123,8 @@ pub fn build_scene(
             Entry::Occupied(entry) => entry.get().clone(),
             Entry::Vacant(vacant_entry) => {
                 let pbr_material = get_pbr_material(vacant_entry.key(), &textures);
-                let textures_bind_group = Arc::new(
-                    base_renderer_state.make_pbr_textures_bind_group(&pbr_material, true)?,
-                );
+                let textures_bind_group =
+                    Arc::new(base_renderer.make_pbr_textures_bind_group(&pbr_material, true)?);
                 vacant_entry.insert(textures_bind_group.clone());
                 textures_bind_group
             }
@@ -133,8 +132,8 @@ pub fn build_scene(
 
         let (vertices, geometry_buffers, wireframe_index_buffer, wireframe_index_buffer_format) =
             build_geometry_buffers(
-                &base_renderer_state.device,
-                &base_renderer_state.limits,
+                &base_renderer.device,
+                &base_renderer.limits,
                 &primitive_group,
                 buffers,
             )?;
@@ -335,7 +334,7 @@ fn get_textures(
     images: &[gltf::image::Data],
     materials: Vec<gltf::Material>,
     gltf_path: &Path,
-    base_renderer_state: &BaseRendererState,
+    base_renderer: &BaseRenderer,
 ) -> Result<Vec<Texture>, anyhow::Error> {
     let textures = document
         .textures()
@@ -435,7 +434,7 @@ fn get_textures(
                 .unwrap_or((default_sampler.min_filter, default_sampler.mipmap_filter));
 
             Texture::from_decoded_image(
-                base_renderer_state,
+                base_renderer,
                 &image_pixels,
                 image_dimensions,
                 baked_mip_levels,

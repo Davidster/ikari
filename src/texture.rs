@@ -31,7 +31,7 @@ impl Texture {
 
     // supports jpg and png
     pub fn from_encoded_image(
-        base_renderer_state: &BaseRendererState,
+        base_renderer: &BaseRenderer,
         img_bytes: &[u8],
         label: &str,
         format: Option<wgpu::TextureFormat>,
@@ -41,7 +41,7 @@ impl Texture {
         let img = image::load_from_memory(img_bytes)?;
         let img_as_rgba = img.to_rgba8();
         Self::from_decoded_image(
-            base_renderer_state,
+            base_renderer,
             &img_as_rgba,
             img_as_rgba.dimensions(),
             1,
@@ -54,7 +54,7 @@ impl Texture {
 
     #[allow(clippy::too_many_arguments)]
     pub fn from_decoded_image(
-        base_renderer_state: &BaseRendererState,
+        base_renderer: &BaseRenderer,
         img_bytes: &[u8],
         dimensions: (u32, u32),
         baked_mip_levels: u32,
@@ -76,7 +76,7 @@ impl Texture {
         let format = format.unwrap_or(wgpu::TextureFormat::Rgba8UnormSrgb);
         let texture = if generate_mipmaps {
             let mip_level_count = size.max_mips(wgpu::TextureDimension::D2);
-            let texture = base_renderer_state
+            let texture = base_renderer
                 .device
                 .create_texture(&wgpu::TextureDescriptor {
                     label,
@@ -90,7 +90,7 @@ impl Texture {
                         | wgpu::TextureUsages::RENDER_ATTACHMENT,
                     view_formats: &[],
                 });
-            base_renderer_state.queue.write_texture(
+            base_renderer.queue.write_texture(
                 wgpu::ImageCopyTexture {
                     aspect: wgpu::TextureAspect::All,
                     texture: &texture,
@@ -108,14 +108,15 @@ impl Texture {
                 size,
             );
 
-            let mip_encoder = base_renderer_state.device.create_command_encoder(
-                &wgpu::CommandEncoderDescriptor {
-                    label: Some("mip_encoder"),
-                },
-            );
+            let mip_encoder =
+                base_renderer
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("mip_encoder"),
+                    });
 
             generate_mipmaps_for_texture(
-                base_renderer_state,
+                base_renderer,
                 mip_encoder,
                 &texture,
                 mip_level_count,
@@ -124,8 +125,8 @@ impl Texture {
 
             texture
         } else {
-            base_renderer_state.device.create_texture_with_data(
-                &base_renderer_state.queue,
+            base_renderer.device.create_texture_with_data(
+                &base_renderer.queue,
                 &wgpu::TextureDescriptor {
                     label,
                     size,
@@ -141,11 +142,11 @@ impl Texture {
         };
 
         let view = texture.create_view(&Default::default());
-        let sampler_index = base_renderer_state
+        let sampler_index = base_renderer
             .sampler_cache
             .lock()
             .unwrap()
-            .get_sampler_index(&base_renderer_state.device, sampler_descriptor);
+            .get_sampler_index(&base_renderer.device, sampler_descriptor);
 
         Ok(Self {
             texture,
@@ -155,17 +156,14 @@ impl Texture {
         })
     }
 
-    pub fn _from_color_srgb(
-        base_renderer_state: &BaseRendererState,
-        color: [u8; 4],
-    ) -> Result<Self> {
+    pub fn _from_color_srgb(base_renderer: &BaseRenderer, color: [u8; 4]) -> Result<Self> {
         let one_pixel_image = {
             let mut img = image::RgbaImage::new(1, 1);
             img.put_pixel(0, 0, image::Rgba(color));
             img
         };
         Texture::from_decoded_image(
-            base_renderer_state,
+            base_renderer,
             &one_pixel_image,
             one_pixel_image.dimensions(),
             1,
@@ -180,14 +178,14 @@ impl Texture {
         )
     }
 
-    pub fn from_color(base_renderer_state: &BaseRendererState, color: [u8; 4]) -> Result<Self> {
+    pub fn from_color(base_renderer: &BaseRenderer, color: [u8; 4]) -> Result<Self> {
         let one_pixel_image = {
             let mut img = image::RgbaImage::new(1, 1);
             img.put_pixel(0, 0, image::Rgba(color));
             img
         };
         Texture::from_decoded_image(
-            base_renderer_state,
+            base_renderer,
             &one_pixel_image,
             one_pixel_image.dimensions(),
             1,
@@ -202,14 +200,14 @@ impl Texture {
         )
     }
 
-    pub fn _from_gray(base_renderer_state: &BaseRendererState, gray_value: u8) -> Result<Self> {
+    pub fn _from_gray(base_renderer: &BaseRenderer, gray_value: u8) -> Result<Self> {
         let one_pixel_gray_image = {
             let mut img = image::GrayImage::new(1, 1);
             img.put_pixel(0, 0, image::Luma([gray_value]));
             img
         };
         Texture::from_decoded_image(
-            base_renderer_state,
+            base_renderer,
             &one_pixel_gray_image,
             one_pixel_gray_image.dimensions(),
             1,
@@ -224,24 +222,24 @@ impl Texture {
         )
     }
 
-    pub fn _flat_normal_map(base_renderer_state: &BaseRendererState) -> Result<Self> {
-        Self::from_color(base_renderer_state, [127, 127, 255, 255])
+    pub fn _flat_normal_map(base_renderer: &BaseRenderer) -> Result<Self> {
+        Self::from_color(base_renderer, [127, 127, 255, 255])
     }
 
     pub fn create_scaled_surface_texture(
-        base_renderer_state: &BaseRendererState,
+        base_renderer: &BaseRenderer,
         render_scale: f32,
         label: &str,
     ) -> Self {
         let size = {
-            let surface_config_guard = base_renderer_state.surface_config.lock().unwrap();
+            let surface_config_guard = base_renderer.surface_config.lock().unwrap();
             wgpu::Extent3d {
                 width: ((surface_config_guard.width as f32) * render_scale.sqrt()).round() as u32,
                 height: ((surface_config_guard.height as f32) * render_scale.sqrt()).round() as u32,
                 depth_or_array_layers: 1,
             }
         };
-        let texture = base_renderer_state
+        let texture = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
@@ -257,12 +255,12 @@ impl Texture {
             });
 
         let view = texture.create_view(&Default::default());
-        let sampler_index = base_renderer_state
+        let sampler_index = base_renderer
             .sampler_cache
             .lock()
             .unwrap()
             .get_sampler_index(
-                &base_renderer_state.device,
+                &base_renderer.device,
                 &SamplerDescriptor {
                     address_mode_u: wgpu::AddressMode::ClampToEdge,
                     address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -283,19 +281,19 @@ impl Texture {
     }
 
     pub fn create_depth_texture(
-        base_renderer_state: &BaseRendererState,
+        base_renderer: &BaseRenderer,
         render_scale: f32,
         label: &str,
     ) -> Self {
         let size = {
-            let surface_config_guard = base_renderer_state.surface_config.lock().unwrap();
+            let surface_config_guard = base_renderer.surface_config.lock().unwrap();
             wgpu::Extent3d {
                 width: ((surface_config_guard.width as f32) * render_scale.sqrt()).round() as u32,
                 height: ((surface_config_guard.height as f32) * render_scale.sqrt()).round() as u32,
                 depth_or_array_layers: 1,
             }
         };
-        let texture = base_renderer_state
+        let texture = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
@@ -310,12 +308,12 @@ impl Texture {
             });
 
         let view = texture.create_view(&Default::default());
-        let sampler_index = base_renderer_state
+        let sampler_index = base_renderer
             .sampler_cache
             .lock()
             .unwrap()
             .get_sampler_index(
-                &base_renderer_state.device,
+                &base_renderer.device,
                 &SamplerDescriptor {
                     address_mode_u: wgpu::AddressMode::ClampToEdge,
                     address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -337,7 +335,7 @@ impl Texture {
     }
 
     pub fn create_cube_depth_texture_array(
-        base_renderer_state: &BaseRendererState,
+        base_renderer: &BaseRenderer,
         size: u32,
         label: Option<&str>,
         length: u32,
@@ -348,7 +346,7 @@ impl Texture {
             depth_or_array_layers: 6 * length,
         };
 
-        let texture = base_renderer_state
+        let texture = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
                 label,
@@ -367,12 +365,12 @@ impl Texture {
             ..Default::default()
         });
 
-        let sampler_index = base_renderer_state
+        let sampler_index = base_renderer
             .sampler_cache
             .lock()
             .unwrap()
             .get_sampler_index(
-                &base_renderer_state.device,
+                &base_renderer.device,
                 &SamplerDescriptor {
                     address_mode_u: wgpu::AddressMode::Repeat,
                     address_mode_v: wgpu::AddressMode::Repeat,
@@ -394,7 +392,7 @@ impl Texture {
     }
 
     pub fn create_depth_texture_array(
-        base_renderer_state: &BaseRendererState,
+        base_renderer: &BaseRenderer,
         size: u32,
         label: Option<&str>,
         length: u32,
@@ -405,7 +403,7 @@ impl Texture {
             depth_or_array_layers: length,
         };
 
-        let texture = base_renderer_state
+        let texture = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
                 label,
@@ -424,12 +422,12 @@ impl Texture {
             ..Default::default()
         });
 
-        let sampler_index = base_renderer_state
+        let sampler_index = base_renderer
             .sampler_cache
             .lock()
             .unwrap()
             .get_sampler_index(
-                &base_renderer_state.device,
+                &base_renderer.device,
                 &SamplerDescriptor {
                     address_mode_u: wgpu::AddressMode::Repeat,
                     address_mode_v: wgpu::AddressMode::Repeat,
@@ -451,7 +449,7 @@ impl Texture {
     }
 
     pub fn create_cubemap_from_equirectangular(
-        base_renderer_state: &BaseRendererState,
+        base_renderer: &BaseRenderer,
         label: Option<&str>,
         skybox_buffers: &GeometryBuffers,
         er_to_cubemap_pipeline: &wgpu::RenderPipeline,
@@ -471,7 +469,7 @@ impl Texture {
         };
 
         let single_texture_bind_group_layout =
-            base_renderer_state
+            base_renderer
                 .device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     entries: &[
@@ -495,7 +493,7 @@ impl Texture {
                     label: Some("single_texture_bind_group_layout"),
                 });
 
-        let cubemap_texture = base_renderer_state
+        let cubemap_texture = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
                 label,
@@ -532,16 +530,17 @@ impl Texture {
         .collect();
 
         for (face_view_proj_matrices, face_texture_view) in faces {
-            let mut encoder = base_renderer_state.device.create_command_encoder(
-                &wgpu::CommandEncoderDescriptor {
-                    label: Some("create_cubemap_texture_from_equirectangular encoder"),
-                },
-            );
+            let mut encoder =
+                base_renderer
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("create_cubemap_texture_from_equirectangular encoder"),
+                    });
             let er_texture_bind_group;
             {
-                let mut sampler_cache_guard = base_renderer_state.sampler_cache.lock().unwrap();
+                let mut sampler_cache_guard = base_renderer.sampler_cache.lock().unwrap();
                 let sampler = sampler_cache_guard.get_sampler(
-                    &base_renderer_state.device,
+                    &base_renderer.device,
                     &SamplerDescriptor {
                         address_mode_u: wgpu::AddressMode::ClampToEdge,
                         address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -553,7 +552,7 @@ impl Texture {
                     },
                 );
                 er_texture_bind_group =
-                    base_renderer_state
+                    base_renderer
                         .device
                         .create_bind_group(&wgpu::BindGroupDescriptor {
                             layout: &single_texture_bind_group_layout,
@@ -598,7 +597,7 @@ impl Texture {
                 );
                 rpass.draw_indexed(0..(skybox_buffers.index_buffer.length() as u32), 0, 0..1);
             }
-            base_renderer_state.queue.submit(Some(encoder.finish()));
+            base_renderer.queue.submit(Some(encoder.finish()));
         }
 
         if generate_mipmaps {
@@ -610,12 +609,12 @@ impl Texture {
             ..Default::default()
         });
 
-        let sampler_index = base_renderer_state
+        let sampler_index = base_renderer
             .sampler_cache
             .lock()
             .unwrap()
             .get_sampler_index(
-                &base_renderer_state.device,
+                &base_renderer.device,
                 &SamplerDescriptor {
                     address_mode_u: wgpu::AddressMode::Repeat,
                     address_mode_v: wgpu::AddressMode::Repeat,
@@ -637,7 +636,7 @@ impl Texture {
 
     /// Each image should have the same dimensions!
     pub fn create_cubemap(
-        base_renderer_state: &BaseRendererState,
+        base_renderer: &BaseRenderer,
         images: CreateCubeMapImagesParam,
         label: Option<&str>,
         format: wgpu::TextureFormat,
@@ -670,8 +669,8 @@ impl Texture {
             1
         };
 
-        let texture = base_renderer_state.device.create_texture_with_data(
-            &base_renderer_state.queue,
+        let texture = base_renderer.device.create_texture_with_data(
+            &base_renderer.queue,
             &wgpu::TextureDescriptor {
                 label,
                 size,
@@ -698,12 +697,12 @@ impl Texture {
             ..Default::default()
         });
 
-        let sampler_index = base_renderer_state
+        let sampler_index = base_renderer
             .sampler_cache
             .lock()
             .unwrap()
             .get_sampler_index(
-                &base_renderer_state.device,
+                &base_renderer.device,
                 &SamplerDescriptor {
                     address_mode_u: wgpu::AddressMode::ClampToEdge,
                     address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -724,7 +723,7 @@ impl Texture {
     }
 
     pub fn create_diffuse_env_map(
-        base_renderer_state: &BaseRendererState,
+        base_renderer: &BaseRenderer,
         label: Option<&str>,
         skybox_buffers: &GeometryBuffers,
         env_map_gen_pipeline: &wgpu::RenderPipeline,
@@ -743,31 +742,32 @@ impl Texture {
             1
         };
 
-        let single_cube_texture_bind_group_layout = base_renderer_state
-            .device
-            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::Cube,
+        let single_cube_texture_bind_group_layout =
+            base_renderer
+                .device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                multisampled: false,
+                                view_dimension: wgpu::TextureViewDimension::Cube,
+                            },
+                            count: None,
                         },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-                label: Some("single_cube_texture_bind_group_layout"),
-            });
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                    ],
+                    label: Some("single_cube_texture_bind_group_layout"),
+                });
 
-        let env_map = base_renderer_state
+        let env_map = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
                 label,
@@ -804,13 +804,14 @@ impl Texture {
         .collect();
 
         for (face_view_proj_matrices, face_texture_view) in faces {
-            let mut encoder = base_renderer_state.device.create_command_encoder(
-                &wgpu::CommandEncoderDescriptor {
-                    label: Some("create_env_map encoder"),
-                },
-            );
+            let mut encoder =
+                base_renderer
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("create_env_map encoder"),
+                    });
             let skybox_ir_texture_bind_group =
-                base_renderer_state
+                base_renderer
                     .device
                     .create_bind_group(&wgpu::BindGroupDescriptor {
                         layout: &single_cube_texture_bind_group_layout,
@@ -824,7 +825,7 @@ impl Texture {
                             wgpu::BindGroupEntry {
                                 binding: 1,
                                 resource: wgpu::BindingResource::Sampler(
-                                    base_renderer_state
+                                    base_renderer
                                         .sampler_cache
                                         .lock()
                                         .unwrap()
@@ -862,7 +863,7 @@ impl Texture {
                 );
                 rpass.draw_indexed(0..(skybox_buffers.index_buffer.length() as u32), 0, 0..1);
             }
-            base_renderer_state.queue.submit(Some(encoder.finish()));
+            base_renderer.queue.submit(Some(encoder.finish()));
         }
 
         if generate_mipmaps {
@@ -874,12 +875,12 @@ impl Texture {
             ..Default::default()
         });
 
-        let sampler_index = base_renderer_state
+        let sampler_index = base_renderer
             .sampler_cache
             .lock()
             .unwrap()
             .get_sampler_index(
-                &base_renderer_state.device,
+                &base_renderer.device,
                 &SamplerDescriptor {
                     address_mode_u: wgpu::AddressMode::Repeat,
                     address_mode_v: wgpu::AddressMode::Repeat,
@@ -900,7 +901,7 @@ impl Texture {
     }
 
     pub fn create_specular_env_map(
-        base_renderer_state: &BaseRendererState,
+        base_renderer: &BaseRenderer,
         label: Option<&str>,
         skybox_buffers: &GeometryBuffers,
         env_map_gen_pipeline: &wgpu::RenderPipeline,
@@ -913,7 +914,7 @@ impl Texture {
         };
 
         let single_uniform_bind_group_layout =
-            base_renderer_state
+            base_renderer
                 .device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     entries: &[wgpu::BindGroupLayoutEntry {
@@ -929,33 +930,34 @@ impl Texture {
                     label: Some("single_uniform_bind_group_layout"),
                 });
 
-        let single_cube_texture_bind_group_layout = base_renderer_state
-            .device
-            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::Cube,
+        let single_cube_texture_bind_group_layout =
+            base_renderer
+                .device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                multisampled: false,
+                                view_dimension: wgpu::TextureViewDimension::Cube,
+                            },
+                            count: None,
                         },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-                label: Some("single_cube_texture_bind_group_layout"),
-            });
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                    ],
+                    label: Some("single_cube_texture_bind_group_layout"),
+                });
 
         let mip_level_count = 5;
 
-        let env_map = base_renderer_state
+        let env_map = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
                 label,
@@ -970,7 +972,7 @@ impl Texture {
             });
 
         let roughness_buffer =
-            base_renderer_state
+            base_renderer
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Env map Generation Roughness Buffer"),
@@ -978,7 +980,7 @@ impl Texture {
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
         let roughness_bind_group =
-            base_renderer_state
+            base_renderer
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: &single_uniform_bind_group_layout,
@@ -1019,38 +1021,39 @@ impl Texture {
                         )
                     })
                     .for_each(|(face_view_proj_matrices, face_texture_view)| {
-                        let mut encoder = base_renderer_state.device.create_command_encoder(
+                        let mut encoder = base_renderer.device.create_command_encoder(
                             &wgpu::CommandEncoderDescriptor {
                                 label: Some("create_env_map encoder"),
                             },
                         );
-                        let skybox_ir_texture_bind_group = base_renderer_state
-                            .device
-                            .create_bind_group(&wgpu::BindGroupDescriptor {
-                                layout: &single_cube_texture_bind_group_layout,
-                                entries: &[
-                                    wgpu::BindGroupEntry {
-                                        binding: 0,
-                                        resource: wgpu::BindingResource::TextureView(
-                                            &skybox_rad_texture.view,
-                                        ),
-                                    },
-                                    wgpu::BindGroupEntry {
-                                        binding: 1,
-                                        resource: wgpu::BindingResource::Sampler(
-                                            base_renderer_state
-                                                .sampler_cache
-                                                .lock()
-                                                .unwrap()
-                                                .get_sampler_by_index(
-                                                    skybox_rad_texture.sampler_index,
-                                                ),
-                                        ),
-                                    },
-                                ],
-                                label: None,
-                            });
-                        base_renderer_state.queue.write_buffer(
+                        let skybox_ir_texture_bind_group =
+                            base_renderer
+                                .device
+                                .create_bind_group(&wgpu::BindGroupDescriptor {
+                                    layout: &single_cube_texture_bind_group_layout,
+                                    entries: &[
+                                        wgpu::BindGroupEntry {
+                                            binding: 0,
+                                            resource: wgpu::BindingResource::TextureView(
+                                                &skybox_rad_texture.view,
+                                            ),
+                                        },
+                                        wgpu::BindGroupEntry {
+                                            binding: 1,
+                                            resource: wgpu::BindingResource::Sampler(
+                                                base_renderer
+                                                    .sampler_cache
+                                                    .lock()
+                                                    .unwrap()
+                                                    .get_sampler_by_index(
+                                                        skybox_rad_texture.sampler_index,
+                                                    ),
+                                            ),
+                                        },
+                                    ],
+                                    label: None,
+                                });
+                        base_renderer.queue.write_buffer(
                             &roughness_buffer,
                             0,
                             bytemuck::cast_slice(&[roughness_level]),
@@ -1091,7 +1094,7 @@ impl Texture {
                                 0..1,
                             );
                         }
-                        base_renderer_state.queue.submit(Some(encoder.finish()));
+                        base_renderer.queue.submit(Some(encoder.finish()));
                     });
             });
 
@@ -1100,12 +1103,12 @@ impl Texture {
             ..Default::default()
         });
 
-        let sampler_index = base_renderer_state
+        let sampler_index = base_renderer
             .sampler_cache
             .lock()
             .unwrap()
             .get_sampler_index(
-                &base_renderer_state.device,
+                &base_renderer.device,
                 &SamplerDescriptor {
                     address_mode_u: wgpu::AddressMode::Repeat,
                     address_mode_v: wgpu::AddressMode::Repeat,
@@ -1126,7 +1129,7 @@ impl Texture {
     }
 
     pub fn create_brdf_lut(
-        base_renderer_state: &BaseRendererState,
+        base_renderer: &BaseRenderer,
         brdf_lut_gen_pipeline: &wgpu::RenderPipeline,
     ) -> Self {
         let size = wgpu::Extent3d {
@@ -1135,7 +1138,7 @@ impl Texture {
             depth_or_array_layers: 1,
         };
 
-        let texture = base_renderer_state
+        let texture = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
                 label: Some("Brdf Lut"),
@@ -1154,12 +1157,12 @@ impl Texture {
             ..Default::default()
         });
 
-        let sampler_index = base_renderer_state
+        let sampler_index = base_renderer
             .sampler_cache
             .lock()
             .unwrap()
             .get_sampler_index(
-                &base_renderer_state.device,
+                &base_renderer.device,
                 &SamplerDescriptor {
                     address_mode_u: wgpu::AddressMode::ClampToEdge,
                     address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -1171,7 +1174,7 @@ impl Texture {
             );
 
         let mut encoder =
-            base_renderer_state
+            base_renderer
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("create_brdf_lut encoder"),
@@ -1192,7 +1195,7 @@ impl Texture {
             rpass.set_pipeline(brdf_lut_gen_pipeline);
             rpass.draw(0..3, 0..1);
         }
-        base_renderer_state.queue.submit(Some(encoder.finish()));
+        base_renderer.queue.submit(Some(encoder.finish()));
 
         Self {
             texture,
@@ -1204,24 +1207,23 @@ impl Texture {
 }
 
 fn generate_mipmaps_for_texture(
-    base_renderer_state: &BaseRendererState,
+    base_renderer: &BaseRenderer,
     mut mip_encoder: wgpu::CommandEncoder,
     texture: &wgpu::Texture,
     mip_level_count: u32,
     format: wgpu::TextureFormat,
 ) -> Result<()> {
-    let blit_shader =
-        base_renderer_state
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(
-                    std::fs::read_to_string("./src/shaders/blit.wgsl")?.into(),
-                ),
-            });
+    let blit_shader = base_renderer
+        .device
+        .create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(
+                std::fs::read_to_string("./src/shaders/blit.wgsl")?.into(),
+            ),
+        });
 
     let single_texture_bind_group_layout =
-        base_renderer_state
+        base_renderer
             .device
             .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -1246,7 +1248,7 @@ fn generate_mipmaps_for_texture(
             });
 
     let mip_pipeline_layout =
-        base_renderer_state
+        base_renderer
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Mesh Pipeline Layout"),
@@ -1258,7 +1260,7 @@ fn generate_mipmaps_for_texture(
             });
 
     let mip_render_pipeline =
-        base_renderer_state
+        base_renderer
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("mip_render_pipeline"),
@@ -1300,9 +1302,9 @@ fn generate_mipmaps_for_texture(
     for target_mip in 1..mip_level_count as usize {
         let bind_group;
         {
-            let mut sampler_cache_guard = base_renderer_state.sampler_cache.lock().unwrap();
+            let mut sampler_cache_guard = base_renderer.sampler_cache.lock().unwrap();
             let mip_sampler = sampler_cache_guard.get_sampler(
-                &base_renderer_state.device,
+                &base_renderer.device,
                 &SamplerDescriptor {
                     address_mode_u: wgpu::AddressMode::ClampToEdge,
                     address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -1313,7 +1315,7 @@ fn generate_mipmaps_for_texture(
                     ..Default::default()
                 },
             );
-            bind_group = base_renderer_state
+            bind_group = base_renderer
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: &single_texture_bind_group_layout,
@@ -1349,6 +1351,6 @@ fn generate_mipmaps_for_texture(
         rpass.set_bind_group(0, &bind_group, &[]);
         rpass.draw(0..3, 0..1);
     }
-    base_renderer_state.queue.submit(Some(mip_encoder.finish()));
+    base_renderer.queue.submit(Some(mip_encoder.finish()));
     Ok(())
 }

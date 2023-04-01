@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 pub struct AssetLoader {
-    pub renderer_base: Arc<BaseRendererState>,
+    pub renderer_base: Arc<BaseRenderer>,
     pub pending_gltf_scenes: Arc<Mutex<Vec<String>>>,
     pub loaded_gltf_scenes: Arc<Mutex<HashMap<String, (Scene, RenderBuffers)>>>,
 
@@ -19,10 +19,7 @@ pub struct AssetLoader {
 }
 
 impl AssetLoader {
-    pub fn new(
-        renderer_base: Arc<BaseRendererState>,
-        audio_manager: Arc<Mutex<AudioManager>>,
-    ) -> Self {
+    pub fn new(renderer_base: Arc<BaseRenderer>, audio_manager: Arc<Mutex<AudioManager>>) -> Self {
         Self {
             renderer_base,
             pending_gltf_scenes: Arc::new(Mutex::new(Vec::new())),

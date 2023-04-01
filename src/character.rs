@@ -19,14 +19,14 @@ impl Character {
     pub fn new(
         scene: &mut Scene,
         physics_state: &mut PhysicsState,
-        renderer_base: &BaseRendererState,
-        renderer_data: &mut RendererStatePublicData,
+        renderer_base: &BaseRenderer,
+        renderer_data: &mut RendererPublicData,
         root_node_id: GameNodeId,
         skin_index: usize,
         cube_mesh: &BasicMesh,
     ) -> Self {
         let collision_debug_mesh_index =
-            RendererState::bind_basic_unlit_mesh(renderer_base, renderer_data, cube_mesh);
+            Renderer::bind_basic_unlit_mesh(renderer_base, renderer_data, cube_mesh);
         let mut result = Self {
             root_node_id,
             skin_index,

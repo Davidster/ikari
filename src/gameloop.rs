@@ -17,7 +17,7 @@ pub fn run(
     mut window: Window,
     event_loop: EventLoop<()>,
     mut game_state: GameState,
-    mut renderer_state: RendererState,
+    mut renderer: Renderer,
 ) {
     let mut last_log_time: Option<Instant> = None;
     let mut last_frame_start_time: Option<Instant> = None;
@@ -29,11 +29,11 @@ pub fn run(
                 game_state.on_frame_started();
                 profiling::finish_frame!();
                 if let Some(last_frame_start_time) = last_frame_start_time {
-                    let mut renderer_data_guard = renderer_state.data.lock().unwrap();
+                    let mut renderer_data_guard = renderer.data.lock().unwrap();
                     renderer_data_guard.ui_overlay.send_message(
                         crate::ui_overlay::Message::FrameCompleted(last_frame_start_time.elapsed()),
                     );
-                    if let Some(gpu_timing_info) = renderer_state.process_profiler_frame() {
+                    if let Some(gpu_timing_info) = renderer.process_profiler_frame() {
                         renderer_data_guard.ui_overlay.send_message(
                             crate::ui_overlay::Message::GpuFrameCompleted(gpu_timing_info),
                         );
@@ -41,11 +41,7 @@ pub fn run(
                 }
                 last_frame_start_time = Some(Instant::now());
 
-                update_game_state(
-                    &mut game_state,
-                    &renderer_state.base,
-                    renderer_state.data.clone(),
-                );
+                update_game_state(&mut game_state, &renderer.base, renderer.data.clone());
 
                 let last_log_time_clone = last_log_time;
                 let mut write_logs = || {
@@ -66,11 +62,11 @@ pub fn run(
                     _ => {}
                 }
 
-                match renderer_state.render(&mut game_state, &window) {
+                match renderer.render(&mut game_state, &window) {
                     Ok(_) => {}
                     // Reconfigure the surface if lost
                     Err(wgpu::SurfaceError::Lost) => {
-                        renderer_state.resize(window.inner_size(), window.scale_factor())
+                        renderer.resize(window.inner_size(), window.scale_factor())
                     }
                     // The system is out of memory, we should probably quit
                     Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
@@ -92,12 +88,12 @@ pub fn run(
                 match &event {
                     WindowEvent::Resized(size) => {
                         if size.width > 0 && size.height > 0 {
-                            renderer_state.resize(*size, window.scale_factor());
+                            renderer.resize(*size, window.scale_factor());
                         }
                     }
                     WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                         if new_inner_size.width > 0 && new_inner_size.height > 0 {
-                            renderer_state.resize(**new_inner_size, window.scale_factor());
+                            renderer.resize(**new_inner_size, window.scale_factor());
                         }
                     }
                     WindowEvent::CloseRequested
@@ -113,14 +109,14 @@ pub fn run(
                     _ => {}
                 };
 
-                renderer_state
+                renderer
                     .data
                     .lock()
                     .unwrap()
                     .ui_overlay
                     .handle_window_event(&window, &event);
 
-                process_window_input(&mut game_state, &renderer_state, &event, &mut window);
+                process_window_input(&mut game_state, &renderer, &event, &mut window);
             }
             _ => {}
         }

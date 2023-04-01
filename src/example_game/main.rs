@@ -29,17 +29,17 @@ async fn start() {
             wgpu::Backends::from(wgpu::Backend::Dx12)
             // wgpu::Backends::PRIMARY
         };
-        BaseRendererState::new(&window, backends, wgpu::PresentMode::AutoNoVsync).await
+        BaseRenderer::new(&window, backends, wgpu::PresentMode::AutoNoVsync).await
     };
 
     let run_result = async {
         let game_scene = Scene::default();
 
-        let mut renderer_state = RendererState::new(base_render_state, &window).await?;
+        let mut renderer = Renderer::new(base_render_state, &window).await?;
 
-        let game_state = init_game_state(game_scene, &mut renderer_state)?;
+        let game_state = init_game_state(game_scene, &mut renderer)?;
 
-        ikari::gameloop::run(window, event_loop, game_state, renderer_state); // this will block while the game is running
+        ikari::gameloop::run(window, event_loop, game_state, renderer); // this will block while the game is running
         anyhow::Ok(())
     }
     .await;

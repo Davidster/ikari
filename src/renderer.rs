@@ -242,8 +242,7 @@ pub enum DefaultTextureType {
     AmbientOcclusion,
 }
 
-// TODO: rename to BaseRenderer
-pub struct BaseRendererState {
+pub struct BaseRenderer {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub adapter: wgpu::Adapter,
@@ -259,7 +258,7 @@ pub struct BaseRendererState {
     pub sampler_cache: Mutex<SamplerCache>,
 }
 
-impl BaseRendererState {
+impl BaseRenderer {
     pub async fn new(
         window: &winit::window::Window,
         backends: wgpu::Backends,
@@ -658,8 +657,7 @@ impl BaseRendererState {
     }
 }
 
-// TODO: rename to RendererPrivateData
-pub struct RendererStatePrivateData {
+pub struct RendererPrivateData {
     // cpu
     all_bone_transforms: AllBoneTransforms,
     all_pbr_instances: ChunkedBuffer<GpuPbrMeshInstance>,
@@ -704,8 +702,7 @@ pub struct RenderBuffers {
     pub textures: Vec<Texture>,
 }
 
-// TODO: rename to RendererPublicData
-pub struct RendererStatePublicData {
+pub struct RendererPublicData {
     pub binded_pbr_meshes: Vec<BindedPbrMesh>,
     pub binded_unlit_meshes: Vec<BindedUnlitMesh>,
     pub binded_wireframe_meshes: Vec<BindedWireframeMesh>,
@@ -725,13 +722,12 @@ pub struct RendererStatePublicData {
     pub ui_overlay: UiOverlay,
 }
 
-// TODO: rename to Renderer
-pub struct RendererState {
-    pub base: Arc<BaseRendererState>,
-    pub data: Arc<Mutex<RendererStatePublicData>>,
+pub struct Renderer {
+    pub base: Arc<BaseRenderer>,
+    pub data: Arc<Mutex<RendererPublicData>>,
 
     // TODO: does this need a mutex?
-    private_data: Mutex<RendererStatePrivateData>,
+    private_data: Mutex<RendererPrivateData>,
 
     profiler: Mutex<wgpu_profiler::GpuProfiler>,
 
@@ -753,8 +749,8 @@ pub struct RendererState {
     plane_mesh_index: i32,
 }
 
-impl RendererState {
-    pub async fn new(base: BaseRendererState, window: &Window) -> Result<Self> {
+impl Renderer {
+    pub async fn new(base: BaseRenderer, window: &Window) -> Result<Self> {
         logger_log("Controls:");
         vec![
             "Control Player:          RAlt",
@@ -2016,7 +2012,7 @@ impl RendererState {
             base.surface_config.lock().unwrap().format,
         );
 
-        let mut data = RendererStatePublicData {
+        let mut data = RendererPublicData {
             binded_pbr_meshes: vec![],
             binded_unlit_meshes: vec![],
             binded_wireframe_meshes: vec![],
@@ -2057,11 +2053,11 @@ impl RendererState {
             base.device.features(),
         );
 
-        let renderer_state = Self {
+        let renderer = Self {
             base: Arc::new(base),
             data: Arc::new(Mutex::new(data)),
 
-            private_data: Mutex::new(RendererStatePrivateData {
+            private_data: Mutex::new(RendererPrivateData {
                 all_bone_transforms: AllBoneTransforms {
                     buffer: vec![],
                     animated_bone_transforms: vec![],
@@ -2118,12 +2114,12 @@ impl RendererState {
             plane_mesh_index,
         };
 
-        Ok(renderer_state)
+        Ok(renderer)
     }
 
     pub fn bind_basic_unlit_mesh(
-        base: &BaseRendererState,
-        data: &mut RendererStatePublicData,
+        base: &BaseRenderer,
+        data: &mut RendererPublicData,
         mesh: &BasicMesh,
     ) -> usize {
         let geometry_buffers = Self::bind_geometry_buffers_for_basic_mesh(base, mesh);
@@ -2144,8 +2140,8 @@ impl RendererState {
 
     // returns index of mesh in the RenderScene::binded_pbr_meshes list
     pub fn bind_basic_pbr_mesh(
-        base: &BaseRendererState,
-        data: &mut RendererStatePublicData,
+        base: &BaseRenderer,
+        data: &mut RendererPublicData,
         mesh: &BasicMesh,
         material: &PbrMaterial,
         dynamic_pbr_params: DynamicPbrParams,
@@ -2175,7 +2171,7 @@ impl RendererState {
     }
 
     fn bind_geometry_buffers_for_basic_mesh(
-        base: &BaseRendererState,
+        base: &BaseRenderer,
         mesh: &BasicMesh,
     ) -> GeometryBuffers {
         Self::bind_geometry_buffers_for_basic_mesh_impl(&base.device, mesh)
@@ -2229,7 +2225,7 @@ impl RendererState {
     }
 
     fn make_wireframe_index_buffer_for_basic_mesh(
-        base: &BaseRendererState,
+        base: &BaseRenderer,
         mesh: &BasicMesh,
     ) -> GpuBuffer {
         Self::make_wireframe_index_buffer_for_basic_mesh_impl(&base.device, mesh)
@@ -2435,7 +2431,7 @@ impl RendererState {
         ];
     }
 
-    pub fn clear_debug_nodes(private_data: &mut RendererStatePrivateData, scene: &mut Scene) {
+    pub fn clear_debug_nodes(private_data: &mut RendererPrivateData, scene: &mut Scene) {
         for node_id in private_data.debug_nodes.iter().copied() {
             scene.remove_node(node_id);
         }
@@ -2443,8 +2439,8 @@ impl RendererState {
     }
 
     pub fn add_debug_nodes(
-        data: &mut RendererStatePublicData,
-        private_data: &mut RendererStatePrivateData,
+        data: &mut RendererPublicData,
+        private_data: &mut RendererPrivateData,
         game_state: &mut GameState,
         sphere_mesh_index: i32,
     ) {
@@ -2521,9 +2517,9 @@ impl RendererState {
     #[profiling::function]
     fn update_internal(
         &self,
-        base: &BaseRendererState,
-        data: &mut RendererStatePublicData,
-        private_data: &mut RendererStatePrivateData,
+        base: &BaseRenderer,
+        data: &mut RendererPublicData,
+        private_data: &mut RendererPrivateData,
         game_state: &mut GameState,
         window: &winit::window::Window,
     ) {
@@ -2921,9 +2917,9 @@ impl RendererState {
     #[profiling::function]
     pub fn render_internal(
         &self,
-        base: &BaseRendererState,
-        data: &mut RendererStatePublicData,
-        private_data: &mut RendererStatePrivateData,
+        base: &BaseRenderer,
+        data: &mut RendererPublicData,
+        private_data: &mut RendererPrivateData,
         profiler: &mut wgpu_profiler::GpuProfiler,
         game_state: &mut GameState,
     ) -> Result<(), wgpu::SurfaceError> {
@@ -3422,9 +3418,9 @@ impl RendererState {
 
     #[allow(clippy::too_many_arguments)]
     fn render_pbr_meshes<'a>(
-        base: &BaseRendererState,
-        data: &RendererStatePublicData,
-        private_data: &RendererStatePrivateData,
+        base: &BaseRenderer,
+        data: &RendererPublicData,
+        private_data: &RendererPrivateData,
         profiler: &mut wgpu_profiler::GpuProfiler,
         encoder: &mut wgpu::CommandEncoder,
         render_pass_descriptor: &wgpu::RenderPassDescriptor<'a, 'a>,

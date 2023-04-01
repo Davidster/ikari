@@ -121,9 +121,9 @@ fn get_misc_gltf_path() -> &'static str {
     // "./src/models/gltf/Sponza/Sponza.gltf"
 }
 
-pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> Result<GameState> {
-    // let mut renderer_base_guard = renderer_state.base.lock().unwrap();
-    let mut renderer_data_guard = renderer_state.data.lock().unwrap();
+pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<GameState> {
+    // let mut renderer_base_guard = renderer.base.lock().unwrap();
+    let mut renderer_data_guard = renderer.data.lock().unwrap();
 
     let mut physics_state = PhysicsState::new();
 
@@ -144,7 +144,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     let audio_manager_mutex = Arc::new(Mutex::new(audio_manager));
 
     let asset_loader = Arc::new(AssetLoader::new(
-        renderer_state.base.clone(),
+        renderer.base.clone(),
         audio_manager_mutex.clone(),
     ));
 
@@ -227,11 +227,8 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     ];
     // let point_lights: Vec<(crate::transform::Transform, Vec3, f32)> = vec![];
 
-    let point_light_unlit_mesh_index = RendererState::bind_basic_unlit_mesh(
-        &renderer_state.base,
-        &mut renderer_data_guard,
-        &sphere_mesh,
-    );
+    let point_light_unlit_mesh_index =
+        Renderer::bind_basic_unlit_mesh(&renderer.base, &mut renderer_data_guard, &sphere_mesh);
     let mut point_light_node_ids: Vec<GameNodeId> = Vec::new();
     let mut point_light_components: Vec<PointLightComponent> = Vec::new();
     for (transform, color, intensity) in point_lights {
@@ -260,8 +257,8 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
     // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
     // let simple_normal_map = Texture::from_encoded_image(
-    //     &renderer_state.base.device,
-    //     &renderer_state.base.queue,
+    //     &renderer.base.device,
+    //     &renderer.base.queue,
     //     &simple_normal_map_bytes,
     //     simple_normal_map_path,
     //     wgpu::TextureFormat::Rgba8Unorm.into(),
@@ -275,7 +272,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     let rainbow_texture_decompressed =
         texture_compressor.transcode_image(&rainbow_texture_bytes, false)?;
     let rainbow_texture = Texture::from_decoded_image(
-        &renderer_state.base,
+        &renderer.base,
         &rainbow_texture_decompressed.raw,
         (
             rainbow_texture_decompressed.width,
@@ -291,7 +288,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     let brick_normal_map_path = "./src/textures/brick_normal_map.jpg";
     let brick_normal_map_bytes = std::fs::read(brick_normal_map_path)?;
     let brick_normal_map = Texture::from_encoded_image(
-        &renderer_state.base,
+        &renderer.base,
         &brick_normal_map_bytes,
         brick_normal_map_path,
         wgpu::TextureFormat::Rgba8Unorm.into(),
@@ -303,7 +300,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     /* let earth_texture_path = "./src/textures/8k_earth.jpg";
     let earth_texture_bytes = std::fs::read(earth_texture_path)?;
     let earth_texture = Texture::from_encoded_image(
-        &renderer_state.base,
+        &renderer.base,
         &earth_texture_bytes,
         earth_texture_path,
         None,
@@ -322,7 +319,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     /* let earth_normal_map_path = "./src/textures/8k_earth_normal_map.jpg";
     let earth_normal_map_bytes = std::fs::read(earth_normal_map_path)?;
     let earth_normal_map = Texture::from_encoded_image(
-        &renderer_state.base,
+        &renderer.base,
         &earth_normal_map_bytes,
         earth_normal_map_path,
         wgpu::TextureFormat::Rgba8Unorm.into(),
@@ -359,7 +356,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         img
     };
     let checkerboard_texture = Texture::from_decoded_image(
-        &renderer_state.base,
+        &renderer.base,
         &checkerboard_texture_img,
         checkerboard_texture_img.dimensions(),
         1,
@@ -383,7 +380,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     /* let mars_texture_path = "./src/textures/8k_mars.jpg";
     let mars_texture_bytes = std::fs::read(mars_texture_path)?;
     let mars_texture = Texture::from_encoded_image(
-        &renderer_state.base,
+        &renderer.base,
         &mars_texture_bytes,
         mars_texture_path,
         None,
@@ -400,7 +397,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     )?; */
 
     let test_object_metallic_roughness_map = Texture::from_color(
-        &renderer_state.base,
+        &renderer.base,
         [
             255,
             (0.12 * 255.0f32).round() as u8,
@@ -409,8 +406,8 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         ],
     )?;
 
-    let test_object_pbr_mesh_index = RendererState::bind_basic_pbr_mesh(
-        &renderer_state.base,
+    let test_object_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
+        &renderer.base,
         &mut renderer_data_guard,
         &sphere_mesh,
         &PbrMaterial {
@@ -443,8 +440,8 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     let ball_count = 0;
     let balls: Vec<_> = (0..ball_count).map(|_| BallComponent::rand()).collect();
 
-    let ball_pbr_mesh_index = RendererState::bind_basic_pbr_mesh(
-        &renderer_state.base,
+    let ball_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
+        &renderer.base,
         &mut renderer_data_guard,
         &sphere_mesh,
         &PbrMaterial {
@@ -476,7 +473,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
         })
         .collect();
 
-    // let box_pbr_mesh_index = renderer_state.bind_basic_pbr_mesh(
+    // let box_pbr_mesh_index = renderer.bind_basic_pbr_mesh(
     //     &cube_mesh,
     //     &PbrMaterial {
     //         diffuse: Some(&checkerboard_texture),
@@ -500,8 +497,8 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     // );
 
     // create the floor and add it to the scene
-    let floor_pbr_mesh_index = RendererState::bind_basic_pbr_mesh(
-        &renderer_state.base,
+    let floor_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
+        &renderer.base,
         &mut renderer_data_guard,
         &plane_mesh,
         &PbrMaterial {
@@ -543,8 +540,8 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
 
     // create the checkerboarded bouncing ball and add it to the scene
     let (bouncing_ball_node_id, bouncing_ball_body_handle) = {
-        let bouncing_ball_pbr_mesh_index = RendererState::bind_basic_pbr_mesh(
-            &renderer_state.base,
+        let bouncing_ball_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
+            &renderer.base,
             &mut renderer_data_guard,
             &sphere_mesh,
             &PbrMaterial {
@@ -629,7 +626,7 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
     #[allow(unused_assignments)]
     let mut crosshair_node_id: Option<GameNodeId> = None;
     let crosshair_texture = Texture::from_decoded_image(
-        &renderer_state.base,
+        &renderer.base,
         &crosshair_texture_img,
         crosshair_texture_img.dimensions(),
         1,
@@ -662,10 +659,10 @@ pub fn init_game_state(mut scene: Scene, renderer_state: &mut RendererState) -> 
             .collect(),
         indices: vec![0, 2, 1, 0, 3, 2],
     };
-    let crosshair_ambient_occlusion = Texture::from_color(&renderer_state.base, [0, 0, 0, 0])?;
-    let crosshair_metallic_roughness = Texture::from_color(&renderer_state.base, [0, 0, 255, 0])?;
-    let crosshair_mesh_index = RendererState::bind_basic_pbr_mesh(
-        &renderer_state.base,
+    let crosshair_ambient_occlusion = Texture::from_color(&renderer.base, [0, 0, 0, 0])?;
+    let crosshair_metallic_roughness = Texture::from_color(&renderer.base, [0, 0, 255, 0])?;
+    let crosshair_mesh_index = Renderer::bind_basic_pbr_mesh(
+        &renderer.base,
         &mut renderer_data_guard,
         &crosshair_quad,
         &PbrMaterial {
@@ -754,8 +751,8 @@ pub fn process_device_input(game_state: &mut GameState, event: &winit::event::De
 }
 
 pub fn increment_render_scale(
-    renderer_state: &RendererState,
-    renderer_base: &BaseRendererState,
+    renderer: &Renderer,
+    renderer_base: &BaseRenderer,
     increase: bool,
     window: &mut winit::window::Window,
 ) {
@@ -763,7 +760,7 @@ pub fn increment_render_scale(
     let change = if increase { delta } else { -delta };
 
     {
-        let mut renderer_data_guard = renderer_state.data.lock().unwrap();
+        let mut renderer_data_guard = renderer.data.lock().unwrap();
         let surface_config_guard = renderer_base.surface_config.lock().unwrap();
         renderer_data_guard.render_scale =
             (renderer_data_guard.render_scale + change).clamp(0.1, 4.0);
@@ -776,10 +773,10 @@ pub fn increment_render_scale(
                 as u32,
         ));
     }
-    renderer_state.resize(window.inner_size(), window.scale_factor());
+    renderer.resize(window.inner_size(), window.scale_factor());
 }
 
-pub fn increment_exposure(renderer_data: &mut RendererStatePublicData, increase: bool) {
+pub fn increment_exposure(renderer_data: &mut RendererPublicData, increase: bool) {
     let delta = 0.05;
     let change = if increase { delta } else { -delta };
     renderer_data.tone_mapping_exposure =
@@ -790,7 +787,7 @@ pub fn increment_exposure(renderer_data: &mut RendererStatePublicData, increase:
     ));
 }
 
-pub fn increment_bloom_threshold(renderer_data: &mut RendererStatePublicData, increase: bool) {
+pub fn increment_bloom_threshold(renderer_data: &mut RendererPublicData, increase: bool) {
     let delta = 0.05;
     let change = if increase { delta } else { -delta };
     renderer_data.bloom_threshold = (renderer_data.bloom_threshold + change).clamp(0.0, 20.0);
@@ -802,7 +799,7 @@ pub fn increment_bloom_threshold(renderer_data: &mut RendererStatePublicData, in
 
 pub fn process_window_input(
     game_state: &mut GameState,
-    renderer_state: &RendererState,
+    renderer: &Renderer,
     event: &winit::event::WindowEvent,
     window: &mut winit::window::Window,
 ) {
@@ -817,16 +814,16 @@ pub fn process_window_input(
     } = event
     {
         if *state == ElementState::Released {
-            let mut render_data_guard = renderer_state.data.lock().unwrap();
+            let mut render_data_guard = renderer.data.lock().unwrap();
 
             match keycode {
                 VirtualKeyCode::Z => {
                     drop(render_data_guard);
-                    increment_render_scale(renderer_state, &renderer_state.base, false, window);
+                    increment_render_scale(renderer, &renderer.base, false, window);
                 }
                 VirtualKeyCode::X => {
                     drop(render_data_guard);
-                    increment_render_scale(renderer_state, &renderer_state.base, true, window);
+                    increment_render_scale(renderer, &renderer.base, true, window);
                 }
                 VirtualKeyCode::E => {
                     increment_exposure(&mut render_data_guard, false);
@@ -874,8 +871,8 @@ pub fn process_window_input(
 #[profiling::function]
 pub fn update_game_state(
     game_state: &mut GameState,
-    renderer_base: &BaseRendererState,
-    renderer_data: Arc<Mutex<RendererStatePublicData>>,
+    renderer_base: &BaseRenderer,
+    renderer_data: Arc<Mutex<RendererPublicData>>,
 ) {
     {
         let mut loaded_assets_guard = game_state.asset_loader.loaded_gltf_scenes.lock().unwrap();

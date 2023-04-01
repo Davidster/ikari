@@ -226,7 +226,7 @@ impl Scene {
 
     pub fn merge_scene(
         &mut self,
-        renderer_data: &mut RendererStatePublicData,
+        renderer_data: &mut RendererPublicData,
         mut other_scene: Scene,
         mut other_render_buffers: RenderBuffers,
     ) {
@@ -321,7 +321,7 @@ impl Scene {
     pub fn get_node_bounding_sphere(
         &self,
         node_id: GameNodeId,
-        renderer_state_data: &RendererStatePublicData,
+        renderer_data: &RendererPublicData,
     ) -> Option<Sphere> {
         self.get_node(node_id)
             .and_then(|node| node.mesh.as_ref())
@@ -329,7 +329,7 @@ impl Scene {
                 build_node_bounding_sphere(
                     mesh,
                     &self.get_global_transform_for_node(node_id),
-                    renderer_state_data,
+                    renderer_data,
                 )
             })
     }
@@ -337,7 +337,7 @@ impl Scene {
     pub fn get_node_bounding_sphere_opt(
         &self,
         node_id: GameNodeId,
-        renderer_data: &RendererStatePublicData,
+        renderer_data: &RendererPublicData,
     ) -> Option<Sphere> {
         self.get_node(node_id)
             .and_then(|node| node.mesh.as_ref())
@@ -550,7 +550,7 @@ impl Scene {
 fn build_node_bounding_sphere(
     mesh: &GameNodeMesh,
     global_transform: &crate::transform::Transform,
-    renderer_data: &RendererStatePublicData,
+    renderer_data: &RendererPublicData,
 ) -> Sphere {
     let global_node_scale = global_transform.scale();
     let largest_axis_scale = global_node_scale
