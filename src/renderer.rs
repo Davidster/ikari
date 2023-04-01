@@ -19,6 +19,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::num::NonZeroU32;
 use std::num::NonZeroU64;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
@@ -268,12 +269,10 @@ impl BaseRendererState {
 
         let instance = wgpu::Instance::new(InstanceDescriptor {
             backends,
-            // TODO: why does dxc fail to compile iced's shaders?
-            dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
-            // dx12_shader_compiler: wgpu::Dx12Compiler::Dxc {
-            //     dxil_path: Some(PathBuf::from("dxc/")),
-            //     dxc_path: Some(PathBuf::from("dxc/")),
-            // },
+            dx12_shader_compiler: wgpu::Dx12Compiler::Dxc {
+                dxil_path: Some(PathBuf::from("dxc/")),
+                dxc_path: Some(PathBuf::from("dxc/")),
+            },
         });
         let surface = unsafe { instance.create_surface(&window).unwrap() };
         let adapter = instance
