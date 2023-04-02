@@ -134,18 +134,28 @@ impl AudioManager {
         ))
     }
 
-    pub fn decode_audio_file(sample_rate: u32, file_path: &str) -> Result<SoundData> {
+    pub fn decode_audio_file(
+        sample_rate: u32,
+        file_path: &str,
+        file_format: Option<AudioFileFormat>,
+    ) -> Result<SoundData> {
         let src = File::open(file_path)?;
         let mss = MediaSourceStream::new(Box::new(src), Default::default());
 
-        // Create a probe hint using the file's extension. [Optional]
         let mut hint = Hint::new();
-        hint.with_extension("mp3");
-        hint.with_extension("wav");
+        if let Some(file_format) = file_format {
+            hint.with_extension(match file_format {
+                AudioFileFormat::Mp3 => "mp3",
+                AudioFileFormat::Wav => "wav",
+            });
+        }
 
-        let probed = symphonia::default::get_probe()
-            .format(&hint, mss, &Default::default(), &Default::default())
-            .expect("unsupported format");
+        let probed = symphonia::default::get_probe().format(
+            &hint,
+            mss,
+            &Default::default(),
+            &Default::default(),
+        )?;
 
         let mut format = probed.format;
 
@@ -159,11 +169,9 @@ impl AudioManager {
             symphonia::default::get_codecs().make(&track.codec_params, &Default::default())?;
 
         let track_id = track.id;
+        let track_sample_rate = track.codec_params.sample_rate;
 
-        // decoder
-        let mut samples: Vec<[f32; CHANNEL_COUNT]> = vec![];
-        let mut sample_count = 0;
-        let mut sample_buf = None;
+        let mut samples_interleaved: Vec<f32> = vec![];
 
         loop {
             let packet = match format.next_packet() {
@@ -175,155 +183,61 @@ impl AudioManager {
                     // for chained OGG physical streams.
                     anyhow::bail!("idk");
                 }
+                Err(symphonia::core::errors::Error::IoError(err)) => {
+                    if err.kind() == std::io::ErrorKind::UnexpectedEof
+                        && err.to_string() == "end of stream"
+                    {
+                        break;
+                    }
+                    anyhow::bail!(err);
+                }
                 Err(err) => {
                     anyhow::bail!(err);
                 }
             };
-
-            // Consume any new metadata that has been read since the last packet.
-            while !format.metadata().is_latest() {
-                // Pop the old head of the metadata queue.
-                format.metadata().pop();
-
-                // Consume the new metadata at the head of the metadata queue.
-            }
 
             if packet.track_id() != track_id {
                 continue;
             }
 
             match decoder.decode(&packet) {
-                // Ok(decoded) => for sample in decoded.make_equivalent::<f32>().planes().planes() {},
                 Ok(audio_buf) => {
-                    if sample_buf.is_none() {
-                        // Get the audio buffer specification.
-                        let mut spec = *audio_buf.spec();
-                        spec.rate = sample_rate;
+                    let mut sample_buf =
+                        SampleBuffer::<f32>::new(audio_buf.capacity() as u64, *audio_buf.spec());
 
-                        // Get the capacity of the decoded buffer. Note: This is capacity, not length!
-                        let duration = audio_buf.capacity() as u64;
+                    sample_buf.copy_interleaved_ref(audio_buf);
 
-                        // Create the f32 sample buffer.
-                        sample_buf = Some(SampleBuffer::<f32>::new(duration, spec));
-
-                        // Copy the decoded audio buffer into the sample buffer in an interleaved format.
-                        if let Some(buf) = &mut sample_buf {
-                            buf.copy_interleaved_ref(audio_buf);
-
-                            // The samples may now be access via the `samples()` function.
-                            sample_count += buf.samples().len();
-                            print!("\rDecoded {} samples", sample_count);
-
-                            samples = buf
-                                .samples()
-                                .chunks(CHANNEL_COUNT)
-                                .map(|chunk| [chunk[0], chunk[1]])
-                                .collect();
-                        }
+                    for sample in sample_buf.samples() {
+                        samples_interleaved.push(*sample);
                     }
                 }
-                // Err(symphonia::core::errors::Error::IoError(_)) => {
-                //     // The packet failed to decode due to an IO error, skip the packet.
-                //     continue;
-                // }
-                // Err(symphonia::core::errors::Error::DecodeError(_)) => {
-                //     // The packet failed to decode due to invalid data, skip the packet.
-                //     continue;
-                // }
+                Err(symphonia::core::errors::Error::IoError(err)) => {
+                    if err.kind() == std::io::ErrorKind::UnexpectedEof
+                        && err.to_string() == "end of stream"
+                    {
+                        dbg!(err);
+                        break;
+                    }
+                    anyhow::bail!(err);
+                }
                 Err(err) => {
                     anyhow::bail!(err);
                 }
             }
-            break;
+        }
+
+        let mut samples: Vec<[f32; CHANNEL_COUNT]> = samples_interleaved
+            .chunks(CHANNEL_COUNT)
+            .map(|chunk| [chunk[0], chunk[1]])
+            .collect();
+
+        if Some(sample_rate) != track_sample_rate {
+            // resample the sound to the device sample rate using linear interpolation
+            samples = resample_linear(&samples, track_sample_rate.unwrap(), sample_rate);
         }
 
         Ok(SoundData(samples))
     }
-
-    // pub fn decode_wav(sample_rate: u32, file_path: &str) -> Result<SoundData> {
-    //     // get metadata from the WAV file
-    //     let mut reader = WavReader::open(file_path)?;
-    //     let WavSpec {
-    //         sample_rate: source_sample_rate,
-    //         sample_format,
-    //         bits_per_sample,
-    //         channels,
-    //         ..
-    //     } = reader.spec();
-
-    //     if channels as usize != CHANNEL_COUNT {
-    //         anyhow::bail!("Only dual-channel (stereo) wav files are supported");
-    //     }
-
-    //     // convert the WAV data to floating point samples
-    //     // e.g. i8 data is converted from [-128, 127] to [-1.0, 1.0]
-    //     let samples_result: Result<Vec<f32>, _> = match sample_format {
-    //         hound::SampleFormat::Int => {
-    //             let max_value = 2_u32.pow(bits_per_sample as u32 - 1) - 1;
-    //             reader
-    //                 .samples::<i32>()
-    //                 .map(|sample| sample.map(|sample| sample as f32 / max_value as f32))
-    //                 .collect()
-    //         }
-    //         hound::SampleFormat::Float => reader.samples::<f32>().collect(),
-    //     };
-    //     // channels are interleaved
-    //     let samples_interleaved = samples_result.unwrap();
-    //     let mut samples: Vec<[f32; CHANNEL_COUNT]> = samples_interleaved
-    //         .chunks(channels.into())
-    //         .map(|chunk| [chunk[0], chunk[1]])
-    //         .collect();
-
-    //     if sample_rate != source_sample_rate {
-    //         // resample the sound to the device sample rate using linear interpolation
-    //         samples = resample_linear(&samples, source_sample_rate, sample_rate);
-    //     }
-
-    //     Ok(SoundData(samples))
-    // }
-
-    // pub fn decode_mp3(sample_rate: u32, file_path: &str) -> Result<SoundData> {
-    //     let file_bytes: &[u8] = &std::fs::read(file_path)?;
-    //     let mut decoder = minimp3::Decoder::new(file_bytes);
-    //     let mut mp3_frames: Vec<minimp3::Frame> = Vec::new();
-    //     loop {
-    //         match decoder.next_frame() {
-    //             Ok(frame) => {
-    //                 if frame.channels != CHANNEL_COUNT {
-    //                     anyhow::bail!("Only dual-channel (stereo) mp3 files are supported");
-    //                 }
-    //                 mp3_frames.push(frame);
-    //             }
-    //             Err(minimp3::Error::Eof) => {
-    //                 break;
-    //             }
-    //             Err(err) => anyhow::bail!(err),
-    //         }
-    //     }
-
-    //     let mut samples: Vec<[f32; CHANNEL_COUNT]> = Vec::new();
-    //     for mp3_frame in mp3_frames {
-    //         let source_sample_rate = u32::try_from(mp3_frame.sample_rate).unwrap();
-    //         let mut current_samples: Vec<[f32; CHANNEL_COUNT]> = Vec::new();
-    //         current_samples.reserve(mp3_frame.data.len() / CHANNEL_COUNT);
-    //         for sample in mp3_frame.data.chunks(CHANNEL_COUNT) {
-    //             current_samples.push([
-    //                 sample[0] as f32 / i16::MAX as f32,
-    //                 sample[1] as f32 / i16::MAX as f32,
-    //             ]);
-    //         }
-    //         if sample_rate != source_sample_rate {
-    //             // resample the sound to the device sample rate using linear interpolation
-    //             current_samples =
-    //                 resample_linear(&current_samples, source_sample_rate, sample_rate);
-    //         }
-    //         samples.reserve(current_samples.len());
-    //         for sample in current_samples {
-    //             samples.push(sample);
-    //         }
-    //     }
-    //     Ok(SoundData(samples))
-    // }
 
     pub fn get_signal(
         sound_data: &SoundData,

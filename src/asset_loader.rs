@@ -63,8 +63,10 @@ impl AssetLoader {
                         }
                         Err(err) => {
                             logger_log(&format!(
-                                "Error loading asset {:?}: {:?}",
-                                next_scene_path, err
+                                "Error loading gltf asset {}: {}\n{}",
+                                next_scene_path,
+                                err,
+                                err.backtrace()
                             ));
                         }
                     }
@@ -98,8 +100,11 @@ impl AssetLoader {
                         //         AudioManager::decode_wav(device_sample_rate, &next_audio_path)?
                         //     }
                         // };
-                        let sound_data =
-                            AudioManager::decode_audio_file(device_sample_rate, &next_audio_path)?;
+                        let sound_data = AudioManager::decode_audio_file(
+                            device_sample_rate,
+                            &next_audio_path,
+                            Some(next_audio_format),
+                        )?;
                         // let sound = Sound::new(self, sound_data, params);
                         let signal = AudioManager::get_signal(
                             &sound_data,
@@ -120,8 +125,10 @@ impl AssetLoader {
                         }
                         Err(err) => {
                             logger_log(&format!(
-                                "Error loading asset {:?}: {:?}",
-                                next_audio_path, err
+                                "Error loading audio asset {}: {}\n{}",
+                                next_audio_path,
+                                err,
+                                err.backtrace()
                             ));
                         }
                     }
