@@ -35,6 +35,14 @@ Hopefully one day it will be used in a real game 😃
 - Mipmapping
 - Reverse-Z for better depth accuracy / less z-fighting
 
+## Try it out
+
+```
+cargo run --release --bin example_game
+```
+
+See console logs for list of available controls
+
 ## Screenshots / Videos:
 
 ### PBR glTF assets
