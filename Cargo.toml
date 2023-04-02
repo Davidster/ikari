@@ -41,9 +41,12 @@ pollster = "0.3"
 twox-hash = "1.6"
 lazy_static = "1.4"
 smallvec = { version = "1.10", features = ["union", "const_generics"] }
+anyhow = { version = "1.0", features = ["backtrace"] }
+threadpool = "1.8.1"
+walkdir = "2.3.3"
+num_cpus = "1.15.0"
 
 # log
-anyhow = { version = "1.0", features = ["backtrace"] }
 console = "0.15"
 env_logger = { version = "0.10", default-features = false, features = [
     "auto-color",
@@ -51,7 +54,7 @@ env_logger = { version = "0.10", default-features = false, features = [
 ] }
 log = "0.4"
 
-# profile
+# profiling
 profiling = "1.0.7"      # The version should be the one used by wgpu-core/hal
 wgpu-profiler = "0.11.0"
 
@@ -66,7 +69,7 @@ wavefront_obj = "10.0"
 basis-universal = "0.2.0"
 zstd = "0.12.3"
 
-# surface
+# rendering
 wgpu = "0.15"
 winit = { version = "0.27", git = "https://github.com/iced-rs/winit.git", rev = "940457522e9fb9f5dac228b0ecfafe0138b4048c" }
 
@@ -78,19 +81,15 @@ approx = "0.5"
 
 # audio
 cpal = "0.15"
-hound = "3"
-minimp3 = "0.5"
 oddio = "0.6"
-threadpool = "1.8.1"
-walkdir = "2.3.3"
-num_cpus = "1.15.0"
+symphonia = { version = "0.5.2", features = ["mp3", "wav"] }
 
 # UI
 iced_wgpu = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }
 iced = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }
 iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }
 plotters-iced = "0.7"
-plotters = { version = "0.3", default_features = false, features = [
+plotters = { version = "0.3", default-features = false, features = [
     "line_series",
 ] }
 

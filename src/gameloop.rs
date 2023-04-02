@@ -17,7 +17,7 @@ pub fn run(
     mut window: Window,
     event_loop: EventLoop<()>,
     mut game_state: GameState,
-    mut renderer: Renderer,
+    renderer: Renderer,
 ) {
     let mut last_log_time: Option<Instant> = None;
     let mut last_frame_start_time: Option<Instant> = None;

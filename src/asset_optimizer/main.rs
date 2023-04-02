@@ -85,7 +85,6 @@ fn find_gltf_texture_paths() -> anyhow::Result<Vec<(PathBuf, bool, bool)>> {
         .collect();
     for path in gltf_paths {
         let gltf = gltf::Gltf::open(&path)?;
-        // let images: Vec<_> = gltf.images().collect();
 
         for texture in gltf.textures() {
             let is_srgb = gltf.materials().any(|material| {

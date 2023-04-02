@@ -3109,6 +3109,12 @@ impl Renderer {
 
             wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
                 render_pass.set_pipeline(&self.unlit_mesh_pipeline);
+                render_pass.set_push_constants(
+                    wgpu::ShaderStages::VERTEX,
+                    0,
+                    bytemuck::cast_slice(&[MeshShaderCameraRaw::from(main_camera_data)]),
+                );
+
                 render_pass.set_bind_group(0, &private_data.lights_bind_group, &[]);
                 for unlit_instance_chunk in private_data.all_unlit_instances.chunks() {
                     let binded_unlit_mesh_index = unlit_instance_chunk.id;
@@ -3138,11 +3144,6 @@ impl Renderer {
                 }
 
                 render_pass.set_pipeline(&self.wireframe_pipeline);
-                render_pass.set_push_constants(
-                    wgpu::ShaderStages::VERTEX,
-                    0,
-                    bytemuck::cast_slice(&[MeshShaderCameraRaw::from(main_camera_data)]),
-                );
 
                 for wireframe_instance_chunk in private_data.all_wireframe_instances.chunks() {
                     let binded_wireframe_mesh_index = wireframe_instance_chunk.id;
