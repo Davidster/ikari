@@ -251,7 +251,10 @@ pub struct BaseRenderer {
     pub limits: wgpu::Limits,
     pub window_size: Mutex<winit::dpi::PhysicalSize<u32>>,
     pub single_texture_bind_group_layout: wgpu::BindGroupLayout,
+    pub single_msaa_texture_bind_group_layout: wgpu::BindGroupLayout,
     pub two_texture_bind_group_layout: wgpu::BindGroupLayout,
+    pub msaa_wireframe_resolve_and_bloom_textures_bind_group_layout: wgpu::BindGroupLayout,
+    // pub shading_and_bloom_textures_bind_group_layout: wgpu::BindGroupLayout,
     pub bones_and_instances_bind_group_layout: wgpu::BindGroupLayout,
     pub pbr_textures_bind_group_layout: wgpu::BindGroupLayout,
     default_texture_cache: Mutex<HashMap<DefaultTextureType, Arc<Texture>>>,
@@ -338,6 +341,29 @@ impl BaseRenderer {
                 ],
                 label: Some("single_texture_bind_group_layout"),
             });
+
+        let single_msaa_texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: true,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("single_msaa_texture_bind_group_layout"),
+            });
         let two_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -376,6 +402,82 @@ impl BaseRenderer {
                 ],
                 label: Some("two_texture_bind_group_layout"),
             });
+        let msaa_wireframe_resolve_and_bloom_textures_bind_group_layout = device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("msaa_wireframe_resolve_and_bloom_textures_bind_group_layout"),
+            });
+        // let shading_and_bloom_textures_bind_group_layout =
+        //     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        //         entries: &[
+        //             wgpu::BindGroupLayoutEntry {
+        //                 binding: 0,
+        //                 visibility: wgpu::ShaderStages::FRAGMENT,
+        //                 ty: wgpu::BindingType::Texture {
+        //                     multisampled: true,
+        //                     view_dimension: wgpu::TextureViewDimension::D2,
+        //                     sample_type: wgpu::TextureSampleType::Float { filterable: true },
+        //                 },
+        //                 count: None,
+        //             },
+        //             wgpu::BindGroupLayoutEntry {
+        //                 binding: 1,
+        //                 visibility: wgpu::ShaderStages::FRAGMENT,
+        //                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+        //                 count: None,
+        //             },
+        //             wgpu::BindGroupLayoutEntry {
+        //                 binding: 2,
+        //                 visibility: wgpu::ShaderStages::FRAGMENT,
+        //                 ty: wgpu::BindingType::Texture {
+        //                     multisampled: false,
+        //                     view_dimension: wgpu::TextureViewDimension::D2,
+        //                     sample_type: wgpu::TextureSampleType::Float { filterable: true },
+        //                 },
+        //                 count: None,
+        //             },
+        //             wgpu::BindGroupLayoutEntry {
+        //                 binding: 3,
+        //                 visibility: wgpu::ShaderStages::FRAGMENT,
+        //                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+        //                 count: None,
+        //             },
+        //         ],
+        //         label: Some("shading_and_bloom_textures_bind_group_layout"),
+        //     });
         let pbr_textures_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -501,7 +603,10 @@ impl BaseRenderer {
             limits,
             window_size: Mutex::new(window_size),
             single_texture_bind_group_layout,
+            single_msaa_texture_bind_group_layout,
             two_texture_bind_group_layout,
+            msaa_wireframe_resolve_and_bloom_textures_bind_group_layout,
+            // shading_and_bloom_textures_bind_group_layout,
             bones_and_instances_bind_group_layout,
             pbr_textures_bind_group_layout,
             default_texture_cache: Mutex::new(HashMap::new()),
@@ -674,9 +779,12 @@ pub struct RendererPrivateData {
     bones_and_wireframe_instances_bind_group: wgpu::BindGroup,
 
     environment_textures_bind_group: wgpu::BindGroup,
-    shading_and_bloom_textures_bind_group: wgpu::BindGroup,
+    // shading_and_bloom_textures_bind_group: wgpu::BindGroup,
+    msaa_wireframe_resolve_and_bloom_textures_bind_group: wgpu::BindGroup,
     tone_mapping_texture_bind_group: wgpu::BindGroup,
     shading_texture_bind_group: wgpu::BindGroup,
+    msaa_wireframe_texture_bind_group: wgpu::BindGroup,
+    msaa_wireframe_resolve_texture_bind_group: wgpu::BindGroup,
     bloom_pingpong_texture_bind_groups: [wgpu::BindGroup; 2],
 
     point_lights_buffer: wgpu::Buffer,
@@ -689,6 +797,8 @@ pub struct RendererPrivateData {
     point_shadow_map_textures: Texture,
     directional_shadow_map_textures: Texture,
     shading_texture: Texture,
+    msaa_wireframe_texture: Texture,
+    msaa_wireframe_resolve_texture: Texture,
     tone_mapping_texture: Texture,
     depth_texture: Texture,
     bloom_pingpong_textures: [Texture; 2],
@@ -1038,11 +1148,7 @@ impl Renderer {
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
+            multisample: Default::default(),
             multiview: None,
         };
 
@@ -1082,6 +1188,11 @@ impl Renderer {
         wireframe_pipeline_descriptor.label = Some("Wireframe Render Pipeline");
         let wireframe_mesh_pipeline_v_buffers = &[Vertex::desc()];
         wireframe_pipeline_descriptor.vertex.buffers = wireframe_mesh_pipeline_v_buffers;
+        wireframe_pipeline_descriptor.depth_stencil = None;
+        wireframe_pipeline_descriptor.multisample = wgpu::MultisampleState {
+            count: 4,
+            ..Default::default()
+        };
         wireframe_pipeline_descriptor.primitive = wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::LineList,
             ..Default::default()
@@ -1515,16 +1626,40 @@ impl Renderer {
 
         let skybox_mesh = Self::bind_geometry_buffers_for_basic_mesh_impl(&base.device, &cube_mesh);
 
-        let shading_texture =
-            Texture::create_scaled_surface_texture(&base, initial_render_scale, "shading_texture");
+        let shading_texture = Texture::create_scaled_surface_texture(
+            &base,
+            initial_render_scale,
+            "shading_texture",
+            false,
+        );
+        // disable SSAA for the wireframe draws TODO: does this actually work?
+        let msaa_wireframe_texture =
+            Texture::create_scaled_surface_texture(&base, 1.0, "msaa_wireframe_texture", true);
+        let msaa_wireframe_resolve_texture = Texture::create_scaled_surface_texture(
+            &base,
+            initial_render_scale,
+            "msaa_wireframe_resolve_texture",
+            false,
+        );
         let bloom_pingpong_textures = [
-            Texture::create_scaled_surface_texture(&base, initial_render_scale, "bloom_texture_1"),
-            Texture::create_scaled_surface_texture(&base, initial_render_scale, "bloom_texture_2"),
+            Texture::create_scaled_surface_texture(
+                &base,
+                initial_render_scale,
+                "bloom_texture_1",
+                false,
+            ),
+            Texture::create_scaled_surface_texture(
+                &base,
+                initial_render_scale,
+                "bloom_texture_2",
+                false,
+            ),
         ];
         let tone_mapping_texture = Texture::create_scaled_surface_texture(
             &base,
             initial_render_scale,
             "tone_mapping_texture",
+            false,
         );
         let sampler_cache_guard = base.sampler_cache.lock().unwrap();
         let shading_texture_bind_group =
@@ -1544,6 +1679,44 @@ impl Renderer {
                 ],
                 label: Some("shading_texture_bind_group"),
             });
+        let msaa_wireframe_texture_bind_group =
+            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &base.single_msaa_texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&msaa_wireframe_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(
+                            sampler_cache_guard
+                                .get_sampler_by_index(msaa_wireframe_texture.sampler_index),
+                        ),
+                    },
+                ],
+                label: Some("msaa_wireframe_texture_bind_group"),
+            });
+        let msaa_wireframe_resolve_texture_bind_group =
+            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &base.single_texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(
+                            &msaa_wireframe_resolve_texture.view,
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(
+                            sampler_cache_guard
+                                .get_sampler_by_index(msaa_wireframe_resolve_texture.sampler_index),
+                        ),
+                    },
+                ],
+                label: Some("msaa_wireframe_resolve_texture_bind_group"),
+            });
         let tone_mapping_texture_bind_group =
             base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &base.single_texture_bind_group_layout,
@@ -1562,18 +1735,22 @@ impl Renderer {
                 ],
                 label: Some("tone_mapping_texture_bind_group"),
             });
-        let shading_and_bloom_textures_bind_group =
+
+        let msaa_wireframe_resolve_and_bloom_textures_bind_group =
             base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &base.two_texture_bind_group_layout,
+                layout: &base.msaa_wireframe_resolve_and_bloom_textures_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&shading_texture.view),
+                        resource: wgpu::BindingResource::TextureView(
+                            &msaa_wireframe_resolve_texture.view,
+                        ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(
-                            sampler_cache_guard.get_sampler_by_index(shading_texture.sampler_index),
+                            sampler_cache_guard
+                                .get_sampler_by_index(msaa_wireframe_resolve_texture.sampler_index),
                         ),
                     },
                     wgpu::BindGroupEntry {
@@ -1590,8 +1767,39 @@ impl Renderer {
                         ),
                     },
                 ],
-                label: Some("surface_blit_textures_bind_group"),
+                label: Some("msaa_wireframe_resolve_and_bloom_textures_bind_group"),
             });
+
+        // let shading_and_bloom_textures_bind_group =
+        //     base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        //         layout: &base.shading_and_bloom_textures_bind_group_layout,
+        //         entries: &[
+        //             wgpu::BindGroupEntry {
+        //                 binding: 0,
+        //                 resource: wgpu::BindingResource::TextureView(&shading_texture.view),
+        //             },
+        //             wgpu::BindGroupEntry {
+        //                 binding: 1,
+        //                 resource: wgpu::BindingResource::Sampler(
+        //                     sampler_cache_guard.get_sampler_by_index(shading_texture.sampler_index),
+        //                 ),
+        //             },
+        //             wgpu::BindGroupEntry {
+        //                 binding: 2,
+        //                 resource: wgpu::BindingResource::TextureView(
+        //                     &bloom_pingpong_textures[0].view,
+        //                 ),
+        //             },
+        //             wgpu::BindGroupEntry {
+        //                 binding: 3,
+        //                 resource: wgpu::BindingResource::Sampler(
+        //                     sampler_cache_guard
+        //                         .get_sampler_by_index(bloom_pingpong_textures[0].sampler_index),
+        //                 ),
+        //             },
+        //         ],
+        //         label: Some("shading_and_bloom_textures_bind_group"),
+        //     });
 
         let bloom_pingpong_texture_bind_groups = [
             base.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1636,7 +1844,7 @@ impl Renderer {
         drop(sampler_cache_guard);
 
         let depth_texture =
-            Texture::create_depth_texture(&base, initial_render_scale, "depth_texture");
+            Texture::create_depth_texture(&base, initial_render_scale, "depth_texture", false);
 
         let (skybox_background, skybox_hdr_environment) = get_skybox_path();
 
@@ -2075,9 +2283,12 @@ impl Renderer {
                 bones_and_wireframe_instances_bind_group,
 
                 environment_textures_bind_group,
-                shading_and_bloom_textures_bind_group,
+                msaa_wireframe_resolve_and_bloom_textures_bind_group,
+                // shading_and_bloom_textures_bind_group,
                 tone_mapping_texture_bind_group,
                 shading_texture_bind_group,
+                msaa_wireframe_texture_bind_group,
+                msaa_wireframe_resolve_texture_bind_group,
                 bloom_pingpong_texture_bind_groups,
 
                 point_lights_buffer,
@@ -2090,6 +2301,8 @@ impl Renderer {
                 point_shadow_map_textures,
                 directional_shadow_map_textures,
                 shading_texture,
+                msaa_wireframe_texture,
+                msaa_wireframe_resolve_texture,
                 tone_mapping_texture,
                 depth_texture,
                 bloom_pingpong_textures,
@@ -2282,35 +2495,51 @@ impl Renderer {
             &self.base,
             data_guard.render_scale,
             "shading_texture",
+            false,
+        );
+        // disable SSAA for the wireframe draws
+        private_data_guard.msaa_wireframe_texture =
+            Texture::create_scaled_surface_texture(&self.base, 1.0, "msaa_wireframe_texture", true);
+        private_data_guard.msaa_wireframe_resolve_texture = Texture::create_scaled_surface_texture(
+            &self.base,
+            data_guard.render_scale,
+            "msaa_wireframe_resolve_texture",
+            false,
         );
         private_data_guard.bloom_pingpong_textures = [
             Texture::create_scaled_surface_texture(
                 &self.base,
                 data_guard.render_scale,
                 "bloom_texture_1",
+                false,
             ),
             Texture::create_scaled_surface_texture(
                 &self.base,
                 data_guard.render_scale,
                 "bloom_texture_2",
+                false,
             ),
         ];
         private_data_guard.tone_mapping_texture = Texture::create_scaled_surface_texture(
             &self.base,
             data_guard.render_scale,
             "tone_mapping_texture",
+            false,
         );
-        private_data_guard.depth_texture =
-            Texture::create_depth_texture(&self.base, data_guard.render_scale, "depth_texture");
+        private_data_guard.depth_texture = Texture::create_depth_texture(
+            &self.base,
+            data_guard.render_scale,
+            "depth_texture",
+            false,
+        );
 
         let device = &self.base.device;
         let single_texture_bind_group_layout = &self.base.single_texture_bind_group_layout;
-        let two_texture_bind_group_layout = &self.base.two_texture_bind_group_layout;
 
         let sampler_cache_guard = self.base.sampler_cache.lock().unwrap();
         private_data_guard.shading_texture_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: single_texture_bind_group_layout,
+                layout: &self.base.single_texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -2351,21 +2580,25 @@ impl Renderer {
                 ],
                 label: Some("tone_mapping_texture_bind_group"),
             });
-        private_data_guard.shading_and_bloom_textures_bind_group =
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: two_texture_bind_group_layout,
+        private_data_guard.msaa_wireframe_resolve_and_bloom_textures_bind_group = device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self
+                    .base
+                    .msaa_wireframe_resolve_and_bloom_textures_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
                         resource: wgpu::BindingResource::TextureView(
-                            &private_data_guard.shading_texture.view,
+                            &private_data_guard.msaa_wireframe_resolve_texture.view,
                         ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(
                             sampler_cache_guard.get_sampler_by_index(
-                                private_data_guard.shading_texture.sampler_index,
+                                private_data_guard
+                                    .msaa_wireframe_resolve_texture
+                                    .sampler_index,
                             ),
                         ),
                     },
@@ -2384,8 +2617,43 @@ impl Renderer {
                         ),
                     },
                 ],
-                label: Some("surface_blit_textures_bind_group"),
+                label: Some("msaa_wireframe_resolve_and_bloom_textures_bind_group"),
             });
+        // private_data_guard.shading_and_bloom_textures_bind_group =
+        //     device.create_bind_group(&wgpu::BindGroupDescriptor {
+        //         layout: &self.base.shading_and_bloom_textures_bind_group_layout,
+        //         entries: &[
+        //             wgpu::BindGroupEntry {
+        //                 binding: 0,
+        //                 resource: wgpu::BindingResource::TextureView(
+        //                     &private_data_guard.shading_texture.view,
+        //                 ),
+        //             },
+        //             wgpu::BindGroupEntry {
+        //                 binding: 1,
+        //                 resource: wgpu::BindingResource::Sampler(
+        //                     sampler_cache_guard.get_sampler_by_index(
+        //                         private_data_guard.shading_texture.sampler_index,
+        //                     ),
+        //                 ),
+        //             },
+        //             wgpu::BindGroupEntry {
+        //                 binding: 2,
+        //                 resource: wgpu::BindingResource::TextureView(
+        //                     &private_data_guard.bloom_pingpong_textures[0].view,
+        //                 ),
+        //             },
+        //             wgpu::BindGroupEntry {
+        //                 binding: 3,
+        //                 resource: wgpu::BindingResource::Sampler(
+        //                     sampler_cache_guard.get_sampler_by_index(
+        //                         private_data_guard.bloom_pingpong_textures[0].sampler_index,
+        //                     ),
+        //                 ),
+        //             },
+        //         ],
+        //         label: Some("shading_and_bloom_textures_bind_group"),
+        //     });
         private_data_guard.bloom_pingpong_texture_bind_groups = [
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: single_texture_bind_group_layout,
@@ -3086,7 +3354,7 @@ impl Renderer {
         );
 
         {
-            let label = "Unlit and wireframe";
+            let label = "Unlit";
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some(label),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -3142,8 +3410,33 @@ impl Renderer {
                         0..instance_count as u32,
                     );
                 }
+            });
+        }
 
+        {
+            let label = "Wireframe";
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some(label),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &private_data.msaa_wireframe_texture.view,
+                    resolve_target: Some(&private_data.msaa_wireframe_resolve_texture.view),
+                    // resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: false,
+                    },
+                })],
+                depth_stencil_attachment: None,
+            });
+
+            wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
                 render_pass.set_pipeline(&self.wireframe_pipeline);
+                render_pass.set_push_constants(
+                    wgpu::ShaderStages::VERTEX,
+                    0,
+                    bytemuck::cast_slice(&[MeshShaderCameraRaw::from(main_camera_data)]),
+                );
+                render_pass.set_bind_group(0, &private_data.lights_bind_group, &[]);
 
                 for wireframe_instance_chunk in private_data.all_wireframe_instances.chunks() {
                     let binded_wireframe_mesh_index = wireframe_instance_chunk.id;
@@ -3229,7 +3522,11 @@ impl Renderer {
                         0,
                         bytemuck::cast_slice(&[0.0f32, data.bloom_threshold, data.bloom_ramp_size]),
                     );
-                    render_pass.set_bind_group(0, &private_data.shading_texture_bind_group, &[]);
+                    render_pass.set_bind_group(
+                        0,
+                        &private_data.msaa_wireframe_resolve_texture_bind_group,
+                        &[],
+                    );
                     render_pass.draw(0..3, 0..1);
                 });
             }
@@ -3364,7 +3661,7 @@ impl Renderer {
                 );
                 render_pass.set_bind_group(
                     0,
-                    &private_data.shading_and_bloom_textures_bind_group,
+                    &private_data.msaa_wireframe_resolve_and_bloom_textures_bind_group,
                     &[],
                 );
                 render_pass.draw(0..3, 0..1);

@@ -230,6 +230,7 @@ impl Texture {
         base_renderer: &BaseRenderer,
         render_scale: f32,
         label: &str,
+        msaa: bool,
     ) -> Self {
         let size = {
             let surface_config_guard = base_renderer.surface_config.lock().unwrap();
@@ -245,7 +246,7 @@ impl Texture {
                 label: Some(label),
                 size,
                 mip_level_count: 1,
-                sample_count: 1,
+                sample_count: if msaa { 4 } else { 1 },
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba16Float,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
@@ -284,6 +285,7 @@ impl Texture {
         base_renderer: &BaseRenderer,
         render_scale: f32,
         label: &str,
+        msaa: bool,
     ) -> Self {
         let size = {
             let surface_config_guard = base_renderer.surface_config.lock().unwrap();
@@ -299,7 +301,7 @@ impl Texture {
                 label: Some(label),
                 size,
                 mip_level_count: 1,
-                sample_count: 1,
+                sample_count: if msaa { 4 } else { 1 },
                 dimension: wgpu::TextureDimension::D2,
                 format: Texture::DEPTH_FORMAT,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
