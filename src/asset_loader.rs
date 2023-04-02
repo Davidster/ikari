@@ -92,14 +92,6 @@ impl AssetLoader {
 
                     let do_load = || {
                         let device_sample_rate = audio_manager.lock().unwrap().device_sample_rate();
-                        // let sound_data = match next_audio_format {
-                        //     AudioFileFormat::Mp3 => {
-                        //         AudioManager::decode_mp3(device_sample_rate, &next_audio_path)?
-                        //     }
-                        //     AudioFileFormat::Wav => {
-                        //         AudioManager::decode_wav(device_sample_rate, &next_audio_path)?
-                        //     }
-                        // };
                         let sound_data = AudioManager::decode_audio_file(
                             device_sample_rate,
                             &next_audio_path,
