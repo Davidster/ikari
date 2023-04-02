@@ -81,8 +81,6 @@ approx = "0.5"
 
 # audio
 cpal = "0.15"
-# hound = "3"
-# minimp3 = "0.5"
 oddio = "0.6"
 symphonia = { version = "0.5.2", features = ["mp3", "wav"] }
 
@@ -91,7 +89,7 @@ iced_wgpu = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" 
 iced = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }
 iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }
 plotters-iced = "0.7"
-plotters = { version = "0.3", default_features = false, features = [
+plotters = { version = "0.3", default-features = false, features = [
     "line_series",
 ] }
 
