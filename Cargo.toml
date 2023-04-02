@@ -26,10 +26,6 @@ path = "src/example_game/main.rs"
 name = "asset_optimizer"
 path = "src/asset_optimizer/main.rs"
 
-[[bin]]
-name = "audio_decoder_perf"
-path = "src/audio_decoder_perf/main.rs"
-
 [features]
 default = []
 #Not supported at this time #profile-with-optick = ["profiling/profile-with-optick"]
