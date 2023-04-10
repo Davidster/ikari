@@ -1,7 +1,11 @@
 use std::time::Duration;
 
+use iced::alignment::Horizontal;
+use iced::widget::Button;
 use iced::widget::Column;
+use iced::widget::Text;
 use iced::Background;
+use iced_aw::{Card, Modal};
 use iced_wgpu::Renderer;
 use iced_winit::widget::{Container, Row};
 use iced_winit::{Command, Element, Length, Program};
@@ -15,16 +19,21 @@ use crate::logger::*;
 const FRAME_TIME_HISTORY_SIZE: usize = 5000;
 
 #[derive(Debug)]
-pub struct IcedProgram {
+pub struct UiOverlay {
     fps_chart: FpsChart,
     show_fps_chart: bool,
+    pub is_showing_options_menu: bool,
+    exit_button_pressed: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Message {
     FrameCompleted(Duration),
     GpuFrameCompleted(Vec<GpuTimerScopeResultWrapper>),
     ToggleFpsChart(bool),
+    TogglePopupMenu,
+    ClosePopupMenu,
+    ExitButtonPressed,
 }
 
 pub struct ContainerStyle;
@@ -158,7 +167,7 @@ impl FpsChart {
 }
 
 // the iced ui
-impl Program for IcedProgram {
+impl Program for UiOverlay {
     type Renderer = Renderer;
     type Message = Message;
 
@@ -178,6 +187,11 @@ impl Program for IcedProgram {
             }
             Message::ToggleFpsChart(new_state) => {
                 self.show_fps_chart = new_state;
+            }
+            Message::ClosePopupMenu => self.is_showing_options_menu = false,
+            Message::ExitButtonPressed => self.exit_button_pressed = true,
+            Message::TogglePopupMenu => {
+                self.is_showing_options_menu = !self.is_showing_options_menu
             }
         }
 
@@ -228,18 +242,13 @@ impl Program for IcedProgram {
             .width(Length::Shrink)
             .height(Length::Shrink)
             .spacing(12)
-            .push(iced_winit::widget::text(framerate_msg.as_str()))
-            .push(iced_winit::widget::checkbox(
-                "Show FPS Chart",
-                self.show_fps_chart,
-                Message::ToggleFpsChart,
-            ));
+            .push(iced_winit::widget::text(framerate_msg.as_str()));
         if self.show_fps_chart {
             let padding = [16, 20, 16, 0]; // top, right, bottom, left
             rows = rows.push(Container::new(self.fps_chart.view()).padding(padding));
         }
 
-        Row::new()
+        let content = Row::new()
             .width(Length::Shrink)
             .height(Length::Shrink)
             .padding(8)
@@ -247,26 +256,102 @@ impl Program for IcedProgram {
                 Container::new(rows)
                     .padding(8)
                     .style(iced::theme::Container::Custom(container_style)),
+            );
+
+        Modal::new(self.is_showing_options_menu, content, || {
+            Card::new(
+                Text::new("Options"),
+                Column::new()
+                    .spacing(16)
+                    .padding(5)
+                    .width(Length::Fill)
+                    .push(iced_winit::widget::checkbox(
+                        "Show FPS Chart",
+                        self.show_fps_chart,
+                        Message::ToggleFpsChart,
+                    ))
+                    .push(
+                        Button::new(
+                            Text::new("Exit Game").horizontal_alignment(Horizontal::Center),
+                        )
+                        .width(Length::Shrink)
+                        .on_press(Message::ExitButtonPressed),
+                    ),
             )
+            .max_width(300.0)
+            .on_close(Message::ClosePopupMenu)
             .into()
+        })
+        .into()
     }
+}
+
+pub struct GpuTimerScopeResultWrapper(pub wgpu_profiler::GpuTimerScopeResult);
+
+impl std::ops::Deref for GpuTimerScopeResultWrapper {
+    type Target = wgpu_profiler::GpuTimerScopeResult;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for GpuTimerScopeResultWrapper {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "(TODO implement better formatter for type) {:?} -> {:?}",
+            self.label, self.time
+        )
+    }
+}
+
+impl std::clone::Clone for GpuTimerScopeResultWrapper {
+    fn clone(&self) -> Self {
+        Self(wgpu_profiler::GpuTimerScopeResult {
+            label: self.label.clone(),
+            time: self.time.clone(),
+            nested_scopes: clone_nested_scopes(&self.nested_scopes),
+        })
+    }
+}
+
+fn clone_nested_scopes(
+    nested_scopes: &[wgpu_profiler::GpuTimerScopeResult],
+) -> Vec<wgpu_profiler::GpuTimerScopeResult> {
+    nested_scopes
+        .iter()
+        .map(|nested_scope| wgpu_profiler::GpuTimerScopeResult {
+            label: nested_scope.label.clone(),
+            time: nested_scope.time.clone(),
+            nested_scopes: clone_nested_scopes(&nested_scope.nested_scopes),
+        })
+        .collect()
+}
+
+fn collect_frame_time_ms(frame_times: &Vec<GpuTimerScopeResultWrapper>) -> f64 {
+    let mut result = 0.0;
+    for frame_time in frame_times {
+        result += (frame_time.time.end - frame_time.time.start) * 1000.0;
+    }
+    result
 }
 
 // integrates iced into ikari
 // based off of https://github.com/iced-rs/iced/tree/master/examples/integration_wgpu
-pub struct UiOverlay {
+pub struct IkariUiOverlay {
     debug: iced_winit::Debug,
     renderer: iced_wgpu::Renderer,
     staging_belt: wgpu::util::StagingBelt,
     viewport: iced_wgpu::Viewport,
     clipboard: iced_winit::clipboard::Clipboard,
-    program_container: iced_winit::program::State<IcedProgram>,
+    program_container: iced_winit::program::State<UiOverlay>,
     cursor_position: winit::dpi::PhysicalPosition<f64>,
     modifiers: winit::event::ModifiersState,
     last_cursor_icon: Option<winit::window::CursorIcon>,
 }
 
-impl UiOverlay {
+impl IkariUiOverlay {
     pub fn new(
         window: &Window,
         device: &wgpu::Device,
@@ -279,12 +364,14 @@ impl UiOverlay {
 
         let staging_belt = wgpu::util::StagingBelt::new(5 * 1024);
 
-        let state = IcedProgram {
+        let state = UiOverlay {
             fps_chart: FpsChart {
                 recent_frame_times: vec![],
                 recent_gpu_frame_times: vec![],
             },
             show_fps_chart: false,
+            is_showing_options_menu: false,
+            exit_button_pressed: false,
         };
 
         let mut debug = iced_winit::Debug::new();
@@ -343,7 +430,7 @@ impl UiOverlay {
         }
     }
 
-    pub fn update(&mut self, window: &Window) {
+    pub fn update(&mut self, window: &Window, control_flow: &mut winit::event_loop::ControlFlow) {
         if !self.program_container.is_queue_empty() {
             let _ = self.program_container.update(
                 self.viewport.logical_size(),
@@ -366,6 +453,11 @@ impl UiOverlay {
         if self.last_cursor_icon != Some(cursor_icon) {
             window.set_cursor_icon(cursor_icon);
             self.last_cursor_icon = Some(cursor_icon);
+        }
+
+        // TODO: does this logic belong in IkariUiOverlay?
+        if self.program_container.program().exit_button_pressed {
+            *control_flow = winit::event_loop::ControlFlow::Exit;
         }
     }
 
@@ -395,32 +487,8 @@ impl UiOverlay {
     pub fn send_message(&mut self, message: Message) {
         self.program_container.queue_message(message);
     }
-}
 
-pub struct GpuTimerScopeResultWrapper(pub wgpu_profiler::GpuTimerScopeResult);
-
-impl std::ops::Deref for GpuTimerScopeResultWrapper {
-    type Target = wgpu_profiler::GpuTimerScopeResult;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    pub fn get_state(&self) -> &UiOverlay {
+        self.program_container.program()
     }
-}
-
-impl std::fmt::Debug for GpuTimerScopeResultWrapper {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "(TODO implement better formatter for type) {:?} -> {:?}",
-            self.label, self.time
-        )
-    }
-}
-
-fn collect_frame_time_ms(frame_times: &Vec<GpuTimerScopeResultWrapper>) -> f64 {
-    let mut result = 0.0;
-    for frame_time in frame_times {
-        result += (frame_time.time.end - frame_time.time.start) * 1000.0;
-    }
-    result
 }

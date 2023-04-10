@@ -6,7 +6,7 @@ use crate::renderer::*;
 use std::time::{Duration, Instant};
 
 use winit::{
-    event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent},
+    event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
@@ -62,7 +62,7 @@ pub fn run(
                     _ => {}
                 }
 
-                match renderer.render(&mut game_state, &window) {
+                match renderer.render(&mut game_state, &window, control_flow) {
                     Ok(_) => {}
                     // Reconfigure the surface if lost
                     Err(wgpu::SurfaceError::Lost) => {
@@ -80,7 +80,7 @@ pub fn run(
                 window.request_redraw();
             }
             Event::DeviceEvent { event, .. } => {
-                process_device_input(&mut game_state, &event);
+                process_device_input(&mut game_state, &renderer, &event);
             }
             Event::WindowEvent {
                 event, window_id, ..
@@ -96,16 +96,7 @@ pub fn run(
                             renderer.resize(**new_inner_size, window.scale_factor());
                         }
                     }
-                    WindowEvent::CloseRequested
-                    | WindowEvent::KeyboardInput {
-                        input:
-                            KeyboardInput {
-                                state: ElementState::Pressed,
-                                virtual_keycode: Some(VirtualKeyCode::Escape),
-                                ..
-                            },
-                        ..
-                    } => *control_flow = ControlFlow::Exit,
+                    WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                     _ => {}
                 };
 
