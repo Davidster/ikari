@@ -69,6 +69,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     return textureSample(texture_1, sampler_1, in.tex_coords);
 }
 
+@fragment
+fn wireframe_overlay_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let shaded = textureSample(texture_1, sampler_1, in.tex_coords);
+    let shaded_color = shaded.rgb;
+    let shaded_alpha = shaded.a;
+    return vec4<f32>(shaded_color, ceil(shaded_alpha));
+}
+
 struct DepthBlitFragmentOutput {
     @builtin(frag_depth) depth: f32
 };
@@ -91,11 +99,13 @@ fn depth_blit_fs_main(in: VertexOutput) -> DepthBlitFragmentOutput {
 @fragment
 fn tone_mapping_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let exposure = TONE_MAPPING_CONFIG.exposure.x;
-    let shaded_color = textureSample(texture_1, sampler_1, in.tex_coords).rgb;
+    let shaded = textureSample(texture_1, sampler_1, in.tex_coords);
+    let shaded_color = shaded.rgb;
+    let shaded_alpha = shaded.a;
     let bloom_color = textureSample(texture_2, sampler_2, in.tex_coords).rgb;
     let final_color_hdr = shaded_color + bloom_color;
     // return final_color_hdr / (final_color_hdr + 1.0);
-    return vec4<f32>(1.0 - exp(-final_color_hdr * exposure), 1.0);
+    return vec4<f32>(1.0 - exp(-final_color_hdr * exposure), shaded_alpha);
     // return vec4<f32>(final_color_hdr, 1.0);
 }
 

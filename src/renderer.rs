@@ -876,6 +876,7 @@ pub struct Renderer {
     wireframe_pipeline: wgpu::RenderPipeline,
     skybox_pipeline: wgpu::RenderPipeline,
     tone_mapping_pipeline: wgpu::RenderPipeline,
+    wireframe_overlay_pipeline: wgpu::RenderPipeline,
     surface_blit_pipeline: wgpu::RenderPipeline,
     depth_blit_pipeline: wgpu::RenderPipeline,
     point_shadow_map_pipeline: wgpu::RenderPipeline,
@@ -1220,7 +1221,7 @@ impl Renderer {
         wireframe_pipeline_descriptor.label = Some("Wireframe Render Pipeline");
         let wireframe_mesh_pipeline_v_buffers = &[Vertex::desc()];
         wireframe_pipeline_descriptor.vertex.buffers = wireframe_mesh_pipeline_v_buffers;
-        // wireframe_pipeline_descriptor.depth_stencil = None;
+        wireframe_pipeline_descriptor.depth_stencil = None;
         wireframe_pipeline_descriptor.multisample = wgpu::MultisampleState {
             // count: 4,
             ..Default::default()
@@ -1379,8 +1380,8 @@ impl Renderer {
             format: wgpu::TextureFormat::Rgba16Float,
             blend: Some(wgpu::BlendState {
                 color: wgpu::BlendComponent {
-                    src_factor: wgpu::BlendFactor::One,
-                    dst_factor: wgpu::BlendFactor::One,
+                    src_factor: wgpu::BlendFactor::SrcAlpha,
+                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
                     operation: wgpu::BlendOperation::Add,
                 },
                 alpha: wgpu::BlendComponent::REPLACE,
@@ -1421,6 +1422,53 @@ impl Renderer {
         let tone_mapping_pipeline = base
             .device
             .create_render_pipeline(&tone_mapping_pipeline_descriptor);
+
+        let wireframe_overlay_colors_targets = &[Some(wgpu::ColorTargetState {
+            format: wgpu::TextureFormat::Rgba16Float,
+            blend: Some(wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::SrcAlpha,
+                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent::REPLACE,
+            }),
+            write_mask: wgpu::ColorWrites::ALL,
+        })];
+        let wireframe_overlay_pipeline_layout =
+            base.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: None,
+                    bind_group_layouts: &[&base.single_texture_bind_group_layout],
+                    push_constant_ranges: &[wgpu::PushConstantRange {
+                        stages: wgpu::ShaderStages::FRAGMENT,
+                        range: 0..4,
+                    }],
+                });
+        let wireframe_overlay_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: Some("Wireframe Overlay Render Pipeline"),
+            layout: Some(&wireframe_overlay_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &blit_shader,
+                entry_point: "vs_main",
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &blit_shader,
+                entry_point: "wireframe_overlay_fs_main",
+                targets: wireframe_overlay_colors_targets,
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+        };
+        let wireframe_overlay_pipeline = base
+            .device
+            .create_render_pipeline(&wireframe_overlay_pipeline_descriptor);
 
         let skybox_pipeline_primitive_state = wgpu::PrimitiveState {
             front_face: wgpu::FrontFace::Cw,
@@ -2430,6 +2478,7 @@ impl Renderer {
             wireframe_pipeline,
             skybox_pipeline,
             tone_mapping_pipeline,
+            wireframe_overlay_pipeline,
             surface_blit_pipeline,
             depth_blit_pipeline,
             point_shadow_map_pipeline,
@@ -2620,6 +2669,8 @@ impl Renderer {
             "msaa_wireframe_texture",
             false,
         );
+        private_data_guard.wireframe_depth_texture =
+            Texture::create_depth_texture(&self.base, 4.0, "wireframe_depth_texture", false);
         // private_data_guard.msaa_wireframe_resolve_texture = Texture::create_scaled_surface_texture(
         //     &self.base,
         //     data_guard.render_scale,
@@ -2726,6 +2777,30 @@ impl Renderer {
                         },
                     ],
                     label: Some("wireframe_depth_texture_bind_group"),
+                });
+
+        private_data_guard.msaa_wireframe_texture_bind_group =
+            self.base
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &self.base.single_msaa_texture_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(
+                                &private_data_guard.msaa_wireframe_texture.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(
+                                sampler_cache_guard.get_sampler_by_index(
+                                    private_data_guard.msaa_wireframe_texture.sampler_index,
+                                ),
+                            ),
+                        },
+                    ],
+                    label: Some("msaa_wireframe_texture_bind_group"),
                 });
 
         private_data_guard.tone_mapping_texture_bind_group =
@@ -3480,7 +3555,7 @@ impl Renderer {
                 view: &private_data.shading_texture.view,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(black),
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                     store: true,
                 },
             })],
@@ -3580,14 +3655,14 @@ impl Renderer {
             });
         }
 
-        blit_depth_texture(
-            base,
-            &self.depth_blit_pipeline,
-            profiler,
-            &mut encoder,
-            &private_data.depth_texture_bind_group,
-            &private_data.wireframe_depth_texture.view,
-        );
+        // blit_depth_texture(
+        //     base,
+        //     &self.depth_blit_pipeline,
+        //     profiler,
+        //     &mut encoder,
+        //     &private_data.depth_texture_bind_group,
+        //     &private_data.wireframe_depth_texture.view,
+        // );
 
         {
             let label = "Wireframe";
@@ -3598,18 +3673,19 @@ impl Renderer {
                     // resolve_target: Some(&private_data.msaa_wireframe_resolve_texture.view),
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: true,
                     },
                 })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &private_data.wireframe_depth_texture.view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: true,
-                    }),
-                    stencil_ops: None,
-                }),
+                depth_stencil_attachment: None,
+                // depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                //     view: &private_data.wireframe_depth_texture.view,
+                //     depth_ops: Some(wgpu::Operations {
+                //         load: wgpu::LoadOp::Clear(1.0),
+                //         store: true,
+                //     }),
+                //     stencil_ops: None,
+                // }),
             });
 
             wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
@@ -3700,7 +3776,7 @@ impl Renderer {
                         view: &private_data.bloom_pingpong_textures[0].view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(black),
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                             store: true,
                         },
                     })],
@@ -3714,11 +3790,7 @@ impl Renderer {
                         0,
                         bytemuck::cast_slice(&[0.0f32, data.bloom_threshold, data.bloom_ramp_size]),
                     );
-                    render_pass.set_bind_group(
-                        0,
-                        &private_data.msaa_wireframe_texture_bind_group,
-                        &[],
-                    );
+                    render_pass.set_bind_group(0, &private_data.shading_texture_bind_group, &[]);
                     render_pass.draw(0..3, 0..1);
                 });
             }
@@ -3735,7 +3807,7 @@ impl Renderer {
                             view: dst_texture,
                             resolve_target: None,
                             ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(black),
+                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                                 store: true,
                             },
                         })],
@@ -3778,7 +3850,7 @@ impl Renderer {
                     view: &private_data.bloom_pingpong_textures[0].view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(black),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: true,
                     },
                 })],
@@ -3796,7 +3868,7 @@ impl Renderer {
                     view: &private_data.tone_mapping_texture.view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(black),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: true,
                     },
                 })],
@@ -3861,6 +3933,34 @@ impl Renderer {
         }
 
         {
+            let label = "Wireframe Overlay";
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some(label),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &private_data.tone_mapping_texture.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: None,
+            });
+
+            wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
+                {
+                    render_pass.set_pipeline(&self.wireframe_overlay_pipeline);
+                    render_pass.set_bind_group(
+                        0,
+                        &private_data.msaa_wireframe_texture_bind_group,
+                        &[],
+                    );
+                    render_pass.draw(0..3, 0..1);
+                }
+            });
+        }
+
+        {
             let label = "Surface blit";
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some(label),
@@ -3888,35 +3988,7 @@ impl Renderer {
             });
         }
 
-        {
-            let label = "Wireframe Surface blit";
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some(label),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &surface_texture_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: true,
-                    },
-                })],
-                depth_stencil_attachment: None,
-            });
-
-            wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
-                {
-                    render_pass.set_pipeline(&self.surface_blit_pipeline);
-                    render_pass.set_bind_group(
-                        0,
-                        &private_data.msaa_wireframe_texture_bind_group,
-                        &[],
-                    );
-                    render_pass.draw(0..3, 0..1);
-                }
-            });
-        }
-
-        // TODO: pass a difference encoder to the ui overlay so it can be profiled
+        // TODO: pass a different encoder to the ui overlay so it can be profiled
         data.ui_overlay
             .render(&base.device, &mut encoder, &surface_texture_view);
 
