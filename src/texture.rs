@@ -7,6 +7,7 @@ use std::num::NonZeroU32;
 use anyhow::*;
 use glam::f32::Vec3;
 use wgpu::util::DeviceExt;
+use wgpu_profiler::wgpu_profiler;
 
 #[derive(Debug)]
 pub struct Texture {
@@ -230,6 +231,7 @@ impl Texture {
         base_renderer: &BaseRenderer,
         render_scale: f32,
         label: &str,
+        msaa: bool,
     ) -> Self {
         let size = {
             let surface_config_guard = base_renderer.surface_config.lock().unwrap();
@@ -245,7 +247,7 @@ impl Texture {
                 label: Some(label),
                 size,
                 mip_level_count: 1,
-                sample_count: 1,
+                sample_count: if msaa { 4 } else { 1 },
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba16Float,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
@@ -284,6 +286,7 @@ impl Texture {
         base_renderer: &BaseRenderer,
         render_scale: f32,
         label: &str,
+        msaa: bool,
     ) -> Self {
         let size = {
             let surface_config_guard = base_renderer.surface_config.lock().unwrap();
@@ -299,7 +302,7 @@ impl Texture {
                 label: Some(label),
                 size,
                 mip_level_count: 1,
-                sample_count: 1,
+                sample_count: if msaa { 4 } else { 1 },
                 dimension: wgpu::TextureDimension::D2,
                 format: Texture::DEPTH_FORMAT,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
@@ -321,7 +324,7 @@ impl Texture {
                     mag_filter: wgpu::FilterMode::Nearest,
                     min_filter: wgpu::FilterMode::Nearest,
                     mipmap_filter: wgpu::FilterMode::Nearest,
-                    compare: Some(wgpu::CompareFunction::GreaterEqual),
+                    // compare: Some(wgpu::CompareFunction::GreaterEqual),
                     ..Default::default()
                 },
             );
@@ -1204,6 +1207,46 @@ impl Texture {
             size,
         }
     }
+}
+
+// TODO: convert this to generic component that caches a pipeline for each dst texture format
+pub fn blit_depth_texture(
+    base_renderer: &BaseRenderer,
+    depth_blit_pipeline: &wgpu::RenderPipeline,
+    profiler: &mut wgpu_profiler::GpuProfiler,
+    encoder: &mut wgpu::CommandEncoder,
+
+    src_texture_bind_group: &wgpu::BindGroup,
+    dst_texture_view: &wgpu::TextureView,
+) {
+    let label = "blit_texture";
+
+    // Some(wgpu::RenderPassDepthStencilAttachment {
+    //     view: &private_data.depth_texture.view,
+    //     depth_ops: Some(wgpu::Operations {
+    //         load: wgpu::LoadOp::Load,
+    //         store: true,
+    //     }),
+    //     stencil_ops: None,
+    // }),
+
+    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some(label),
+        color_attachments: &[],
+        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+            view: dst_texture_view,
+            depth_ops: Some(wgpu::Operations {
+                load: wgpu::LoadOp::Clear(1.0),
+                store: true,
+            }),
+            stencil_ops: None,
+        }),
+    });
+    wgpu_profiler!(label, profiler, &mut render_pass, &base_renderer.device, {
+        render_pass.set_pipeline(depth_blit_pipeline);
+        render_pass.set_bind_group(0, src_texture_bind_group, &[]);
+        render_pass.draw(0..3, 0..1);
+    });
 }
 
 fn generate_mipmaps_for_texture(

@@ -69,6 +69,25 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     return textureSample(texture_1, sampler_1, in.tex_coords);
 }
 
+struct DepthBlitFragmentOutput {
+    @builtin(frag_depth) depth: f32
+};
+
+// @group(0) @binding(0)
+// var texture_db: texture_2d<f32>;
+// @group(0) @binding(1)
+// var sampler_db: sampler_comparison;
+
+@fragment
+fn depth_blit_fs_main(in: VertexOutput) -> DepthBlitFragmentOutput {
+    let depth_value = textureSample(texture_1, sampler_1, in.tex_coords).r;
+
+    var out: DepthBlitFragmentOutput;
+    out.depth = depth_value;
+    return out;
+}
+
+
 @fragment
 fn tone_mapping_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let exposure = TONE_MAPPING_CONFIG.exposure.x;
