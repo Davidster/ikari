@@ -5,6 +5,7 @@ use crate::math::*;
 use crate::physics::*;
 use crate::renderer::*;
 use crate::transform::*;
+use crate::ui_overlay::*;
 
 use std::time::Instant;
 
@@ -39,8 +40,6 @@ pub struct PlayerController {
     pub rigid_body_handle: RigidBodyHandle,
 
     pub last_jump_time: Option<Instant>,
-
-    pub is_focused_on_game: bool,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -110,13 +109,11 @@ impl PlayerController {
             speed,
             rigid_body_handle,
             last_jump_time: None,
-
-            is_focused_on_game: false,
         }
     }
 
-    pub fn process_device_events(&mut self, event: &DeviceEvent) {
-        if !self.is_focused_on_game {
+    pub fn process_device_events(&mut self, event: &DeviceEvent, ui_overlay: &mut IkariUiOverlay) {
+        if ui_overlay.get_state().is_showing_options_menu {
             return;
         }
         match event {
@@ -140,7 +137,29 @@ impl PlayerController {
         };
     }
 
-    pub fn process_window_events(&mut self, event: &WindowEvent, window: &mut Window) {
+    pub fn process_window_events(
+        &mut self,
+        event: &WindowEvent,
+        window: &mut Window,
+        ui_overlay: &mut IkariUiOverlay,
+    ) {
+        let is_showing_options_menu = ui_overlay.get_state().is_showing_options_menu;
+
+        let set_cursor_grab = |grab| {
+            if let Err(err) = window.set_cursor_grab(if grab {
+                CursorGrabMode::Confined
+            } else {
+                CursorGrabMode::None
+            }) {
+                logger_log(&format!(
+                    "Couldn't {:?} cursor: {:?}",
+                    if grab { "grab" } else { "release" },
+                    err
+                ))
+            }
+            window.set_cursor_visible(!grab);
+        };
+
         match event {
             WindowEvent::KeyboardInput {
                 input:
@@ -151,27 +170,14 @@ impl PlayerController {
                     },
                 ..
             } => {
-                if *state == ElementState::Released && *keycode == VirtualKeyCode::RAlt {
-                    self.is_focused_on_game = !self.is_focused_on_game;
-                    if let Err(err) = window.set_cursor_grab(if self.is_focused_on_game {
-                        CursorGrabMode::Confined
-                    } else {
-                        CursorGrabMode::None
-                    }) {
-                        logger_log(&format!(
-                            "Couldn't {:?} cursor: {:?}",
-                            if self.is_focused_on_game {
-                                "grab"
-                            } else {
-                                "release"
-                            },
-                            err
-                        ))
-                    }
-                    window.set_cursor_visible(!self.is_focused_on_game);
+                if *state == ElementState::Pressed && *keycode == VirtualKeyCode::Escape {
+                    let new_is_showing_options_menu = !is_showing_options_menu;
+                    set_cursor_grab(!new_is_showing_options_menu);
+
+                    ui_overlay.send_message(Message::TogglePopupMenu);
                 }
-                // TODO: join two if self.is_focused_on_game checks into one block
-                if self.is_focused_on_game {
+                // TODO: join two if is_viewing_options_menu checks into one block
+                if !is_showing_options_menu {
                     let is_pressed = *state == ElementState::Pressed;
                     match keycode {
                         VirtualKeyCode::W => {
@@ -200,26 +206,22 @@ impl PlayerController {
                 if *focused {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                 }
+
                 logger_log(&format!("Window focused: {:?}", focused));
-                if let Err(err) = window.set_cursor_grab(CursorGrabMode::None) {
-                    logger_log(&format!(
-                        "Couldn't {:?} cursor: {:?}",
-                        if *focused { "grab" } else { "release" },
-                        err
-                    ))
-                }
-                window.set_cursor_visible(true);
                 self.window_focused = *focused;
+                set_cursor_grab(!is_showing_options_menu);
             }
             WindowEvent::MouseInput {
                 state,
                 button: MouseButton::Left,
                 ..
             } => {
-                // TODO: join two if self.is_focused_on_game checks into one block
-                if self.is_focused_on_game {
+                // TODO: join two if is_viewing_options_menu checks into one block
+                if !is_showing_options_menu {
                     self.mouse_button_pressed = *state == ElementState::Pressed;
                 }
+
+                set_cursor_grab(!is_showing_options_menu);
             }
             _ => {}
         };

@@ -719,7 +719,7 @@ pub struct RendererPublicData {
     pub enable_wireframe_mode: bool,
     pub draw_node_bounding_spheres: bool,
 
-    pub ui_overlay: UiOverlay,
+    pub ui_overlay: IkariUiOverlay,
 }
 
 pub struct Renderer {
@@ -752,9 +752,8 @@ impl Renderer {
     pub async fn new(base: BaseRenderer, window: &Window) -> Result<Self> {
         logger_log("Controls:");
         vec![
-            "Control Player:          RAlt",
-            "Move Around:             WASD, Space Bar, Ctrl",
             "Look Around:             Mouse",
+            "Move Around:             WASD, Space Bar, Ctrl",
             "Adjust Speed:            Scroll",
             "Adjust Render Scale:     Z / X",
             "Adjust Exposure:         E / R",
@@ -765,7 +764,7 @@ impl Renderer {
             "Toggle Wireframe:        F",
             "Toggle Collision Boxes:  C",
             "Draw Bounding Spheres:   J",
-            "Exit:                    Escape",
+            "Open Options Menu:       Escape",
         ]
         .iter()
         .for_each(|line| {
@@ -2005,7 +2004,7 @@ impl Renderer {
             });
         drop(sampler_cache_guard);
 
-        let ui_overlay = UiOverlay::new(
+        let ui_overlay = IkariUiOverlay::new(
             window,
             &base.device,
             base.surface_config.lock().unwrap().format,
@@ -2490,6 +2489,7 @@ impl Renderer {
         &self,
         game_state: &mut GameState,
         window: &winit::window::Window,
+        control_flow: &mut winit::event_loop::ControlFlow,
     ) -> Result<(), wgpu::SurfaceError> {
         // let mut base_guard = self.base.lock().unwrap();
         let mut data_guard = self.data.lock().unwrap();
@@ -2502,6 +2502,7 @@ impl Renderer {
             &mut private_data_guard,
             game_state,
             window,
+            control_flow,
         );
         self.render_internal(
             &self.base,
@@ -2521,8 +2522,9 @@ impl Renderer {
         private_data: &mut RendererPrivateData,
         game_state: &mut GameState,
         window: &winit::window::Window,
+        control_flow: &mut winit::event_loop::ControlFlow,
     ) {
-        data.ui_overlay.update(window);
+        data.ui_overlay.update(window, control_flow);
 
         Self::clear_debug_nodes(private_data, &mut game_state.scene);
 

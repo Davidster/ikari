@@ -92,10 +92,15 @@ plotters-iced = "0.7"
 plotters = { version = "0.3", default-features = false, features = [
     "line_series",
 ] }
+iced_aw = { version = "0.4.1", default-features = false, features = [
+    "modal",
+    "card",
+] }
 
 [patch.crates-io]
 iced_native = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }
 iced_graphics = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }
+iced_style = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_15" }
 
 [profile.dev.package."basis-universal-sys"]
 opt-level = 3

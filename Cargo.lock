@@ -1339,6 +1339,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "iced_aw"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3d625cc54f66be9e619f7c28f3ef56bf5eb74ec936f442ea8a1ee56288f935c"
+dependencies = [
+ "iced_graphics",
+ "iced_native",
+ "iced_style",
+]
+
+[[package]]
 name = "iced_core"
 version = "0.8.1"
 source = "git+https://github.com/Davidster/iced.git?branch=wgpu_15#d3b09f08df4a63e8167621fb1e81c79b1f56a43a"
@@ -1455,6 +1466,7 @@ dependencies = [
  "gltf",
  "half",
  "iced",
+ "iced_aw",
  "iced_wgpu",
  "iced_winit",
  "image 0.23.14",

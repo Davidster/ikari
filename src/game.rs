@@ -746,55 +746,14 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
     })
 }
 
-pub fn process_device_input(game_state: &mut GameState, event: &winit::event::DeviceEvent) {
-    game_state.player_controller.process_device_events(event);
-}
-
-pub fn increment_render_scale(
+pub fn process_device_input(
+    game_state: &mut GameState,
     renderer: &Renderer,
-    renderer_base: &BaseRenderer,
-    increase: bool,
-    window: &mut winit::window::Window,
+    event: &winit::event::DeviceEvent,
 ) {
-    let delta = 0.1;
-    let change = if increase { delta } else { -delta };
-
-    {
-        let mut renderer_data_guard = renderer.data.lock().unwrap();
-        let surface_config_guard = renderer_base.surface_config.lock().unwrap();
-        renderer_data_guard.render_scale =
-            (renderer_data_guard.render_scale + change).clamp(0.1, 4.0);
-        logger_log(&format!(
-            "Render scale: {:?} ({:?}x{:?})",
-            renderer_data_guard.render_scale,
-            (surface_config_guard.width as f32 * renderer_data_guard.render_scale.sqrt()).round()
-                as u32,
-            (surface_config_guard.height as f32 * renderer_data_guard.render_scale.sqrt()).round()
-                as u32,
-        ));
-    }
-    renderer.resize(window.inner_size(), window.scale_factor());
-}
-
-pub fn increment_exposure(renderer_data: &mut RendererPublicData, increase: bool) {
-    let delta = 0.05;
-    let change = if increase { delta } else { -delta };
-    renderer_data.tone_mapping_exposure =
-        (renderer_data.tone_mapping_exposure + change).clamp(0.0, 20.0);
-    logger_log(&format!(
-        "Exposure: {:?}",
-        renderer_data.tone_mapping_exposure
-    ));
-}
-
-pub fn increment_bloom_threshold(renderer_data: &mut RendererPublicData, increase: bool) {
-    let delta = 0.05;
-    let change = if increase { delta } else { -delta };
-    renderer_data.bloom_threshold = (renderer_data.bloom_threshold + change).clamp(0.0, 20.0);
-    logger_log(&format!(
-        "Bloom Threshold: {:?}",
-        renderer_data.bloom_threshold
-    ));
+    game_state
+        .player_controller
+        .process_device_events(event, &mut renderer.data.lock().unwrap().ui_overlay);
 }
 
 pub fn process_window_input(
@@ -863,9 +822,58 @@ pub fn process_window_input(
             }
         }
     }
-    game_state
-        .player_controller
-        .process_window_events(event, window);
+    game_state.player_controller.process_window_events(
+        event,
+        window,
+        &mut renderer.data.lock().unwrap().ui_overlay,
+    );
+}
+
+pub fn increment_render_scale(
+    renderer: &Renderer,
+    renderer_base: &BaseRenderer,
+    increase: bool,
+    window: &mut winit::window::Window,
+) {
+    let delta = 0.1;
+    let change = if increase { delta } else { -delta };
+
+    {
+        let mut renderer_data_guard = renderer.data.lock().unwrap();
+        let surface_config_guard = renderer_base.surface_config.lock().unwrap();
+        renderer_data_guard.render_scale =
+            (renderer_data_guard.render_scale + change).clamp(0.1, 4.0);
+        logger_log(&format!(
+            "Render scale: {:?} ({:?}x{:?})",
+            renderer_data_guard.render_scale,
+            (surface_config_guard.width as f32 * renderer_data_guard.render_scale.sqrt()).round()
+                as u32,
+            (surface_config_guard.height as f32 * renderer_data_guard.render_scale.sqrt()).round()
+                as u32,
+        ));
+    }
+    renderer.resize(window.inner_size(), window.scale_factor());
+}
+
+pub fn increment_exposure(renderer_data: &mut RendererPublicData, increase: bool) {
+    let delta = 0.05;
+    let change = if increase { delta } else { -delta };
+    renderer_data.tone_mapping_exposure =
+        (renderer_data.tone_mapping_exposure + change).clamp(0.0, 20.0);
+    logger_log(&format!(
+        "Exposure: {:?}",
+        renderer_data.tone_mapping_exposure
+    ));
+}
+
+pub fn increment_bloom_threshold(renderer_data: &mut RendererPublicData, increase: bool) {
+    let delta = 0.05;
+    let change = if increase { delta } else { -delta };
+    renderer_data.bloom_threshold = (renderer_data.bloom_threshold + change).clamp(0.0, 20.0);
+    logger_log(&format!(
+        "Bloom Threshold: {:?}",
+        renderer_data.bloom_threshold
+    ));
 }
 
 #[profiling::function]
