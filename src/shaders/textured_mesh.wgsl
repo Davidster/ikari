@@ -387,38 +387,38 @@ fn compute_direct_lighting(
     f0: vec3<f32>
 ) -> vec3<f32> {
     // copy variable names from the math formulas
-    let n = world_normal;
-    let w0 = to_viewer_vec;
-    let v = w0;
-    let a = roughness;
+    // let n = world_normal;
+    // let w0 = to_viewer_vec;
+    // let v = w0;
+    // let a = roughness;
 
-    let halfway_vec = normalize(to_viewer_vec + to_light_vec);
+    // let halfway_vec = normalize(to_viewer_vec + to_light_vec);
     
-    // let surface_reflection_at_zero_incidence = vec3<f32>(0.95, 0.93, 0.88);
+    // // let surface_reflection_at_zero_incidence = vec3<f32>(0.95, 0.93, 0.88);
 
-    // copy variable names from the math formulas
-    let wi = to_light_vec;
-    let l = wi;
-    let h = halfway_vec;
+    // // copy variable names from the math formulas
+    // let wi = to_light_vec;
+    // let l = wi;
+    // let h = halfway_vec;
 
-    // specular
-    let h_dot_v = max(dot(h, v), 0.0);
-    let normal_distribution = normal_distribution_func_tr_ggx(a, n, h);
-    let k = geometry_func_schlick_ggx_k_direct(a);
-    let geometry = geometry_func_smith_ggx(k, n, v, l);
-    let fresnel = fresnel_func_schlick(h_dot_v, f0);
-    let cook_torrance_denominator = 4.0 * max(dot(n, w0), 0.0) * max(dot(n, wi), 0.0) + epsilon;
-    let specular_component = normal_distribution * geometry * fresnel / cook_torrance_denominator;
-    let ks = fresnel;
+    // // specular
+    // let h_dot_v = max(dot(h, v), 0.0);
+    // let normal_distribution = normal_distribution_func_tr_ggx(a, n, h);
+    // let k = geometry_func_schlick_ggx_k_direct(a);
+    // let geometry = geometry_func_smith_ggx(k, n, v, l);
+    // let fresnel = fresnel_func_schlick(h_dot_v, f0);
+    // let cook_torrance_denominator = 4.0 * max(dot(n, w0), 0.0) * max(dot(n, wi), 0.0) + epsilon;
+    // let specular_component = normal_distribution * geometry * fresnel / cook_torrance_denominator;
+    // let ks = fresnel;
 
     // diffuse
     let diffuse_component = base_color / pi; // lambertian
-    let kd = (vec3<f32>(1.0) - ks) * (1.0 - metallicness);
+    // let kd = (vec3<f32>(1.0) - ks) * (1.0 - metallicness);
 
-    let incident_angle_factor = max(dot(n, wi), 0.0);      
-    //                                  ks was already multiplied by fresnel so it's omitted here       
-    let bdrf = kd * diffuse_component + specular_component;
-    return bdrf * incident_angle_factor * light_attenuation_factor * light_color_scaled;
+    // let incident_angle_factor = max(dot(n, wi), 0.0);      
+    // //                                  ks was already multiplied by fresnel so it's omitted here       
+    // let bdrf = kd * diffuse_component + specular_component;
+    return diffuse_component;
 }
 
 fn do_fragment_shade(
@@ -442,6 +442,7 @@ fn do_fragment_shade(
         diffuse_sampler,
         tex_coords
     );
+    
     let base_color = base_color_t.rgb * base_color_factor.rgb * vertex_color.rgb;
     let metallic_roughness = textureSample(
         metallic_roughness_map_texture,
@@ -496,7 +497,7 @@ fn do_fragment_shade(
     );
 
     var total_light_irradiance = vec3<f32>(0.0);
-    for (var light_index = 0u; light_index < MAX_LIGHTS; light_index = light_index + 1u) {
+    for (var light_index = 0u; light_index < 4u; light_index = light_index + 1u) {
         let light = point_lights.values[light_index];
         let light_color_scaled = light.color.xyz * light.color.w;
 
@@ -511,32 +512,32 @@ fn do_fragment_shade(
 
         // soft shadows
         // irregular shadow sampling
-        var shadow_occlusion_acc = 0.0;
-        let sample_count = 4.0;
-        let max_offset_x = 0.01 + 0.04 * rand(random_seed * 1.0);
-        let max_offset_y = 0.01 + 0.04 * rand(random_seed * 2.0);
-        let max_offset_z = 0.01 + 0.04 * rand(random_seed * 3.0);
-        for (var x = 0.0; x < sample_count; x = x + 1.0) {
-            for (var y = 0.0; y < sample_count; y = y + 1.0) {
-                for (var z = 0.0; z < sample_count; z = z + 1.0) {
-                    let irregular_offset = vec3<f32>(
-                        max_offset_x * ((2.0 * x / (sample_count - 1.0)) - 1.0),
-                        max_offset_y * ((2.0 * y / (sample_count - 1.0)) - 1.0),
-                        max_offset_z * ((2.0 * z / (sample_count - 1.0)) - 1.0),
-                    );
-                    let closest_depth = textureSample(
-                        point_shadow_map_textures,
-                        point_shadow_map_sampler,
-                        world_normal_to_cubemap_vec(from_shadow_vec + irregular_offset),
-                        i32(light_index)
-                    ).r;
-                    if current_depth - bias < closest_depth {
-                        shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
-                    }
-                }
-            }
-        }
-        let shadow_occlusion_factor = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
+        // var shadow_occlusion_acc = 0.0;
+        // let sample_count = 4.0;
+        // let max_offset_x = 0.01 + 0.04 * rand(random_seed * 1.0);
+        // let max_offset_y = 0.01 + 0.04 * rand(random_seed * 2.0);
+        // let max_offset_z = 0.01 + 0.04 * rand(random_seed * 3.0);
+        // for (var x = 0.0; x < sample_count; x = x + 1.0) {
+        //     for (var y = 0.0; y < sample_count; y = y + 1.0) {
+        //         for (var z = 0.0; z < sample_count; z = z + 1.0) {
+        //             let irregular_offset = vec3<f32>(
+        //                 max_offset_x * ((2.0 * x / (sample_count - 1.0)) - 1.0),
+        //                 max_offset_y * ((2.0 * y / (sample_count - 1.0)) - 1.0),
+        //                 max_offset_z * ((2.0 * z / (sample_count - 1.0)) - 1.0),
+        //             );
+        //             let closest_depth = textureSample(
+        //                 point_shadow_map_textures,
+        //                 point_shadow_map_sampler,
+        //                 world_normal_to_cubemap_vec(from_shadow_vec + irregular_offset),
+        //                 i32(light_index)
+        //             ).r;
+        //             if current_depth - bias < closest_depth {
+        //                 shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
+        //             }
+        //         }
+        //     }
+        // }
+        // let shadow_occlusion_factor = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
 
         // regular shadow sampling
         // var shadow_occlusion_acc = 0.0;
@@ -574,9 +575,9 @@ fn do_fragment_shade(
         //     shadow_occlusion_factor = 1.0;
         // }
 
-        if shadow_occlusion_factor < epsilon {
-                continue;
-        }
+        // if shadow_occlusion_factor < epsilon {
+        //         continue;
+        // }
 
         let to_light_vec = light.position.xyz - world_position;
         let to_light_vec_norm = normalize(to_light_vec);
@@ -600,10 +601,10 @@ fn do_fragment_shade(
             metallicness,
             f0
         );
-        total_light_irradiance = total_light_irradiance + light_irradiance * shadow_occlusion_factor;
+        total_light_irradiance = total_light_irradiance + light_irradiance;
     }
 
-    for (var light_index = 0u; light_index < MAX_LIGHTS; light_index = light_index + 1u) {
+    for (var light_index = 0u; light_index < 4u; light_index = light_index + 1u) {
         let light = directional_lights.values[light_index];
         let light_color_scaled = light.color.xyz * light.color.w;
 
@@ -614,42 +615,42 @@ fn do_fragment_shade(
         // let from_shadow_vec = world_position - light.position.xyz;
         // let shadow_camera_far_plane_distance = 40.0;
         // let current_depth = length(from_shadow_vec) / shadow_camera_far_plane_distance;
-        let light_space_position_nopersp = light.world_space_to_light_space * vec4<f32>(world_position, 1.0);
-        let light_space_position = light_space_position_nopersp / light_space_position_nopersp.w;
-        let light_space_position_uv = vec2<f32>(
-            light_space_position.x * 0.5 + 0.5,
-            1.0 - (light_space_position.y * 0.5 + 0.5),
-        );
-        let current_depth = light_space_position.z;
-        let bias = 0.0001;
+        // let light_space_position_nopersp = light.world_space_to_light_space * vec4<f32>(world_position, 1.0);
+        // let light_space_position = light_space_position_nopersp / light_space_position_nopersp.w;
+        // let light_space_position_uv = vec2<f32>(
+        //     light_space_position.x * 0.5 + 0.5,
+        //     1.0 - (light_space_position.y * 0.5 + 0.5),
+        // );
+        // let current_depth = light_space_position.z;
+        // let bias = 0.0001;
 
         // soft shadows
-        var shadow_occlusion_acc = 0.0;
-        let sample_count = 4.0;
-        let max_offset_x = 0.0001 + 0.0005 * rand(random_seed * 1.0);
-        let max_offset_y = 0.0001 + 0.0005 * rand(random_seed * 2.0);
-        for (var x = 0.0; x < sample_count; x = x + 1.0) {
-            for (var y = 0.0; y < sample_count; y = y + 1.0) {
-                let irregular_offset = vec2<f32>(
-                    max_offset_x * ((2.0 * x / (sample_count - 1.0)) - 1.0),
-                    max_offset_y * ((2.0 * y / (sample_count - 1.0)) - 1.0)
-                );
-                let closest_depth = textureSample(
-                    directional_shadow_map_textures,
-                    directional_shadow_map_sampler,
-                    light_space_position_uv + irregular_offset,
-                    i32(light_index)
-                ).r;
-                if light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0 {
-                    if current_depth - bias < closest_depth {
-                        shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
-                    }
-                } else {
-                    shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
-                }
-            }
-        }
-        let shadow_occlusion_factor = shadow_occlusion_acc / (sample_count * sample_count);
+        // var shadow_occlusion_acc = 0.0;
+        // let sample_count = 4.0;
+        // let max_offset_x = 0.0001 + 0.0005 * rand(random_seed * 1.0);
+        // let max_offset_y = 0.0001 + 0.0005 * rand(random_seed * 2.0);
+        // for (var x = 0.0; x < sample_count; x = x + 1.0) {
+        //     for (var y = 0.0; y < sample_count; y = y + 1.0) {
+        //         let irregular_offset = vec2<f32>(
+        //             max_offset_x * ((2.0 * x / (sample_count - 1.0)) - 1.0),
+        //             max_offset_y * ((2.0 * y / (sample_count - 1.0)) - 1.0)
+        //         );
+        //         let closest_depth = textureSample(
+        //             directional_shadow_map_textures,
+        //             directional_shadow_map_sampler,
+        //             light_space_position_uv + irregular_offset,
+        //             i32(light_index)
+        //         ).r;
+        //         if light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0 {
+        //             if current_depth - bias < closest_depth {
+        //                 shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
+        //             }
+        //         } else {
+        //             shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
+        //         }
+        //     }
+        // }
+        // let shadow_occlusion_factor = shadow_occlusion_acc / (sample_count * sample_count);
 
         // hard shadows
         // var shadow_occlusion_factor = 1.0;
@@ -668,9 +669,9 @@ fn do_fragment_shade(
         // }
 
 
-        if shadow_occlusion_factor < epsilon {
-                continue;
-        }
+        // if shadow_occlusion_factor < epsilon {
+        //         continue;
+        // }
 
         let to_light_vec = -light.direction.xyz;
         let to_light_vec_norm = normalize(to_light_vec);
@@ -687,7 +688,7 @@ fn do_fragment_shade(
             metallicness,
             f0
         );
-        total_light_irradiance = total_light_irradiance + light_irradiance * shadow_occlusion_factor;
+        total_light_irradiance = total_light_irradiance + light_irradiance;
     }
 
 
