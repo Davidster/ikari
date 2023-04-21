@@ -237,45 +237,6 @@ impl Program for UiOverlay {
             (cpu, gpu)
         };
 
-        let mut span_set: HashSet<&str> = HashSet::new();
-        for frame_spans in &self.fps_chart.recent_gpu_frame_times {
-            // single frame
-            for span in frame_spans {
-                span_set.insert(&span.label);
-            }
-        }
-        let span_names: Vec<&str> = {
-            let mut span_names: Vec<&str> = span_set.iter().copied().collect();
-            span_names.sort();
-            span_names
-        };
-        let mut avg_span_times: HashMap<&str, f64> = HashMap::new();
-
-        // pub nested_scopes: Vec<GpuTimerScopeResult>,
-        for frame_spans in &self.fps_chart.recent_gpu_frame_times {
-            // process all spans of a single frame
-
-            let mut totals_by_span: HashMap<&str, f64> = HashMap::new();
-            for span in frame_spans {
-                let span_time_ms = (span.time.end - span.time.start) * 1000.0;
-                let total = totals_by_span.entry(&span.label).or_default();
-                *total += span_time_ms;
-            }
-
-            for span_name in &span_names {
-                let frame_time = totals_by_span.entry(span_name).or_default();
-                match avg_span_times.entry(span_name) {
-                    Entry::Occupied(mut entry) => {
-                        *entry.get_mut() = (1.0 - moving_average_alpha) * entry.get()
-                            + (moving_average_alpha * *frame_time);
-                    }
-                    Entry::Vacant(entry) => {
-                        entry.insert(*frame_time);
-                    }
-                }
-            }
-        }
-
         let framerate_msg = String::from(&format!(
             "Frametime: {:.2}ms ({:.2}fps), GPU: {:.2}ms",
             avg_frame_time_millis,
@@ -291,19 +252,59 @@ impl Program for UiOverlay {
             .spacing(4)
             .push(iced_winit::widget::text(framerate_msg.as_str()));
 
-        let mut entries: Vec<_> = avg_span_times.iter().collect();
-        entries.sort_by_key(|(span, _)| **span);
-        entries.sort_by_key(|(_span, total_span_frame_time)| {
-            (total_span_frame_time.max(0.01) * 100.0) as u64
-        });
-        entries.reverse();
-        for (span, total_span_frame_time) in entries {
-            let msg = String::from(&format!(
-                "{:}: {:.2}ms",
-                span,
-                total_span_frame_time / self.fps_chart.recent_gpu_frame_times.len() as f64
-            ));
-            rows = rows.push(iced_winit::widget::text(msg.as_str()).size(14));
+        if self.is_showing_gpu_spans {
+            let mut span_set: HashSet<&str> = HashSet::new();
+            for frame_spans in &self.fps_chart.recent_gpu_frame_times {
+                // single frame
+                for span in frame_spans {
+                    span_set.insert(&span.label);
+                }
+            }
+            let span_names: Vec<&str> = {
+                let mut span_names: Vec<&str> = span_set.iter().copied().collect();
+                span_names.sort();
+                span_names
+            };
+            let mut avg_span_times: HashMap<&str, f64> = HashMap::new();
+
+            // pub nested_scopes: Vec<GpuTimerScopeResult>,
+            for frame_spans in &self.fps_chart.recent_gpu_frame_times {
+                // process all spans of a single frame
+
+                let mut totals_by_span: HashMap<&str, f64> = HashMap::new();
+                for span in frame_spans {
+                    let span_time_ms = (span.time.end - span.time.start) * 1000.0;
+                    let total = totals_by_span.entry(&span.label).or_default();
+                    *total += span_time_ms;
+                }
+
+                // dbg!(&totals_by_span);
+
+                for span_name in &span_names {
+                    let frame_time = totals_by_span.entry(span_name).or_default();
+                    match avg_span_times.entry(span_name) {
+                        Entry::Occupied(mut entry) => {
+                            *entry.get_mut() = (1.0 - moving_average_alpha) * entry.get()
+                                + (moving_average_alpha * *frame_time);
+                            // dbg!(entry.get(), frame_time);
+                        }
+                        Entry::Vacant(entry) => {
+                            entry.insert(*frame_time);
+                        }
+                    }
+                }
+            }
+
+            let mut avg_span_times_vec: Vec<_> = avg_span_times.iter().collect();
+            avg_span_times_vec.sort_by_key(|(span, _)| **span);
+            avg_span_times_vec.sort_by_key(|(_span, avg_span_frame_time)| {
+                (avg_span_frame_time.max(0.01) * 100.0) as u64
+            });
+            avg_span_times_vec.reverse();
+            for (span, span_frame_time) in avg_span_times_vec {
+                let msg = String::from(&format!("{:}: {:.2}ms", span, span_frame_time));
+                rows = rows.push(iced_winit::widget::text(msg.as_str()).size(14));
+            }
         }
 
         if self.is_showing_fps_chart {
@@ -334,7 +335,7 @@ impl Program for UiOverlay {
                         Message::ToggleFpsChart,
                     ))
                     .push(iced_winit::widget::checkbox(
-                        "Show FPS Chart",
+                        "Show Detailed GPU Frametimes",
                         self.is_showing_gpu_spans,
                         Message::ToggleGpuSpans,
                     ))
@@ -438,7 +439,7 @@ impl IkariUiOverlay {
                 recent_gpu_frame_times: vec![],
             },
             is_showing_fps_chart: false,
-            is_showing_gpu_spans: false,
+            is_showing_gpu_spans: true,
             is_showing_options_menu: false,
             was_exit_button_pressed: false,
         };
