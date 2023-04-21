@@ -2,8 +2,6 @@ use crate::camera::*;
 use crate::renderer::*;
 use crate::sampler_cache::*;
 
-use std::num::NonZeroU32;
-
 use anyhow::*;
 use glam::f32::Vec3;
 use wgpu::util::DeviceExt;
@@ -100,10 +98,8 @@ impl Texture {
                 img_bytes,
                 wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: NonZeroU32::new(
-                        format.describe().block_size as u32 * dimensions.0,
-                    ),
-                    rows_per_image: NonZeroU32::new(dimensions.1),
+                    bytes_per_row: Some(format.block_size(None).unwrap() * dimensions.0),
+                    rows_per_image: Some(dimensions.1),
                 },
                 size,
             );
@@ -522,7 +518,7 @@ impl Texture {
                 cubemap_texture.create_view(&wgpu::TextureViewDescriptor {
                     dimension: Some(wgpu::TextureViewDimension::D2),
                     base_array_layer: i as u32,
-                    array_layer_count: NonZeroU32::new(1),
+                    array_layer_count: Some(1),
                     ..Default::default()
                 }),
             )
@@ -796,7 +792,7 @@ impl Texture {
                 env_map.create_view(&wgpu::TextureViewDescriptor {
                     dimension: Some(wgpu::TextureViewDimension::D2),
                     base_array_layer: i as u32,
-                    array_layer_count: NonZeroU32::new(1),
+                    array_layer_count: Some(1),
                     ..Default::default()
                 }),
             )
@@ -1013,9 +1009,9 @@ impl Texture {
                             env_map.create_view(&wgpu::TextureViewDescriptor {
                                 dimension: Some(wgpu::TextureViewDimension::D2),
                                 base_array_layer: i as u32,
-                                array_layer_count: NonZeroU32::new(1),
+                                array_layer_count: Some(1),
                                 base_mip_level: mip_level,
-                                mip_level_count: NonZeroU32::new(1),
+                                mip_level_count: Some(1),
                                 ..Default::default()
                             }),
                         )
@@ -1292,7 +1288,7 @@ fn generate_mipmaps_for_texture(
                 dimension: None,
                 aspect: wgpu::TextureAspect::All,
                 base_mip_level: mip,
-                mip_level_count: NonZeroU32::new(1),
+                mip_level_count: Some(1),
                 base_array_layer: 0,
                 array_layer_count: None,
             })

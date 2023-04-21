@@ -12,7 +12,7 @@ pub struct SamplerDescriptor {
     pub lod_min_clamp: f32,
     pub lod_max_clamp: f32,
     pub compare: Option<wgpu::CompareFunction>,
-    pub anisotropy_clamp: Option<std::num::NonZeroU8>,
+    pub anisotropy_clamp: u16,
     pub border_color: Option<wgpu::SamplerBorderColor>,
 }
 
