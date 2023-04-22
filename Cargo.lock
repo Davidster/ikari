@@ -1333,7 +1333,7 @@ checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 [[package]]
 name = "iced"
 version = "0.9.0"
-source = "git+https://github.com/Davidster/iced.git?branch=wgpu_16#de00fe7cf100286681c1d2499a58c1602af4a790"
+source = "git+https://github.com/iced-rs/iced.git?branch=master#78924fa2998e2d158132dd5d06b2b8eea1edbc4b"
 dependencies = [
  "iced_core",
  "iced_futures",
@@ -1358,7 +1358,7 @@ dependencies = [
 [[package]]
 name = "iced_core"
 version = "0.9.0"
-source = "git+https://github.com/Davidster/iced.git?branch=wgpu_16#de00fe7cf100286681c1d2499a58c1602af4a790"
+source = "git+https://github.com/iced-rs/iced.git?branch=master#78924fa2998e2d158132dd5d06b2b8eea1edbc4b"
 dependencies = [
  "bitflags 1.3.2",
  "instant",
@@ -1368,7 +1368,7 @@ dependencies = [
 [[package]]
 name = "iced_futures"
 version = "0.6.0"
-source = "git+https://github.com/Davidster/iced.git?branch=wgpu_16#de00fe7cf100286681c1d2499a58c1602af4a790"
+source = "git+https://github.com/iced-rs/iced.git?branch=master#78924fa2998e2d158132dd5d06b2b8eea1edbc4b"
 dependencies = [
  "futures",
  "log",
@@ -1379,7 +1379,7 @@ dependencies = [
 [[package]]
 name = "iced_graphics"
 version = "0.8.0"
-source = "git+https://github.com/Davidster/iced.git?branch=wgpu_16#de00fe7cf100286681c1d2499a58c1602af4a790"
+source = "git+https://github.com/iced-rs/iced.git?branch=master#78924fa2998e2d158132dd5d06b2b8eea1edbc4b"
 dependencies = [
  "bitflags 1.3.2",
  "bytemuck",
@@ -1395,7 +1395,7 @@ dependencies = [
 [[package]]
 name = "iced_native"
 version = "0.10.3"
-source = "git+https://github.com/Davidster/iced.git?branch=wgpu_16#de00fe7cf100286681c1d2499a58c1602af4a790"
+source = "git+https://github.com/iced-rs/iced.git?branch=master#78924fa2998e2d158132dd5d06b2b8eea1edbc4b"
 dependencies = [
  "iced_core",
  "iced_futures",
@@ -1409,7 +1409,7 @@ dependencies = [
 [[package]]
 name = "iced_style"
 version = "0.8.0"
-source = "git+https://github.com/Davidster/iced.git?branch=wgpu_16#de00fe7cf100286681c1d2499a58c1602af4a790"
+source = "git+https://github.com/iced-rs/iced.git?branch=master#78924fa2998e2d158132dd5d06b2b8eea1edbc4b"
 dependencies = [
  "iced_core",
  "once_cell",
@@ -1419,7 +1419,7 @@ dependencies = [
 [[package]]
 name = "iced_wgpu"
 version = "0.10.0"
-source = "git+https://github.com/Davidster/iced.git?branch=wgpu_16#de00fe7cf100286681c1d2499a58c1602af4a790"
+source = "git+https://github.com/iced-rs/iced.git?branch=master#78924fa2998e2d158132dd5d06b2b8eea1edbc4b"
 dependencies = [
  "bitflags 1.3.2",
  "bytemuck",
@@ -1439,7 +1439,7 @@ dependencies = [
 [[package]]
 name = "iced_winit"
 version = "0.9.1"
-source = "git+https://github.com/Davidster/iced.git?branch=wgpu_16#de00fe7cf100286681c1d2499a58c1602af4a790"
+source = "git+https://github.com/iced-rs/iced.git?branch=master#78924fa2998e2d158132dd5d06b2b8eea1edbc4b"
 dependencies = [
  "iced_futures",
  "iced_graphics",
@@ -3784,8 +3784,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu_glyph"
-version = "0.19.0"
-source = "git+https://github.com/Davidster/wgpu_glyph.git?branch=wgpu_16#dd46e462cc51aab21f219a090a66a9a2eb45cdf2"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "adb849776538364c4d7571aca9718e2cb5ab973bee3cf5e127b83eab7616e33f"
 dependencies = [
  "bytemuck",
  "glyph_brush",

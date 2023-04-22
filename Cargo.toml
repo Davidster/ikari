@@ -85,9 +85,9 @@ oddio = "0.6"
 symphonia = { version = "0.5.2", features = ["mp3", "wav"] }
 
 # UI
-iced_wgpu = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_16" }
-iced = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_16" }
-iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_16" }
+iced_wgpu = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
+iced = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
+iced_winit = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
 plotters-iced = "0.8"
 plotters = { version = "0.3", default-features = false, features = [
     "line_series",
@@ -98,15 +98,15 @@ iced_aw = { version = "0.5", default-features = false, features = [
 ] }
 
 [patch.crates-io]
-iced_native = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_16" }
-iced_graphics = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_16" }
-iced_style = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_16" }
+iced_native = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
+iced_graphics = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
+iced_style = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
 
 [profile.dev.package."basis-universal-sys"]
 opt-level = 3
 
 [profile.release]
-#debug = true
+# debug = true
 # incremental = false
 # codegen-units = 1
 debug = true
