@@ -285,7 +285,14 @@ impl BaseRenderer {
         let adapter_info = adapter.get_info();
         log::info!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
 
-        let features = adapter.features();
+        let mut features = adapter.features();
+
+        // use time features if they're available on the adapter
+        features &= wgpu_profiler::GpuProfiler::ALL_WGPU_TIMER_FEATURES;
+
+        // panic if these features are missing
+        features |= wgpu::Features::PUSH_CONSTANTS;
+        features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
 
         let (device, queue) = adapter
             .request_device(
