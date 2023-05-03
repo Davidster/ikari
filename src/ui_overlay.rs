@@ -28,6 +28,10 @@ pub struct UiOverlay {
     is_showing_gpu_spans: bool,
     pub is_showing_options_menu: bool,
     was_exit_button_pressed: bool,
+
+    pub enable_soft_shadows: bool,
+    pub soft_shadow_factor: f32,
+    pub enable_shadow_debug: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +40,9 @@ pub enum Message {
     GpuFrameCompleted(Vec<GpuTimerScopeResultWrapper>),
     ToggleFpsChart(bool),
     ToggleGpuSpans(bool),
+    ToggleSoftShadows(bool),
+    ToggleShadowDebug(bool),
+    SoftShadowFactorChanged(f32),
     TogglePopupMenu,
     ClosePopupMenu,
     ExitButtonPressed,
@@ -196,6 +203,15 @@ impl Program for UiOverlay {
             Message::ToggleGpuSpans(new_state) => {
                 self.is_showing_gpu_spans = new_state;
             }
+            Message::ToggleSoftShadows(new_state) => {
+                self.enable_shadow_debug = new_state;
+            }
+            Message::ToggleShadowDebug(new_state) => {
+                self.enable_soft_shadows = new_state;
+            }
+            Message::SoftShadowFactorChanged(new_state) => {
+                self.soft_shadow_factor = new_state;
+            }
             Message::ClosePopupMenu => self.is_showing_options_menu = false,
             Message::ExitButtonPressed => self.was_exit_button_pressed = true,
             Message::TogglePopupMenu => {
@@ -339,6 +355,30 @@ impl Program for UiOverlay {
                         self.is_showing_gpu_spans,
                         Message::ToggleGpuSpans,
                     ))
+                    .push(iced_winit::widget::checkbox(
+                        "Enable Shadow Debug",
+                        self.enable_shadow_debug,
+                        Message::ToggleSoftShadows,
+                    ))
+                    .push(iced_winit::widget::checkbox(
+                        "Enable Soft Shadows",
+                        self.enable_soft_shadows,
+                        Message::ToggleShadowDebug,
+                    ))
+                    .push(Text::new(format!(
+                        "Soft Shadow Factor: {:.4}",
+                        self.soft_shadow_factor
+                    )))
+                    .push(
+                        iced_winit::widget::slider(
+                            0.0001..=0.005,
+                            self.soft_shadow_factor,
+                            move |new_soft_shadow_factor| {
+                                Message::SoftShadowFactorChanged(new_soft_shadow_factor)
+                            },
+                        )
+                        .step(0.0001),
+                    )
                     .push(
                         Button::new(
                             Text::new("Exit Game").horizontal_alignment(Horizontal::Center),
@@ -442,6 +482,9 @@ impl IkariUiOverlay {
             is_showing_gpu_spans: true,
             is_showing_options_menu: false,
             was_exit_button_pressed: false,
+            enable_soft_shadows: true,
+            soft_shadow_factor: 0.0015,
+            enable_shadow_debug: false,
         };
 
         let mut debug = iced_winit::Debug::new();

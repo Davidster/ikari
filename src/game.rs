@@ -66,10 +66,10 @@ pub fn get_skybox_path() -> (
 
     // Newport Loft
     // src: http://www.hdrlabs.com/sibl/archive/
-    let _skybox_background = SkyboxBackground::Equirectangular {
+    let skybox_background = SkyboxBackground::Equirectangular {
         image_path: "./src/textures/newport_loft/background.jpg",
     };
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+    let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
         Some(SkyboxHDREnvironment::Equirectangular {
             image_path: "./src/textures/newport_loft/radiance.hdr",
         });
@@ -86,10 +86,10 @@ pub fn get_skybox_path() -> (
 
     // My photosphere pic
     // src: me
-    let skybox_background = SkyboxBackground::Equirectangular {
+    let _skybox_background = SkyboxBackground::Equirectangular {
         image_path: "./src/textures/photosphere_skybox_small.jpg",
     };
-    let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
 
     (skybox_background, skybox_hdr_environment)
 }

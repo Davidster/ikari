@@ -47,11 +47,20 @@ struct BonesUniform {
 struct InstancesUniform {
     value: array<Instance>,
 }
+// scratch board for shader options
+struct ShaderOptionsUniform {
+    options_1: vec4<f32>,
+    options_2: vec4<f32>,
+    options_3: vec4<f32>,
+    options_4: vec4<f32>,
+}
 
 @group(0) @binding(0)
 var<uniform> point_lights: PointLightsUniform;
 @group(0) @binding(1)
 var<uniform> directional_lights: DirectionalLightsUniform;
+@group(0) @binding(2)
+var<uniform> shader_options: ShaderOptionsUniform;
 
 @group(2) @binding(0)
 var<storage, read> bones_uniform: BonesUniform;
@@ -105,6 +114,18 @@ struct ShadowMappingVertexOutput {
 
 struct ShadowMappingFragmentOutput {
     @builtin(frag_depth) depth: f32,
+}
+
+fn get_soft_shadows_are_enabled() -> bool {
+    return shader_options.options_1[0] > 0.0;
+}
+
+fn get_soft_shadow_factor() -> f32 {
+    return shader_options.options_1[1];
+}
+
+fn get_shadow_debug_enabled() -> bool {
+    return shader_options.options_1[2] > 0.0;
 }
 
 fn do_vertex_shade(
@@ -484,20 +505,21 @@ fn disk_warp(coord: vec2<f32>) -> vec2<f32> {
 
 // see https://developer.nvidia.com/gpugems/gpugems2/part-ii-shading-lighting-and-shadows/chapter-17-efficient-soft-edged-shadows-using
 // and https://www.shadertoy.com/view/dtd3Dr
-fn get_soft_shadow_sample_jitter(coord: vec2<u32>, seed_x: vec3<f32>, seed_y: vec3<f32>, random_seed_u: u32) -> vec2<f32> {
-    let cell_size = 2.0 / f32(SOFT_SHADOW_GRID_DIM);
+fn get_soft_shadow_sample_jitter(coord: vec2<u32>, seed_x: vec3<f32>, seed_y: vec3<f32>) -> vec2<f32> {
+    // 0->1 domain
+    let cell_size = 1.0 / f32(SOFT_SHADOW_GRID_DIM);
     let half_cell_size = 0.5 * cell_size;
-    let cell_top_left = vec2<f32>(f32(coord.x), f32(coord.y)) * vec2<f32>(cell_size, cell_size) - vec2<f32>(1.0, 1.0);
+    let cell_top_left = vec2<f32>(f32(coord.x), f32(coord.y)) * vec2<f32>(cell_size, cell_size);
     let cell_center = cell_top_left + vec2<f32>(0.5 * cell_size);
 
-    // jitter from the default center position
+    // jitter from the default center positions
     // let jitter = vec2<f32>(2.0, 2.0) * vec2(noise(seed_x.x + seed_x.y + seed_x.z), noise(seed_y.x + seed_y.y + seed_y.z)) - vec2<f32>(1.0, 1.0);
     // let jitter = POISSON_SAMPLES[random_seed_u];
-    let jitter = vec2<f32>(2.0, 2.0) * vec2(noise3(seed_x), noise3(seed_y)) - vec2<f32>(1.0, 1.0);
+    let jitter = vec2(2.0, 2.0) * vec2(noise3(seed_x), noise3(seed_y)) - vec2(1.0, 1.0);
     let max_jitter = half_cell_size;
     let jittered_cell_center = cell_center + vec2<f32>(max_jitter, max_jitter) * jitter;
     
-    return jittered_cell_center;
+    return vec2(2.0, 2.0) * disk_warp(jittered_cell_center) - vec2(1.0, 1.0);
 }
 
 fn compute_direct_lighting(
@@ -767,111 +789,128 @@ fn do_fragment_shade(
             // let max_offset_x = 0.0001 + 0.0005 * noise3(random_seed_x);
             // let max_offset_y = 0.0001 + 0.0005 * noise3(random_seed_y);
 
-            var early_test_coords = array<vec2<u32>, 4>(
-                vec2<u32>(0u, 0u),
-                vec2<u32>(0u, 0u),
-                vec2<u32>(0u, 0u),
-                vec2<u32>(0u, 0u)
-            );
-            if (SOFT_SHADOW_GRID_DIM == 8u) {
-                early_test_coords[0] = vec2<u32>(1u, 7u);
-                early_test_coords[1] = vec2<u32>(3u, 7u);
-                early_test_coords[2] = vec2<u32>(5u, 7u);
-                early_test_coords[3] = vec2<u32>(7u, 7u);
-            }
-            if (SOFT_SHADOW_GRID_DIM == 6u) {
-                early_test_coords[0] = vec2<u32>(0u, 5u);
-                early_test_coords[1] = vec2<u32>(1u, 5u);
-                early_test_coords[2] = vec2<u32>(2u, 5u);
-                early_test_coords[3] = vec2<u32>(4u, 5u);
-            }
-            if (SOFT_SHADOW_GRID_DIM == 4u) {
-                early_test_coords[0] = vec2<u32>(0u, 3u);
-                early_test_coords[1] = vec2<u32>(1u, 3u);
-                early_test_coords[2] = vec2<u32>(2u, 3u);
-                early_test_coords[3] = vec2<u32>(3u, 3u);
-            }
-
-            for (var i = 0; i < 4; i++) {
-                let base_sample_jitter = get_soft_shadow_sample_jitter(early_test_coords[i], random_seed_x, random_seed_y, random_seed_u);
-                let max_sample_jitter = 0.002;
-                // TODO: multiply by current_depth to get softer shadows at a distance?
-                let sample_jitter = base_sample_jitter * max_sample_jitter;
-                let closest_depth = textureSampleLevel(
-                    directional_shadow_map_textures,
-                    directional_shadow_map_sampler,
-                    light_space_position_uv + sample_jitter,
-                    i32(light_index),
-                    0.0
-                ).r;
-
-                if current_depth - bias < closest_depth {
-                    shadow_occlusion_acc = shadow_occlusion_acc + 0.25;
+           
+            if (get_soft_shadows_are_enabled()) {
+                var early_test_coords = array<vec2<u32>, 4>(
+                    vec2<u32>(0u, 0u),
+                    vec2<u32>(0u, 0u),
+                    vec2<u32>(0u, 0u),
+                    vec2<u32>(0u, 0u)
+                );
+                if (SOFT_SHADOW_GRID_DIM == 8u) {
+                    early_test_coords[0] = vec2<u32>(1u, 7u);
+                    early_test_coords[1] = vec2<u32>(3u, 7u);
+                    early_test_coords[2] = vec2<u32>(5u, 7u);
+                    early_test_coords[3] = vec2<u32>(7u, 7u);
                 }
-            }
+                if (SOFT_SHADOW_GRID_DIM == 6u) {
+                    early_test_coords[0] = vec2<u32>(0u, 5u);
+                    early_test_coords[1] = vec2<u32>(1u, 5u);
+                    early_test_coords[2] = vec2<u32>(2u, 5u);
+                    early_test_coords[3] = vec2<u32>(4u, 5u);
+                }
+                if (SOFT_SHADOW_GRID_DIM == 4u) {
+                    early_test_coords[0] = vec2<u32>(0u, 3u);
+                    early_test_coords[1] = vec2<u32>(1u, 3u);
+                    early_test_coords[2] = vec2<u32>(2u, 3u);
+                    early_test_coords[3] = vec2<u32>(3u, 3u);
+                }
 
-            if shadow_occlusion_acc == 0.0 {
-                var out: FragmentOutput;
-                out.color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-                return out;
-            }
+                // let max_sample_jitter = 0.004;
+                let max_sample_jitter = get_soft_shadow_factor();
 
-            if n_dot_l == 0.0 {
-                var out: FragmentOutput;
-                out.color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-                return out;
-            }
+                for (var i = 0; i < 4; i++) {
+                    let base_sample_jitter = get_soft_shadow_sample_jitter(early_test_coords[i], random_seed_x, random_seed_y);
+                    // TODO: multiply by current_depth to get softer shadows at a distance?
+                    let sample_jitter = base_sample_jitter * max_sample_jitter;
+                    let closest_depth = textureSampleLevel(
+                        directional_shadow_map_textures,
+                        directional_shadow_map_sampler,
+                        light_space_position_uv + sample_jitter,
+                        i32(light_index),
+                        0.0
+                    ).r;
 
-            if shadow_occlusion_acc == 1.0 {
-                var out: FragmentOutput;
-                out.color = vec4<f32>(1.0, 1.0, 1.0, 1.0);
-                return out;
-            }
+                    if current_depth - bias < closest_depth {
+                        shadow_occlusion_acc = shadow_occlusion_acc + 0.25;
+                    }
+                }
 
-            if (shadow_occlusion_acc - 1.0) * shadow_occlusion_acc * n_dot_l != 0.0 {
-                // var out: FragmentOutput;
-                // out.color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-                // return out;
-                // shadow_occlusion_acc = shadow_occlusion_acc * 4.0 / f32(SOFT_SHADOW_GRID_DIM * SOFT_SHADOW_GRID_DIM);
-                shadow_occlusion_acc = 0.0;
+                // if shadow_occlusion_acc == 0.0 {
+                //     var out: FragmentOutput;
+                //     out.color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+                //     return out;
+                // }
 
-                for (var i = 0u; i < SOFT_SHADOW_GRID_DIM; i++) {
-                    for (var j = 0u; j < SOFT_SHADOW_GRID_DIM; j++) {
-                        let coord = vec2<u32>(i, j);
-                        let base_sample_jitter = get_soft_shadow_sample_jitter(coord, random_seed_x, random_seed_y, random_seed_u);
-                        let max_sample_jitter = 0.002;
-                        // TODO: multiply by current_depth to get softer shadows at a distance?
-                        let sample_jitter = base_sample_jitter * max_sample_jitter;
-                        let closest_depth = textureSampleLevel(
-                            directional_shadow_map_textures,
-                            directional_shadow_map_sampler,
-                            light_space_position_uv + sample_jitter,
-                            i32(light_index),
-                            0.0
-                        ).r;
-                        // if (early_test_coords[0].x == coord.x && early_test_coords[0].y == coord.y) {
-                        //     continue;
-                        // }
-                        // if (early_test_coords[1].x == coord.x && early_test_coords[1].y == coord.y) {
-                        //     continue;
-                        // }
-                        // if (early_test_coords[2].x == coord.x && early_test_coords[2].y == coord.y) {
-                        //     continue;
-                        // }
-                        // if (early_test_coords[3].x == coord.x && early_test_coords[3].y == coord.y) {
-                        //     continue;
-                        // }
-                        
-                        if current_depth - bias < closest_depth {
-                            shadow_occlusion_acc = shadow_occlusion_acc + (1.0 / f32(SOFT_SHADOW_GRID_DIM * SOFT_SHADOW_GRID_DIM));
+                // if n_dot_l == 0.0 {
+                //     var out: FragmentOutput;
+                //     out.color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+                //     return out;
+                // }
+
+                // if shadow_occlusion_acc == 1.0 {
+                //     var out: FragmentOutput;
+                //     out.color = vec4<f32>(1.0, 1.0, 1.0, 1.0);
+                //     return out;
+                // }
+
+                if (shadow_occlusion_acc - 1.0) * shadow_occlusion_acc * n_dot_l != 0.0 {
+                    // shadow_occlusion_acc = shadow_occlusion_acc * 4.0 / f32(SOFT_SHADOW_GRID_DIM * SOFT_SHADOW_GRID_DIM);
+                    shadow_occlusion_acc = 0.0;
+
+                    for (var i = 0u; i < SOFT_SHADOW_GRID_DIM; i++) {
+                        for (var j = 0u; j < SOFT_SHADOW_GRID_DIM; j++) {
+                            let coord = vec2<u32>(i, j);
+                            let base_sample_jitter = get_soft_shadow_sample_jitter(coord, random_seed_x, random_seed_y);
+                            // TODO: multiply by current_depth to get softer shadows at a distance?
+                            let sample_jitter = base_sample_jitter * max_sample_jitter * 1.5;
+                            let closest_depth = textureSampleLevel(
+                                directional_shadow_map_textures,
+                                directional_shadow_map_sampler,
+                                light_space_position_uv + sample_jitter,
+                                i32(light_index),
+                                0.0
+                            ).r;
+                            // if (early_test_coords[0].x == coord.x && early_test_coords[0].y == coord.y) {
+                            //     continue;
+                            // }
+                            // if (early_test_coords[1].x == coord.x && early_test_coords[1].y == coord.y) {
+                            //     continue;
+                            // }
+                            // if (early_test_coords[2].x == coord.x && early_test_coords[2].y == coord.y) {
+                            //     continue;
+                            // }
+                            // if (early_test_coords[3].x == coord.x && early_test_coords[3].y == coord.y) {
+                            //     continue;
+                            // }
+                            
+                            if current_depth - bias < closest_depth {
+                                shadow_occlusion_acc = shadow_occlusion_acc + (1.0 / f32(SOFT_SHADOW_GRID_DIM * SOFT_SHADOW_GRID_DIM));
+                            }
                         }
                     }
                 }
+            } else {
+                // hard shadows
+                let closest_depth = textureSampleLevel(
+                    directional_shadow_map_textures,
+                    directional_shadow_map_sampler,
+                    light_space_position_uv,
+                    i32(light_index),
+                    0.0
+                ).r;
+                if (light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0) {
+                    if (current_depth - bias < closest_depth) {
+                        shadow_occlusion_acc = 1.0;
+                    }
+                } else {
+                    shadow_occlusion_acc = 1.0;
+                }
             }
 
-            var out: FragmentOutput;
-            out.color = vec4<f32>(shadow_occlusion_acc, shadow_occlusion_acc, shadow_occlusion_acc, 1.0);
-            return out;
+            // var out: FragmentOutput;
+            // out.color = vec4<f32>(shadow_occlusion_acc, shadow_occlusion_acc, shadow_occlusion_acc, 1.0);
+            // return out;
         }
         
         var shadow_occlusion_factor = shadow_occlusion_acc;
@@ -901,21 +940,12 @@ fn do_fragment_shade(
         // }
         // let shadow_occlusion_factor = shadow_occlusion_acc / (sample_count * sample_count);
 
-        // hard shadows
-        // var shadow_occlusion_factor = 0.0;
-        // let closest_depth = textureSample(
-        //     directional_shadow_map_textures,
-        //     directional_shadow_map_sampler,
-        //     light_space_position_uv,
-        //     i32(light_index)
-        // ).r;
-        // if (light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0) {
-        //     if (current_depth - bias < closest_depth) {
-        //         shadow_occlusion_factor = 1.0;
-        //     }
-        // } else {
-        //     shadow_occlusion_factor = 1.0;
-        // }
+        if (get_shadow_debug_enabled()) {
+            var out: FragmentOutput;
+            out.color = vec4<f32>(shadow_occlusion_factor, shadow_occlusion_factor, shadow_occlusion_factor, 1.0);
+            return out;
+        }
+        
 
 
         if shadow_occlusion_factor < epsilon {
