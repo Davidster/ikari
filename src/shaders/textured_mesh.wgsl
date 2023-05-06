@@ -132,6 +132,10 @@ fn get_soft_shadow_grid_dims() -> u32 {
     return u32(shader_options.options_1[3]);
 }
 
+fn get_shadow_bias() -> f32 {
+     return shader_options.options_2[0];
+}
+
 fn do_vertex_shade(
     vshader_input: VertexInput,
     camera_view_proj: mat4x4<f32>,
@@ -714,7 +718,7 @@ fn do_fragment_shade(
             1.0 - (light_space_position.y * 0.5 + 0.5),
         );
         let current_depth = light_space_position.z; // [0, 1], lower means closer to the light
-        let bias = 0.001;
+        let bias = get_shadow_bias();
         let to_light_vec = light.position.xyz - world_position;
         let to_light_vec_norm = normalize(to_light_vec);
         let n_dot_l = max(dot(n, to_light_vec_norm), 0.0);

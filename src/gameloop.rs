@@ -72,6 +72,8 @@ pub fn run(
                         .ui_overlay
                         .get_state()
                         .soft_shadow_factor;
+                    renderer_data_guard.shadow_bias =
+                        renderer_data_guard.ui_overlay.get_state().shadow_bias;
                     renderer_data_guard.enable_shadow_debug = renderer_data_guard
                         .ui_overlay
                         .get_state()

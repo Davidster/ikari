@@ -17,6 +17,7 @@ use plotters::style::RED;
 use plotters_iced::{Chart, ChartWidget, DrawingBackend};
 use winit::{event::WindowEvent, window::Window};
 
+use crate::game::*;
 use crate::logger::*;
 
 const FRAME_TIME_HISTORY_SIZE: usize = 720;
@@ -30,6 +31,7 @@ pub struct UiOverlay {
     was_exit_button_pressed: bool,
 
     pub enable_soft_shadows: bool,
+    pub shadow_bias: f32,
     pub soft_shadow_factor: f32,
     pub enable_shadow_debug: bool,
     pub soft_shadow_grid_dims: u32,
@@ -43,6 +45,7 @@ pub enum Message {
     ToggleGpuSpans(bool),
     ToggleSoftShadows(bool),
     ToggleShadowDebug(bool),
+    ShadowBiasChanged(f32),
     SoftShadowFactorChanged(f32),
     SoftShadowGridDimsChanged(u32),
     TogglePopupMenu,
@@ -211,6 +214,9 @@ impl Program for UiOverlay {
             Message::ToggleShadowDebug(new_state) => {
                 self.enable_soft_shadows = new_state;
             }
+            Message::ShadowBiasChanged(new_state) => {
+                self.shadow_bias = new_state;
+            }
             Message::SoftShadowFactorChanged(new_state) => {
                 self.soft_shadow_factor = new_state;
             }
@@ -370,6 +376,15 @@ impl Program for UiOverlay {
                         self.enable_soft_shadows,
                         Message::ToggleShadowDebug,
                     ))
+                    .push(Text::new(format!("Shadow Bias: {:.5}", self.shadow_bias)))
+                    .push(
+                        iced_winit::widget::slider(
+                            0.00001..=0.005,
+                            self.shadow_bias,
+                            move |new_state| Message::ShadowBiasChanged(new_state),
+                        )
+                        .step(0.00001),
+                    )
                     .push(Text::new(format!(
                         "Soft Shadow Factor: {:.4}",
                         self.soft_shadow_factor
@@ -497,10 +512,11 @@ impl IkariUiOverlay {
             is_showing_gpu_spans: true,
             is_showing_options_menu: false,
             was_exit_button_pressed: false,
-            enable_soft_shadows: true,
-            soft_shadow_factor: 0.0015,
-            enable_shadow_debug: false,
-            soft_shadow_grid_dims: 0,
+            enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
+            shadow_bias: INITIAL_SHADOW_BIAS,
+            soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
+            enable_shadow_debug: INITIAL_ENABLE_SHADOW_DEBUG,
+            soft_shadow_grid_dims: INITIAL_SOFT_SHADOW_GRID_DIMS,
         };
 
         let mut debug = iced_winit::Debug::new();

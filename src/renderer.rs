@@ -164,6 +164,7 @@ fn make_directional_light_uniform_buffer(
 
 fn make_pbr_shader_options_uniform_buffer(
     enable_soft_shadows: bool,
+    shadow_bias: f32,
     soft_shadow_factor: f32,
     enable_shadow_debug: bool,
     soft_shadow_grid_dims: u32,
@@ -175,8 +176,11 @@ fn make_pbr_shader_options_uniform_buffer(
         soft_shadow_grid_dims as f32,
     ];
 
+    let options_2 = [shadow_bias, 0.0, 0.0, 0.0];
+
     PbrShaderOptionsUniform {
         options_1,
+        options_2,
         ..Default::default()
     }
 }
@@ -754,6 +758,7 @@ pub struct RendererPublicData {
     pub enable_wireframe_mode: bool,
     pub draw_node_bounding_spheres: bool,
     pub enable_soft_shadows: bool,
+    pub shadow_bias: f32,
     pub soft_shadow_factor: f32,
     pub enable_shadow_debug: bool,
     pub soft_shadow_grid_dims: u32,
@@ -1842,11 +1847,13 @@ impl Renderer {
                 });
 
         let enable_soft_shadows = Default::default();
+        let shadow_bias = Default::default();
         let soft_shadow_factor = Default::default();
         let enable_shadow_debug = Default::default();
         let soft_shadow_grid_dims = Default::default();
         let initial_pbr_shader_options_buffer = make_pbr_shader_options_uniform_buffer(
             enable_soft_shadows,
+            shadow_bias,
             soft_shadow_factor,
             enable_shadow_debug,
             soft_shadow_grid_dims,
@@ -2100,6 +2107,7 @@ impl Renderer {
             draw_node_bounding_spheres: false,
 
             enable_soft_shadows,
+            shadow_bias,
             soft_shadow_factor,
             enable_shadow_debug,
             soft_shadow_grid_dims,
@@ -2996,6 +3004,7 @@ impl Renderer {
             0,
             bytemuck::cast_slice(&[make_pbr_shader_options_uniform_buffer(
                 data.enable_soft_shadows,
+                data.shadow_bias,
                 data.soft_shadow_factor,
                 data.enable_shadow_debug,
                 data.soft_shadow_grid_dims,
