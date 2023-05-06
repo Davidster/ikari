@@ -192,12 +192,12 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
 
     // add lights to the scene
     let directional_lights = vec![
-        DirectionalLightComponent {
-            position: Vec3::new(1.0, 5.0, -10.0) * 10.0,
-            direction: (-Vec3::new(1.0, 5.0, -10.0)).normalize(),
-            color: DIRECTIONAL_LIGHT_COLOR_A,
-            intensity: 1.0,
-        },
+        // DirectionalLightComponent {
+        //     position: Vec3::new(1.0, 5.0, -10.0) * 10.0,
+        //     direction: (-Vec3::new(1.0, 5.0, -10.0)).normalize(),
+        //     color: DIRECTIONAL_LIGHT_COLOR_A,
+        //     intensity: 1.0,
+        // },
         DirectionalLightComponent {
             position: Vec3::new(-1.0, 10.0, 10.0) * 10.0,
             direction: (-Vec3::new(-1.0, 10.0, 10.0)).normalize(),
@@ -1173,26 +1173,26 @@ pub fn update_game_state(
             }
         });
 
-    let directional_light_0 = game_state
-        .directional_lights
-        .get(0)
-        .map(|directional_light_0| {
-            let direction = directional_light_0.direction;
-            // transform.set_position(Vec3::new(
-            //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
-            //     transform.position.get().y,
-            //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
-            // ));
-            // let color = lerp_vec(LIGHT_COLOR_B, LIGHT_COLOR_A, (time_seconds * 2.0).sin());
+    // let directional_light_0 = game_state
+    //     .directional_lights
+    //     .get(0)
+    //     .map(|directional_light_0| {
+    //         let direction = directional_light_0.direction;
+    //         // transform.set_position(Vec3::new(
+    //         //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
+    //         //     transform.position.get().y,
+    //         //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
+    //         // ));
+    //         // let color = lerp_vec(LIGHT_COLOR_B, LIGHT_COLOR_A, (time_seconds * 2.0).sin());
 
-            DirectionalLightComponent {
-                direction: Vec3::new(direction.x, direction.y + 0.0001, direction.z),
-                ..*directional_light_0
-            }
-        });
-    if let Some(directional_light_0) = directional_light_0 {
-        game_state.directional_lights[0] = directional_light_0;
-    }
+    //         DirectionalLightComponent {
+    //             direction: Vec3::new(direction.x, direction.y + 0.0001, direction.z),
+    //             ..*directional_light_0
+    //         }
+    //     });
+    // if let Some(directional_light_0) = directional_light_0 {
+    //     game_state.directional_lights[0] = directional_light_0;
+    // }
 
     // rotate the test object
     let rotational_displacement =

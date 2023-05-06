@@ -62,6 +62,26 @@ pub fn run(
                     _ => {}
                 }
 
+                {
+                    let mut renderer_data_guard = renderer.data.lock().unwrap();
+                    renderer_data_guard.enable_soft_shadows = renderer_data_guard
+                        .ui_overlay
+                        .get_state()
+                        .enable_soft_shadows;
+                    renderer_data_guard.soft_shadow_factor = renderer_data_guard
+                        .ui_overlay
+                        .get_state()
+                        .soft_shadow_factor;
+                    renderer_data_guard.enable_shadow_debug = renderer_data_guard
+                        .ui_overlay
+                        .get_state()
+                        .enable_shadow_debug;
+                    renderer_data_guard.soft_shadow_grid_dims = renderer_data_guard
+                        .ui_overlay
+                        .get_state()
+                        .soft_shadow_grid_dims;
+                }
+
                 match renderer.render(&mut game_state, &window, control_flow) {
                     Ok(_) => {}
                     // Reconfigure the surface if lost

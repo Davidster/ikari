@@ -102,6 +102,15 @@ struct DirectionalLightUniform {
     color: [f32; 4],
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Default)]
+struct PbrShaderOptionsUniform {
+    options_1: [f32; 4],
+    options_2: [f32; 4],
+    options_3: [f32; 4],
+    options_4: [f32; 4],
+}
+
 impl From<&DirectionalLightComponent> for DirectionalLightUniform {
     fn from(light: &DirectionalLightComponent) -> Self {
         let DirectionalLightComponent {
@@ -151,6 +160,25 @@ fn make_directional_light_uniform_buffer(
     light_uniforms.append(&mut inactive_lights);
 
     light_uniforms
+}
+
+fn make_pbr_shader_options_uniform_buffer(
+    enable_soft_shadows: bool,
+    soft_shadow_factor: f32,
+    enable_shadow_debug: bool,
+    soft_shadow_grid_dims: u32,
+) -> PbrShaderOptionsUniform {
+    let options_1 = [
+        if enable_soft_shadows { 1.0 } else { 0.0 },
+        soft_shadow_factor,
+        if enable_shadow_debug { 1.0 } else { 0.0 },
+        soft_shadow_grid_dims as f32,
+    ];
+
+    PbrShaderOptionsUniform {
+        options_1,
+        ..Default::default()
+    }
 }
 
 #[repr(C)]
@@ -285,7 +313,14 @@ impl BaseRenderer {
         let adapter_info = adapter.get_info();
         log::info!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
 
-        let features = adapter.features();
+        let mut features = adapter.features();
+
+        // use time features if they're available on the adapter
+        features &= wgpu_profiler::GpuProfiler::ALL_WGPU_TIMER_FEATURES;
+
+        // panic if these features are missing
+        features |= wgpu::Features::PUSH_CONSTANTS;
+        features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
 
         let (device, queue) = adapter
             .request_device(
@@ -667,7 +702,7 @@ pub struct RendererPrivateData {
     bloom_threshold_cleared: bool,
 
     // gpu
-    lights_bind_group: wgpu::BindGroup,
+    lights_and_pbr_shader_options_bind_group: wgpu::BindGroup,
     bones_and_pbr_instances_bind_group: wgpu::BindGroup,
     bones_and_unlit_instances_bind_group: wgpu::BindGroup,
     bones_and_wireframe_instances_bind_group: wgpu::BindGroup,
@@ -680,6 +715,7 @@ pub struct RendererPrivateData {
 
     point_lights_buffer: wgpu::Buffer,
     directional_lights_buffer: wgpu::Buffer,
+    pbr_shader_options_buffer: wgpu::Buffer,
     bones_buffer: GpuBuffer,
     pbr_instances_buffer: GpuBuffer,
     unlit_instances_buffer: GpuBuffer,
@@ -717,6 +753,10 @@ pub struct RendererPublicData {
     pub enable_shadows: bool,
     pub enable_wireframe_mode: bool,
     pub draw_node_bounding_spheres: bool,
+    pub enable_soft_shadows: bool,
+    pub soft_shadow_factor: f32,
+    pub enable_shadow_debug: bool,
+    pub soft_shadow_grid_dims: u32,
 
     pub ui_overlay: IkariUiOverlay,
 }
@@ -950,7 +990,7 @@ impl Renderer {
                     label: Some("single_uniform_bind_group_layout"),
                 });
 
-        let lights_bind_group_layout =
+        let lights_and_pbr_shader_options_bind_group_layout =
             base.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     entries: &[
@@ -974,8 +1014,18 @@ impl Renderer {
                             },
                             count: None,
                         },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 2,
+                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
                     ],
-                    label: Some("lights_uniform_bind_group_layout"),
+                    label: Some("lights_and_shader_options_bind_group_layout"),
                 });
 
         let fragment_shader_color_targets = &[Some(wgpu::ColorTargetState {
@@ -999,7 +1049,7 @@ impl Renderer {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Mesh Pipeline Layout"),
                     bind_group_layouts: &[
-                        &lights_bind_group_layout,
+                        &lights_and_pbr_shader_options_bind_group_layout,
                         &environment_textures_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
                         &base.pbr_textures_bind_group_layout,
@@ -1053,7 +1103,7 @@ impl Renderer {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Unlit Mesh Pipeline Layout"),
                     bind_group_layouts: &[
-                        &lights_bind_group_layout,
+                        &lights_and_pbr_shader_options_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
                     ],
                     push_constant_ranges: &[mesh_camera_push_constant_range.clone()],
@@ -1426,7 +1476,7 @@ impl Renderer {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Shadow Map Pipeline Layout"),
                     bind_group_layouts: &[
-                        &lights_bind_group_layout,
+                        &lights_and_pbr_shader_options_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
                     ],
                     push_constant_ranges: &[mesh_camera_push_constant_range],
@@ -1791,20 +1841,43 @@ impl Renderer {
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
-        let lights_bind_group = base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &lights_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: point_lights_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: directional_lights_buffer.as_entire_binding(),
-                },
-            ],
-            label: Some("lights_bind_group"),
-        });
+        let enable_soft_shadows = Default::default();
+        let soft_shadow_factor = Default::default();
+        let enable_shadow_debug = Default::default();
+        let soft_shadow_grid_dims = Default::default();
+        let initial_pbr_shader_options_buffer = make_pbr_shader_options_uniform_buffer(
+            enable_soft_shadows,
+            soft_shadow_factor,
+            enable_shadow_debug,
+            soft_shadow_grid_dims,
+        );
+        let pbr_shader_options_buffer =
+            base.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("PBR Shader Options Buffer"),
+                    contents: &bytemuck::cast_slice(&[initial_pbr_shader_options_buffer]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+
+        let lights_and_pbr_shader_options_bind_group =
+            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &lights_and_pbr_shader_options_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: point_lights_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: directional_lights_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: pbr_shader_options_buffer.as_entire_binding(),
+                    },
+                ],
+                label: Some("lights_and_pbr_shader_options_bind_group"),
+            });
 
         let bones_buffer = GpuBuffer::empty(
             &base.device,
@@ -2021,10 +2094,15 @@ impl Renderer {
             bloom_threshold: INITIAL_BLOOM_THRESHOLD,
             bloom_ramp_size: INITIAL_BLOOM_RAMP_SIZE,
             render_scale: initial_render_scale,
-            enable_bloom: true,
-            enable_shadows: true,
+            enable_bloom: false,
+            enable_shadows: false,
             enable_wireframe_mode: false,
             draw_node_bounding_spheres: false,
+
+            enable_soft_shadows,
+            soft_shadow_factor,
+            enable_shadow_debug,
+            soft_shadow_grid_dims,
 
             ui_overlay,
         };
@@ -2067,7 +2145,7 @@ impl Renderer {
 
                 bloom_threshold_cleared: true,
 
-                lights_bind_group,
+                lights_and_pbr_shader_options_bind_group,
                 bones_and_pbr_instances_bind_group,
                 bones_and_unlit_instances_bind_group,
                 bones_and_wireframe_instances_bind_group,
@@ -2080,6 +2158,7 @@ impl Renderer {
 
                 point_lights_buffer,
                 directional_lights_buffer,
+                pbr_shader_options_buffer,
                 bones_buffer,
                 pbr_instances_buffer,
                 unlit_instances_buffer,
@@ -2912,6 +2991,16 @@ impl Renderer {
                 &game_state.directional_lights,
             )),
         );
+        queue.write_buffer(
+            &private_data.pbr_shader_options_buffer,
+            0,
+            bytemuck::cast_slice(&[make_pbr_shader_options_uniform_buffer(
+                data.enable_soft_shadows,
+                data.soft_shadow_factor,
+                data.enable_shadow_debug,
+                data.soft_shadow_grid_dims,
+            )]),
+        );
     }
 
     #[profiling::function]
@@ -3116,7 +3205,11 @@ impl Renderer {
                     bytemuck::cast_slice(&[MeshShaderCameraRaw::from(main_camera_data)]),
                 );
 
-                render_pass.set_bind_group(0, &private_data.lights_bind_group, &[]);
+                render_pass.set_bind_group(
+                    0,
+                    &private_data.lights_and_pbr_shader_options_bind_group,
+                    &[],
+                );
                 for unlit_instance_chunk in private_data.all_unlit_instances.chunks() {
                     let binded_unlit_mesh_index = unlit_instance_chunk.id;
                     let instances_buffer_start_index = unlit_instance_chunk.start_index as u32;
@@ -3281,7 +3374,7 @@ impl Renderer {
                     i % 2 == 0,
                 );
             });
-        } else {
+        } else if !private_data.bloom_threshold_cleared {
             // clear bloom texture
             let label = "Bloom clear";
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -3447,7 +3540,11 @@ impl Renderer {
                     0,
                     bytemuck::cast_slice(&[MeshShaderCameraRaw::from(camera)]),
                 );
-                render_pass.set_bind_group(0, &private_data.lights_bind_group, &[]);
+                render_pass.set_bind_group(
+                    0,
+                    &private_data.lights_and_pbr_shader_options_bind_group,
+                    &[],
+                );
                 if !is_shadow {
                     render_pass.set_bind_group(
                         1,

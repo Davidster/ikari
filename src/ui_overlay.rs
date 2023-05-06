@@ -1,3 +1,6 @@
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::time::Duration;
 
 use iced::alignment::Horizontal;
@@ -16,14 +19,20 @@ use winit::{event::WindowEvent, window::Window};
 
 use crate::logger::*;
 
-const FRAME_TIME_HISTORY_SIZE: usize = 5000;
+const FRAME_TIME_HISTORY_SIZE: usize = 720;
 
 #[derive(Debug)]
 pub struct UiOverlay {
     fps_chart: FpsChart,
-    show_fps_chart: bool,
+    is_showing_fps_chart: bool,
+    is_showing_gpu_spans: bool,
     pub is_showing_options_menu: bool,
-    exit_button_pressed: bool,
+    was_exit_button_pressed: bool,
+
+    pub enable_soft_shadows: bool,
+    pub soft_shadow_factor: f32,
+    pub enable_shadow_debug: bool,
+    pub soft_shadow_grid_dims: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +40,11 @@ pub enum Message {
     FrameCompleted(Duration),
     GpuFrameCompleted(Vec<GpuTimerScopeResultWrapper>),
     ToggleFpsChart(bool),
+    ToggleGpuSpans(bool),
+    ToggleSoftShadows(bool),
+    ToggleShadowDebug(bool),
+    SoftShadowFactorChanged(f32),
+    SoftShadowGridDimsChanged(u32),
     TogglePopupMenu,
     ClosePopupMenu,
     ExitButtonPressed,
@@ -186,10 +200,25 @@ impl Program for UiOverlay {
                 }
             }
             Message::ToggleFpsChart(new_state) => {
-                self.show_fps_chart = new_state;
+                self.is_showing_fps_chart = new_state;
+            }
+            Message::ToggleGpuSpans(new_state) => {
+                self.is_showing_gpu_spans = new_state;
+            }
+            Message::ToggleSoftShadows(new_state) => {
+                self.enable_shadow_debug = new_state;
+            }
+            Message::ToggleShadowDebug(new_state) => {
+                self.enable_soft_shadows = new_state;
+            }
+            Message::SoftShadowFactorChanged(new_state) => {
+                self.soft_shadow_factor = new_state;
+            }
+            Message::SoftShadowGridDimsChanged(new_state) => {
+                self.soft_shadow_grid_dims = new_state;
             }
             Message::ClosePopupMenu => self.is_showing_options_menu = false,
-            Message::ExitButtonPressed => self.exit_button_pressed = true,
+            Message::ExitButtonPressed => self.was_exit_button_pressed = true,
             Message::TogglePopupMenu => {
                 self.is_showing_options_menu = !self.is_showing_options_menu
             }
@@ -203,9 +232,9 @@ impl Program for UiOverlay {
             return Row::new().into();
         }
 
-        let (avg_frame_time_millis, avg_gpu_frame_time_millis) = {
-            let alpha = 0.01;
+        let moving_average_alpha = 0.01;
 
+        let (avg_frame_time_millis, avg_gpu_frame_time_millis) = {
             let mut frame_times_iterator = self
                 .fps_chart
                 .recent_frame_times
@@ -213,7 +242,7 @@ impl Program for UiOverlay {
                 .map(|frame_time| frame_time.as_nanos() as f64 / 1_000_000.0);
             let mut cpu = frame_times_iterator.next().unwrap(); // checked that length isn't 0
             for frame_time in frame_times_iterator {
-                cpu = (1.0 - alpha) * cpu + (alpha * frame_time);
+                cpu = (1.0 - moving_average_alpha) * cpu + (moving_average_alpha * frame_time);
             }
 
             let mut gpu_frame_times_iterator = self
@@ -223,7 +252,7 @@ impl Program for UiOverlay {
                 .map(collect_frame_time_ms);
             let mut gpu = gpu_frame_times_iterator.next().unwrap_or(0.0);
             for frame_time in gpu_frame_times_iterator {
-                gpu = (1.0 - alpha) * gpu + (alpha * frame_time);
+                gpu = (1.0 - moving_average_alpha) * gpu + (moving_average_alpha * frame_time);
             }
 
             (cpu, gpu)
@@ -241,9 +270,65 @@ impl Program for UiOverlay {
         let mut rows = Column::new()
             .width(Length::Shrink)
             .height(Length::Shrink)
-            .spacing(12)
+            .spacing(4)
             .push(iced_winit::widget::text(framerate_msg.as_str()));
-        if self.show_fps_chart {
+
+        if self.is_showing_gpu_spans {
+            let mut span_set: HashSet<&str> = HashSet::new();
+            for frame_spans in &self.fps_chart.recent_gpu_frame_times {
+                // single frame
+                for span in frame_spans {
+                    span_set.insert(&span.label);
+                }
+            }
+            let span_names: Vec<&str> = {
+                let mut span_names: Vec<&str> = span_set.iter().copied().collect();
+                span_names.sort();
+                span_names
+            };
+            let mut avg_span_times: HashMap<&str, f64> = HashMap::new();
+
+            // pub nested_scopes: Vec<GpuTimerScopeResult>,
+            for frame_spans in &self.fps_chart.recent_gpu_frame_times {
+                // process all spans of a single frame
+
+                let mut totals_by_span: HashMap<&str, f64> = HashMap::new();
+                for span in frame_spans {
+                    let span_time_ms = (span.time.end - span.time.start) * 1000.0;
+                    let total = totals_by_span.entry(&span.label).or_default();
+                    *total += span_time_ms;
+                }
+
+                // dbg!(&totals_by_span);
+
+                for span_name in &span_names {
+                    let frame_time = totals_by_span.entry(span_name).or_default();
+                    match avg_span_times.entry(span_name) {
+                        Entry::Occupied(mut entry) => {
+                            *entry.get_mut() = (1.0 - moving_average_alpha) * entry.get()
+                                + (moving_average_alpha * *frame_time);
+                            // dbg!(entry.get(), frame_time);
+                        }
+                        Entry::Vacant(entry) => {
+                            entry.insert(*frame_time);
+                        }
+                    }
+                }
+            }
+
+            let mut avg_span_times_vec: Vec<_> = avg_span_times.iter().collect();
+            avg_span_times_vec.sort_by_key(|(span, _)| **span);
+            avg_span_times_vec.sort_by_key(|(_span, avg_span_frame_time)| {
+                (avg_span_frame_time.max(0.01) * 100.0) as u64
+            });
+            avg_span_times_vec.reverse();
+            for (span, span_frame_time) in avg_span_times_vec {
+                let msg = String::from(&format!("{:}: {:.2}ms", span, span_frame_time));
+                rows = rows.push(iced_winit::widget::text(msg.as_str()).size(14));
+            }
+        }
+
+        if self.is_showing_fps_chart {
             let padding = [16, 20, 16, 0]; // top, right, bottom, left
             rows = rows.push(Container::new(self.fps_chart.view()).padding(padding));
         }
@@ -267,9 +352,48 @@ impl Program for UiOverlay {
                     .width(Length::Fill)
                     .push(iced_winit::widget::checkbox(
                         "Show FPS Chart",
-                        self.show_fps_chart,
+                        self.is_showing_fps_chart,
                         Message::ToggleFpsChart,
                     ))
+                    .push(iced_winit::widget::checkbox(
+                        "Show Detailed GPU Frametimes",
+                        self.is_showing_gpu_spans,
+                        Message::ToggleGpuSpans,
+                    ))
+                    .push(iced_winit::widget::checkbox(
+                        "Enable Shadow Debug",
+                        self.enable_shadow_debug,
+                        Message::ToggleSoftShadows,
+                    ))
+                    .push(iced_winit::widget::checkbox(
+                        "Enable Soft Shadows",
+                        self.enable_soft_shadows,
+                        Message::ToggleShadowDebug,
+                    ))
+                    .push(Text::new(format!(
+                        "Soft Shadow Factor: {:.4}",
+                        self.soft_shadow_factor
+                    )))
+                    .push(
+                        iced_winit::widget::slider(
+                            0.0001..=0.005,
+                            self.soft_shadow_factor,
+                            move |new_state| Message::SoftShadowFactorChanged(new_state),
+                        )
+                        .step(0.0001),
+                    )
+                    .push(Text::new(format!(
+                        "Soft Shadow Grid Dims: {:}",
+                        self.soft_shadow_grid_dims
+                    )))
+                    .push(
+                        iced_winit::widget::slider(
+                            0..=16u32,
+                            self.soft_shadow_grid_dims,
+                            move |new_state| Message::SoftShadowGridDimsChanged(new_state),
+                        )
+                        .step(1),
+                    )
                     .push(
                         Button::new(
                             Text::new("Exit Game").horizontal_alignment(Horizontal::Center),
@@ -369,9 +493,14 @@ impl IkariUiOverlay {
                 recent_frame_times: vec![],
                 recent_gpu_frame_times: vec![],
             },
-            show_fps_chart: false,
+            is_showing_fps_chart: false,
+            is_showing_gpu_spans: true,
             is_showing_options_menu: false,
-            exit_button_pressed: false,
+            was_exit_button_pressed: false,
+            enable_soft_shadows: true,
+            soft_shadow_factor: 0.0015,
+            enable_shadow_debug: false,
+            soft_shadow_grid_dims: 0,
         };
 
         let mut debug = iced_winit::Debug::new();
@@ -456,7 +585,7 @@ impl IkariUiOverlay {
         }
 
         // TODO: does this logic belong in IkariUiOverlay?
-        if self.program_container.program().exit_button_pressed {
+        if self.program_container.program().was_exit_button_pressed {
             *control_flow = winit::event_loop::ControlFlow::Exit;
         }
     }
