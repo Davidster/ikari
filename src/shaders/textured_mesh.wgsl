@@ -806,8 +806,8 @@ fn do_fragment_shade(
                         for (var j = 0u; j < soft_shadow_grid_dims; j++) {
                             let coord = vec2<u32>(i, j);
                             let base_sample_jitter = get_soft_shadow_sample_jitter(coord, random_seed_x, random_seed_y, soft_shadow_grid_dims);
-                            // random_seed_x.z = random_seed_x.z + 10.0;
-                            // random_seed_y.z = random_seed_y.z + 10.0;
+                            random_seed_x.z = random_seed_x.z + 10.0;
+                            random_seed_y.z = random_seed_y.z + 10.0;
                             // TODO: multiply by current_depth to get softer shadows at a distance?
                             let sample_jitter = base_sample_jitter * max_sample_jitter;
                             let closest_depth = textureSampleLevel(
