@@ -1032,7 +1032,7 @@ pub fn update_game_state(
         if let Entry::Occupied(entry) = loaded_audio_guard.entry("./src/sounds/bgm.mp3".to_string())
         {
             let (_, bgm_sound_index) = entry.remove_entry();
-            // audio_manager_guard.play_sound(bgm_sound_index);
+            audio_manager_guard.play_sound(bgm_sound_index);
             game_state.bgm_sound_index = Some(bgm_sound_index);
             // logger_log("loaded bgm sound");
         }
