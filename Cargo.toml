@@ -55,8 +55,8 @@ env_logger = { version = "0.10", default-features = false, features = [
 log = "0.4"
 
 # profiling
-profiling = "1.0.8"                                                                            # The version should be the one used by wgpu-core/hal
-wgpu-profiler = { git = "https://github.com/Davidster/wgpu-profiler.git", branch = "wgpu_16" }
+profiling = "1.0.8"    # The version should be the one used by wgpu-core/hal TODO: does this version number need updating?
+wgpu-profiler = "0.12"
 
 # assets
 gltf = "1.1"

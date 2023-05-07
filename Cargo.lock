@@ -3765,8 +3765,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu-profiler"
-version = "0.11.0"
-source = "git+https://github.com/Davidster/wgpu-profiler.git?branch=wgpu_16#04e98e181c59714772ed36f7bc6dd1bdd842d000"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af8545365935dee884288860abc2a6920e904fff8a188205a848234376664796"
 dependencies = [
  "wgpu",
 ]

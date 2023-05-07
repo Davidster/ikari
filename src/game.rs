@@ -34,6 +34,12 @@ pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
 pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
 pub const ARENA_SIDE_LENGTH: f32 = 500.0;
+pub const INITIAL_ENABLE_SHADOW_DEBUG: bool = false;
+pub const INITIAL_ENABLE_SOFT_SHADOWS: bool = true;
+pub const INITIAL_SHADOW_BIAS: f32 = 0.0005;
+pub const INITIAL_SOFT_SHADOW_FACTOR: f32 = 0.0015;
+pub const INITIAL_SOFT_SHADOW_GRID_DIMS: u32 = 4;
+
 // pub const LIGHT_COLOR_A: Vec3 = Vec3::new(0.996, 0.973, 0.663);
 // pub const LIGHT_COLOR_B: Vec3 = Vec3::new(0.25, 0.973, 0.663);
 
@@ -1026,7 +1032,7 @@ pub fn update_game_state(
         if let Entry::Occupied(entry) = loaded_audio_guard.entry("./src/sounds/bgm.mp3".to_string())
         {
             let (_, bgm_sound_index) = entry.remove_entry();
-            audio_manager_guard.play_sound(bgm_sound_index);
+            // audio_manager_guard.play_sound(bgm_sound_index);
             game_state.bgm_sound_index = Some(bgm_sound_index);
             // logger_log("loaded bgm sound");
         }
