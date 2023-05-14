@@ -579,19 +579,26 @@ fn do_fragment_shade(
 
     var random_jitter = vec2(2.0, 2.0) * vec2(noise3(random_seed_x), noise3(random_seed_y)) - vec2(1.0, 1.0);
 
+    let shadow_bias = get_shadow_bias();
+
+    var total_shadow_occlusion_acc = 0.0;
+    var total_light_count = 0u;
+
     var total_light_irradiance = vec3<f32>(0.0);
     for (var light_index = 0u; light_index < MAX_LIGHTS; light_index = light_index + 1u) {
         let light = point_lights.values[light_index];
-        let light_color_scaled = light.color.xyz * light.color.w;
 
-        if light_color_scaled.x < epsilon && light_color_scaled.y < epsilon && light_color_scaled.z < epsilon {
+        if light.color.w < epsilon {
+            // break seems to be decently faster than continue here
             break;
         }
 
+        let light_color_scaled = light.color.xyz * light.color.w;
+
         let from_shadow_vec = world_position - light.position.xyz;
         let shadow_camera_far_plane_distance = 1000.0;
-        let current_depth = length(from_shadow_vec) / shadow_camera_far_plane_distance;
-        let bias = 0.0001;
+        let current_depth = length(from_shadow_vec) / shadow_camera_far_plane_distance; // domain is (0, 1), lower means closer to the light
+        // let bias = 0.0001;
 
         // soft shadows
         // irregular shadow sampling
@@ -647,20 +654,24 @@ fn do_fragment_shade(
         // let shadow_occlusion_factor = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
 
         // hard shadows
-        // var shadow_occlusion_factor = 1.0;
-        // let closest_depth = textureSample(
-        //     point_shadow_map_textures,
-        //     point_shadow_map_sampler,
-        //     world_normal_to_cubemap_vec(from_shadow_vec),
-        //     i32(light_index)
-        // ).r;
-        // if (current_depth - bias < closest_depth) {
-        //     shadow_occlusion_factor = 1.0;
-        // }
+        var shadow_occlusion_factor = 0.0;
+        let closest_depth = textureSampleLevel(
+            point_shadow_map_textures,
+            point_shadow_map_sampler,
+            world_normal_to_cubemap_vec(from_shadow_vec),
+            i32(light_index),
+            0.0
+        ).r;
+        if (current_depth - shadow_bias < closest_depth) {
+            shadow_occlusion_factor = 1.0;
+        }
 
-        // if shadow_occlusion_factor < epsilon {
-        //         continue;
-        // }
+        total_shadow_occlusion_acc = total_shadow_occlusion_acc + shadow_occlusion_factor;
+        total_light_count = total_light_count + 1u;
+
+        if shadow_occlusion_factor < epsilon {
+                continue;
+        }
 
         let to_light_vec = light.position.xyz - world_position;
         let to_light_vec_norm = normalize(to_light_vec);
@@ -683,22 +694,20 @@ fn do_fragment_shade(
             metallicness,
             f0
         );
-        total_light_irradiance = total_light_irradiance + light_irradiance;
+        total_light_irradiance = total_light_irradiance + light_irradiance * shadow_occlusion_factor;
     }
-
-    var total_shadow_occlusion_acc = 0.0;
-    var total_directional_light_count = 0u;
 
     let soft_shadow_grid_dims = get_soft_shadow_grid_dims();
 
     for (var light_index = 0u; light_index < MAX_LIGHTS; light_index = light_index + 1u) {
         let light = directional_lights.values[light_index];
-        let light_color_scaled = light.color.xyz * light.color.w;
 
-        if light_color_scaled.x < epsilon && light_color_scaled.y < epsilon && light_color_scaled.z < epsilon {
-            // TODO: does break here help improve performance a lot compared to continue?;
+        if light.color.w < epsilon {
+            // break seems to be decently faster than continue here
             break;
         }
+
+        let light_color_scaled = light.color.xyz * light.color.w;
 
         // let from_shadow_vec = world_position - light.position.xyz;
         // let shadow_camera_far_plane_distance = 40.0;
@@ -709,18 +718,19 @@ fn do_fragment_shade(
             light_space_position.x * 0.5 + 0.5,
             1.0 - (light_space_position.y * 0.5 + 0.5),
         );
-        let current_depth = light_space_position.z; // domain is (0, 1), lower means closer to the light
-        let bias = get_shadow_bias();
         let to_light_vec = light.position.xyz - world_position;
         let to_light_vec_norm = normalize(to_light_vec);
-        let n_dot_l = max(dot(n, to_light_vec_norm), 0.0);
 
         // soft shadows
         var shadow_occlusion_acc = 0.0;
 
+        // assume we're in shadow if we're outside the shadow frustum
         if light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0 {
+            let current_depth = light_space_position.z; // domain is (0, 1), lower means closer to the light
+            
             if get_soft_shadows_are_enabled() {
-                // soft shadows code path. costs about 0.15ms (per shadow map?) per frame on an RTX 3060
+                // soft shadows code path. costs about 0.15ms extra (per shadow map?) per frame
+                // on an RTX 3060 when compared to hard shadows
 
                 // these coordinates will distribute the early samples
                 // around the edges of the soft shadow poisson sampling disc
@@ -745,10 +755,12 @@ fn do_fragment_shade(
                         0.0
                     ).r;
 
-                    if current_depth - bias < closest_depth {
+                    if current_depth - shadow_bias < closest_depth {
                         shadow_occlusion_acc = shadow_occlusion_acc + 0.25;
                     }
                 }
+
+                let n_dot_l = max(dot(n, to_light_vec_norm), 0.0);
 
                 // if the early test finds the fragment to be completely in shadow, 
                 // completely in light, or its surface isn't facing the light (n_dot_l =< 0)
@@ -776,7 +788,7 @@ fn do_fragment_shade(
                                 0.0
                             ).r;
                             
-                            if current_depth - bias < closest_depth {
+                            if current_depth - shadow_bias < closest_depth {
                                 shadow_occlusion_acc = shadow_occlusion_acc + (1.0 / f32(soft_shadow_grid_dims * soft_shadow_grid_dims));
                             }
                         }
@@ -792,7 +804,7 @@ fn do_fragment_shade(
                     0.0
                 ).r;
                 if light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0 {
-                    if current_depth - bias < closest_depth {
+                    if current_depth - shadow_bias < closest_depth {
                         shadow_occlusion_acc = 1.0;
                     }
                 } else {
@@ -803,7 +815,7 @@ fn do_fragment_shade(
         
         var shadow_occlusion_factor = shadow_occlusion_acc;
         total_shadow_occlusion_acc = total_shadow_occlusion_acc + shadow_occlusion_acc;
-        total_directional_light_count = total_directional_light_count + 1u;
+        total_light_count = total_light_count + 1u;        
 
         if shadow_occlusion_factor < epsilon {
                 continue;
@@ -827,7 +839,7 @@ fn do_fragment_shade(
     }
 
     if get_shadow_debug_enabled() {
-        total_shadow_occlusion_acc = total_shadow_occlusion_acc / f32(total_directional_light_count);
+        total_shadow_occlusion_acc = total_shadow_occlusion_acc / f32(total_light_count);
         var out: FragmentOutput;
         out.color = vec4<f32>(total_shadow_occlusion_acc, total_shadow_occlusion_acc, total_shadow_occlusion_acc, 1.0);
         return out;

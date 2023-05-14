@@ -1,4 +1,5 @@
 use crate::buffer::*;
+use crate::logger::*;
 use crate::mesh::*;
 use crate::renderer::*;
 use crate::sampler_cache::*;
@@ -19,6 +20,7 @@ use approx::abs_diff_eq;
 use glam::f32::{Mat4, Vec2, Vec3, Vec4};
 
 const USE_TEXTURE_COMPRESSION: bool = true;
+const SCENE_LOAD_DEBUG: bool = false;
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct ChannelPropertyStr<'a>(&'a str);
@@ -297,32 +299,39 @@ pub fn build_scene(
     let render_buffers = RenderBuffers {
         binded_pbr_meshes,
         binded_unlit_meshes: vec![],
+        binded_transparent_meshes: vec![],
         binded_wireframe_meshes,
         textures,
     };
 
-    /* logger_log("Scene loaded:");
+    if SCENE_LOAD_DEBUG {
+        logger_log("Scene loaded:");
 
-    logger_log(&format!("  - node count: {:?}", nodes.len()));
-    logger_log(&format!("  - skin count: {:?}", skins.len()));
-    logger_log(&format!("  - animation count: {:?}", animations.len()));
-    logger_log("  Render buffers:");
-    logger_log(&format!(
-        "    - PBR mesh count: {:?}",
-        render_buffers.binded_pbr_meshes.len()
-    ));
-    logger_log(&format!(
-        "    - Unlit mesh count: {:?}",
-        render_buffers.binded_unlit_meshes.len()
-    ));
-    logger_log(&format!(
-        "    - Wireframe mesh count: {:?}",
-        render_buffers.binded_wireframe_meshes.len()
-    ));
-    logger_log(&format!(
-        "    - Texture count: {:?}",
-        render_buffers.textures.len()
-    )); */
+        logger_log(&format!("  - node count: {:?}", nodes.len()));
+        logger_log(&format!("  - skin count: {:?}", skins.len()));
+        logger_log(&format!("  - animation count: {:?}", animations.len()));
+        logger_log("  Render buffers:");
+        logger_log(&format!(
+            "    - PBR mesh count: {:?}",
+            render_buffers.binded_pbr_meshes.len()
+        ));
+        logger_log(&format!(
+            "    - Unlit mesh count: {:?}",
+            render_buffers.binded_unlit_meshes.len()
+        ));
+        logger_log(&format!(
+            "    - Transparent mesh count: {:?}",
+            render_buffers.binded_transparent_meshes.len()
+        ));
+        logger_log(&format!(
+            "    - Wireframe mesh count: {:?}",
+            render_buffers.binded_wireframe_meshes.len()
+        ));
+        logger_log(&format!(
+            "    - Texture count: {:?}",
+            render_buffers.textures.len()
+        ));
+    }
 
     let scene = Scene::new(nodes, skins, animations);
 

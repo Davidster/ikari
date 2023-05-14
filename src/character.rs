@@ -4,7 +4,7 @@ use crate::physics::*;
 use crate::renderer::*;
 use crate::scene::*;
 
-use glam::f32::Vec3;
+use glam::Vec4;
 
 pub struct Character {
     root_node_id: GameNodeId,
@@ -26,7 +26,7 @@ impl Character {
         cube_mesh: &BasicMesh,
     ) -> Self {
         let collision_debug_mesh_index =
-            Renderer::bind_basic_unlit_mesh(renderer_base, renderer_data, cube_mesh);
+            Renderer::bind_basic_transparent_mesh(renderer_base, renderer_data, cube_mesh);
         let mut result = Self {
             root_node_id,
             skin_index,
@@ -139,10 +139,10 @@ impl Character {
                             }
                         })
                         .unwrap_or_else(|| vec![self.collision_debug_mesh_index]),
-                    mesh_type: GameNodeMeshType::Unlit {
-                        color: Vec3::new(1.0, 0.0, 0.0),
+                    mesh_type: GameNodeMeshType::Transparent {
+                        color: Vec4::new(1.0, 0.0, 0.0, 0.3),
+                        premultiplied_alpha: false,
                     },
-                    wireframe: true,
                     ..Default::default()
                 })
             }
@@ -166,10 +166,10 @@ impl Character {
                             }
                         })
                         .unwrap_or_else(|| vec![self.collision_debug_mesh_index]),
-                    mesh_type: GameNodeMeshType::Unlit {
-                        color: Vec3::new(rand::random(), rand::random(), rand::random()),
+                    mesh_type: GameNodeMeshType::Transparent {
+                        color: Vec4::new(rand::random(), rand::random(), rand::random(), 0.3),
+                        premultiplied_alpha: false,
                     },
-                    wireframe: true,
                     ..Default::default()
                 })
             }

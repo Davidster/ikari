@@ -314,8 +314,16 @@ impl PlayerController {
         Vec3::new(position.x, position.y, position.z)
     }
 
-    pub fn frustum(&self, physics_state: &PhysicsState, aspect_ratio: f32) -> Frustum {
-        let camera_position = self.position(physics_state);
+    pub fn view_forward_vector(&self) -> Vec3 {
+        self.view_direction.to_direction_vector()
+    }
+
+    #[allow(dead_code)]
+    pub fn view_frustum(&self, physics_state: &PhysicsState, aspect_ratio: f32) -> Frustum {
+        self.view_frustum_with_position(aspect_ratio, self.position(physics_state))
+    }
+
+    pub fn view_frustum_with_position(&self, aspect_ratio: f32, camera_position: Vec3) -> Frustum {
         let camera_forward = self.view_direction.to_direction_vector();
         let camera_right = camera_forward.cross(Vec3::new(0.0, 1.0, 0.0)).normalize();
 

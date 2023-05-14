@@ -94,6 +94,9 @@ impl PhysicsState {
                         GameNodeMeshType::Unlit { .. } => {
                             renderer_data.binded_unlit_meshes[*mesh_index].bounding_box
                         }
+                        GameNodeMeshType::Transparent { .. } => {
+                            renderer_data.binded_transparent_meshes[*mesh_index].bounding_box
+                        }
                     };
                     let base_scale = (bounding_box.max - bounding_box.min) / 2.0;
                     let base_position = (bounding_box.max + bounding_box.min) / 2.0;

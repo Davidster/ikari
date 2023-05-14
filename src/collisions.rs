@@ -1,4 +1,9 @@
 use glam::f32::Vec3;
+use rand::Rng;
+use rand::SeedableRng;
+
+use crate::math::*;
+use crate::mesh::*;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Aabb {
@@ -24,7 +29,7 @@ pub struct Frustum {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Sphere {
-    pub origin: Vec3,
+    pub center: Vec3,
     pub radius: f32,
 }
 
@@ -45,7 +50,7 @@ impl Default for Aabb {
 }
 
 impl Aabb {
-    pub fn _volume(&self) -> f32 {
+    pub fn volume(&self) -> f32 {
         let size = self.size();
         size.x * size.y * size.z
     }
@@ -54,7 +59,7 @@ impl Aabb {
         self.max - self.min
     }
 
-    pub fn origin(&self) -> Vec3 {
+    pub fn center(&self) -> Vec3 {
         self.max - self.size() / 2.0
     }
 
@@ -79,7 +84,7 @@ impl Aabb {
 
     /// Taken from https://gamedev.stackexchange.com/questions/156870/how-do-i-implement-a-aabb-sphere-collision
     /// ClosestPtPointAABB
-    pub fn _find_closest_surface_point(&self, p: Vec3) -> Vec3 {
+    pub fn find_closest_surface_point(&self, p: Vec3) -> Vec3 {
         let mut q: Vec3 = Vec3::new(0.0, 0.0, 0.0);
         for i in 0..3 {
             let mut v = p[i];
@@ -99,13 +104,13 @@ impl Aabb {
     }
 
     /// Returns true if the Aabb fully contains or partially contains the sphere
-    pub fn _partially_contains_sphere(&self, sphere: Sphere) -> bool {
-        if self.contains_point(sphere.origin) {
+    pub fn partially_contains_sphere(&self, sphere: Sphere) -> bool {
+        if self.contains_point(sphere.center) {
             return true;
         }
 
-        let closest_surface_point = self._find_closest_surface_point(sphere.origin);
-        let delta = closest_surface_point - sphere.origin;
+        let closest_surface_point = self.find_closest_surface_point(sphere.center);
+        let delta = closest_surface_point - sphere.center;
         let distance = delta.length();
         distance < sphere.radius
     }
@@ -141,6 +146,13 @@ impl Aabb {
             })
         })
     }
+
+    pub fn scale_translate(&self, scale: Vec3, translation: Vec3) -> Aabb {
+        Aabb {
+            min: self.min * scale + translation,
+            max: self.max * scale + translation,
+        }
+    }
 }
 
 impl Plane {
@@ -156,8 +168,8 @@ impl Sphere {
     pub fn aabb(&self) -> Aabb {
         let sphere_bb_half_size = Vec3::new(self.radius, self.radius, self.radius);
         Aabb {
-            min: self.origin - sphere_bb_half_size,
-            max: self.origin + sphere_bb_half_size,
+            min: self.center - sphere_bb_half_size,
+            max: self.center + sphere_bb_half_size,
         }
     }
 }
@@ -174,7 +186,7 @@ impl Frustum {
     ) -> Self {
         // see https://learnopengl.com/Guest-Articles/2021/Scene/Frustum-Culling
         let up = right.cross(forward).normalize();
-        let half_v_side = far_plane_distance * (fov_y_deg * 0.5).tan();
+        let half_v_side = far_plane_distance * (deg_to_rad(fov_y_deg) * 0.5).tan();
         let half_h_side = half_v_side * aspect_ratio;
         let front_mult_far = far_plane_distance * forward;
 
@@ -213,7 +225,7 @@ impl Frustum {
 
     /// See https://gdbooks.gitbooks.io/legacyopengl/content/Chapter8/halfspace.html
     /// and https://gdbooks.gitbooks.io/legacyopengl/content/Chapter8/frustum.html
-    pub fn _contains_point(&self, point: Vec3) -> bool {
+    pub fn contains_point(&self, point: Vec3) -> bool {
         for plane in self.planes() {
             if plane.normal.dot(point) + plane.d < 0.0 {
                 return false;
@@ -250,6 +262,132 @@ impl Frustum {
             IntersectionResult::FullyContained
         } else {
             IntersectionResult::PartiallyIntersecting
+        }
+    }
+
+    /// See https://www.flipcode.com/archives/Frustum_Culling.shtml Frustrum::ContainsSphere
+    pub fn sphere_intersection_test(&self, sphere: Sphere) -> IntersectionResult {
+        let mut f_distance;
+
+        for i in 0..6 {
+            f_distance = self.planes()[i].normal.dot(sphere.center) + self.planes()[i].d;
+
+            if f_distance < -sphere.radius {
+                return IntersectionResult::NotIntersecting;
+            }
+
+            if f_distance.abs() < sphere.radius {
+                return IntersectionResult::PartiallyIntersecting;
+            }
+        }
+
+        IntersectionResult::FullyContained
+    }
+
+    #[allow(dead_code)]
+    pub fn point_cloud_in_frustum(&self, focal_point: Vec3, forward_vector: Vec3) -> Vec<Vec3> {
+        let mut rng = rand::rngs::SmallRng::seed_from_u64(
+            ((focal_point.x.abs()
+                + focal_point.y.abs()
+                + focal_point.z.abs()
+                + forward_vector.x.abs()
+                + forward_vector.y.abs()
+                + forward_vector.z.abs())
+                * 100.0) as u64,
+        );
+
+        let mut result = Vec::new();
+
+        for _ in 0..5000 {
+            let point_cloud_radius = 50.0;
+            let random_point_near_camera = focal_point
+                + point_cloud_radius * forward_vector
+                + Vec3::new(
+                    point_cloud_radius * (1.0 - rng.gen::<f32>() * 2.0),
+                    point_cloud_radius * (1.0 - rng.gen::<f32>() * 2.0),
+                    point_cloud_radius * (1.0 - rng.gen::<f32>() * 2.0),
+                );
+            if self.contains_point(random_point_near_camera) {
+                result.push(random_point_near_camera);
+            }
+        }
+
+        result
+    }
+
+    pub fn make_frustum_mesh(
+        focal_point: Vec3,
+        forward_vector: Vec3,
+        near_plane_distance: f32,
+        far_plane_distance: f32,
+        fov_y_rad: f32,
+        aspect_ratio: f32,
+    ) -> BasicMesh {
+        let culling_frustum_right_vector =
+            forward_vector.cross(Vec3::new(0.0, 1.0, 0.0)).normalize();
+
+        let (d_x, d_y) = {
+            let vertical_vec = culling_frustum_right_vector
+                .cross(forward_vector)
+                .normalize();
+            let sin_half_fovy = (fov_y_rad / 2.0).tan();
+            (
+                sin_half_fovy * culling_frustum_right_vector * aspect_ratio,
+                sin_half_fovy * vertical_vec,
+            )
+        };
+
+        let d_x_near = near_plane_distance * d_x;
+        let d_y_near = near_plane_distance * d_y;
+        let near_vertices = {
+            let near_plane_center = focal_point + near_plane_distance * forward_vector;
+            let top_left = near_plane_center + d_y_near - d_x_near;
+            let top_right = near_plane_center + d_y_near + d_x_near;
+            let bottom_right = near_plane_center - d_y_near + d_x_near;
+            let bottom_left = near_plane_center - d_y_near - d_x_near;
+
+            (top_left, top_right, bottom_right, bottom_left)
+        };
+
+        let d_x_far = far_plane_distance * d_x;
+        let d_y_far = far_plane_distance * d_y;
+        let far_vertices = {
+            let far_plane_center = focal_point + far_plane_distance * forward_vector;
+            let top_left = far_plane_center + d_y_far - d_x_far;
+            let top_right = far_plane_center + d_y_far + d_x_far;
+            let bottom_right = far_plane_center - d_y_far + d_x_far;
+            let bottom_left = far_plane_center - d_y_far - d_x_far;
+
+            (top_left, top_right, bottom_right, bottom_left)
+        };
+
+        // vertices and indices adapted from cube mesh:
+        // https://gist.github.com/MaikKlein/0b6d6bb58772c13593d0a0add6004c1c
+        let vertices = [
+            near_vertices.2,
+            far_vertices.2,
+            far_vertices.3,
+            near_vertices.3,
+            near_vertices.1,
+            far_vertices.1,
+            far_vertices.0,
+            near_vertices.0,
+        ];
+        let mut indices = [
+            1, 2, 3, 7, 6, 5, 4, 5, 1, 5, 6, 2, 2, 6, 7, 0, 3, 7, 0, 1, 3, 4, 7, 5, 0, 4, 1, 1, 5,
+            2, 3, 2, 7, 4, 0, 7, 3, 2, 1,
+        ];
+
+        indices.reverse();
+        BasicMesh {
+            vertices: vertices
+                .iter()
+                .map(|pos| Vertex {
+                    position: pos.to_array(),
+                    ..Default::default()
+                })
+                .collect(),
+            indices: indices.to_vec(),
         }
     }
 }

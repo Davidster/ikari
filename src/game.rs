@@ -35,6 +35,7 @@ pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
 pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
 pub const ARENA_SIDE_LENGTH: f32 = 500.0;
 pub const INITIAL_ENABLE_SHADOW_DEBUG: bool = false;
+pub const INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG: bool = false;
 pub const INITIAL_ENABLE_SOFT_SHADOWS: bool = true;
 pub const INITIAL_SHADOW_BIAS: f32 = 0.0005;
 pub const INITIAL_SOFT_SHADOW_FACTOR: f32 = 0.0015;
@@ -168,9 +169,9 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
         // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
         asset_loader.load_gltf_asset("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf");
         // maze
-        // asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
+        asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
         // other
-        asset_loader.load_gltf_asset(get_misc_gltf_path());
+        // asset_loader.load_gltf_asset(get_misc_gltf_path());
 
         asset_loader.load_audio(
             "./src/sounds/bgm.mp3",
@@ -198,18 +199,18 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
 
     // add lights to the scene
     let directional_lights = vec![
-        DirectionalLightComponent {
-            position: Vec3::new(1.0, 5.0, -10.0) * 10.0,
-            direction: (-Vec3::new(1.0, 5.0, -10.0)).normalize(),
-            color: DIRECTIONAL_LIGHT_COLOR_A,
-            intensity: 1.0,
-        },
-        DirectionalLightComponent {
-            position: Vec3::new(-1.0, 10.0, 10.0) * 10.0,
-            direction: (-Vec3::new(-1.0, 10.0, 10.0)).normalize(),
-            color: DIRECTIONAL_LIGHT_COLOR_B,
-            intensity: 1.0,
-        },
+        // DirectionalLightComponent {
+        //     position: Vec3::new(1.0, 5.0, -10.0) * 10.0,
+        //     direction: (-Vec3::new(1.0, 5.0, -10.0)).normalize(),
+        //     color: DIRECTIONAL_LIGHT_COLOR_A,
+        //     intensity: 1.0,
+        // },
+        // DirectionalLightComponent {
+        //     position: Vec3::new(-1.0, 10.0, 10.0) * 10.0,
+        //     direction: (-Vec3::new(-1.0, 10.0, 10.0)).normalize(),
+        //     color: DIRECTIONAL_LIGHT_COLOR_B,
+        //     intensity: 1.0,
+        // },
     ];
     // let directional_lights: Vec<DirectionalLightComponent> = vec![];
 
@@ -217,7 +218,7 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
         (
             TransformBuilder::new()
                 .scale(Vec3::new(0.05, 0.05, 0.05))
-                .position(Vec3::new(0.0, 12.0, 0.0))
+                .position(Vec3::new(0.0, 0.0, 0.0))
                 .build(),
             POINT_LIGHT_COLOR,
             1.0,
@@ -432,14 +433,14 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
                 )))
                 .transform(
                     TransformBuilder::new()
-                        .position(Vec3::new(4.0, 10.0, 4.0))
-                        // .scale(Vec3::new(0.0, 0.0, 0.0))
+                        .position(Vec3::new(4.0, 1.5, 3.0))
+                        .scale(0.2 * Vec3::new(1.0, 1.0, 1.0))
                         .build(),
                 )
                 .build(),
         )
         .id();
-    scene.remove_node(test_object_node_id);
+    // scene.remove_node(test_object_node_id);
 
     // add floor to scene
 
@@ -1145,11 +1146,14 @@ pub fn update_game_state(
         //     (global_time_seconds * 2.0).sin(),
         // );
         if let Some(node) = game_state.scene.get_node_mut(point_light_0.node_id) {
-            node.transform.set_position(Vec3::new(
-                1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).cos(),
-                node.transform.position().y - frame_time_seconds * 0.25,
-                1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).sin(),
-            ));
+            node.transform.set_position(
+                Vec3::new(3.0, 0.0, 0.0)
+                    + Vec3::new(
+                        1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).cos(),
+                        3.0,
+                        1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).sin(),
+                    ),
+            );
         }
     }
 

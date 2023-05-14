@@ -63,6 +63,7 @@ pub fn run(
                 }
 
                 {
+                    // TODO: move this into a function in game module?
                     let mut renderer_data_guard = renderer.data.lock().unwrap();
                     renderer_data_guard.enable_soft_shadows = renderer_data_guard
                         .ui_overlay
@@ -82,6 +83,18 @@ pub fn run(
                         .ui_overlay
                         .get_state()
                         .soft_shadow_grid_dims;
+                    renderer_data_guard.draw_culling_frustum = renderer_data_guard
+                        .ui_overlay
+                        .get_state()
+                        .draw_culling_frustum;
+
+                    renderer.set_culling_frustum_lock(
+                        &game_state,
+                        renderer_data_guard
+                            .ui_overlay
+                            .get_state()
+                            .culling_frustum_lock_mode,
+                    )
                 }
 
                 match renderer.render(&mut game_state, &window, control_flow) {

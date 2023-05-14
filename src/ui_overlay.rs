@@ -19,6 +19,7 @@ use winit::{event::WindowEvent, window::Window};
 
 use crate::game::*;
 use crate::logger::*;
+use crate::renderer::*;
 
 const FRAME_TIME_HISTORY_SIZE: usize = 720;
 
@@ -34,6 +35,8 @@ pub struct UiOverlay {
     pub shadow_bias: f32,
     pub soft_shadow_factor: f32,
     pub enable_shadow_debug: bool,
+    pub draw_culling_frustum: bool,
+    pub culling_frustum_lock_mode: CullingFrustumLockMode,
     pub soft_shadow_grid_dims: u32,
 }
 
@@ -44,13 +47,55 @@ pub enum Message {
     ToggleFpsChart(bool),
     ToggleGpuSpans(bool),
     ToggleSoftShadows(bool),
+    ToggleDrawCullingFrustum(bool),
     ToggleShadowDebug(bool),
     ShadowBiasChanged(f32),
     SoftShadowFactorChanged(f32),
     SoftShadowGridDimsChanged(u32),
+    CullingFrustumLockModeChanged(CullingFrustumLockMode),
     TogglePopupMenu,
     ClosePopupMenu,
     ExitButtonPressed,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum CullingFrustumLockMode {
+    Full,
+    FocalPoint,
+    #[default]
+    None,
+}
+
+impl CullingFrustumLockMode {
+    const ALL: [CullingFrustumLockMode; 3] = [
+        CullingFrustumLockMode::None,
+        CullingFrustumLockMode::Full,
+        CullingFrustumLockMode::FocalPoint,
+    ];
+}
+
+impl From<CullingFrustumLock> for CullingFrustumLockMode {
+    fn from(value: CullingFrustumLock) -> Self {
+        match value {
+            CullingFrustumLock::Full(_) => CullingFrustumLockMode::Full,
+            CullingFrustumLock::FocalPoint(_) => CullingFrustumLockMode::FocalPoint,
+            CullingFrustumLock::None => CullingFrustumLockMode::None,
+        }
+    }
+}
+
+impl std::fmt::Display for CullingFrustumLockMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                CullingFrustumLockMode::Full => "On",
+                CullingFrustumLockMode::FocalPoint => "Only FocalPoint",
+                CullingFrustumLockMode::None => "Off",
+            }
+        )
+    }
 }
 
 pub struct ContainerStyle;
@@ -211,6 +256,12 @@ impl Program for UiOverlay {
             Message::ToggleSoftShadows(new_state) => {
                 self.enable_shadow_debug = new_state;
             }
+            Message::ToggleDrawCullingFrustum(new_state) => {
+                self.draw_culling_frustum = new_state;
+                if !self.draw_culling_frustum {
+                    self.culling_frustum_lock_mode = CullingFrustumLockMode::None;
+                }
+            }
             Message::ToggleShadowDebug(new_state) => {
                 self.enable_soft_shadows = new_state;
             }
@@ -222,6 +273,9 @@ impl Program for UiOverlay {
             }
             Message::SoftShadowGridDimsChanged(new_state) => {
                 self.soft_shadow_grid_dims = new_state;
+            }
+            Message::CullingFrustumLockModeChanged(new_state) => {
+                self.culling_frustum_lock_mode = new_state;
             }
             Message::ClosePopupMenu => self.is_showing_options_menu = false,
             Message::ExitButtonPressed => self.was_exit_button_pressed = true,
@@ -346,76 +400,100 @@ impl Program for UiOverlay {
             );
 
         Modal::new(self.is_showing_options_menu, content, || {
-            Card::new(
-                Text::new("Options"),
-                Column::new()
-                    .spacing(16)
-                    .padding(5)
-                    .width(Length::Fill)
-                    .push(iced_winit::widget::checkbox(
-                        "Show FPS Chart",
-                        self.is_showing_fps_chart,
-                        Message::ToggleFpsChart,
-                    ))
-                    .push(iced_winit::widget::checkbox(
-                        "Show Detailed GPU Frametimes",
-                        self.is_showing_gpu_spans,
-                        Message::ToggleGpuSpans,
-                    ))
-                    .push(iced_winit::widget::checkbox(
-                        "Enable Shadow Debug",
-                        self.enable_shadow_debug,
-                        Message::ToggleSoftShadows,
-                    ))
-                    .push(iced_winit::widget::checkbox(
-                        "Enable Soft Shadows",
-                        self.enable_soft_shadows,
-                        Message::ToggleShadowDebug,
-                    ))
-                    .push(Text::new(format!("Shadow Bias: {:.5}", self.shadow_bias)))
-                    .push(
-                        iced_winit::widget::slider(
-                            0.00001..=0.005,
-                            self.shadow_bias,
-                            Message::ShadowBiasChanged,
-                        )
-                        .step(0.00001),
-                    )
-                    .push(Text::new(format!(
-                        "Soft Shadow Factor: {:.4}",
-                        self.soft_shadow_factor
-                    )))
-                    .push(
-                        iced_winit::widget::slider(
-                            0.0001..=0.005,
-                            self.soft_shadow_factor,
-                            Message::SoftShadowFactorChanged,
-                        )
-                        .step(0.0001),
-                    )
-                    .push(Text::new(format!(
-                        "Soft Shadow Grid Dims: {:}",
-                        self.soft_shadow_grid_dims
-                    )))
-                    .push(
-                        iced_winit::widget::slider(
-                            0..=16u32,
-                            self.soft_shadow_grid_dims,
-                            Message::SoftShadowGridDimsChanged,
-                        )
-                        .step(1),
-                    )
-                    .push(
-                        Button::new(
-                            Text::new("Exit Game").horizontal_alignment(Horizontal::Center),
-                        )
-                        .width(Length::Shrink)
-                        .on_press(Message::ExitButtonPressed),
-                    ),
-            )
-            .max_width(300.0)
-            .on_close(Message::ClosePopupMenu)
-            .into()
+            let separator_line = Text::new("-------------")
+                .width(Length::Fill)
+                .horizontal_alignment(Horizontal::Center);
+
+            let mut options = Column::new().spacing(16).padding(5).width(Length::Fill);
+
+            // fps overlay
+            options = options.push(iced_winit::widget::checkbox(
+                "Show FPS Chart",
+                self.is_showing_fps_chart,
+                Message::ToggleFpsChart,
+            ));
+            options = options.push(iced_winit::widget::checkbox(
+                "Show Detailed GPU Frametimes",
+                self.is_showing_gpu_spans,
+                Message::ToggleGpuSpans,
+            ));
+
+            // frustum culling debug
+            options = options.push(separator_line.clone());
+            options = options.push(iced_winit::widget::checkbox(
+                "Enable Frustum Culling Debug",
+                self.draw_culling_frustum,
+                Message::ToggleDrawCullingFrustum,
+            ));
+            if self.draw_culling_frustum {
+                options = options.push(Text::new("Lock Culling Frustum"));
+                for mode in CullingFrustumLockMode::ALL {
+                    options = options.push(iced_winit::widget::radio(
+                        format!("{}", mode),
+                        mode,
+                        Some(self.culling_frustum_lock_mode),
+                        Message::CullingFrustumLockModeChanged,
+                    ));
+                }
+            }
+
+            // shadow debug
+            options = options.push(separator_line.clone());
+            options = options.push(iced_winit::widget::checkbox(
+                "Enable Shadow Debug",
+                self.enable_shadow_debug,
+                Message::ToggleSoftShadows,
+            ));
+            options = options.push(iced_winit::widget::checkbox(
+                "Enable Soft Shadows",
+                self.enable_soft_shadows,
+                Message::ToggleShadowDebug,
+            ));
+            options = options.push(Text::new(format!("Shadow Bias: {:.5}", self.shadow_bias)));
+            options = options.push(
+                iced_winit::widget::slider(
+                    0.00001..=0.005,
+                    self.shadow_bias,
+                    Message::ShadowBiasChanged,
+                )
+                .step(0.00001),
+            );
+            options = options.push(Text::new(format!(
+                "Soft Shadow Factor: {:.4}",
+                self.soft_shadow_factor
+            )));
+            options = options.push(
+                iced_winit::widget::slider(
+                    0.0001..=0.005,
+                    self.soft_shadow_factor,
+                    Message::SoftShadowFactorChanged,
+                )
+                .step(0.0001),
+            );
+            options = options.push(Text::new(format!(
+                "Soft Shadow Grid Dims: {:}",
+                self.soft_shadow_grid_dims
+            )));
+            options = options.push(
+                iced_winit::widget::slider(
+                    0..=16u32,
+                    self.soft_shadow_grid_dims,
+                    Message::SoftShadowGridDimsChanged,
+                )
+                .step(1),
+            );
+
+            // exit button
+            options = options.push(
+                Button::new(Text::new("Exit Game").horizontal_alignment(Horizontal::Center))
+                    .width(Length::Shrink)
+                    .on_press(Message::ExitButtonPressed),
+            );
+
+            Card::new(Text::new("Options"), options)
+                .max_width(300.0)
+                .on_close(Message::ClosePopupMenu)
+                .into()
         })
         .into()
     }
@@ -505,13 +583,15 @@ impl IkariUiOverlay {
                 recent_gpu_frame_times: vec![],
             },
             is_showing_fps_chart: false,
-            is_showing_gpu_spans: true,
+            is_showing_gpu_spans: false,
             is_showing_options_menu: false,
             was_exit_button_pressed: false,
             enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
             shadow_bias: INITIAL_SHADOW_BIAS,
             soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
             enable_shadow_debug: INITIAL_ENABLE_SHADOW_DEBUG,
+            draw_culling_frustum: INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG,
+            culling_frustum_lock_mode: CullingFrustumLockMode::None,
             soft_shadow_grid_dims: INITIAL_SOFT_SHADOW_GRID_DIMS,
         };
 
@@ -571,6 +651,7 @@ impl IkariUiOverlay {
         }
     }
 
+    #[profiling::function]
     pub fn update(&mut self, window: &Window, control_flow: &mut winit::event_loop::ControlFlow) {
         if !self.program_container.is_queue_empty() {
             let _ = self.program_container.update(

@@ -113,6 +113,10 @@ impl GpuBuffer {
             true
         }
     }
+
+    pub fn destroy(&self) {
+        self.src.destroy();
+    }
 }
 
 #[derive(Debug)]

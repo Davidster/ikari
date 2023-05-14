@@ -42,6 +42,21 @@ impl Vertex {
     }
 }
 
+impl Default for Vertex {
+    fn default() -> Self {
+        Self {
+            position: Default::default(),
+            normal: [0.0, 1.0, 0.0],
+            tex_coords: Default::default(),
+            tangent: [1.0, 0.0, 0.0],
+            bitangent: [0.0, 0.0, 1.0],
+            color: [1.0, 1.0, 1.0, 1.0],
+            bone_indices: Default::default(),
+            bone_weights: [1.0, 0.0, 0.0, 0.0],
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuPbrMeshInstance {
@@ -93,6 +108,8 @@ pub struct GpuUnlitMeshInstance {
 }
 
 pub type GpuWireframeMeshInstance = GpuUnlitMeshInstance;
+
+pub type GpuTransparentMeshInstance = GpuUnlitMeshInstance;
 
 #[derive(Copy, Clone, Debug)]
 pub struct DynamicPbrParams {
@@ -239,9 +256,7 @@ impl BasicMesh {
                             tex_coords: [tex_coords.x, tex_coords.y],
                             tangent: to_arr(&tangent),
                             bitangent: to_arr(&bitangent),
-                            color: [1.0, 1.0, 1.0, 1.0],
-                            bone_indices: [0, 0, 0, 0],
-                            bone_weights: [1.0, 0.0, 0.0, 0.0],
+                            ..Default::default()
                         });
                     }
                 });
