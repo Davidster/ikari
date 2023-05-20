@@ -7,7 +7,6 @@ use crate::light::*;
 use crate::logger::*;
 use crate::math::*;
 use crate::mesh::*;
-use crate::player_controller::*;
 use crate::sampler_cache::*;
 use crate::scene::*;
 use crate::skinning::*;
