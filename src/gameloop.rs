@@ -87,6 +87,10 @@ pub fn run(
                         .ui_overlay
                         .get_state()
                         .draw_culling_frustum;
+                    renderer_data_guard.draw_point_light_culling_frusta = renderer_data_guard
+                        .ui_overlay
+                        .get_state()
+                        .draw_point_light_culling_frusta;
 
                     renderer.set_culling_frustum_lock(
                         &game_state,

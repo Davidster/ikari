@@ -135,7 +135,7 @@ pub struct BufferChunk {
 }
 
 impl<T: bytemuck::Pod> ChunkedBuffer<T> {
-    pub fn empty() -> Self {
+    pub fn new() -> Self {
         Self {
             buffer: vec![],
             chunks: vec![],
@@ -147,27 +147,27 @@ impl<T: bytemuck::Pod> ChunkedBuffer<T> {
     /// Takes an iterator of chunks (Vec<T>) and places them all into a buffer, keeping track of the byte ranges of each chunk.
     /// The chunks are aligned by `alignment`.
     /// Extra space is added to the end of the buffer to avoid the 'Dynamic binding at index x with offset y would overrun the buffer' error.
-    pub fn new(chunks: impl Iterator<Item = (usize, Vec<T>)>, alignment: usize) -> Self {
-        let mut biggest_chunk_length = 0;
-        let mut buffer: Vec<u8> = vec![];
-        let mut buffer_chunks: Vec<BufferChunk> = vec![];
+    /// Only supports replace() for now, could maybe create an add_all function if we keep track of the biggest chunk length and fix the padding
+    /// at the end of the buffer
+    pub fn replace(&mut self, chunks: impl Iterator<Item = (usize, Vec<T>)>, alignment: usize) {
+        self.clear();
+
         let stride = std::mem::size_of::<T>();
 
         for (id, chunk) in chunks {
-            let start_index = buffer.len();
+            let start_index = self.buffer.len();
             let end_index = start_index + chunk.len() * stride;
-            buffer.append(&mut bytemuck::cast_slice(&chunk).to_vec());
+            self.buffer.extend_from_slice(bytemuck::cast_slice(&chunk));
 
             // add padding
-            let needed_padding = alignment - (buffer.len() % alignment);
-            let mut padding: Vec<_> = (0..needed_padding).map(|_| 0u8).collect();
-            buffer.append(&mut padding);
+            let needed_padding = alignment - (self.buffer.len() % alignment);
+            self.buffer.resize(self.buffer.len() + needed_padding, 0);
 
-            if chunk.len() > biggest_chunk_length {
-                biggest_chunk_length = chunk.len();
+            if chunk.len() > self.biggest_chunk_length {
+                self.biggest_chunk_length = chunk.len();
             }
 
-            buffer_chunks.push(BufferChunk {
+            self.chunks.push(BufferChunk {
                 id,
                 start_index,
                 end_index,
@@ -175,16 +175,14 @@ impl<T: bytemuck::Pod> ChunkedBuffer<T> {
         }
 
         // to avoid 'Dynamic binding at index x with offset y would overrun the buffer' error
-        let mut max_instances_padding: Vec<_> =
-            (0..(biggest_chunk_length * stride)).map(|_| 0u8).collect();
-        buffer.append(&mut max_instances_padding);
+        self.buffer
+            .resize(self.buffer.len() + self.biggest_chunk_length * stride, 0);
+    }
 
-        Self {
-            buffer,
-            chunks: buffer_chunks,
-            biggest_chunk_length,
-            item_type: std::marker::PhantomData,
-        }
+    fn clear(&mut self) {
+        self.buffer.clear();
+        self.chunks.clear();
+        self.biggest_chunk_length = 0;
     }
 
     pub fn buffer(&self) -> &[u8] {
@@ -201,5 +199,11 @@ impl<T: bytemuck::Pod> ChunkedBuffer<T> {
 
     pub fn biggest_chunk_length(&self) -> usize {
         self.biggest_chunk_length
+    }
+}
+
+impl<T: bytemuck::Pod> Default for ChunkedBuffer<T> {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -36,6 +36,7 @@ pub struct UiOverlay {
     pub soft_shadow_factor: f32,
     pub enable_shadow_debug: bool,
     pub draw_culling_frustum: bool,
+    pub draw_point_light_culling_frusta: bool,
     pub culling_frustum_lock_mode: CullingFrustumLockMode,
     pub soft_shadow_grid_dims: u32,
 }
@@ -48,6 +49,7 @@ pub enum Message {
     ToggleGpuSpans(bool),
     ToggleSoftShadows(bool),
     ToggleDrawCullingFrustum(bool),
+    ToggleDrawPointLightCullingFrusta(bool),
     ToggleShadowDebug(bool),
     ShadowBiasChanged(f32),
     SoftShadowFactorChanged(f32),
@@ -117,6 +119,8 @@ impl iced::widget::container::StyleSheet for ContainerStyle {
 struct FpsChart {
     recent_frame_times: Vec<Duration>,
     recent_gpu_frame_times: Vec<Vec<GpuTimerScopeResultWrapper>>,
+    avg_frame_time_millis: Option<f64>,
+    avg_gpu_frame_time_millis: Option<f64>,
 }
 
 impl Chart<Message> for FpsChart {
@@ -234,14 +238,36 @@ impl Program for UiOverlay {
     type Message = Message;
 
     fn update(&mut self, message: Message) -> Command<Message> {
+        let moving_average_alpha = 0.01;
+
         match message {
             Message::FrameCompleted(frame_duration) => {
+                let frame_time_ms = frame_duration.as_nanos() as f64 / 1_000_000.0;
+                self.fps_chart.avg_frame_time_millis =
+                    Some(match self.fps_chart.avg_frame_time_millis {
+                        Some(avg_frame_time_millis) => {
+                            (1.0 - moving_average_alpha) * avg_frame_time_millis
+                                + (moving_average_alpha * frame_time_ms)
+                        }
+                        None => frame_time_ms,
+                    });
+
                 self.fps_chart.recent_frame_times.push(frame_duration);
                 if self.fps_chart.recent_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
                     self.fps_chart.recent_frame_times.remove(0);
                 }
             }
             Message::GpuFrameCompleted(frames) => {
+                let frame_time_ms = collect_frame_time_ms(&frames);
+                self.fps_chart.avg_gpu_frame_time_millis =
+                    Some(match self.fps_chart.avg_gpu_frame_time_millis {
+                        Some(avg_gpu_frame_time_millis) => {
+                            (1.0 - moving_average_alpha) * avg_gpu_frame_time_millis
+                                + (moving_average_alpha * frame_time_ms)
+                        }
+                        None => frame_time_ms,
+                    });
+
                 self.fps_chart.recent_gpu_frame_times.push(frames);
                 if self.fps_chart.recent_gpu_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
                     self.fps_chart.recent_gpu_frame_times.remove(0);
@@ -261,6 +287,9 @@ impl Program for UiOverlay {
                 if !self.draw_culling_frustum {
                     self.culling_frustum_lock_mode = CullingFrustumLockMode::None;
                 }
+            }
+            Message::ToggleDrawPointLightCullingFrusta(new_state) => {
+                self.draw_point_light_culling_frusta = new_state;
             }
             Message::ToggleShadowDebug(new_state) => {
                 self.enable_soft_shadows = new_state;
@@ -294,44 +323,22 @@ impl Program for UiOverlay {
 
         let moving_average_alpha = 0.01;
 
-        let (avg_frame_time_millis, avg_gpu_frame_time_millis) = {
-            let mut frame_times_iterator = self
-                .fps_chart
-                .recent_frame_times
-                .iter()
-                .map(|frame_time| frame_time.as_nanos() as f64 / 1_000_000.0);
-            let mut cpu = frame_times_iterator.next().unwrap(); // checked that length isn't 0
-            for frame_time in frame_times_iterator {
-                cpu = (1.0 - moving_average_alpha) * cpu + (moving_average_alpha * frame_time);
-            }
-
-            let mut gpu_frame_times_iterator = self
-                .fps_chart
-                .recent_gpu_frame_times
-                .iter()
-                .map(collect_frame_time_ms);
-            let mut gpu = gpu_frame_times_iterator.next().unwrap_or(0.0);
-            for frame_time in gpu_frame_times_iterator {
-                gpu = (1.0 - moving_average_alpha) * gpu + (moving_average_alpha * frame_time);
-            }
-
-            (cpu, gpu)
-        };
-
-        let framerate_msg = String::from(&format!(
-            "Frametime: {:.2}ms ({:.2}fps), GPU: {:.2}ms",
-            avg_frame_time_millis,
-            1_000.0 / avg_frame_time_millis,
-            avg_gpu_frame_time_millis
-        ));
-
         let container_style = Box::new(ContainerStyle {});
 
         let mut rows = Column::new()
             .width(Length::Shrink)
             .height(Length::Shrink)
-            .spacing(4)
-            .push(iced_winit::widget::text(framerate_msg.as_str()));
+            .spacing(4);
+
+        if let Some(avg_frame_time_millis) = self.fps_chart.avg_frame_time_millis {
+            let framerate_msg = String::from(&format!(
+                "Frametime: {:.2}ms ({:.2}fps), GPU: {:.2}ms",
+                avg_frame_time_millis,
+                1_000.0 / avg_frame_time_millis,
+                self.fps_chart.avg_gpu_frame_time_millis.unwrap_or_default()
+            ));
+            rows = rows.push(iced_winit::widget::text(framerate_msg.as_str()));
+        }
 
         if self.is_showing_gpu_spans {
             let mut span_set: HashSet<&str> = HashSet::new();
@@ -436,6 +443,13 @@ impl Program for UiOverlay {
                     ));
                 }
             }
+
+            // point light frusta debug
+            options = options.push(iced_winit::widget::checkbox(
+                "Enable Point Light Frustum Culling Debug",
+                self.draw_point_light_culling_frusta,
+                Message::ToggleDrawPointLightCullingFrusta,
+            ));
 
             // shadow debug
             options = options.push(separator_line.clone());
@@ -581,6 +595,8 @@ impl IkariUiOverlay {
             fps_chart: FpsChart {
                 recent_frame_times: vec![],
                 recent_gpu_frame_times: vec![],
+                avg_frame_time_millis: None,
+                avg_gpu_frame_time_millis: None,
             },
             is_showing_fps_chart: false,
             is_showing_gpu_spans: false,
@@ -591,6 +607,7 @@ impl IkariUiOverlay {
             soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
             enable_shadow_debug: INITIAL_ENABLE_SHADOW_DEBUG,
             draw_culling_frustum: INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG,
+            draw_point_light_culling_frusta: INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG,
             culling_frustum_lock_mode: CullingFrustumLockMode::None,
             soft_shadow_grid_dims: INITIAL_SOFT_SHADOW_GRID_DIMS,
         };

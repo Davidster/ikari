@@ -7,6 +7,7 @@ use crate::light::*;
 use crate::logger::*;
 use crate::math::*;
 use crate::mesh::*;
+use crate::player_controller::*;
 use crate::sampler_cache::*;
 use crate::scene::*;
 use crate::skinning::*;
@@ -35,6 +36,8 @@ pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const FAR_PLANE_DISTANCE: f32 = 100000.0;
 pub const FOV_Y_DEG: f32 = 45.0;
 pub const DEFAULT_WIREFRAME_COLOR: [f32; 4] = [0.0, 1.0, 1.0, 1.0];
+pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE: f32 = 0.1;
+pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE: f32 = 1000.0;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -699,6 +702,7 @@ pub struct RendererPrivateData {
     // cpu
     all_bone_transforms: AllBoneTransforms,
     all_pbr_instances: ChunkedBuffer<GpuPbrMeshInstance>,
+    all_pbr_instances_culling_masks: Vec<u32>,
     all_unlit_instances: ChunkedBuffer<GpuUnlitMeshInstance>,
     all_transparent_instances: ChunkedBuffer<GpuUnlitMeshInstance>,
     all_wireframe_instances: ChunkedBuffer<GpuWireframeMeshInstance>,
@@ -766,6 +770,7 @@ pub struct RendererPublicData {
     pub enable_wireframe_mode: bool,
     pub draw_node_bounding_spheres: bool,
     pub draw_culling_frustum: bool,
+    pub draw_point_light_culling_frusta: bool,
     pub enable_soft_shadows: bool,
     pub shadow_bias: f32,
     pub soft_shadow_factor: f32,
@@ -2175,7 +2180,8 @@ impl Renderer {
             enable_shadows: true,
             enable_wireframe_mode: false,
             draw_node_bounding_spheres: false,
-            draw_culling_frustum: true,
+            draw_culling_frustum: false,
+            draw_point_light_culling_frusta: false,
 
             enable_soft_shadows,
             shadow_bias,
@@ -2225,10 +2231,11 @@ impl Renderer {
                     animated_bone_transforms: vec![],
                     identity_slice: (0, 0),
                 },
-                all_pbr_instances: ChunkedBuffer::empty(),
-                all_unlit_instances: ChunkedBuffer::empty(),
-                all_transparent_instances: ChunkedBuffer::empty(),
-                all_wireframe_instances: ChunkedBuffer::empty(),
+                all_pbr_instances: ChunkedBuffer::new(),
+                all_pbr_instances_culling_masks: vec![],
+                all_unlit_instances: ChunkedBuffer::new(),
+                all_transparent_instances: ChunkedBuffer::new(),
+                all_wireframe_instances: ChunkedBuffer::new(),
                 debug_node_bounding_spheres_nodes: vec![],
                 debug_culling_frustum_nodes: vec![],
                 debug_culling_frustum_mesh_index: None,
@@ -2712,9 +2719,7 @@ impl Renderer {
 
         if data.draw_culling_frustum {
             // shrink the frustum along the view direction for the debug view
-            // let near_plane_distance = NEAR_PLANE_DISTANCE;
             let near_plane_distance = 3.0;
-            // let far_plane_distance = FAR_PLANE_DISTANCE;
             let far_plane_distance = 500.0;
 
             let window_size = *self.base.window_size.lock().unwrap();
@@ -2766,6 +2771,68 @@ impl Renderer {
                     )
                     .id(),
             );
+        }
+
+        if data.draw_point_light_culling_frusta {
+            for point_light in &game_state.point_lights {
+                for controlled_direction in build_cubemap_face_camera_view_directions() {
+                    // shrink the frustum along the view direction for the debug view
+                    let near_plane_distance = 0.5;
+                    let far_plane_distance = 5.0;
+
+                    let culling_frustum_basic_mesh = Frustum::make_frustum_mesh(
+                        scene
+                            .get_global_transform_for_node(point_light.node_id)
+                            .position(),
+                        controlled_direction.to_vector(),
+                        near_plane_distance,
+                        far_plane_distance,
+                        deg_to_rad(90.0),
+                        1.0,
+                    );
+
+                    private_data.debug_culling_frustum_mesh_index =
+                        Some(Self::bind_basic_transparent_mesh(
+                            &self.base,
+                            data,
+                            &culling_frustum_basic_mesh,
+                        ));
+
+                    let culling_frustum_mesh = GameNodeMesh {
+                        mesh_type: GameNodeMeshType::Transparent {
+                            color: Vec4::new(1.0, 0.0, 0.0, 0.1),
+                            premultiplied_alpha: false,
+                        },
+                        mesh_indices: vec![private_data.debug_culling_frustum_mesh_index.unwrap()],
+                        wireframe: false,
+                        cullable: false,
+                    };
+
+                    let culling_frustum_mesh_wf = GameNodeMesh {
+                        wireframe: true,
+                        ..culling_frustum_mesh.clone()
+                    };
+
+                    private_data.debug_culling_frustum_nodes.push(
+                        scene
+                            .add_node(
+                                GameNodeDescBuilder::new()
+                                    .mesh(Some(culling_frustum_mesh))
+                                    .build(),
+                            )
+                            .id(),
+                    );
+                    private_data.debug_culling_frustum_nodes.push(
+                        scene
+                            .add_node(
+                                GameNodeDescBuilder::new()
+                                    .mesh(Some(culling_frustum_mesh_wf))
+                                    .build(),
+                            )
+                            .id(),
+                    );
+                }
+            }
         }
     }
 
@@ -2834,6 +2901,83 @@ impl Renderer {
         )
     }
 
+    // culling mask is a bitmask where each bit corresponds to a frustum
+    // and the value of the bit represents whether or not the object
+    // is touching that frustum or not. the first bit represnts the main
+    // camera frustum, the subsequent bits represent the directional shadow
+    // mapping frusta and the rest of the bits represent the point light shadow
+    // mapping frusta, of which there are 6 per point light so 6 bits are used
+    // per point light.
+    // TODO: u32 can only store a max of 5 point lights, might be worth using a larger
+    // bitvec or a Vec<bool> or something
+    fn get_node_culling_mask(
+        node: &GameNode,
+        data: &RendererPublicData,
+        game_state: &GameState,
+        camera_culling_frustum: &Frustum,
+        point_lights_frusta: &Vec<Option<Vec<Frustum>>>,
+    ) -> u32 {
+        if node.mesh.is_none() {
+            return 0;
+        }
+
+        /* bounding boxes will be wrong for skinned meshes so we currently can't cull them */
+        if node.skin_index.is_some() || !node.mesh.as_ref().unwrap().cullable {
+            return u32::MAX;
+        }
+
+        let node_bounding_sphere = game_state
+            .scene
+            .get_node_bounding_sphere_opt(node.id(), data);
+
+        if node_bounding_sphere.is_none() {
+            return 0;
+        }
+
+        let node_bounding_sphere = node_bounding_sphere.unwrap();
+
+        let is_touching_frustum = |frustum: &Frustum| {
+            matches!(
+                frustum.sphere_intersection_test(node_bounding_sphere),
+                IntersectionResult::FullyContained | IntersectionResult::PartiallyIntersecting
+            )
+        };
+
+        let mut culling_mask = 0u32;
+
+        if is_touching_frustum(camera_culling_frustum) {
+            culling_mask |= 1u32;
+        }
+
+        let mut mask_pos = 1; // start at the second bit, first is reserved for camera
+
+        for _ in &game_state.directional_lights {
+            // TODO: add support for frustum culling directional lights shadow map gen?
+            culling_mask |= 2u32.pow(mask_pos);
+
+            mask_pos += 1;
+        }
+
+        for frusta in point_lights_frusta {
+            match frusta {
+                Some(frusta) => {
+                    for frustum in frusta {
+                        let is_touching_frustum = is_touching_frustum(frustum);
+                        if is_touching_frustum {
+                            culling_mask |= 2u32.pow(mask_pos);
+                        }
+                        mask_pos += 1;
+                    }
+                }
+                None => {
+                    mask_pos += 6;
+                }
+            }
+        }
+
+        culling_mask
+    }
+
     /// Prepare and send all data to gpu so it's ready to render
     #[profiling::function]
     fn update_internal(
@@ -2880,40 +3024,18 @@ impl Renderer {
             culling_frustum_forward_vector,
         );
 
+        // TODO: compute node bounding spheres here too?
         game_state.scene.recompute_global_node_transforms();
 
-        let mut frustum_culled_node_list: Vec<GameNodeId> = Vec::new();
-        for node in game_state.scene.nodes() {
-            if node.mesh.is_none() {
-                continue;
-            }
-            /* bounding boxes will be wrong for skinned meshes so we currently can't cull them */
-            if node.skin_index.is_some() || !node.mesh.as_ref().unwrap().cullable {
-                frustum_culled_node_list.push(node.id());
-                continue;
-            }
-            if let Some(node_bounding_sphere) = game_state
-                .scene
-                .get_node_bounding_sphere_opt(node.id(), data)
-            {
-                match culling_frustum.sphere_intersection_test(node_bounding_sphere) {
-                    IntersectionResult::FullyContained
-                    | IntersectionResult::PartiallyIntersecting => {
-                        frustum_culled_node_list.push(node.id());
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        let scene = &mut game_state.scene;
         let limits = &base.limits;
         let queue = &base.queue;
         let device = &base.device;
         let bones_and_instances_bind_group_layout = &base.bones_and_instances_bind_group_layout;
 
-        private_data.all_bone_transforms =
-            get_all_bone_data(scene, limits.min_storage_buffer_offset_alignment);
+        private_data.all_bone_transforms = get_all_bone_data(
+            &game_state.scene,
+            limits.min_storage_buffer_offset_alignment,
+        );
         let previous_bones_buffer_capacity_bytes = private_data.bones_buffer.capacity_bytes();
         let bones_buffer_changed_capacity = private_data.bones_buffer.write(
             device,
@@ -2941,9 +3063,29 @@ impl Renderer {
         // no instancing for transparent meshes to allow for sorting
         let mut transparent_meshes: Vec<(usize, GpuTransparentMeshInstance, f32)> = Vec::new();
 
-        for node_id in frustum_culled_node_list {
-            let node = scene.get_node_unchecked(node_id);
-            let transform = Mat4::from(scene.get_global_transform_for_node_opt(node.id()));
+        let point_lights_frusta: Vec<Option<Vec<Frustum>>> = game_state
+            .point_lights
+            .iter()
+            .map(|point_light| {
+                game_state
+                    .scene
+                    .get_node(point_light.node_id)
+                    .map(|point_light_node| {
+                        build_cubemap_face_camera_frusta(
+                            point_light_node.transform.position(),
+                            POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
+                            POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
+                        )
+                    })
+            })
+            .collect();
+
+        for node in game_state.scene.nodes() {
+            let transform = Mat4::from(
+                game_state
+                    .scene
+                    .get_global_transform_for_node_opt(node.id()),
+            );
             if let Some(GameNodeMesh {
                 mesh_indices,
                 mesh_type,
@@ -2954,11 +3096,19 @@ impl Renderer {
                 for mesh_index in mesh_indices.iter().copied() {
                     match (mesh_type, data.enable_wireframe_mode, *wireframe) {
                         (GameNodeMeshType::Pbr { material_override }, false, false) => {
+                            let culling_mask = Self::get_node_culling_mask(
+                                node,
+                                data,
+                                game_state,
+                                &culling_frustum,
+                                &point_lights_frusta,
+                            );
                             let gpu_instance = GpuPbrMeshInstance::new(
                                 transform,
                                 material_override.unwrap_or_else(|| {
                                     data.binded_pbr_meshes[mesh_index].dynamic_pbr_params
                                 }),
+                                culling_mask,
                             );
                             match pbr_mesh_index_to_gpu_instances.entry(mesh_index) {
                                 Entry::Occupied(mut entry) => {
@@ -3040,6 +3190,7 @@ impl Renderer {
                             };
 
                             if is_wireframe_mode_on || is_node_wireframe {
+                                // TODO: this search is slow.. but it's only for wireframe mode, so who cares.. ?
                                 let wireframe_mesh_index = data
                                     .binded_wireframe_meshes
                                     .iter()
@@ -3107,7 +3258,21 @@ impl Renderer {
 
         let min_storage_buffer_offset_alignment = base.limits.min_storage_buffer_offset_alignment;
 
-        private_data.all_pbr_instances = ChunkedBuffer::new(
+        private_data.all_pbr_instances_culling_masks.clear();
+
+        for instances in pbr_mesh_index_to_gpu_instances.values() {
+            // we only have one culling mask per chunk of instances,
+            // meaning that instances can't be culled individually
+            let mut combined_culling_mask = 0u32;
+            for instance in instances {
+                combined_culling_mask |= instance.culling_mask;
+            }
+            private_data
+                .all_pbr_instances_culling_masks
+                .push(combined_culling_mask);
+        }
+
+        private_data.all_pbr_instances.replace(
             pbr_mesh_index_to_gpu_instances.into_iter(),
             min_storage_buffer_offset_alignment as usize,
         );
@@ -3130,7 +3295,7 @@ impl Renderer {
             ));
         }
 
-        private_data.all_unlit_instances = ChunkedBuffer::new(
+        private_data.all_unlit_instances.replace(
             unlit_mesh_index_to_gpu_instances.into_iter(),
             min_storage_buffer_offset_alignment as usize,
         );
@@ -3156,14 +3321,12 @@ impl Renderer {
         // draw furthest transparent meshes first
         transparent_meshes.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
 
-        private_data.all_transparent_instances = {
-            ChunkedBuffer::new(
-                transparent_meshes
-                    .into_iter()
-                    .map(|(mesh_index, instance, _)| (mesh_index, vec![instance])),
-                min_storage_buffer_offset_alignment as usize,
-            )
-        };
+        private_data.all_transparent_instances.replace(
+            transparent_meshes
+                .into_iter()
+                .map(|(mesh_index, instance, _)| (mesh_index, vec![instance])),
+            min_storage_buffer_offset_alignment as usize,
+        );
 
         let previous_transparent_instances_buffer_capacity_bytes =
             private_data.transparent_instances_buffer.capacity_bytes();
@@ -3184,7 +3347,7 @@ impl Renderer {
             ));
         }
 
-        private_data.all_wireframe_instances = ChunkedBuffer::new(
+        private_data.all_wireframe_instances.replace(
             wireframe_mesh_index_to_gpu_instances.into_iter(),
             min_storage_buffer_offset_alignment as usize,
         );
@@ -3448,6 +3611,7 @@ impl Renderer {
                         &self.directional_shadow_map_pipeline,
                         view_proj_matrices,
                         true,
+                        2u32.pow((1 + light_index).try_into().unwrap()),
                     );
                 });
             (0..game_state.point_lights.len()).for_each(|light_index| {
@@ -3457,14 +3621,19 @@ impl Renderer {
                 {
                     build_cubemap_face_camera_views(
                         light_node.transform.position(),
-                        0.1,
-                        1000.0,
+                        POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
+                        POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
                         false,
                     )
                     .iter()
                     .copied()
                     .enumerate()
                     .map(|(i, view_proj_matrices)| {
+                        let culling_mask = 2u32.pow(
+                            (1 + game_state.directional_lights.len() + light_index * 6 + i)
+                                .try_into()
+                                .unwrap(),
+                        );
                         (
                             view_proj_matrices,
                             private_data.point_shadow_map_textures.texture.create_view(
@@ -3475,10 +3644,11 @@ impl Renderer {
                                     ..Default::default()
                                 },
                             ),
+                            culling_mask,
                         )
                     })
                     .for_each(
-                        |(face_view_proj_matrices, face_texture_view)| {
+                        |(face_view_proj_matrices, face_texture_view, culling_mask)| {
                             let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
                                 label: Some("Point light shadow map"),
                                 color_attachments: &[],
@@ -3493,6 +3663,7 @@ impl Renderer {
                                     },
                                 ),
                             };
+
                             Self::render_pbr_meshes(
                                 base,
                                 data,
@@ -3503,6 +3674,7 @@ impl Renderer {
                                 &self.point_shadow_map_pipeline,
                                 face_view_proj_matrices,
                                 true,
+                                culling_mask,
                             );
                         },
                     );
@@ -3561,6 +3733,7 @@ impl Renderer {
             &self.mesh_pipeline,
             main_camera_data,
             false,
+            1, // use main camera culling mask
         );
 
         {
@@ -3952,7 +4125,7 @@ impl Renderer {
             });
         }
 
-        // TODO: pass a difference encoder to the ui overlay so it can be profiled
+        // TODO: pass a separate encoder to the ui overlay so it can be profiled
         data.ui_overlay
             .render(&base.device, &mut encoder, &surface_texture_view);
 
@@ -3980,6 +4153,7 @@ impl Renderer {
         pipeline: &'a wgpu::RenderPipeline,
         camera: ShaderCameraData,
         is_shadow: bool,
+        culling_mask: u32,
     ) {
         let device = &base.device;
 
@@ -4011,7 +4185,16 @@ impl Renderer {
                         &[],
                     );
                 }
-                for pbr_instance_chunk in private_data.all_pbr_instances.chunks() {
+                for (pbr_instance_chunk_index, pbr_instance_chunk) in
+                    private_data.all_pbr_instances.chunks().iter().enumerate()
+                {
+                    if private_data.all_pbr_instances_culling_masks[pbr_instance_chunk_index]
+                        & culling_mask
+                        == 0
+                    {
+                        continue;
+                    }
+
                     let binded_pbr_mesh_index = pbr_instance_chunk.id;
                     let bone_transforms_buffer_start_index = private_data
                         .all_bone_transforms

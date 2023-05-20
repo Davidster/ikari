@@ -28,7 +28,7 @@ struct Instance {
     base_color_factor: vec4<f32>,
     emissive_factor: vec4<f32>,
     mrno: vec4<f32>, // metallicness_factor, roughness_factor, normal scale, occlusion strength
-    alpha_cutoff: vec4<f32>,
+    alpha_cutoff: vec4<f32>, // alpha_cutoff, culling_mask, padding
 }
 
 struct PointLightsUniform {

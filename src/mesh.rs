@@ -60,16 +60,17 @@ impl Default for Vertex {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuPbrMeshInstance {
-    model_transform: Mat4,
-    base_color_factor: [f32; 4],
-    emissive_factor: [f32; 4],
-    mrno: [f32; 4], // metallic_factor, roughness_factor, normal scale, occlusion strength
-    alpha_cutoff: f32,
-    padding: [f32; 3],
+    pub model_transform: Mat4,
+    pub base_color_factor: [f32; 4],
+    pub emissive_factor: [f32; 4],
+    pub mrno: [f32; 4], // metallic_factor, roughness_factor, normal scale, occlusion strength
+    pub alpha_cutoff: f32,
+    pub culling_mask: u32,
+    pub padding: [f32; 2],
 }
 
 impl GpuPbrMeshInstance {
-    pub fn new(transform: Mat4, pbr_params: DynamicPbrParams) -> Self {
+    pub fn new(transform: Mat4, pbr_params: DynamicPbrParams, culling_mask: u32) -> Self {
         let DynamicPbrParams {
             base_color_factor,
             emissive_factor,
@@ -95,7 +96,8 @@ impl GpuPbrMeshInstance {
                 occlusion_strength,
             ],
             alpha_cutoff,
-            padding: [0.0, 0.0, 0.0],
+            culling_mask,
+            padding: [0.0, 0.0],
         }
     }
 }

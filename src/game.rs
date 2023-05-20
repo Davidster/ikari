@@ -36,6 +36,7 @@ pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
 pub const ARENA_SIDE_LENGTH: f32 = 500.0;
 pub const INITIAL_ENABLE_SHADOW_DEBUG: bool = false;
 pub const INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG: bool = false;
+pub const INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG: bool = false;
 pub const INITIAL_ENABLE_SOFT_SHADOWS: bool = true;
 pub const INITIAL_SHADOW_BIAS: f32 = 0.0005;
 pub const INITIAL_SOFT_SHADOW_FACTOR: f32 = 0.0015;
@@ -205,12 +206,12 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
         //     color: DIRECTIONAL_LIGHT_COLOR_A,
         //     intensity: 1.0,
         // },
-        // DirectionalLightComponent {
-        //     position: Vec3::new(-1.0, 10.0, 10.0) * 10.0,
-        //     direction: (-Vec3::new(-1.0, 10.0, 10.0)).normalize(),
-        //     color: DIRECTIONAL_LIGHT_COLOR_B,
-        //     intensity: 1.0,
-        // },
+        DirectionalLightComponent {
+            position: Vec3::new(-1.0, 10.0, 10.0) * 10.0,
+            direction: (-Vec3::new(-1.0, 10.0, 10.0)).normalize(),
+            color: DIRECTIONAL_LIGHT_COLOR_B,
+            intensity: 1.0,
+        },
     ];
     // let directional_lights: Vec<DirectionalLightComponent> = vec![];
 
@@ -223,14 +224,14 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
             POINT_LIGHT_COLOR,
             1.0,
         ),
-        // (
-        //     TransformBuilder::new()
-        //         .scale(Vec3::new(0.1, 0.1, 0.1))
-        //         .position(Vec3::new(0.0, 15.0, 0.0))
-        //         .build(),
-        //     LIGHT_COLOR_B,
-        //     1.0,
-        // ),
+        (
+            TransformBuilder::new()
+                .scale(Vec3::new(0.1, 0.1, 0.1))
+                .position(Vec3::new(0.0, 15.0, 0.0))
+                .build(),
+            DIRECTIONAL_LIGHT_COLOR_B,
+            1.0,
+        ),
     ];
     // let point_lights: Vec<(crate::transform::Transform, Vec3, f32)> = vec![];
 
@@ -469,7 +470,7 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
         ball_node_ids.push(node.id());
     }
 
-    let physics_ball_count = 500;
+    let physics_ball_count = 0;
     let physics_balls: Vec<_> = (0..physics_ball_count)
         .map(|_| {
             PhysicsBall::new_random(
@@ -1196,7 +1197,7 @@ pub fn update_game_state(
             // let color = lerp_vec(LIGHT_COLOR_B, LIGHT_COLOR_A, (time_seconds * 2.0).sin());
 
             DirectionalLightComponent {
-                direction: Vec3::new(direction.x, direction.y + 0.0001, direction.z),
+                direction: Vec3::new(direction.x, direction.y + 0.00001, direction.z),
                 ..*directional_light_0
             }
         });
@@ -1320,10 +1321,7 @@ pub fn update_game_state(
             let player_position = game_state
                 .player_controller
                 .position(&game_state.physics_state);
-            let direction_vec = game_state
-                .player_controller
-                .view_direction
-                .to_direction_vector();
+            let direction_vec = game_state.player_controller.view_direction.to_vector();
             let ray = Ray::new(
                 point![player_position.x, player_position.y, player_position.z],
                 vector![direction_vec.x, direction_vec.y, direction_vec.z],

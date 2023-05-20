@@ -54,7 +54,7 @@ impl ControlledViewDirection {
             * Quat::from_euler(EulerRot::XYZ, self.vertical, 0.0, 0.0)
     }
 
-    pub fn to_direction_vector(self) -> Vec3 {
+    pub fn to_vector(self) -> Vec3 {
         let horizontal_scale = self.vertical.cos();
         Vec3::new(
             (self.horizontal + std::f32::consts::PI).sin() * horizontal_scale,
@@ -238,7 +238,7 @@ impl PlayerController {
         }
         self.unprocessed_delta = None;
 
-        let forward_direction = self.view_direction.to_direction_vector();
+        let forward_direction = self.view_direction.to_vector();
         let up_direction = Vec3::new(0.0, 1.0, 0.0);
         let right_direction = forward_direction.cross(up_direction);
 
@@ -315,7 +315,7 @@ impl PlayerController {
     }
 
     pub fn view_forward_vector(&self) -> Vec3 {
-        self.view_direction.to_direction_vector()
+        self.view_direction.to_vector()
     }
 
     #[allow(dead_code)]
@@ -324,7 +324,7 @@ impl PlayerController {
     }
 
     pub fn view_frustum_with_position(&self, aspect_ratio: f32, camera_position: Vec3) -> Frustum {
-        let camera_forward = self.view_direction.to_direction_vector();
+        let camera_forward = self.view_direction.to_vector();
         let camera_right = camera_forward.cross(Vec3::new(0.0, 1.0, 0.0)).normalize();
 
         Frustum::from_camera_params(
