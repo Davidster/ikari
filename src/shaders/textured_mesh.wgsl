@@ -687,7 +687,6 @@ fn do_fragment_shade(
         let light_space_position_face_slice = light_space_position_uv_and_face_slice.z;
         let shadow_camera_far_plane_distance = 1000.0;
         let current_depth = length(from_shadow_vec) / shadow_camera_far_plane_distance; // domain is (0, 1), lower means closer to the light
-        // let bias = 0.0001;
 
         var shadow_occlusion_acc = 0.0;
 
