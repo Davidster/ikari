@@ -166,8 +166,10 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
         // load in gltf files
 
         // player's revolver
+        // https://done3d.com/colt-python-8-inch/
         asset_loader.load_gltf_asset("./src/models/gltf/ColtPython/colt_python.gltf");
         // forest
+        // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
         asset_loader.load_gltf_asset("./src/models/gltf/free_low_poly_forest/scene.gltf");
         // legendary robot
         // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
