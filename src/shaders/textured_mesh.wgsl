@@ -294,7 +294,7 @@ var brdf_lut_texture: texture_2d<f32>;
 @group(1) @binding(7)
 var brdf_lut_sampler: sampler;
 @group(1) @binding(8)
-var point_shadow_map_textures: texture_cube_array<f32>;
+var point_shadow_map_textures: texture_2d_array<f32>;
 @group(1) @binding(9)
 var point_shadow_map_sampler: sampler;
 @group(1) @binding(10)
@@ -500,6 +500,59 @@ fn compute_direct_lighting(
     return bdrf * incident_angle_factor * light_attenuation_factor * light_color_scaled;
 }
 
+// cursed magic, adopted from these links:
+// https://kosmonautblog.wordpress.com/2017/03/25/shadow-filtering-for-pointlights/
+// https://github.com/Kosmonaut3d/DeferredEngine/blob/f772b53e7e09dde6d0dd0682f4c4c1f1f6957b69/EngineTest/Content/Shaders/Common/helper.fx#L367
+// TODO: rename
+fn get_sample_coordinate(in_coord_const: vec3<f32>) -> vec2<f32> {
+    var coord: vec2<f32>;
+    var slice: f32;
+    var in_coord = in_coord_const;
+    in_coord.z = -in_coord.z;
+    in_coord.x = -in_coord.x;
+    
+    if abs(in_coord.x) >= abs(in_coord.y) && abs(in_coord.x) >= abs(in_coord.z) {
+        if in_coord.x > 0.0 {
+            slice = 1.0;
+            in_coord.y = -in_coord.y;
+        } else {
+            slice = 0.0;
+        }
+        in_coord.z = -in_coord.z;
+        in_coord = in_coord / in_coord.x;
+        coord = in_coord.zy;
+    } else if abs(in_coord.y) >= abs(in_coord.x) && abs(in_coord.y) >= abs(in_coord.z) {
+        if in_coord.y > 0.0 {
+            slice = 2.0;
+            in_coord.x = -in_coord.x;
+        } else {
+            slice = 3.0; 
+        }
+        in_coord.z = -in_coord.z;
+        in_coord = in_coord / in_coord.y;
+        coord = in_coord.xz;
+    } else {
+        if in_coord.z < 0.0 {
+            slice = 4.0;
+        } else {
+            slice = 5.0;
+             in_coord.y = -in_coord.y;
+        }
+        in_coord = in_coord / in_coord.z;
+        coord = in_coord.xy;
+    }
+
+    let one_sixth = 1.0 / 6.0;
+
+    // now we are in [-1,1]x[-1,1] space, so transform to texCoords
+    coord = (coord + vec2(1.0, 1.0)) * 0.5;
+
+    // now transform to slice position
+    coord.x = coord.x * one_sixth + slice * one_sixth;
+
+    return coord;
+}
+
 fn do_fragment_shade(
     world_position: vec3<f32>,
     world_normal: vec3<f32>,
@@ -658,7 +711,7 @@ fn do_fragment_shade(
         let closest_depth = textureSampleLevel(
             point_shadow_map_textures,
             point_shadow_map_sampler,
-            world_normal_to_cubemap_vec(from_shadow_vec),
+            get_sample_coordinate(world_normal_to_cubemap_vec(from_shadow_vec)),
             i32(light_index),
             0.0
         ).r;

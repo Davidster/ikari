@@ -389,13 +389,13 @@ impl Texture {
 
     pub fn create_depth_texture_array(
         base_renderer: &BaseRenderer,
-        size: u32,
+        size: (u32, u32),
         label: Option<&str>,
         length: u32,
     ) -> Self {
         let size = wgpu::Extent3d {
-            width: size,
-            height: size,
+            width: size.0,
+            height: size.1,
             depth_or_array_layers: length,
         };
 

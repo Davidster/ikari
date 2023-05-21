@@ -37,6 +37,8 @@ pub const FOV_Y_DEG: f32 = 45.0;
 pub const DEFAULT_WIREFRAME_COLOR: [f32; 4] = [0.0, 1.0, 1.0, 1.0];
 pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE: f32 = 0.1;
 pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE: f32 = 1000.0;
+pub const POINT_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 1024;
+pub const DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 2048;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -968,7 +970,7 @@ impl Renderer {
                             visibility: wgpu::ShaderStages::FRAGMENT,
                             ty: wgpu::BindingType::Texture {
                                 multisampled: false,
-                                view_dimension: wgpu::TextureViewDimension::CubeArray,
+                                view_dimension: wgpu::TextureViewDimension::D2Array,
                                 sample_type: wgpu::TextureSampleType::Float { filterable: false },
                             },
                             count: None,
@@ -2064,16 +2066,22 @@ impl Renderer {
                 label: Some("bones_and_wireframe_instances_bind_group"),
             });
 
-        let point_shadow_map_textures = Texture::create_cube_depth_texture_array(
+        let point_shadow_map_textures = Texture::create_depth_texture_array(
             &base,
-            1024,
+            (
+                6 * POINT_LIGHT_SHADOW_MAP_RESOLUTION,
+                POINT_LIGHT_SHADOW_MAP_RESOLUTION,
+            ),
             Some("point_shadow_map_texture"),
             2, // TODO: this currently puts on hard limit on number of point lights at a time
         );
 
         let directional_shadow_map_textures = Texture::create_depth_texture_array(
             &base,
-            2048,
+            (
+                DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION,
+                DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION,
+            ),
             Some("directional_shadow_map_texture"),
             2, // TODO: this currently puts on hard limit on number of directional lights at a time
         );
@@ -3611,6 +3619,7 @@ impl Renderer {
                         view_proj_matrices,
                         true,
                         2u32.pow((1 + light_index).try_into().unwrap()),
+                        None,
                     );
                 });
             (0..game_state.point_lights.len()).for_each(|light_index| {
@@ -3627,56 +3636,56 @@ impl Renderer {
                     .iter()
                     .copied()
                     .enumerate()
-                    .map(|(i, view_proj_matrices)| {
+                    .for_each(|(face_index, face_view_proj_matrices)| {
                         let culling_mask = 2u32.pow(
-                            (1 + game_state.directional_lights.len() + light_index * 6 + i)
+                            (1 + game_state.directional_lights.len()
+                                + light_index * 6
+                                + face_index)
                                 .try_into()
                                 .unwrap(),
                         );
-                        (
-                            view_proj_matrices,
-                            private_data.point_shadow_map_textures.texture.create_view(
-                                &wgpu::TextureViewDescriptor {
-                                    dimension: Some(wgpu::TextureViewDimension::D2),
-                                    base_array_layer: (6 * light_index + i).try_into().unwrap(),
-                                    array_layer_count: Some(1),
-                                    ..Default::default()
+                        let face_texture_view = private_data
+                            .point_shadow_map_textures
+                            .texture
+                            .create_view(&wgpu::TextureViewDescriptor {
+                                dimension: Some(wgpu::TextureViewDimension::D2),
+                                base_array_layer: light_index.try_into().unwrap(),
+                                array_layer_count: Some(1),
+                                ..Default::default()
+                            });
+                        let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
+                            label: Some("Point light shadow map"),
+                            color_attachments: &[],
+                            depth_stencil_attachment: Some(
+                                wgpu::RenderPassDepthStencilAttachment {
+                                    view: &face_texture_view,
+                                    depth_ops: Some(wgpu::Operations {
+                                        load: if face_index == 0 {
+                                            wgpu::LoadOp::Clear(1.0)
+                                        } else {
+                                            wgpu::LoadOp::Load
+                                        },
+                                        store: true,
+                                    }),
+                                    stencil_ops: None,
                                 },
                             ),
-                            culling_mask,
-                        )
-                    })
-                    .for_each(
-                        |(face_view_proj_matrices, face_texture_view, culling_mask)| {
-                            let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
-                                label: Some("Point light shadow map"),
-                                color_attachments: &[],
-                                depth_stencil_attachment: Some(
-                                    wgpu::RenderPassDepthStencilAttachment {
-                                        view: &face_texture_view,
-                                        depth_ops: Some(wgpu::Operations {
-                                            load: wgpu::LoadOp::Clear(1.0),
-                                            store: true,
-                                        }),
-                                        stencil_ops: None,
-                                    },
-                                ),
-                            };
+                        };
 
-                            Self::render_pbr_meshes(
-                                base,
-                                data,
-                                private_data,
-                                profiler,
-                                &mut encoder,
-                                &shadow_render_pass_desc,
-                                &self.point_shadow_map_pipeline,
-                                face_view_proj_matrices,
-                                true,
-                                culling_mask,
-                            );
-                        },
-                    );
+                        Self::render_pbr_meshes(
+                            base,
+                            data,
+                            private_data,
+                            profiler,
+                            &mut encoder,
+                            &shadow_render_pass_desc,
+                            &self.point_shadow_map_pipeline,
+                            face_view_proj_matrices,
+                            true,
+                            culling_mask,
+                            Some(face_index.try_into().unwrap()),
+                        );
+                    });
                 }
             });
         }
@@ -3733,6 +3742,7 @@ impl Renderer {
             main_camera_data,
             false,
             1, // use main camera culling mask
+            None,
         );
 
         {
@@ -4153,10 +4163,22 @@ impl Renderer {
         camera: ShaderCameraData,
         is_shadow: bool,
         culling_mask: u32,
+        cubemap_face_index: Option<u32>,
     ) {
         let device = &base.device;
 
         let mut render_pass = encoder.begin_render_pass(render_pass_descriptor);
+
+        if let Some(cubemap_face_index) = cubemap_face_index {
+            render_pass.set_viewport(
+                (cubemap_face_index * POINT_LIGHT_SHADOW_MAP_RESOLUTION) as f32,
+                0.0,
+                POINT_LIGHT_SHADOW_MAP_RESOLUTION as f32,
+                POINT_LIGHT_SHADOW_MAP_RESOLUTION as f32,
+                0.0,
+                1.0,
+            )
+        }
 
         wgpu_profiler!(
             render_pass_descriptor
@@ -4172,6 +4194,7 @@ impl Renderer {
                     0,
                     bytemuck::cast_slice(&[MeshShaderCameraRaw::from(camera)]),
                 );
+
                 render_pass.set_bind_group(
                     0,
                     &private_data.lights_and_pbr_shader_options_bind_group,

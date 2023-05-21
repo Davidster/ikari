@@ -170,7 +170,7 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
         // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
         asset_loader.load_gltf_asset("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf");
         // maze
-        asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
+        // asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
         // other
         // asset_loader.load_gltf_asset(get_misc_gltf_path());
 
@@ -206,12 +206,12 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
         //     color: DIRECTIONAL_LIGHT_COLOR_A,
         //     intensity: 1.0,
         // },
-        DirectionalLightComponent {
-            position: Vec3::new(-1.0, 10.0, 10.0) * 10.0,
-            direction: (-Vec3::new(-1.0, 10.0, 10.0)).normalize(),
-            color: DIRECTIONAL_LIGHT_COLOR_B,
-            intensity: 1.0,
-        },
+        // DirectionalLightComponent {
+        //     position: Vec3::new(-1.0, 10.0, 10.0) * 10.0,
+        //     direction: (-Vec3::new(-1.0, 10.0, 10.0)).normalize(),
+        //     color: DIRECTIONAL_LIGHT_COLOR_B,
+        //     intensity: 1.0,
+        // },
     ];
     // let directional_lights: Vec<DirectionalLightComponent> = vec![];
 
@@ -224,14 +224,14 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
             POINT_LIGHT_COLOR,
             1.0,
         ),
-        (
-            TransformBuilder::new()
-                .scale(Vec3::new(0.1, 0.1, 0.1))
-                .position(Vec3::new(0.0, 15.0, 0.0))
-                .build(),
-            DIRECTIONAL_LIGHT_COLOR_B,
-            1.0,
-        ),
+        // (
+        //     TransformBuilder::new()
+        //         .scale(Vec3::new(0.1, 0.1, 0.1))
+        //         .position(Vec3::new(0.0, 15.0, 0.0))
+        //         .build(),
+        //     DIRECTIONAL_LIGHT_COLOR_B,
+        //     1.0,
+        // ),
     ];
     // let point_lights: Vec<(crate::transform::Transform, Vec3, f32)> = vec![];
 
@@ -527,6 +527,22 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
             .transform(floor_transform)
             .build(),
     );
+    // let ceiling_transform = TransformBuilder::new()
+    //     .position(Vec3::new(0.0, 10.0, 0.0))
+    //     .scale(Vec3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH))
+    //     .rotation(make_quat_from_axis_angle(
+    //         Vec3::new(1.0, 0.0, 0.0),
+    //         deg_to_rad(180.0),
+    //     ))
+    //     .build();
+    // let _ceiling_node = scene.add_node(
+    //     GameNodeDescBuilder::new()
+    //         .mesh(Some(GameNodeMesh::from_pbr_mesh_index(
+    //             floor_pbr_mesh_index,
+    //         )))
+    //         .transform(ceiling_transform)
+    //         .build(),
+    // );
     let floor_thickness = 0.1;
     let floor_collider = ColliderBuilder::cuboid(
         floor_transform.scale().x,
