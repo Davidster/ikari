@@ -131,12 +131,12 @@ impl From<ShaderCameraData> for SkyboxShaderCameraRaw {
 pub fn build_cubemap_face_camera_view_directions() -> impl Iterator<Item = ControlledViewDirection>
 {
     vec![
-        (90.0, 0.0),    // right
-        (-90.0, 0.0),   // left
-        (180.0, 90.0),  // top
-        (180.0, -90.0), // bottom
-        (180.0, 0.0),   // front
-        (0.0, 0.0),     // back
+        (90.0, 0.0),    // right (negative x)
+        (-90.0, 0.0),   // left (positive x)
+        (180.0, 90.0),  // top (positive y)
+        (180.0, -90.0), // bottom (negative y)
+        (180.0, 0.0),   // front (position z)
+        (0.0, 0.0),     // back (negative z)
     ]
     .into_iter()
     .map(

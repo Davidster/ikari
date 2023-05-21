@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::time::Duration;
 
+use glam::Vec3;
 use iced::alignment::Horizontal;
 use iced::widget::Button;
 use iced::widget::Column;
@@ -19,6 +20,8 @@ use winit::{event::WindowEvent, window::Window};
 
 use crate::game::*;
 use crate::logger::*;
+use crate::math::*;
+use crate::player_controller::*;
 use crate::renderer::*;
 
 const FRAME_TIME_HISTORY_SIZE: usize = 720;
@@ -30,6 +33,7 @@ pub struct UiOverlay {
     is_showing_gpu_spans: bool,
     pub is_showing_options_menu: bool,
     was_exit_button_pressed: bool,
+    camera_pose: Option<(Vec3, ControlledViewDirection)>, // position, direction
 
     pub enable_soft_shadows: bool,
     pub shadow_bias: f32,
@@ -39,12 +43,15 @@ pub struct UiOverlay {
     pub draw_point_light_culling_frusta: bool,
     pub culling_frustum_lock_mode: CullingFrustumLockMode,
     pub soft_shadow_grid_dims: u32,
+    pub is_showing_camera_pose: bool,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     FrameCompleted(Duration),
     GpuFrameCompleted(Vec<GpuTimerScopeResultWrapper>),
+    CameraPoseChanged((Vec3, ControlledViewDirection)),
+    ToggleCameraPose(bool),
     ToggleFpsChart(bool),
     ToggleGpuSpans(bool),
     ToggleSoftShadows(bool),
@@ -273,6 +280,12 @@ impl Program for UiOverlay {
                     self.fps_chart.recent_gpu_frame_times.remove(0);
                 }
             }
+            Message::CameraPoseChanged(new_state) => {
+                self.camera_pose = Some(new_state);
+            }
+            Message::ToggleCameraPose(new_state) => {
+                self.is_showing_camera_pose = new_state;
+            }
             Message::ToggleFpsChart(new_state) => {
                 self.is_showing_fps_chart = new_state;
             }
@@ -331,13 +344,35 @@ impl Program for UiOverlay {
             .spacing(4);
 
         if let Some(avg_frame_time_millis) = self.fps_chart.avg_frame_time_millis {
-            let framerate_msg = String::from(&format!(
+            rows = rows.push(iced_winit::widget::text(&format!(
                 "Frametime: {:.2}ms ({:.2}fps), GPU: {:.2}ms",
                 avg_frame_time_millis,
                 1_000.0 / avg_frame_time_millis,
                 self.fps_chart.avg_gpu_frame_time_millis.unwrap_or_default()
-            ));
-            rows = rows.push(iced_winit::widget::text(framerate_msg.as_str()));
+            )));
+        }
+
+        if self.is_showing_camera_pose {
+            if let Some((camera_position, camera_direction)) = self.camera_pose {
+                rows = rows.push(iced_winit::widget::text(&format!(
+                    "Camera position:  x={:.2}, y={:.2}, z={:.2}",
+                    camera_position.x, camera_position.y, camera_position.z
+                )));
+                let two_pi = 2.0 * std::f32::consts::PI;
+                let camera_horizontal = (camera_direction.horizontal + two_pi) % two_pi;
+                let camera_vertical = camera_direction.vertical;
+                rows = rows.push(iced_winit::widget::text(&format!(
+                    "Camera direction: h={:.2} ({:.2} deg), v={:.2} ({:.2} deg)",
+                    camera_horizontal,
+                    rad_to_deg(camera_horizontal),
+                    camera_vertical,
+                    rad_to_deg(camera_vertical),
+                )));
+                // rows = rows.push(iced_winit::widget::text(&format!(
+                //     "Camera direction: {:?}",
+                //     camera_direction.to_vector()
+                // )));
+            }
         }
 
         if self.is_showing_gpu_spans {
@@ -386,8 +421,8 @@ impl Program for UiOverlay {
             });
             avg_span_times_vec.reverse();
             for (span, span_frame_time) in avg_span_times_vec {
-                let msg = String::from(&format!("{:}: {:.2}ms", span, span_frame_time));
-                rows = rows.push(iced_winit::widget::text(msg.as_str()).size(14));
+                let msg = &format!("{:}: {:.2}ms", span, span_frame_time);
+                rows = rows.push(iced_winit::widget::text(msg).size(14));
             }
         }
 
@@ -412,6 +447,13 @@ impl Program for UiOverlay {
                 .horizontal_alignment(Horizontal::Center);
 
             let mut options = Column::new().spacing(16).padding(5).width(Length::Fill);
+
+            // camera debug
+            options = options.push(iced_winit::widget::checkbox(
+                "Show Camera Pose",
+                self.is_showing_camera_pose,
+                Message::ToggleCameraPose,
+            ));
 
             // fps overlay
             options = options.push(iced_winit::widget::checkbox(
@@ -598,6 +640,8 @@ impl IkariUiOverlay {
                 avg_frame_time_millis: None,
                 avg_gpu_frame_time_millis: None,
             },
+            camera_pose: None,
+            is_showing_camera_pose: INITIAL_IS_SHOWING_CAMERA_POSE,
             is_showing_fps_chart: false,
             is_showing_gpu_spans: false,
             is_showing_options_menu: false,

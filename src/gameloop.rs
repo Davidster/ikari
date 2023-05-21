@@ -28,17 +28,7 @@ pub fn run(
             Event::RedrawRequested(_) => {
                 game_state.on_frame_started();
                 profiling::finish_frame!();
-                if let Some(last_frame_start_time) = last_frame_start_time {
-                    let mut renderer_data_guard = renderer.data.lock().unwrap();
-                    renderer_data_guard.ui_overlay.send_message(
-                        crate::ui_overlay::Message::FrameCompleted(last_frame_start_time.elapsed()),
-                    );
-                    if let Some(gpu_timing_info) = renderer.process_profiler_frame() {
-                        renderer_data_guard.ui_overlay.send_message(
-                            crate::ui_overlay::Message::GpuFrameCompleted(gpu_timing_info),
-                        );
-                    }
-                }
+                let frame_duration = last_frame_start_time.map(|time| time.elapsed());
                 last_frame_start_time = Some(Instant::now());
 
                 update_game_state(&mut game_state, &renderer.base, renderer.data.clone());
@@ -63,8 +53,33 @@ pub fn run(
                 }
 
                 {
+                    // sync UI
                     // TODO: move this into a function in game module?
+
                     let mut renderer_data_guard = renderer.data.lock().unwrap();
+
+                    if let Some(frame_duration) = frame_duration {
+                        renderer_data_guard.ui_overlay.send_message(
+                            crate::ui_overlay::Message::FrameCompleted(frame_duration),
+                        );
+                        if let Some(gpu_timing_info) = renderer.process_profiler_frame() {
+                            renderer_data_guard.ui_overlay.send_message(
+                                crate::ui_overlay::Message::GpuFrameCompleted(gpu_timing_info),
+                            );
+                        }
+                    }
+
+                    let camera_position = game_state
+                        .player_controller
+                        .position(&game_state.physics_state);
+                    let camera_view_direction = game_state.player_controller.view_direction;
+                    renderer_data_guard.ui_overlay.send_message(
+                        crate::ui_overlay::Message::CameraPoseChanged((
+                            camera_position,
+                            camera_view_direction,
+                        )),
+                    );
+
                     renderer_data_guard.enable_soft_shadows = renderer_data_guard
                         .ui_overlay
                         .get_state()

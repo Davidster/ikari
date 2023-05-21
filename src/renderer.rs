@@ -2915,8 +2915,6 @@ impl Renderer {
     // mapping frusta and the rest of the bits represent the point light shadow
     // mapping frusta, of which there are 6 per point light so 6 bits are used
     // per point light.
-    // TODO: u32 can only store a max of 5 point lights, might be worth using a larger
-    // bitvec or a Vec<bool> or something
     fn get_node_culling_mask(
         node: &GameNode,
         data: &RendererPublicData,
@@ -2924,6 +2922,10 @@ impl Renderer {
         camera_culling_frustum: &Frustum,
         point_lights_frusta: &Vec<Option<Vec<Frustum>>>,
     ) -> u32 {
+        assert!(1 + game_state.directional_lights.len() + point_lights_frusta.len() * 6 <= 32, 
+            "u32 can only store a max of 5 point lights, might be worth using a larger, might be worth using a larger bitvec or a Vec<bool> or something"
+        );
+
         if node.mesh.is_none() {
             return 0;
         }

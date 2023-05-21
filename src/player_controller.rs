@@ -131,7 +131,7 @@ impl PlayerController {
                 let scroll_direction = if scroll_amount > 0.0 { 1.0 } else { -1.0 };
                 let scroll_speed = 1.0;
                 self.speed = (self.speed - (scroll_direction * scroll_speed)).clamp(0.5, 300.0);
-                logger_log(&format!("Speed: {:?}", self.speed));
+                // logger_log(&format!("Speed: {:?}", self.speed));
             }
             _ => {}
         };
