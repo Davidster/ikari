@@ -8,9 +8,12 @@ use std::{collections::HashMap, hash::BuildHasherDefault};
 use glam::f32::{Mat4, Vec3, Vec4};
 use twox_hash::XxHash64;
 
+const REBUILD_SKELETON_PARENT_MAP_ON_REMOVE: bool = false;
+
 #[derive(Debug, Default)]
 pub struct Scene {
     nodes: Vec<(Option<GameNode>, usize)>, // (node, generation number). None means the node was removed from the scene
+    empty_node_indices: Vec<usize>,
     // node_transforms: Vec<Mat4>,
     global_node_transforms: Vec<crate::transform::Transform>,
     pub skins: Vec<Skin>,
@@ -57,6 +60,10 @@ pub enum GameNodeMeshType {
     },
     Unlit {
         color: Vec3,
+    },
+    Transparent {
+        color: Vec4,
+        premultiplied_alpha: bool,
     },
 }
 
@@ -132,6 +139,7 @@ impl Scene {
             .collect();
         let mut scene = Scene {
             nodes: Vec::new(),
+            empty_node_indices: Vec::new(),
             global_node_transforms: Vec::new(),
             skins: Vec::new(),
             animations,
@@ -232,6 +240,7 @@ impl Scene {
     ) {
         let pbr_mesh_index_offset = renderer_data.binded_pbr_meshes.len();
         let unlit_mesh_index_offset = renderer_data.binded_unlit_meshes.len();
+        let transparent_mesh_index_offset = renderer_data.binded_transparent_meshes.len();
 
         for binded_wireframe_mesh in &mut other_render_buffers.binded_wireframe_meshes {
             match binded_wireframe_mesh.source_mesh_type {
@@ -240,6 +249,9 @@ impl Scene {
                 }
                 MeshType::Unlit => {
                     binded_wireframe_mesh.source_mesh_index += unlit_mesh_index_offset;
+                }
+                MeshType::Transparent => {
+                    binded_wireframe_mesh.source_mesh_index += transparent_mesh_index_offset;
                 }
             }
         }
@@ -250,6 +262,9 @@ impl Scene {
         renderer_data
             .binded_unlit_meshes
             .append(&mut other_render_buffers.binded_unlit_meshes);
+        renderer_data
+            .binded_transparent_meshes
+            .append(&mut other_render_buffers.binded_transparent_meshes);
         renderer_data
             .binded_wireframe_meshes
             .append(&mut other_render_buffers.binded_wireframe_meshes);
@@ -286,7 +301,17 @@ impl Scene {
                             .map(|mesh_index| mesh_index + unlit_mesh_index_offset)
                             .collect();
                     }
-                    _ => {}
+                    Some(GameNodeMesh {
+                        ref mut mesh_indices,
+                        mesh_type: GameNodeMeshType::Transparent { .. },
+                        ..
+                    }) => {
+                        *mesh_indices = mesh_indices
+                            .iter()
+                            .map(|mesh_index| mesh_index + transparent_mesh_index_offset)
+                            .collect();
+                    }
+                    None => {}
                 }
                 if let Some(ref mut skin_index) = node.skin_index {
                     *skin_index += skin_index_offset;
@@ -451,40 +476,38 @@ impl Scene {
             name,
             parent_id,
         } = node;
+
+        if let Some(mesh) = &mesh {
+            assert!(
+                !mesh.mesh_indices.is_empty(),
+                "Mesh must have an associated binded mesh buffer"
+            );
+        }
+
+        let make_new_node = |id| GameNode {
+            transform,
+            skin_index,
+            mesh,
+            name,
+            id,
+            parent_id,
+        };
+
         let empty_node = self
-            .nodes
-            .iter()
-            .enumerate()
-            .find_map(|(node_index, node)| {
-                if node.0.is_none() {
-                    Some((node_index, node.1))
-                } else {
-                    None
-                }
-            });
+            .empty_node_indices
+            .pop()
+            .map(|empty_node_index| (empty_node_index, self.nodes[empty_node_index].1));
+
         match empty_node {
             Some((empty_node_index, empty_node_gen)) => {
                 let new_gen = empty_node_gen + 1;
-                let new_node = GameNode {
-                    transform,
-                    skin_index,
-                    mesh,
-                    name,
-                    id: GameNodeId(empty_node_index.try_into().unwrap(), new_gen),
-                    parent_id,
-                };
+                let new_node =
+                    make_new_node(GameNodeId(empty_node_index.try_into().unwrap(), new_gen));
                 self.nodes[empty_node_index] = (Some(new_node), new_gen);
                 self.nodes[empty_node_index].0.as_ref().unwrap()
             }
             None => {
-                let new_node = GameNode {
-                    transform,
-                    skin_index,
-                    mesh,
-                    name,
-                    id: GameNodeId(self.nodes.len().try_into().unwrap(), 0),
-                    parent_id,
-                };
+                let new_node = make_new_node(GameNodeId(self.nodes.len().try_into().unwrap(), 0));
                 self.nodes.push((Some(new_node), 0));
                 self.nodes[self.nodes.len() - 1].0.as_ref().unwrap()
             }
@@ -530,7 +553,12 @@ impl Scene {
         if let Some(node) = self.get_node(node_id) {
             let GameNodeId(node_index, _) = node.id;
             self.nodes[node_index as usize].0.take();
-            self.rebuild_skeleton_parent_index_maps();
+            self.empty_node_indices.push(node_index as usize);
+
+            // TODO: this is slow, is it needed?
+            if REBUILD_SKELETON_PARENT_MAP_ON_REMOVE {
+                self.rebuild_skeleton_parent_index_maps();
+            }
         }
     }
 
@@ -571,6 +599,9 @@ fn build_node_bounding_sphere(
             GameNodeMeshType::Unlit { .. } => {
                 renderer_data.binded_unlit_meshes[mesh_index].bounding_box
             }
+            GameNodeMeshType::Transparent { .. } => {
+                renderer_data.binded_transparent_meshes[mesh_index].bounding_box
+            }
         });
 
     let mut merged_aabb = mesh_aabbs.next().unwrap();
@@ -593,7 +624,10 @@ fn build_node_bounding_sphere(
     let half_length = (merged_aabb.max - merged_aabb.min) / 2.0;
     let radius = largest_axis_scale * half_length.length();
 
-    Sphere { origin, radius }
+    Sphere {
+        center: origin,
+        radius,
+    }
 }
 
 impl GameNode {

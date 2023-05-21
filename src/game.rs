@@ -34,6 +34,17 @@ pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
 pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
 pub const ARENA_SIDE_LENGTH: f32 = 500.0;
+pub const INITIAL_IS_SHOWING_CAMERA_POSE: bool = true;
+pub const INITIAL_ENABLE_SHADOW_DEBUG: bool = false;
+pub const INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG: bool = false;
+pub const INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG: bool = false;
+pub const INITIAL_ENABLE_SOFT_SHADOWS: bool = true;
+pub const INITIAL_SHADOW_BIAS: f32 = 0.0005;
+pub const INITIAL_SOFT_SHADOW_FACTOR: f32 = 0.0015;
+pub const INITIAL_SOFT_SHADOW_GRID_DIMS: u32 = 4;
+
+pub const CREATE_POINT_SHADOW_MAP_DEBUG_OBJECTS: bool = false;
+
 // pub const LIGHT_COLOR_A: Vec3 = Vec3::new(0.996, 0.973, 0.663);
 // pub const LIGHT_COLOR_B: Vec3 = Vec3::new(0.25, 0.973, 0.663);
 
@@ -76,20 +87,20 @@ pub fn get_skybox_path() -> (
 
     // Milkyway
     // src: http://www.hdrlabs.com/sibl/archive/
-    let _skybox_background = SkyboxBackground::Equirectangular {
+    let skybox_background = SkyboxBackground::Equirectangular {
         image_path: "./src/textures/milkyway/background.jpg",
     };
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
+    let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
         Some(SkyboxHDREnvironment::Equirectangular {
             image_path: "./src/textures/milkyway/radiance.hdr",
         });
 
     // My photosphere pic
     // src: me
-    let skybox_background = SkyboxBackground::Equirectangular {
+    let _skybox_background = SkyboxBackground::Equirectangular {
         image_path: "./src/textures/photosphere_skybox_small.jpg",
     };
-    let skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
 
     (skybox_background, skybox_hdr_environment)
 }
@@ -155,8 +166,10 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
         // load in gltf files
 
         // player's revolver
+        // https://done3d.com/colt-python-8-inch/
         asset_loader.load_gltf_asset("./src/models/gltf/ColtPython/colt_python.gltf");
         // forest
+        // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
         asset_loader.load_gltf_asset("./src/models/gltf/free_low_poly_forest/scene.gltf");
         // legendary robot
         // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
@@ -164,7 +177,7 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
         // maze
         // asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
         // other
-        asset_loader.load_gltf_asset(get_misc_gltf_path());
+        // asset_loader.load_gltf_asset(get_misc_gltf_path());
 
         asset_loader.load_audio(
             "./src/sounds/bgm.mp3",
@@ -192,17 +205,17 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
 
     // add lights to the scene
     let directional_lights = vec![
-        DirectionalLightComponent {
-            position: Vec3::new(1.0, 5.0, -10.0) * 10.0,
-            direction: (-Vec3::new(1.0, 5.0, -10.0)).normalize(),
-            color: DIRECTIONAL_LIGHT_COLOR_A,
-            intensity: 1.0,
-        },
+        // DirectionalLightComponent {
+        //     position: Vec3::new(1.0, 5.0, -10.0) * 10.0,
+        //     direction: (-Vec3::new(1.0, 5.0, -10.0)).normalize(),
+        //     color: DIRECTIONAL_LIGHT_COLOR_A,
+        //     intensity: 1.0,
+        // },
         DirectionalLightComponent {
             position: Vec3::new(-1.0, 10.0, 10.0) * 10.0,
             direction: (-Vec3::new(-1.0, 10.0, 10.0)).normalize(),
             color: DIRECTIONAL_LIGHT_COLOR_B,
-            intensity: 1.0,
+            intensity: 0.2,
         },
     ];
     // let directional_lights: Vec<DirectionalLightComponent> = vec![];
@@ -211,7 +224,7 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
         (
             TransformBuilder::new()
                 .scale(Vec3::new(0.05, 0.05, 0.05))
-                .position(Vec3::new(0.0, 12.0, 0.0))
+                .position(Vec3::new(0.0, 0.0, 0.0))
                 .build(),
             POINT_LIGHT_COLOR,
             1.0,
@@ -221,7 +234,7 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
         //         .scale(Vec3::new(0.1, 0.1, 0.1))
         //         .position(Vec3::new(0.0, 15.0, 0.0))
         //         .build(),
-        //     LIGHT_COLOR_B,
+        //     DIRECTIONAL_LIGHT_COLOR_B,
         //     1.0,
         // ),
     ];
@@ -426,14 +439,14 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
                 )))
                 .transform(
                     TransformBuilder::new()
-                        .position(Vec3::new(4.0, 10.0, 4.0))
-                        // .scale(Vec3::new(0.0, 0.0, 0.0))
+                        .position(Vec3::new(4.0, 1.5, 3.0))
+                        .scale(0.2 * Vec3::new(1.0, 1.0, 1.0))
                         .build(),
                 )
                 .build(),
         )
         .id();
-    scene.remove_node(test_object_node_id);
+    // scene.remove_node(test_object_node_id);
 
     // add floor to scene
 
@@ -462,7 +475,7 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
         ball_node_ids.push(node.id());
     }
 
-    let physics_ball_count = 500;
+    let physics_ball_count = 0;
     let physics_balls: Vec<_> = (0..physics_ball_count)
         .map(|_| {
             PhysicsBall::new_random(
@@ -472,6 +485,178 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
             )
         })
         .collect();
+
+    if CREATE_POINT_SHADOW_MAP_DEBUG_OBJECTS {
+        let cube_radius = 4.0;
+        let cube_center = Vec3::new(20.0, cube_radius, -4.5);
+
+        let ball_metallic_roughness_map = Texture::from_color(
+            &renderer.base,
+            [
+                255,
+                (0.12 * 255.0f32).round() as u8,
+                (0.8 * 255.0f32).round() as u8,
+                255,
+            ],
+        )?;
+        let ball_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
+            &renderer.base,
+            &mut renderer_data_guard,
+            &sphere_mesh,
+            &PbrMaterial {
+                base_color: Some(&rainbow_texture),
+                normal: Some(&brick_normal_map),
+                metallic_roughness: Some(&ball_metallic_roughness_map),
+                ..Default::default()
+            },
+            Default::default(),
+        )?;
+        let _ball_node_id = scene
+            .add_node(
+                GameNodeDescBuilder::new()
+                    .mesh(Some(GameNodeMesh::from_pbr_mesh_index(ball_pbr_mesh_index)))
+                    .transform(
+                        TransformBuilder::new()
+                            .position(cube_center - Vec3::new(0.0, 1.0, 0.0))
+                            .scale(0.2 * Vec3::new(1.0, 1.0, 1.0))
+                            .build(),
+                    )
+                    .build(),
+            )
+            .id();
+
+        let wall_mesh_index = Renderer::bind_basic_pbr_mesh(
+            &renderer.base,
+            &mut renderer_data_guard,
+            &plane_mesh,
+            &PbrMaterial {
+                base_color: Some(&checkerboard_texture),
+                ..Default::default()
+            },
+            Default::default(),
+        )?;
+        let game_node_mesh = GameNodeMesh::from_pbr_mesh_index(wall_mesh_index);
+
+        let ceiling_transform = TransformBuilder::new()
+            .position(cube_center + Vec3::new(0.0, cube_radius, 0.0))
+            .scale(Vec3::new(cube_radius, 1.0, cube_radius))
+            .rotation(make_quat_from_axis_angle(
+                Vec3::new(1.0, 0.0, 0.0),
+                deg_to_rad(180.0),
+            ))
+            .build();
+        let ceiling_game_node_mesh = GameNodeMesh {
+            mesh_type: GameNodeMeshType::Pbr {
+                material_override: Some(DynamicPbrParams {
+                    base_color_factor: Vec4::new(1.0, 0.5, 0.5, 1.0),
+                    ..Default::default()
+                }),
+            },
+            ..game_node_mesh.clone()
+        };
+        let _ceiling_node = scene.add_node(
+            GameNodeDescBuilder::new()
+                .mesh(Some(ceiling_game_node_mesh))
+                .transform(ceiling_transform)
+                .build(),
+        );
+
+        let wall_1_node_mesh = GameNodeMesh {
+            mesh_type: GameNodeMeshType::Pbr {
+                material_override: Some(DynamicPbrParams {
+                    base_color_factor: Vec4::new(0.5, 1.0, 0.5, 1.0),
+                    ..Default::default()
+                }),
+            },
+            ..game_node_mesh.clone()
+        };
+        let wall_transform_1 = TransformBuilder::new()
+            .position(cube_center + Vec3::new(0.0, 0.0, -cube_radius))
+            .scale(Vec3::new(cube_radius, 1.0, cube_radius))
+            .rotation(make_quat_from_axis_angle(
+                Vec3::new(1.0, 0.0, 0.0),
+                deg_to_rad(90.0),
+            ))
+            .build();
+        let _wall_1_node = scene.add_node(
+            GameNodeDescBuilder::new()
+                .mesh(Some(wall_1_node_mesh))
+                .transform(wall_transform_1)
+                .build(),
+        );
+
+        let wall_2_node_mesh = GameNodeMesh {
+            mesh_type: GameNodeMeshType::Pbr {
+                material_override: Some(DynamicPbrParams {
+                    base_color_factor: Vec4::new(0.5, 0.5, 1.0, 1.0),
+                    ..Default::default()
+                }),
+            },
+            ..game_node_mesh.clone()
+        };
+        let wall_transform_2 = TransformBuilder::new()
+            .position(cube_center + Vec3::new(0.0, 0.0, cube_radius))
+            .scale(Vec3::new(cube_radius, 1.0, cube_radius))
+            .rotation(make_quat_from_axis_angle(
+                Vec3::new(1.0, 0.0, 0.0),
+                deg_to_rad(270.0),
+            ))
+            .build();
+        let _wall_2_node = scene.add_node(
+            GameNodeDescBuilder::new()
+                .mesh(Some(wall_2_node_mesh))
+                .transform(wall_transform_2)
+                .build(),
+        );
+
+        let wall_3_node_mesh = GameNodeMesh {
+            mesh_type: GameNodeMeshType::Pbr {
+                material_override: Some(DynamicPbrParams {
+                    base_color_factor: Vec4::new(1.0, 0.5, 1.0, 1.0),
+                    ..Default::default()
+                }),
+            },
+            ..game_node_mesh.clone()
+        };
+        let wall_transform_3 = TransformBuilder::new()
+            .position(cube_center + Vec3::new(cube_radius, 0.0, 0.0))
+            .scale(Vec3::new(cube_radius, 1.0, cube_radius))
+            .rotation(make_quat_from_axis_angle(
+                Vec3::new(0.0, 0.0, 1.0),
+                deg_to_rad(90.0),
+            ))
+            .build();
+        let _wall_3_node = scene.add_node(
+            GameNodeDescBuilder::new()
+                .mesh(Some(wall_3_node_mesh))
+                .transform(wall_transform_3)
+                .build(),
+        );
+
+        let wall_4_node_mesh = GameNodeMesh {
+            mesh_type: GameNodeMeshType::Pbr {
+                material_override: Some(DynamicPbrParams {
+                    base_color_factor: Vec4::new(1.0, 1.0, 0.5, 1.0),
+                    ..Default::default()
+                }),
+            },
+            ..game_node_mesh
+        };
+        let wall_transform_4 = TransformBuilder::new()
+            .position(cube_center + Vec3::new(-cube_radius, 0.0, 0.0))
+            .scale(Vec3::new(cube_radius, 1.0, cube_radius))
+            .rotation(make_quat_from_axis_angle(
+                Vec3::new(0.0, 0.0, 1.0),
+                deg_to_rad(270.0),
+            ))
+            .build();
+        let _wall_4_node = scene.add_node(
+            GameNodeDescBuilder::new()
+                .mesh(Some(wall_4_node_mesh))
+                .transform(wall_transform_4)
+                .build(),
+        );
+    }
 
     // let box_pbr_mesh_index = renderer.bind_basic_pbr_mesh(
     //     &cube_mesh,
@@ -519,6 +704,22 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
             .transform(floor_transform)
             .build(),
     );
+    // let ceiling_transform = TransformBuilder::new()
+    //     .position(Vec3::new(0.0, 10.0, 0.0))
+    //     .scale(Vec3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH))
+    //     .rotation(make_quat_from_axis_angle(
+    //         Vec3::new(1.0, 0.0, 0.0),
+    //         deg_to_rad(180.0),
+    //     ))
+    //     .build();
+    // let _ceiling_node = scene.add_node(
+    //     GameNodeDescBuilder::new()
+    //         .mesh(Some(GameNodeMesh::from_pbr_mesh_index(
+    //             floor_pbr_mesh_index,
+    //         )))
+    //         .transform(ceiling_transform)
+    //         .build(),
+    // );
     let floor_thickness = 0.1;
     let floor_collider = ColliderBuilder::cuboid(
         floor_transform.scale().x,
@@ -1139,11 +1340,16 @@ pub fn update_game_state(
         //     (global_time_seconds * 2.0).sin(),
         // );
         if let Some(node) = game_state.scene.get_node_mut(point_light_0.node_id) {
-            node.transform.set_position(Vec3::new(
-                1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).cos(),
-                node.transform.position().y - frame_time_seconds * 0.25,
-                1.5 * (global_time_seconds * 0.25 + std::f32::consts::PI).sin(),
-            ));
+            let t = global_time_seconds;
+            // let t = game_state.player_controller.speed;
+            node.transform.set_position(
+                Vec3::new(0.0, 6.5, 0.0)
+                    + Vec3::new(
+                        (t * 2.0).cos() * (t * 0.25).cos(),
+                        2.0 * (t * 1.0).cos(),
+                        (t * 2.0).sin() * (t * 0.5).sin(),
+                    ),
+            );
         }
     }
 
@@ -1186,7 +1392,7 @@ pub fn update_game_state(
             // let color = lerp_vec(LIGHT_COLOR_B, LIGHT_COLOR_A, (time_seconds * 2.0).sin());
 
             DirectionalLightComponent {
-                direction: Vec3::new(direction.x, direction.y + 0.0001, direction.z),
+                direction: Vec3::new(direction.x, direction.y + 0.00001, direction.z),
                 ..*directional_light_0
             }
         });
@@ -1310,10 +1516,7 @@ pub fn update_game_state(
             let player_position = game_state
                 .player_controller
                 .position(&game_state.physics_state);
-            let direction_vec = game_state
-                .player_controller
-                .view_direction
-                .to_direction_vector();
+            let direction_vec = game_state.player_controller.view_direction.to_vector();
             let ray = Ray::new(
                 point![player_position.x, player_position.y, player_position.z],
                 vector![direction_vec.x, direction_vec.y, direction_vec.z],

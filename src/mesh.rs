@@ -42,19 +42,35 @@ impl Vertex {
     }
 }
 
+impl Default for Vertex {
+    fn default() -> Self {
+        Self {
+            position: Default::default(),
+            normal: [0.0, 1.0, 0.0],
+            tex_coords: Default::default(),
+            tangent: [1.0, 0.0, 0.0],
+            bitangent: [0.0, 0.0, 1.0],
+            color: [1.0, 1.0, 1.0, 1.0],
+            bone_indices: Default::default(),
+            bone_weights: [1.0, 0.0, 0.0, 0.0],
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuPbrMeshInstance {
-    model_transform: Mat4,
-    base_color_factor: [f32; 4],
-    emissive_factor: [f32; 4],
-    mrno: [f32; 4], // metallic_factor, roughness_factor, normal scale, occlusion strength
-    alpha_cutoff: f32,
-    padding: [f32; 3],
+    pub model_transform: Mat4,
+    pub base_color_factor: [f32; 4],
+    pub emissive_factor: [f32; 4],
+    pub mrno: [f32; 4], // metallic_factor, roughness_factor, normal scale, occlusion strength
+    pub alpha_cutoff: f32,
+    pub culling_mask: u32,
+    pub padding: [f32; 2],
 }
 
 impl GpuPbrMeshInstance {
-    pub fn new(transform: Mat4, pbr_params: DynamicPbrParams) -> Self {
+    pub fn new(transform: Mat4, pbr_params: DynamicPbrParams, culling_mask: u32) -> Self {
         let DynamicPbrParams {
             base_color_factor,
             emissive_factor,
@@ -80,7 +96,8 @@ impl GpuPbrMeshInstance {
                 occlusion_strength,
             ],
             alpha_cutoff,
-            padding: [0.0, 0.0, 0.0],
+            culling_mask,
+            padding: [0.0, 0.0],
         }
     }
 }
@@ -93,6 +110,8 @@ pub struct GpuUnlitMeshInstance {
 }
 
 pub type GpuWireframeMeshInstance = GpuUnlitMeshInstance;
+
+pub type GpuTransparentMeshInstance = GpuUnlitMeshInstance;
 
 #[derive(Copy, Clone, Debug)]
 pub struct DynamicPbrParams {
@@ -239,9 +258,7 @@ impl BasicMesh {
                             tex_coords: [tex_coords.x, tex_coords.y],
                             tangent: to_arr(&tangent),
                             bitangent: to_arr(&bitangent),
-                            color: [1.0, 1.0, 1.0, 1.0],
-                            bone_indices: [0, 0, 0, 0],
-                            bone_weights: [1.0, 0.0, 0.0, 0.0],
+                            ..Default::default()
                         });
                     }
                 });

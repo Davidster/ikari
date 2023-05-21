@@ -1,4 +1,6 @@
+use crate::collisions::*;
 use crate::math::*;
+use crate::player_controller::*;
 use crate::transform::*;
 
 use glam::{
@@ -126,39 +128,74 @@ impl From<ShaderCameraData> for SkyboxShaderCameraRaw {
     }
 }
 
+pub fn build_cubemap_face_camera_view_directions() -> impl Iterator<Item = ControlledViewDirection>
+{
+    vec![
+        (90.0, 0.0),    // right (negative x)
+        (-90.0, 0.0),   // left (positive x)
+        (180.0, 90.0),  // top (positive y)
+        (180.0, -90.0), // bottom (negative y)
+        (180.0, 0.0),   // front (position z)
+        (0.0, 0.0),     // back (negative z)
+    ]
+    .into_iter()
+    .map(
+        move |(horizontal_rotation, vertical_rotation): (f32, f32)| ControlledViewDirection {
+            horizontal: deg_to_rad(horizontal_rotation),
+            vertical: deg_to_rad(vertical_rotation),
+        },
+    )
+}
+
+// TODO: use arrays instead of vecs
 pub fn build_cubemap_face_camera_views(
     position: Vec3,
     near_plane_distance: f32,
     far_plane_distance: f32,
     reverse_z: bool,
 ) -> Vec<ShaderCameraData> {
-    vec![
-        (90.0, 0.0),    // right
-        (-90.0, 0.0),   // left
-        (180.0, 90.0),  // top
-        (180.0, -90.0), // bottom
-        (180.0, 0.0),   // front
-        (0.0, 0.0),     // back
-    ]
-    .iter()
-    .map(
-        |(horizontal_rotation, vertical_rotation): &(f32, f32)| Camera {
-            horizontal_rotation: deg_to_rad(*horizontal_rotation),
-            vertical_rotation: deg_to_rad(*vertical_rotation),
-            position,
-        },
-    )
-    .map(|camera| {
-        ShaderCameraData::from_mat4(
-            camera.to_transform().into(),
-            1.0,
-            near_plane_distance,
-            far_plane_distance,
-            deg_to_rad(90.0),
-            reverse_z,
-        )
-    })
-    .collect()
+    build_cubemap_face_camera_view_directions()
+        .map(|view_direction| {
+            ShaderCameraData::from_mat4(
+                Camera {
+                    horizontal_rotation: view_direction.horizontal,
+                    vertical_rotation: view_direction.vertical,
+                    position,
+                }
+                .to_transform()
+                .into(),
+                1.0,
+                near_plane_distance,
+                far_plane_distance,
+                deg_to_rad(90.0),
+                reverse_z,
+            )
+        })
+        .collect()
+}
+
+// TODO: use arrays instead of vecs
+pub fn build_cubemap_face_camera_frusta(
+    position: Vec3,
+    near_plane_distance: f32,
+    far_plane_distance: f32,
+) -> Vec<Frustum> {
+    build_cubemap_face_camera_view_directions()
+        .map(|view_direction| {
+            let forward = view_direction.to_vector();
+            let right = forward.cross(Vec3::new(0.0, 1.0, 0.0)).normalize();
+
+            Frustum::from_camera_params(
+                position,
+                forward,
+                right,
+                1.0,
+                near_plane_distance,
+                far_plane_distance,
+                90.0,
+            )
+        })
+        .collect()
 }
 
 pub fn build_directional_light_camera_view(

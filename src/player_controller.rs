@@ -54,7 +54,7 @@ impl ControlledViewDirection {
             * Quat::from_euler(EulerRot::XYZ, self.vertical, 0.0, 0.0)
     }
 
-    pub fn to_direction_vector(self) -> Vec3 {
+    pub fn to_vector(self) -> Vec3 {
         let horizontal_scale = self.vertical.cos();
         Vec3::new(
             (self.horizontal + std::f32::consts::PI).sin() * horizontal_scale,
@@ -131,7 +131,7 @@ impl PlayerController {
                 let scroll_direction = if scroll_amount > 0.0 { 1.0 } else { -1.0 };
                 let scroll_speed = 1.0;
                 self.speed = (self.speed - (scroll_direction * scroll_speed)).clamp(0.5, 300.0);
-                logger_log(&format!("Speed: {:?}", self.speed));
+                // logger_log(&format!("Speed: {:?}", self.speed));
             }
             _ => {}
         };
@@ -238,7 +238,7 @@ impl PlayerController {
         }
         self.unprocessed_delta = None;
 
-        let forward_direction = self.view_direction.to_direction_vector();
+        let forward_direction = self.view_direction.to_vector();
         let up_direction = Vec3::new(0.0, 1.0, 0.0);
         let right_direction = forward_direction.cross(up_direction);
 
@@ -314,9 +314,17 @@ impl PlayerController {
         Vec3::new(position.x, position.y, position.z)
     }
 
-    pub fn frustum(&self, physics_state: &PhysicsState, aspect_ratio: f32) -> Frustum {
-        let camera_position = self.position(physics_state);
-        let camera_forward = self.view_direction.to_direction_vector();
+    pub fn view_forward_vector(&self) -> Vec3 {
+        self.view_direction.to_vector()
+    }
+
+    #[allow(dead_code)]
+    pub fn view_frustum(&self, physics_state: &PhysicsState, aspect_ratio: f32) -> Frustum {
+        self.view_frustum_with_position(aspect_ratio, self.position(physics_state))
+    }
+
+    pub fn view_frustum_with_position(&self, aspect_ratio: f32, camera_position: Vec3) -> Frustum {
+        let camera_forward = self.view_direction.to_vector();
         let camera_right = camera_forward.cross(Vec3::new(0.0, 1.0, 0.0)).normalize();
 
         Frustum::from_camera_params(

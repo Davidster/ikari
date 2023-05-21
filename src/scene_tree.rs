@@ -133,8 +133,8 @@ impl SceneTree {
                 || child_aabb.fully_contains_sphere(node_bounding_sphere)
             {
                 let distance2 =
-                    (child_aabb.origin() - node_bounding_sphere.origin).length_squared();
-                // pick the aabb whose origin is closest to the object
+                    (child_aabb.center() - node_bounding_sphere.center).length_squared();
+                // pick the aabb whose center is closest to the object
                 fully_contained_index = match fully_contained_index {
                     Some((other_i, other_dist2)) => Some(if distance2 < other_dist2 {
                         (i, distance2)

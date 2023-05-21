@@ -1,5 +1,9 @@
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::time::Duration;
 
+use glam::Vec3;
 use iced::alignment::Horizontal;
 use iced::widget::Button;
 use iced::widget::Column;
@@ -14,26 +18,93 @@ use plotters::style::RED;
 use plotters_iced::{Chart, ChartWidget, DrawingBackend};
 use winit::{event::WindowEvent, window::Window};
 
+use crate::game::*;
 use crate::logger::*;
+use crate::math::*;
+use crate::player_controller::*;
+use crate::renderer::*;
 
-const FRAME_TIME_HISTORY_SIZE: usize = 5000;
+const FRAME_TIME_HISTORY_SIZE: usize = 720;
 
 #[derive(Debug)]
 pub struct UiOverlay {
     fps_chart: FpsChart,
-    show_fps_chart: bool,
+    is_showing_fps_chart: bool,
+    is_showing_gpu_spans: bool,
     pub is_showing_options_menu: bool,
-    exit_button_pressed: bool,
+    was_exit_button_pressed: bool,
+    camera_pose: Option<(Vec3, ControlledViewDirection)>, // position, direction
+
+    pub enable_soft_shadows: bool,
+    pub shadow_bias: f32,
+    pub soft_shadow_factor: f32,
+    pub enable_shadow_debug: bool,
+    pub draw_culling_frustum: bool,
+    pub draw_point_light_culling_frusta: bool,
+    pub culling_frustum_lock_mode: CullingFrustumLockMode,
+    pub soft_shadow_grid_dims: u32,
+    pub is_showing_camera_pose: bool,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     FrameCompleted(Duration),
     GpuFrameCompleted(Vec<GpuTimerScopeResultWrapper>),
+    CameraPoseChanged((Vec3, ControlledViewDirection)),
+    ToggleCameraPose(bool),
     ToggleFpsChart(bool),
+    ToggleGpuSpans(bool),
+    ToggleSoftShadows(bool),
+    ToggleDrawCullingFrustum(bool),
+    ToggleDrawPointLightCullingFrusta(bool),
+    ToggleShadowDebug(bool),
+    ShadowBiasChanged(f32),
+    SoftShadowFactorChanged(f32),
+    SoftShadowGridDimsChanged(u32),
+    CullingFrustumLockModeChanged(CullingFrustumLockMode),
     TogglePopupMenu,
     ClosePopupMenu,
     ExitButtonPressed,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum CullingFrustumLockMode {
+    Full,
+    FocalPoint,
+    #[default]
+    None,
+}
+
+impl CullingFrustumLockMode {
+    const ALL: [CullingFrustumLockMode; 3] = [
+        CullingFrustumLockMode::None,
+        CullingFrustumLockMode::Full,
+        CullingFrustumLockMode::FocalPoint,
+    ];
+}
+
+impl From<CullingFrustumLock> for CullingFrustumLockMode {
+    fn from(value: CullingFrustumLock) -> Self {
+        match value {
+            CullingFrustumLock::Full(_) => CullingFrustumLockMode::Full,
+            CullingFrustumLock::FocalPoint(_) => CullingFrustumLockMode::FocalPoint,
+            CullingFrustumLock::None => CullingFrustumLockMode::None,
+        }
+    }
+}
+
+impl std::fmt::Display for CullingFrustumLockMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                CullingFrustumLockMode::Full => "On",
+                CullingFrustumLockMode::FocalPoint => "Only FocalPoint",
+                CullingFrustumLockMode::None => "Off",
+            }
+        )
+    }
 }
 
 pub struct ContainerStyle;
@@ -55,6 +126,8 @@ impl iced::widget::container::StyleSheet for ContainerStyle {
 struct FpsChart {
     recent_frame_times: Vec<Duration>,
     recent_gpu_frame_times: Vec<Vec<GpuTimerScopeResultWrapper>>,
+    avg_frame_time_millis: Option<f64>,
+    avg_gpu_frame_time_millis: Option<f64>,
 }
 
 impl Chart<Message> for FpsChart {
@@ -172,24 +245,82 @@ impl Program for UiOverlay {
     type Message = Message;
 
     fn update(&mut self, message: Message) -> Command<Message> {
+        let moving_average_alpha = 0.01;
+
         match message {
             Message::FrameCompleted(frame_duration) => {
+                let frame_time_ms = frame_duration.as_nanos() as f64 / 1_000_000.0;
+                self.fps_chart.avg_frame_time_millis =
+                    Some(match self.fps_chart.avg_frame_time_millis {
+                        Some(avg_frame_time_millis) => {
+                            (1.0 - moving_average_alpha) * avg_frame_time_millis
+                                + (moving_average_alpha * frame_time_ms)
+                        }
+                        None => frame_time_ms,
+                    });
+
                 self.fps_chart.recent_frame_times.push(frame_duration);
                 if self.fps_chart.recent_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
                     self.fps_chart.recent_frame_times.remove(0);
                 }
             }
             Message::GpuFrameCompleted(frames) => {
+                let frame_time_ms = collect_frame_time_ms(&frames);
+                self.fps_chart.avg_gpu_frame_time_millis =
+                    Some(match self.fps_chart.avg_gpu_frame_time_millis {
+                        Some(avg_gpu_frame_time_millis) => {
+                            (1.0 - moving_average_alpha) * avg_gpu_frame_time_millis
+                                + (moving_average_alpha * frame_time_ms)
+                        }
+                        None => frame_time_ms,
+                    });
+
                 self.fps_chart.recent_gpu_frame_times.push(frames);
                 if self.fps_chart.recent_gpu_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
                     self.fps_chart.recent_gpu_frame_times.remove(0);
                 }
             }
+            Message::CameraPoseChanged(new_state) => {
+                self.camera_pose = Some(new_state);
+            }
+            Message::ToggleCameraPose(new_state) => {
+                self.is_showing_camera_pose = new_state;
+            }
             Message::ToggleFpsChart(new_state) => {
-                self.show_fps_chart = new_state;
+                self.is_showing_fps_chart = new_state;
+            }
+            Message::ToggleGpuSpans(new_state) => {
+                self.is_showing_gpu_spans = new_state;
+            }
+            Message::ToggleSoftShadows(new_state) => {
+                self.enable_shadow_debug = new_state;
+            }
+            Message::ToggleDrawCullingFrustum(new_state) => {
+                self.draw_culling_frustum = new_state;
+                if !self.draw_culling_frustum {
+                    self.culling_frustum_lock_mode = CullingFrustumLockMode::None;
+                }
+            }
+            Message::ToggleDrawPointLightCullingFrusta(new_state) => {
+                self.draw_point_light_culling_frusta = new_state;
+            }
+            Message::ToggleShadowDebug(new_state) => {
+                self.enable_soft_shadows = new_state;
+            }
+            Message::ShadowBiasChanged(new_state) => {
+                self.shadow_bias = new_state;
+            }
+            Message::SoftShadowFactorChanged(new_state) => {
+                self.soft_shadow_factor = new_state;
+            }
+            Message::SoftShadowGridDimsChanged(new_state) => {
+                self.soft_shadow_grid_dims = new_state;
+            }
+            Message::CullingFrustumLockModeChanged(new_state) => {
+                self.culling_frustum_lock_mode = new_state;
             }
             Message::ClosePopupMenu => self.is_showing_options_menu = false,
-            Message::ExitButtonPressed => self.exit_button_pressed = true,
+            Message::ExitButtonPressed => self.was_exit_button_pressed = true,
             Message::TogglePopupMenu => {
                 self.is_showing_options_menu = !self.is_showing_options_menu
             }
@@ -203,47 +334,99 @@ impl Program for UiOverlay {
             return Row::new().into();
         }
 
-        let (avg_frame_time_millis, avg_gpu_frame_time_millis) = {
-            let alpha = 0.01;
-
-            let mut frame_times_iterator = self
-                .fps_chart
-                .recent_frame_times
-                .iter()
-                .map(|frame_time| frame_time.as_nanos() as f64 / 1_000_000.0);
-            let mut cpu = frame_times_iterator.next().unwrap(); // checked that length isn't 0
-            for frame_time in frame_times_iterator {
-                cpu = (1.0 - alpha) * cpu + (alpha * frame_time);
-            }
-
-            let mut gpu_frame_times_iterator = self
-                .fps_chart
-                .recent_gpu_frame_times
-                .iter()
-                .map(collect_frame_time_ms);
-            let mut gpu = gpu_frame_times_iterator.next().unwrap_or(0.0);
-            for frame_time in gpu_frame_times_iterator {
-                gpu = (1.0 - alpha) * gpu + (alpha * frame_time);
-            }
-
-            (cpu, gpu)
-        };
-
-        let framerate_msg = String::from(&format!(
-            "Frametime: {:.2}ms ({:.2}fps), GPU: {:.2}ms",
-            avg_frame_time_millis,
-            1_000.0 / avg_frame_time_millis,
-            avg_gpu_frame_time_millis
-        ));
+        let moving_average_alpha = 0.01;
 
         let container_style = Box::new(ContainerStyle {});
 
         let mut rows = Column::new()
             .width(Length::Shrink)
             .height(Length::Shrink)
-            .spacing(12)
-            .push(iced_winit::widget::text(framerate_msg.as_str()));
-        if self.show_fps_chart {
+            .spacing(4);
+
+        if let Some(avg_frame_time_millis) = self.fps_chart.avg_frame_time_millis {
+            rows = rows.push(iced_winit::widget::text(&format!(
+                "Frametime: {:.2}ms ({:.2}fps), GPU: {:.2}ms",
+                avg_frame_time_millis,
+                1_000.0 / avg_frame_time_millis,
+                self.fps_chart.avg_gpu_frame_time_millis.unwrap_or_default()
+            )));
+        }
+
+        if self.is_showing_camera_pose {
+            if let Some((camera_position, camera_direction)) = self.camera_pose {
+                rows = rows.push(iced_winit::widget::text(&format!(
+                    "Camera position:  x={:.2}, y={:.2}, z={:.2}",
+                    camera_position.x, camera_position.y, camera_position.z
+                )));
+                let two_pi = 2.0 * std::f32::consts::PI;
+                let camera_horizontal = (camera_direction.horizontal + two_pi) % two_pi;
+                let camera_vertical = camera_direction.vertical;
+                rows = rows.push(iced_winit::widget::text(&format!(
+                    "Camera direction: h={:.2} ({:.2} deg), v={:.2} ({:.2} deg)",
+                    camera_horizontal,
+                    rad_to_deg(camera_horizontal),
+                    camera_vertical,
+                    rad_to_deg(camera_vertical),
+                )));
+                // rows = rows.push(iced_winit::widget::text(&format!(
+                //     "Camera direction: {:?}",
+                //     camera_direction.to_vector()
+                // )));
+            }
+        }
+
+        if self.is_showing_gpu_spans {
+            let mut span_set: HashSet<&str> = HashSet::new();
+            for frame_spans in &self.fps_chart.recent_gpu_frame_times {
+                // single frame
+                for span in frame_spans {
+                    span_set.insert(&span.label);
+                }
+            }
+            let span_names: Vec<&str> = {
+                let mut span_names: Vec<&str> = span_set.iter().copied().collect();
+                span_names.sort();
+                span_names
+            };
+            let mut avg_span_times: HashMap<&str, f64> = HashMap::new();
+
+            for frame_spans in &self.fps_chart.recent_gpu_frame_times {
+                // process all spans of a single frame
+
+                let mut totals_by_span: HashMap<&str, f64> = HashMap::new();
+                for span in frame_spans {
+                    let span_time_ms = (span.time.end - span.time.start) * 1000.0;
+                    let total = totals_by_span.entry(&span.label).or_default();
+                    *total += span_time_ms;
+                }
+
+                for span_name in &span_names {
+                    let frame_time = totals_by_span.entry(span_name).or_default();
+                    match avg_span_times.entry(span_name) {
+                        Entry::Occupied(mut entry) => {
+                            *entry.get_mut() = (1.0 - moving_average_alpha) * entry.get()
+                                + (moving_average_alpha * *frame_time);
+                        }
+                        Entry::Vacant(entry) => {
+                            entry.insert(*frame_time);
+                        }
+                    }
+                }
+            }
+
+            let mut avg_span_times_vec: Vec<_> = avg_span_times.iter().collect();
+            avg_span_times_vec.sort_by_key(|(span, _)| **span);
+            avg_span_times_vec.sort_by_key(|(_span, avg_span_frame_time)| {
+                (avg_span_frame_time.max(0.01) * 100.0) as u64
+            });
+            avg_span_times_vec.reverse();
+            for (span, span_frame_time) in avg_span_times_vec {
+                let msg = &format!("{:}: {:.2}ms", span, span_frame_time);
+                rows = rows.push(iced_winit::widget::text(msg).size(14));
+            }
+        }
+
+        if self.is_showing_fps_chart {
             let padding = [16, 20, 16, 0]; // top, right, bottom, left
             rows = rows.push(Container::new(self.fps_chart.view()).padding(padding));
         }
@@ -259,28 +442,114 @@ impl Program for UiOverlay {
             );
 
         Modal::new(self.is_showing_options_menu, content, || {
-            Card::new(
-                Text::new("Options"),
-                Column::new()
-                    .spacing(16)
-                    .padding(5)
-                    .width(Length::Fill)
-                    .push(iced_winit::widget::checkbox(
-                        "Show FPS Chart",
-                        self.show_fps_chart,
-                        Message::ToggleFpsChart,
-                    ))
-                    .push(
-                        Button::new(
-                            Text::new("Exit Game").horizontal_alignment(Horizontal::Center),
-                        )
-                        .width(Length::Shrink)
-                        .on_press(Message::ExitButtonPressed),
-                    ),
-            )
-            .max_width(300.0)
-            .on_close(Message::ClosePopupMenu)
-            .into()
+            let separator_line = Text::new("-------------")
+                .width(Length::Fill)
+                .horizontal_alignment(Horizontal::Center);
+
+            let mut options = Column::new().spacing(16).padding(5).width(Length::Fill);
+
+            // camera debug
+            options = options.push(iced_winit::widget::checkbox(
+                "Show Camera Pose",
+                self.is_showing_camera_pose,
+                Message::ToggleCameraPose,
+            ));
+
+            // fps overlay
+            options = options.push(iced_winit::widget::checkbox(
+                "Show FPS Chart",
+                self.is_showing_fps_chart,
+                Message::ToggleFpsChart,
+            ));
+            options = options.push(iced_winit::widget::checkbox(
+                "Show Detailed GPU Frametimes",
+                self.is_showing_gpu_spans,
+                Message::ToggleGpuSpans,
+            ));
+
+            // frustum culling debug
+            options = options.push(separator_line.clone());
+            options = options.push(iced_winit::widget::checkbox(
+                "Enable Frustum Culling Debug",
+                self.draw_culling_frustum,
+                Message::ToggleDrawCullingFrustum,
+            ));
+            if self.draw_culling_frustum {
+                options = options.push(Text::new("Lock Culling Frustum"));
+                for mode in CullingFrustumLockMode::ALL {
+                    options = options.push(iced_winit::widget::radio(
+                        format!("{}", mode),
+                        mode,
+                        Some(self.culling_frustum_lock_mode),
+                        Message::CullingFrustumLockModeChanged,
+                    ));
+                }
+            }
+
+            // point light frusta debug
+            options = options.push(iced_winit::widget::checkbox(
+                "Enable Point Light Frustum Culling Debug",
+                self.draw_point_light_culling_frusta,
+                Message::ToggleDrawPointLightCullingFrusta,
+            ));
+
+            // shadow debug
+            options = options.push(separator_line.clone());
+            options = options.push(iced_winit::widget::checkbox(
+                "Enable Shadow Debug",
+                self.enable_shadow_debug,
+                Message::ToggleSoftShadows,
+            ));
+            options = options.push(iced_winit::widget::checkbox(
+                "Enable Soft Shadows",
+                self.enable_soft_shadows,
+                Message::ToggleShadowDebug,
+            ));
+            options = options.push(Text::new(format!("Shadow Bias: {:.5}", self.shadow_bias)));
+            options = options.push(
+                iced_winit::widget::slider(
+                    0.00001..=0.005,
+                    self.shadow_bias,
+                    Message::ShadowBiasChanged,
+                )
+                .step(0.00001),
+            );
+            options = options.push(Text::new(format!(
+                "Soft Shadow Factor: {:.4}",
+                self.soft_shadow_factor
+            )));
+            options = options.push(
+                iced_winit::widget::slider(
+                    0.0001..=0.005,
+                    self.soft_shadow_factor,
+                    Message::SoftShadowFactorChanged,
+                )
+                .step(0.0001),
+            );
+            options = options.push(Text::new(format!(
+                "Soft Shadow Grid Dims: {:}",
+                self.soft_shadow_grid_dims
+            )));
+            options = options.push(
+                iced_winit::widget::slider(
+                    0..=16u32,
+                    self.soft_shadow_grid_dims,
+                    Message::SoftShadowGridDimsChanged,
+                )
+                .step(1),
+            );
+
+            // exit button
+            options = options.push(
+                Button::new(Text::new("Exit Game").horizontal_alignment(Horizontal::Center))
+                    .width(Length::Shrink)
+                    .on_press(Message::ExitButtonPressed),
+            );
+
+            Card::new(Text::new("Options"), options)
+                .max_width(300.0)
+                .on_close(Message::ClosePopupMenu)
+                .into()
         })
         .into()
     }
@@ -368,10 +637,23 @@ impl IkariUiOverlay {
             fps_chart: FpsChart {
                 recent_frame_times: vec![],
                 recent_gpu_frame_times: vec![],
+                avg_frame_time_millis: None,
+                avg_gpu_frame_time_millis: None,
             },
-            show_fps_chart: false,
+            camera_pose: None,
+            is_showing_camera_pose: INITIAL_IS_SHOWING_CAMERA_POSE,
+            is_showing_fps_chart: false,
+            is_showing_gpu_spans: false,
             is_showing_options_menu: false,
-            exit_button_pressed: false,
+            was_exit_button_pressed: false,
+            enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
+            shadow_bias: INITIAL_SHADOW_BIAS,
+            soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
+            enable_shadow_debug: INITIAL_ENABLE_SHADOW_DEBUG,
+            draw_culling_frustum: INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG,
+            draw_point_light_culling_frusta: INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG,
+            culling_frustum_lock_mode: CullingFrustumLockMode::None,
+            soft_shadow_grid_dims: INITIAL_SOFT_SHADOW_GRID_DIMS,
         };
 
         let mut debug = iced_winit::Debug::new();
@@ -430,6 +712,7 @@ impl IkariUiOverlay {
         }
     }
 
+    #[profiling::function]
     pub fn update(&mut self, window: &Window, control_flow: &mut winit::event_loop::ControlFlow) {
         if !self.program_container.is_queue_empty() {
             let _ = self.program_container.update(
@@ -456,7 +739,7 @@ impl IkariUiOverlay {
         }
 
         // TODO: does this logic belong in IkariUiOverlay?
-        if self.program_container.program().exit_button_pressed {
+        if self.program_container.program().was_exit_button_pressed {
             *control_flow = winit::event_loop::ControlFlow::Exit;
         }
     }

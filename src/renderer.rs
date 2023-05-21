@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use glam::f32::{Mat4, Vec3};
+use glam::Vec4;
 use image::Pixel;
 use wgpu::util::DeviceExt;
 use wgpu::InstanceDescriptor;
@@ -34,6 +35,10 @@ pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const FAR_PLANE_DISTANCE: f32 = 100000.0;
 pub const FOV_Y_DEG: f32 = 45.0;
 pub const DEFAULT_WIREFRAME_COLOR: [f32; 4] = [0.0, 1.0, 1.0, 1.0];
+pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE: f32 = 0.1;
+pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE: f32 = 1000.0;
+pub const POINT_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 1024;
+pub const DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 2048;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -53,7 +58,7 @@ impl Default for PointLightUniform {
     fn default() -> Self {
         Self {
             position: [0.0, 0.0, 0.0, 1.0],
-            color: [0.0, 0.0, 0.0, 1.0],
+            color: [0.0, 0.0, 0.0, 0.0],
         }
     }
 }
@@ -102,6 +107,15 @@ struct DirectionalLightUniform {
     color: [f32; 4],
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Default)]
+struct PbrShaderOptionsUniform {
+    options_1: [f32; 4],
+    options_2: [f32; 4],
+    options_3: [f32; 4],
+    options_4: [f32; 4],
+}
+
 impl From<&DirectionalLightComponent> for DirectionalLightUniform {
     fn from(light: &DirectionalLightComponent) -> Self {
         let DirectionalLightComponent {
@@ -128,7 +142,7 @@ impl Default for DirectionalLightUniform {
             world_space_to_light_space: Mat4::IDENTITY.to_cols_array_2d(),
             position: [0.0, 0.0, 0.0, 1.0],
             direction: [0.0, -1.0, 0.0, 1.0],
-            color: [0.0, 0.0, 0.0, 1.0],
+            color: [0.0, 0.0, 0.0, 0.0],
         }
     }
 }
@@ -153,17 +167,26 @@ fn make_directional_light_uniform_buffer(
     light_uniforms
 }
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct UnlitColorUniform {
-    color: [f32; 4],
-}
+fn make_pbr_shader_options_uniform_buffer(
+    enable_soft_shadows: bool,
+    shadow_bias: f32,
+    soft_shadow_factor: f32,
+    enable_shadow_debug: bool,
+    soft_shadow_grid_dims: u32,
+) -> PbrShaderOptionsUniform {
+    let options_1 = [
+        if enable_soft_shadows { 1.0 } else { 0.0 },
+        soft_shadow_factor,
+        if enable_shadow_debug { 1.0 } else { 0.0 },
+        soft_shadow_grid_dims as f32,
+    ];
 
-impl From<Vec3> for UnlitColorUniform {
-    fn from(color: Vec3) -> Self {
-        Self {
-            color: [color.x, color.y, color.z, 1.0],
-        }
+    let options_2 = [shadow_bias, 0.0, 0.0, 0.0];
+
+    PbrShaderOptionsUniform {
+        options_1,
+        options_2,
+        ..Default::default()
     }
 }
 
@@ -176,6 +199,8 @@ pub enum SkyboxHDREnvironment<'a> {
     Equirectangular { image_path: &'a str },
 }
 
+// TODO: store a global list of GeometryBuffers, and store indices into them in BindedPbrMesh and BindedUnlitMesh.
+//       this would not work if the Vertex attributes / format every becomes different between these two shaders
 #[derive(Debug)]
 pub struct BindedPbrMesh {
     pub geometry_buffers: GeometryBuffers,
@@ -196,10 +221,13 @@ pub struct GeometryBuffers {
 
 pub type BindedUnlitMesh = GeometryBuffers;
 
+pub type BindedTransparentMesh = GeometryBuffers;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum MeshType {
     Pbr,
     Unlit,
+    Transparent,
 }
 
 impl From<GameNodeMeshType> for MeshType {
@@ -207,6 +235,7 @@ impl From<GameNodeMeshType> for MeshType {
         match game_node_mesh_type {
             GameNodeMeshType::Pbr { .. } => MeshType::Pbr,
             GameNodeMeshType::Unlit { .. } => MeshType::Unlit,
+            GameNodeMeshType::Transparent { .. } => MeshType::Transparent,
         }
     }
 }
@@ -285,7 +314,14 @@ impl BaseRenderer {
         let adapter_info = adapter.get_info();
         log::info!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
 
-        let features = adapter.features();
+        let mut features = adapter.features();
+
+        // use time features if they're available on the adapter
+        features &= wgpu_profiler::GpuProfiler::ALL_WGPU_TIMER_FEATURES;
+
+        // panic if these features are missing
+        features |= wgpu::Features::PUSH_CONSTANTS;
+        features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
 
         let (device, queue) = adapter
             .request_device(
@@ -656,20 +692,33 @@ impl BaseRenderer {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum CullingFrustumLock {
+    Full((Frustum, Vec3, Vec3)),
+    FocalPoint(Vec3),
+    None,
+}
+
 pub struct RendererPrivateData {
     // cpu
     all_bone_transforms: AllBoneTransforms,
     all_pbr_instances: ChunkedBuffer<GpuPbrMeshInstance>,
+    all_pbr_instances_culling_masks: Vec<u32>,
     all_unlit_instances: ChunkedBuffer<GpuUnlitMeshInstance>,
+    all_transparent_instances: ChunkedBuffer<GpuUnlitMeshInstance>,
     all_wireframe_instances: ChunkedBuffer<GpuWireframeMeshInstance>,
-    debug_nodes: Vec<GameNodeId>,
+    debug_node_bounding_spheres_nodes: Vec<GameNodeId>,
+    debug_culling_frustum_nodes: Vec<GameNodeId>,
+    debug_culling_frustum_mesh_index: Option<usize>,
 
     bloom_threshold_cleared: bool,
+    frustum_culling_lock: CullingFrustumLock, // for debug
 
     // gpu
-    lights_bind_group: wgpu::BindGroup,
+    lights_and_pbr_shader_options_bind_group: wgpu::BindGroup,
     bones_and_pbr_instances_bind_group: wgpu::BindGroup,
     bones_and_unlit_instances_bind_group: wgpu::BindGroup,
+    bones_and_transparent_instances_bind_group: wgpu::BindGroup,
     bones_and_wireframe_instances_bind_group: wgpu::BindGroup,
 
     environment_textures_bind_group: wgpu::BindGroup,
@@ -680,9 +729,11 @@ pub struct RendererPrivateData {
 
     point_lights_buffer: wgpu::Buffer,
     directional_lights_buffer: wgpu::Buffer,
+    pbr_shader_options_buffer: wgpu::Buffer,
     bones_buffer: GpuBuffer,
     pbr_instances_buffer: GpuBuffer,
     unlit_instances_buffer: GpuBuffer,
+    transparent_instances_buffer: GpuBuffer,
     wireframe_instances_buffer: GpuBuffer,
 
     point_shadow_map_textures: Texture,
@@ -697,6 +748,7 @@ pub struct RendererPrivateData {
 pub struct RenderBuffers {
     pub binded_pbr_meshes: Vec<BindedPbrMesh>,
     pub binded_unlit_meshes: Vec<BindedUnlitMesh>,
+    pub binded_transparent_meshes: Vec<BindedTransparentMesh>,
     pub binded_wireframe_meshes: Vec<BindedWireframeMesh>,
     pub textures: Vec<Texture>,
 }
@@ -704,6 +756,7 @@ pub struct RenderBuffers {
 pub struct RendererPublicData {
     pub binded_pbr_meshes: Vec<BindedPbrMesh>,
     pub binded_unlit_meshes: Vec<BindedUnlitMesh>,
+    pub binded_transparent_meshes: Vec<BindedTransparentMesh>,
     pub binded_wireframe_meshes: Vec<BindedWireframeMesh>,
     pub textures: Vec<Texture>,
 
@@ -717,6 +770,13 @@ pub struct RendererPublicData {
     pub enable_shadows: bool,
     pub enable_wireframe_mode: bool,
     pub draw_node_bounding_spheres: bool,
+    pub draw_culling_frustum: bool,
+    pub draw_point_light_culling_frusta: bool,
+    pub enable_soft_shadows: bool,
+    pub shadow_bias: f32,
+    pub soft_shadow_factor: f32,
+    pub enable_shadow_debug: bool,
+    pub soft_shadow_grid_dims: u32,
 
     pub ui_overlay: IkariUiOverlay,
 }
@@ -731,6 +791,7 @@ pub struct Renderer {
 
     mesh_pipeline: wgpu::RenderPipeline,
     unlit_mesh_pipeline: wgpu::RenderPipeline,
+    transparent_mesh_pipeline: wgpu::RenderPipeline,
     wireframe_pipeline: wgpu::RenderPipeline,
     skybox_pipeline: wgpu::RenderPipeline,
     tone_mapping_pipeline: wgpu::RenderPipeline,
@@ -742,7 +803,13 @@ pub struct Renderer {
 
     #[allow(dead_code)]
     box_mesh_index: i32,
+    #[allow(dead_code)]
+    transparent_box_mesh_index: i32,
+    // TODO: since unlit and transparent share the same shader, these don't reaaaally need to be stored in different lists.
+    #[allow(dead_code)]
     sphere_mesh_index: i32,
+    #[allow(dead_code)]
+    transparent_sphere_mesh_index: i32,
     #[allow(dead_code)]
     plane_mesh_index: i32,
 }
@@ -903,7 +970,7 @@ impl Renderer {
                             visibility: wgpu::ShaderStages::FRAGMENT,
                             ty: wgpu::BindingType::Texture {
                                 multisampled: false,
-                                view_dimension: wgpu::TextureViewDimension::CubeArray,
+                                view_dimension: wgpu::TextureViewDimension::D2Array,
                                 sample_type: wgpu::TextureSampleType::Float { filterable: false },
                             },
                             count: None,
@@ -950,7 +1017,7 @@ impl Renderer {
                     label: Some("single_uniform_bind_group_layout"),
                 });
 
-        let lights_bind_group_layout =
+        let lights_and_pbr_shader_options_bind_group_layout =
             base.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     entries: &[
@@ -974,8 +1041,18 @@ impl Renderer {
                             },
                             count: None,
                         },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 2,
+                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
                     ],
-                    label: Some("lights_uniform_bind_group_layout"),
+                    label: Some("lights_and_shader_options_bind_group_layout"),
                 });
 
         let fragment_shader_color_targets = &[Some(wgpu::ColorTargetState {
@@ -999,7 +1076,7 @@ impl Renderer {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Mesh Pipeline Layout"),
                     bind_group_layouts: &[
-                        &lights_bind_group_layout,
+                        &lights_and_pbr_shader_options_bind_group_layout,
                         &environment_textures_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
                         &base.pbr_textures_bind_group_layout,
@@ -1053,7 +1130,7 @@ impl Renderer {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Unlit Mesh Pipeline Layout"),
                     bind_group_layouts: &[
-                        &lights_bind_group_layout,
+                        &lights_and_pbr_shader_options_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
                     ],
                     push_constant_ranges: &[mesh_camera_push_constant_range.clone()],
@@ -1075,6 +1152,24 @@ impl Renderer {
         let unlit_mesh_pipeline = base
             .device
             .create_render_pipeline(&unlit_mesh_pipeline_descriptor);
+
+        let transparent_fragment_shader_color_targets = &[Some(wgpu::ColorTargetState {
+            format: wgpu::TextureFormat::Rgba16Float,
+            blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            write_mask: wgpu::ColorWrites::ALL,
+        })];
+        let mut transparent_mesh_pipeline_descriptor = unlit_mesh_pipeline_descriptor.clone();
+        transparent_mesh_pipeline_descriptor.fragment = Some(wgpu::FragmentState {
+            module: &unlit_mesh_shader,
+            entry_point: "fs_main",
+            targets: transparent_fragment_shader_color_targets,
+        });
+        if let Some(depth_stencil) = &mut transparent_mesh_pipeline_descriptor.depth_stencil {
+            depth_stencil.depth_write_enabled = false;
+        }
+        let transparent_mesh_pipeline = base
+            .device
+            .create_render_pipeline(&transparent_mesh_pipeline_descriptor);
 
         let mut wireframe_pipeline_descriptor = unlit_mesh_pipeline_descriptor.clone();
         wireframe_pipeline_descriptor.label = Some("Wireframe Render Pipeline");
@@ -1426,7 +1521,7 @@ impl Renderer {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Shadow Map Pipeline Layout"),
                     bind_group_layouts: &[
-                        &lights_bind_group_layout,
+                        &lights_and_pbr_shader_options_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
                     ],
                     push_constant_ranges: &[mesh_camera_push_constant_range],
@@ -1791,20 +1886,45 @@ impl Renderer {
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
-        let lights_bind_group = base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &lights_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: point_lights_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: directional_lights_buffer.as_entire_binding(),
-                },
-            ],
-            label: Some("lights_bind_group"),
-        });
+        let enable_soft_shadows = Default::default();
+        let shadow_bias = Default::default();
+        let soft_shadow_factor = Default::default();
+        let enable_shadow_debug = Default::default();
+        let soft_shadow_grid_dims = Default::default();
+        let initial_pbr_shader_options_buffer = make_pbr_shader_options_uniform_buffer(
+            enable_soft_shadows,
+            shadow_bias,
+            soft_shadow_factor,
+            enable_shadow_debug,
+            soft_shadow_grid_dims,
+        );
+        let pbr_shader_options_buffer =
+            base.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("PBR Shader Options Buffer"),
+                    contents: bytemuck::cast_slice(&[initial_pbr_shader_options_buffer]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+
+        let lights_and_pbr_shader_options_bind_group =
+            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &lights_and_pbr_shader_options_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: point_lights_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: directional_lights_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: pbr_shader_options_buffer.as_entire_binding(),
+                    },
+                ],
+                label: Some("lights_and_pbr_shader_options_bind_group"),
+            });
 
         let bones_buffer = GpuBuffer::empty(
             &base.device,
@@ -1819,6 +1939,12 @@ impl Renderer {
         );
 
         let unlit_instances_buffer = GpuBuffer::empty(
+            &base.device,
+            std::mem::size_of::<GpuUnlitMeshInstance>(),
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
+
+        let transparent_instances_buffer = GpuBuffer::empty(
             &base.device,
             std::mem::size_of::<GpuUnlitMeshInstance>(),
             wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
@@ -1882,6 +2008,35 @@ impl Renderer {
                 label: Some("bones_and_unlit_instances_bind_group"),
             });
 
+        let bones_and_transparent_instances_bind_group =
+            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &base.bones_and_instances_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: bones_buffer.src(),
+                            offset: 0,
+                            size: NonZeroU64::new(bones_buffer.length_bytes().try_into().unwrap()),
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: transparent_instances_buffer.src(),
+                            offset: 0,
+                            size: NonZeroU64::new(
+                                transparent_instances_buffer
+                                    .length_bytes()
+                                    .try_into()
+                                    .unwrap(),
+                            ),
+                        }),
+                    },
+                ],
+                label: Some("bones_and_transparent_instances_bind_group"),
+            });
+
         let bones_and_wireframe_instances_bind_group =
             base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &base.bones_and_instances_bind_group_layout,
@@ -1911,16 +2066,22 @@ impl Renderer {
                 label: Some("bones_and_wireframe_instances_bind_group"),
             });
 
-        let point_shadow_map_textures = Texture::create_cube_depth_texture_array(
+        let point_shadow_map_textures = Texture::create_depth_texture_array(
             &base,
-            1024,
+            (
+                6 * POINT_LIGHT_SHADOW_MAP_RESOLUTION,
+                POINT_LIGHT_SHADOW_MAP_RESOLUTION,
+            ),
             Some("point_shadow_map_texture"),
             2, // TODO: this currently puts on hard limit on number of point lights at a time
         );
 
         let directional_shadow_map_textures = Texture::create_depth_texture_array(
             &base,
-            2048,
+            (
+                DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION,
+                DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION,
+            ),
             Some("directional_shadow_map_texture"),
             2, // TODO: this currently puts on hard limit on number of directional lights at a time
         );
@@ -2012,6 +2173,7 @@ impl Renderer {
         let mut data = RendererPublicData {
             binded_pbr_meshes: vec![],
             binded_unlit_meshes: vec![],
+            binded_transparent_meshes: vec![],
             binded_wireframe_meshes: vec![],
             textures: vec![],
 
@@ -2021,10 +2183,18 @@ impl Renderer {
             bloom_threshold: INITIAL_BLOOM_THRESHOLD,
             bloom_ramp_size: INITIAL_BLOOM_RAMP_SIZE,
             render_scale: initial_render_scale,
-            enable_bloom: true,
+            enable_bloom: false,
             enable_shadows: true,
             enable_wireframe_mode: false,
             draw_node_bounding_spheres: false,
+            draw_culling_frustum: false,
+            draw_point_light_culling_frusta: false,
+
+            enable_soft_shadows,
+            shadow_bias,
+            soft_shadow_factor,
+            enable_shadow_debug,
+            soft_shadow_grid_dims,
 
             ui_overlay,
         };
@@ -2032,11 +2202,19 @@ impl Renderer {
         let box_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &cube_mesh)
             .try_into()
             .unwrap();
+        let transparent_box_mesh_index =
+            Self::bind_basic_transparent_mesh(&base, &mut data, &cube_mesh)
+                .try_into()
+                .unwrap();
 
         let sphere_mesh = BasicMesh::new("./src/models/sphere.obj").unwrap();
         let sphere_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &sphere_mesh)
             .try_into()
             .unwrap();
+        let transparent_sphere_mesh_index =
+            Self::bind_basic_transparent_mesh(&base, &mut data, &sphere_mesh)
+                .try_into()
+                .unwrap();
 
         let plane_mesh = BasicMesh::new("./src/models/plane.obj").unwrap();
         let plane_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &plane_mesh)
@@ -2060,16 +2238,22 @@ impl Renderer {
                     animated_bone_transforms: vec![],
                     identity_slice: (0, 0),
                 },
-                all_pbr_instances: ChunkedBuffer::empty(),
-                all_unlit_instances: ChunkedBuffer::empty(),
-                all_wireframe_instances: ChunkedBuffer::empty(),
-                debug_nodes: vec![],
+                all_pbr_instances: ChunkedBuffer::new(),
+                all_pbr_instances_culling_masks: vec![],
+                all_unlit_instances: ChunkedBuffer::new(),
+                all_transparent_instances: ChunkedBuffer::new(),
+                all_wireframe_instances: ChunkedBuffer::new(),
+                debug_node_bounding_spheres_nodes: vec![],
+                debug_culling_frustum_nodes: vec![],
+                debug_culling_frustum_mesh_index: None,
 
                 bloom_threshold_cleared: true,
+                frustum_culling_lock: CullingFrustumLock::None,
 
-                lights_bind_group,
+                lights_and_pbr_shader_options_bind_group,
                 bones_and_pbr_instances_bind_group,
                 bones_and_unlit_instances_bind_group,
+                bones_and_transparent_instances_bind_group,
                 bones_and_wireframe_instances_bind_group,
 
                 environment_textures_bind_group,
@@ -2080,9 +2264,11 @@ impl Renderer {
 
                 point_lights_buffer,
                 directional_lights_buffer,
+                pbr_shader_options_buffer,
                 bones_buffer,
                 pbr_instances_buffer,
                 unlit_instances_buffer,
+                transparent_instances_buffer,
                 wireframe_instances_buffer,
 
                 point_shadow_map_textures,
@@ -2097,6 +2283,7 @@ impl Renderer {
 
             mesh_pipeline,
             unlit_mesh_pipeline,
+            transparent_mesh_pipeline,
             wireframe_pipeline,
             skybox_pipeline,
             tone_mapping_pipeline,
@@ -2107,7 +2294,9 @@ impl Renderer {
             bloom_blur_pipeline,
 
             box_mesh_index,
+            transparent_box_mesh_index,
             sphere_mesh_index,
+            transparent_sphere_mesh_index,
             plane_mesh_index,
         };
 
@@ -2133,6 +2322,48 @@ impl Renderer {
         });
 
         unlit_mesh_index
+    }
+
+    pub fn bind_basic_transparent_mesh(
+        base: &BaseRenderer,
+        data: &mut RendererPublicData,
+        mesh: &BasicMesh,
+    ) -> usize {
+        let geometry_buffers = Self::bind_geometry_buffers_for_basic_mesh(base, mesh);
+
+        data.binded_transparent_meshes.push(geometry_buffers);
+        let transparent_mesh_index = data.binded_transparent_meshes.len() - 1;
+
+        let wireframe_index_buffer = Self::make_wireframe_index_buffer_for_basic_mesh(base, mesh);
+        data.binded_wireframe_meshes.push(BindedWireframeMesh {
+            source_mesh_type: MeshType::Transparent,
+            source_mesh_index: transparent_mesh_index,
+            index_buffer: wireframe_index_buffer,
+            index_buffer_format: wgpu::IndexFormat::Uint16,
+        });
+
+        transparent_mesh_index
+    }
+
+    pub fn unbind_transparent_mesh(data: &mut RendererPublicData, mesh_index: usize) {
+        let geometry_buffers = &data.binded_transparent_meshes[mesh_index];
+        let wireframe_mesh = data
+            .binded_wireframe_meshes
+            .iter()
+            .find(
+                |BindedWireframeMesh {
+                     source_mesh_type,
+                     source_mesh_index,
+                     ..
+                 }| {
+                    *source_mesh_type == MeshType::Transparent && *source_mesh_index == mesh_index
+                },
+            )
+            .unwrap();
+
+        geometry_buffers.vertex_buffer.destroy();
+        geometry_buffers.index_buffer.destroy();
+        wireframe_mesh.index_buffer.destroy();
     }
 
     // returns index of mesh in the RenderScene::binded_pbr_meshes list
@@ -2428,31 +2659,40 @@ impl Renderer {
         ];
     }
 
-    pub fn clear_debug_nodes(private_data: &mut RendererPrivateData, scene: &mut Scene) {
-        for node_id in private_data.debug_nodes.iter().copied() {
-            scene.remove_node(node_id);
-        }
-        private_data.debug_nodes = Vec::new();
-    }
-
+    #[profiling::function]
     pub fn add_debug_nodes(
+        &self,
         data: &mut RendererPublicData,
         private_data: &mut RendererPrivateData,
         game_state: &mut GameState,
-        sphere_mesh_index: i32,
+        culling_frustum_focal_point: Vec3,
+        culling_frustum_forward_vector: Vec3,
     ) {
-        if !data.draw_node_bounding_spheres {
-            return;
-        }
-
         let scene = &mut game_state.scene;
 
+        for node_id in private_data
+            .debug_node_bounding_spheres_nodes
+            .iter()
+            .copied()
+        {
+            scene.remove_node(node_id);
+        }
+        private_data.debug_node_bounding_spheres_nodes.clear();
+
+        for node_id in private_data.debug_culling_frustum_nodes.iter().copied() {
+            scene.remove_node(node_id);
+        }
+        private_data.debug_culling_frustum_nodes.clear();
+
+        if let Some(mesh_index) = private_data.debug_culling_frustum_mesh_index.take() {
+            Self::unbind_transparent_mesh(data, mesh_index);
+        }
+
         if data.draw_node_bounding_spheres {
-            // super slow, but who cares for now
-            let nodes: Vec<_> = scene.nodes().cloned().collect();
-            for node in nodes {
-                if let Some(bounding_sphere) = scene.get_node_bounding_sphere(node.id(), data) {
-                    private_data.debug_nodes.push(
+            let node_ids: Vec<_> = scene.nodes().map(|node| node.id()).collect();
+            for node_id in node_ids {
+                if let Some(bounding_sphere) = scene.get_node_bounding_sphere(node_id, data) {
+                    private_data.debug_node_bounding_spheres_nodes.push(
                         scene
                             .add_node(
                                 GameNodeDescBuilder::new()
@@ -2461,15 +2701,19 @@ impl Renderer {
                                             .scale(
                                                 bounding_sphere.radius * Vec3::new(1.0, 1.0, 1.0),
                                             )
-                                            .position(bounding_sphere.origin)
+                                            .position(bounding_sphere.center)
                                             .build(),
                                     )
                                     .mesh(Some(GameNodeMesh {
-                                        mesh_type: GameNodeMeshType::Unlit {
-                                            color: Vec3::new(0.0, 1.0, 0.0),
+                                        mesh_type: GameNodeMeshType::Transparent {
+                                            color: Vec4::new(0.0, 1.0, 0.0, 0.1),
+                                            premultiplied_alpha: false,
                                         },
-                                        mesh_indices: vec![sphere_mesh_index.try_into().unwrap()],
-                                        wireframe: true,
+                                        mesh_indices: vec![self
+                                            .transparent_sphere_mesh_index
+                                            .try_into()
+                                            .unwrap()],
+                                        wireframe: false,
                                         cullable: false,
                                     }))
                                     .build(),
@@ -2480,8 +2724,160 @@ impl Renderer {
             }
         }
 
-        // scene.recompute_node_transforms();
-        scene.recompute_global_node_transforms();
+        if data.draw_culling_frustum {
+            // shrink the frustum along the view direction for the debug view
+            let near_plane_distance = 3.0;
+            let far_plane_distance = 500.0;
+
+            let window_size = *self.base.window_size.lock().unwrap();
+            let aspect_ratio = window_size.width as f32 / window_size.height as f32;
+
+            let culling_frustum_basic_mesh = Frustum::make_frustum_mesh(
+                culling_frustum_focal_point,
+                culling_frustum_forward_vector,
+                near_plane_distance,
+                far_plane_distance,
+                deg_to_rad(FOV_Y_DEG),
+                aspect_ratio,
+            );
+
+            private_data.debug_culling_frustum_mesh_index = Some(
+                Self::bind_basic_transparent_mesh(&self.base, data, &culling_frustum_basic_mesh),
+            );
+
+            let culling_frustum_mesh = GameNodeMesh {
+                mesh_type: GameNodeMeshType::Transparent {
+                    color: Vec4::new(1.0, 0.0, 0.0, 0.1),
+                    premultiplied_alpha: false,
+                },
+                mesh_indices: vec![private_data.debug_culling_frustum_mesh_index.unwrap()],
+                wireframe: false,
+                cullable: false,
+            };
+
+            let culling_frustum_mesh_wf = GameNodeMesh {
+                wireframe: true,
+                ..culling_frustum_mesh.clone()
+            };
+
+            private_data.debug_culling_frustum_nodes.push(
+                scene
+                    .add_node(
+                        GameNodeDescBuilder::new()
+                            .mesh(Some(culling_frustum_mesh))
+                            .build(),
+                    )
+                    .id(),
+            );
+            private_data.debug_culling_frustum_nodes.push(
+                scene
+                    .add_node(
+                        GameNodeDescBuilder::new()
+                            .mesh(Some(culling_frustum_mesh_wf))
+                            .build(),
+                    )
+                    .id(),
+            );
+        }
+
+        if data.draw_point_light_culling_frusta {
+            for point_light in &game_state.point_lights {
+                for controlled_direction in build_cubemap_face_camera_view_directions() {
+                    // shrink the frustum along the view direction for the debug view
+                    let near_plane_distance = 0.5;
+                    let far_plane_distance = 5.0;
+
+                    let culling_frustum_basic_mesh = Frustum::make_frustum_mesh(
+                        scene
+                            .get_global_transform_for_node(point_light.node_id)
+                            .position(),
+                        controlled_direction.to_vector(),
+                        near_plane_distance,
+                        far_plane_distance,
+                        deg_to_rad(90.0),
+                        1.0,
+                    );
+
+                    private_data.debug_culling_frustum_mesh_index =
+                        Some(Self::bind_basic_transparent_mesh(
+                            &self.base,
+                            data,
+                            &culling_frustum_basic_mesh,
+                        ));
+
+                    let culling_frustum_mesh = GameNodeMesh {
+                        mesh_type: GameNodeMeshType::Transparent {
+                            color: Vec4::new(1.0, 0.0, 0.0, 0.1),
+                            premultiplied_alpha: false,
+                        },
+                        mesh_indices: vec![private_data.debug_culling_frustum_mesh_index.unwrap()],
+                        wireframe: false,
+                        cullable: false,
+                    };
+
+                    let culling_frustum_mesh_wf = GameNodeMesh {
+                        wireframe: true,
+                        ..culling_frustum_mesh.clone()
+                    };
+
+                    private_data.debug_culling_frustum_nodes.push(
+                        scene
+                            .add_node(
+                                GameNodeDescBuilder::new()
+                                    .mesh(Some(culling_frustum_mesh))
+                                    .build(),
+                            )
+                            .id(),
+                    );
+                    private_data.debug_culling_frustum_nodes.push(
+                        scene
+                            .add_node(
+                                GameNodeDescBuilder::new()
+                                    .mesh(Some(culling_frustum_mesh_wf))
+                                    .build(),
+                            )
+                            .id(),
+                    );
+                }
+            }
+        }
+    }
+
+    pub fn set_culling_frustum_lock(
+        &self,
+        game_state: &GameState,
+        lock_mode: CullingFrustumLockMode,
+    ) {
+        let mut private_data_guard = self.private_data.lock().unwrap();
+
+        if CullingFrustumLockMode::from(private_data_guard.frustum_culling_lock.clone())
+            == lock_mode
+        {
+            return;
+        }
+
+        let window_size = *self.base.window_size.lock().unwrap();
+        let aspect_ratio = window_size.width as f32 / window_size.height as f32;
+
+        let position = match private_data_guard.frustum_culling_lock {
+            CullingFrustumLock::Full((_, locked_position, _)) => locked_position,
+            CullingFrustumLock::FocalPoint(locked_position) => locked_position,
+            CullingFrustumLock::None => game_state
+                .player_controller
+                .position(&game_state.physics_state),
+        };
+
+        private_data_guard.frustum_culling_lock = match lock_mode {
+            CullingFrustumLockMode::Full => CullingFrustumLock::Full((
+                game_state
+                    .player_controller
+                    .view_frustum_with_position(aspect_ratio, position),
+                position,
+                game_state.player_controller.view_forward_vector(),
+            )),
+            CullingFrustumLockMode::FocalPoint => CullingFrustumLock::FocalPoint(position),
+            CullingFrustumLockMode::None => CullingFrustumLock::None,
+        };
     }
 
     pub fn render(
@@ -2512,6 +2908,85 @@ impl Renderer {
         )
     }
 
+    // culling mask is a bitmask where each bit corresponds to a frustum
+    // and the value of the bit represents whether or not the object
+    // is touching that frustum or not. the first bit represnts the main
+    // camera frustum, the subsequent bits represent the directional shadow
+    // mapping frusta and the rest of the bits represent the point light shadow
+    // mapping frusta, of which there are 6 per point light so 6 bits are used
+    // per point light.
+    fn get_node_culling_mask(
+        node: &GameNode,
+        data: &RendererPublicData,
+        game_state: &GameState,
+        camera_culling_frustum: &Frustum,
+        point_lights_frusta: &Vec<Option<Vec<Frustum>>>,
+    ) -> u32 {
+        assert!(1 + game_state.directional_lights.len() + point_lights_frusta.len() * 6 <= 32, 
+            "u32 can only store a max of 5 point lights, might be worth using a larger, might be worth using a larger bitvec or a Vec<bool> or something"
+        );
+
+        if node.mesh.is_none() {
+            return 0;
+        }
+
+        /* bounding boxes will be wrong for skinned meshes so we currently can't cull them */
+        if node.skin_index.is_some() || !node.mesh.as_ref().unwrap().cullable {
+            return u32::MAX;
+        }
+
+        let node_bounding_sphere = game_state
+            .scene
+            .get_node_bounding_sphere_opt(node.id(), data);
+
+        if node_bounding_sphere.is_none() {
+            return 0;
+        }
+
+        let node_bounding_sphere = node_bounding_sphere.unwrap();
+
+        let is_touching_frustum = |frustum: &Frustum| {
+            matches!(
+                frustum.sphere_intersection_test(node_bounding_sphere),
+                IntersectionResult::FullyContained | IntersectionResult::PartiallyIntersecting
+            )
+        };
+
+        let mut culling_mask = 0u32;
+
+        if is_touching_frustum(camera_culling_frustum) {
+            culling_mask |= 1u32;
+        }
+
+        let mut mask_pos = 1; // start at the second bit, first is reserved for camera
+
+        for _ in &game_state.directional_lights {
+            // TODO: add support for frustum culling directional lights shadow map gen?
+            culling_mask |= 2u32.pow(mask_pos);
+
+            mask_pos += 1;
+        }
+
+        for frusta in point_lights_frusta {
+            match frusta {
+                Some(frusta) => {
+                    for frustum in frusta {
+                        let is_touching_frustum = is_touching_frustum(frustum);
+                        if is_touching_frustum {
+                            culling_mask |= 2u32.pow(mask_pos);
+                        }
+                        mask_pos += 1;
+                    }
+                }
+                None => {
+                    mask_pos += 6;
+                }
+            }
+        }
+
+        culling_mask
+    }
+
     /// Prepare and send all data to gpu so it's ready to render
     #[profiling::function]
     fn update_internal(
@@ -2525,50 +3000,51 @@ impl Renderer {
     ) {
         data.ui_overlay.update(window, control_flow);
 
-        Self::clear_debug_nodes(private_data, &mut game_state.scene);
-
-        game_state.scene.recompute_global_node_transforms();
-
         let window_size = *base.window_size.lock().unwrap();
-        let camera_frustum = game_state.player_controller.frustum(
-            &game_state.physics_state,
-            window_size.width as f32 / window_size.height as f32,
+        let aspect_ratio = window_size.width as f32 / window_size.height as f32;
+        let camera_position = game_state
+            .player_controller
+            .position(&game_state.physics_state);
+        let camera_view_direction = game_state.player_controller.view_forward_vector();
+        let (culling_frustum, culling_frustum_focal_point, culling_frustum_forward_vector) =
+            match private_data.frustum_culling_lock {
+                CullingFrustumLock::Full(locked) => locked,
+                CullingFrustumLock::FocalPoint(locked_position) => (
+                    game_state
+                        .player_controller
+                        .view_frustum_with_position(aspect_ratio, locked_position),
+                    locked_position,
+                    camera_view_direction,
+                ),
+                CullingFrustumLock::None => (
+                    game_state
+                        .player_controller
+                        .view_frustum_with_position(aspect_ratio, camera_position),
+                    camera_position,
+                    camera_view_direction,
+                ),
+            };
+
+        self.add_debug_nodes(
+            data,
+            private_data,
+            game_state,
+            culling_frustum_focal_point,
+            culling_frustum_forward_vector,
         );
 
-        Self::add_debug_nodes(data, private_data, game_state, self.sphere_mesh_index);
+        // TODO: compute node bounding spheres here too?
+        game_state.scene.recompute_global_node_transforms();
 
-        let mut frustum_culled_node_list: Vec<GameNodeId> = Vec::new();
-        for node in game_state.scene.nodes() {
-            if node.mesh.is_none() {
-                continue;
-            }
-            /* bounding boxes will be wrong for skinned meshes so we currently can't cull them */
-            if node.skin_index.is_some() || !node.mesh.as_ref().unwrap().cullable {
-                frustum_culled_node_list.push(node.id());
-                continue;
-            }
-            if let Some(node_bounding_sphere) = game_state
-                .scene
-                .get_node_bounding_sphere_opt(node.id(), data)
-            {
-                match camera_frustum.aabb_intersection_test(node_bounding_sphere.aabb()) {
-                    IntersectionResult::FullyContained
-                    | IntersectionResult::PartiallyIntersecting => {
-                        frustum_culled_node_list.push(node.id());
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        let scene = &mut game_state.scene;
         let limits = &base.limits;
         let queue = &base.queue;
         let device = &base.device;
         let bones_and_instances_bind_group_layout = &base.bones_and_instances_bind_group_layout;
 
-        private_data.all_bone_transforms =
-            get_all_bone_data(scene, limits.min_storage_buffer_offset_alignment);
+        private_data.all_bone_transforms = get_all_bone_data(
+            &game_state.scene,
+            limits.min_storage_buffer_offset_alignment,
+        );
         let previous_bones_buffer_capacity_bytes = private_data.bones_buffer.capacity_bytes();
         let bones_buffer_changed_capacity = private_data.bones_buffer.write(
             device,
@@ -2593,10 +3069,32 @@ impl Renderer {
             usize,
             Vec<GpuWireframeMeshInstance>,
         > = HashMap::new();
+        // no instancing for transparent meshes to allow for sorting
+        let mut transparent_meshes: Vec<(usize, GpuTransparentMeshInstance, f32)> = Vec::new();
 
-        for node_id in frustum_culled_node_list {
-            let node = scene.get_node_unchecked(node_id);
-            let transform = Mat4::from(scene.get_global_transform_for_node_opt(node.id()));
+        let point_lights_frusta: Vec<Option<Vec<Frustum>>> = game_state
+            .point_lights
+            .iter()
+            .map(|point_light| {
+                game_state
+                    .scene
+                    .get_node(point_light.node_id)
+                    .map(|point_light_node| {
+                        build_cubemap_face_camera_frusta(
+                            point_light_node.transform.position(),
+                            POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
+                            POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
+                        )
+                    })
+            })
+            .collect();
+
+        for node in game_state.scene.nodes() {
+            let transform = Mat4::from(
+                game_state
+                    .scene
+                    .get_global_transform_for_node_opt(node.id()),
+            );
             if let Some(GameNodeMesh {
                 mesh_indices,
                 mesh_type,
@@ -2607,11 +3105,19 @@ impl Renderer {
                 for mesh_index in mesh_indices.iter().copied() {
                     match (mesh_type, data.enable_wireframe_mode, *wireframe) {
                         (GameNodeMeshType::Pbr { material_override }, false, false) => {
+                            let culling_mask = Self::get_node_culling_mask(
+                                node,
+                                data,
+                                game_state,
+                                &culling_frustum,
+                                &point_lights_frusta,
+                            );
                             let gpu_instance = GpuPbrMeshInstance::new(
                                 transform,
                                 material_override.unwrap_or_else(|| {
                                     data.binded_pbr_meshes[mesh_index].dynamic_pbr_params
                                 }),
+                                culling_mask,
                             );
                             match pbr_mesh_index_to_gpu_instances.entry(mesh_index) {
                                 Entry::Occupied(mut entry) => {
@@ -2623,11 +3129,32 @@ impl Renderer {
                             }
                         }
                         (mesh_type, is_wireframe_mode_on, is_node_wireframe) => {
-                            let color = match mesh_type {
+                            let (color, is_transparent) = match mesh_type {
                                 GameNodeMeshType::Unlit { color } => {
-                                    [color.x, color.y, color.z, 1.0]
+                                    ([color.x, color.y, color.z, 1.0], false)
+                                }
+                                GameNodeMeshType::Transparent {
+                                    color,
+                                    premultiplied_alpha,
+                                } => {
+                                    (
+                                        if *premultiplied_alpha {
+                                            [color.x, color.y, color.z, color.w]
+                                        } else {
+                                            // transparent pipeline requires alpha to be premultiplied.
+                                            [
+                                                color.w * color.x,
+                                                color.w * color.y,
+                                                color.w * color.z,
+                                                color.w,
+                                            ]
+                                        },
+                                        true,
+                                    )
                                 }
                                 GameNodeMeshType::Pbr { material_override } => {
+                                    // fancy logic for picking what the wireframe lines
+                                    // color will be by checking the pbr material
                                     let fallback_pbr_params =
                                         data.binded_pbr_meshes[mesh_index].dynamic_pbr_params;
                                     let (base_color_factor, emissive_factor) = material_override
@@ -2648,27 +3175,31 @@ impl Renderer {
                                     };
                                     let base_color_factor_arr: [f32; 4] = base_color_factor.into();
                                     let emissive_factor_arr: [f32; 3] = emissive_factor.into();
-                                    if should_take_color(&base_color_factor_arr[0..3]) {
-                                        [
-                                            base_color_factor.x,
-                                            base_color_factor.y,
-                                            base_color_factor.z,
-                                            base_color_factor.w,
-                                        ]
-                                    } else if should_take_color(&emissive_factor_arr) {
-                                        [
-                                            emissive_factor.x,
-                                            emissive_factor.y,
-                                            emissive_factor.z,
-                                            1.0,
-                                        ]
-                                    } else {
-                                        DEFAULT_WIREFRAME_COLOR
-                                    }
+                                    (
+                                        if should_take_color(&base_color_factor_arr[0..3]) {
+                                            [
+                                                base_color_factor.x,
+                                                base_color_factor.y,
+                                                base_color_factor.z,
+                                                base_color_factor.w,
+                                            ]
+                                        } else if should_take_color(&emissive_factor_arr) {
+                                            [
+                                                emissive_factor.x,
+                                                emissive_factor.y,
+                                                emissive_factor.z,
+                                                1.0,
+                                            ]
+                                        } else {
+                                            DEFAULT_WIREFRAME_COLOR
+                                        },
+                                        false,
+                                    )
                                 }
                             };
 
                             if is_wireframe_mode_on || is_node_wireframe {
+                                // TODO: this search is slow.. but it's only for wireframe mode, so who cares.. ?
                                 let wireframe_mesh_index = data
                                     .binded_wireframe_meshes
                                     .iter()
@@ -2678,7 +3209,8 @@ impl Renderer {
                                             && MeshType::from(*mesh_type)
                                                 == wireframe_mesh.source_mesh_type
                                     })
-                                    .unwrap()
+                                    .unwrap_or_else(|| panic!("Attempted to draw mesh {:?} in wireframe mode without a corresponding wireframe object",
+                                        mesh_index))
                                     .0;
                                 let gpu_instance = GpuWireframeMeshInstance {
                                     color,
@@ -2694,6 +3226,25 @@ impl Renderer {
                                         entry.insert(vec![gpu_instance]);
                                     }
                                 }
+                            } else if is_transparent {
+                                let gpu_instance = GpuTransparentMeshInstance {
+                                    color,
+                                    model_transform: transform,
+                                };
+                                let (scale, _, translation) =
+                                    transform.to_scale_rotation_translation();
+                                let aabb_world_space = data.binded_transparent_meshes[mesh_index]
+                                    .bounding_box
+                                    .scale_translate(scale, translation);
+                                let closest_point_to_player =
+                                    aabb_world_space.find_closest_surface_point(camera_position);
+                                let distance_from_player =
+                                    closest_point_to_player.distance(camera_position);
+                                transparent_meshes.push((
+                                    mesh_index,
+                                    gpu_instance,
+                                    distance_from_player,
+                                ));
                             } else {
                                 let gpu_instance = GpuUnlitMeshInstance {
                                     color,
@@ -2716,7 +3267,21 @@ impl Renderer {
 
         let min_storage_buffer_offset_alignment = base.limits.min_storage_buffer_offset_alignment;
 
-        private_data.all_pbr_instances = ChunkedBuffer::new(
+        private_data.all_pbr_instances_culling_masks.clear();
+
+        for instances in pbr_mesh_index_to_gpu_instances.values() {
+            // we only have one culling mask per chunk of instances,
+            // meaning that instances can't be culled individually
+            let mut combined_culling_mask = 0u32;
+            for instance in instances {
+                combined_culling_mask |= instance.culling_mask;
+            }
+            private_data
+                .all_pbr_instances_culling_masks
+                .push(combined_culling_mask);
+        }
+
+        private_data.all_pbr_instances.replace(
             pbr_mesh_index_to_gpu_instances.into_iter(),
             min_storage_buffer_offset_alignment as usize,
         );
@@ -2739,7 +3304,7 @@ impl Renderer {
             ));
         }
 
-        private_data.all_unlit_instances = ChunkedBuffer::new(
+        private_data.all_unlit_instances.replace(
             unlit_mesh_index_to_gpu_instances.into_iter(),
             min_storage_buffer_offset_alignment as usize,
         );
@@ -2762,7 +3327,36 @@ impl Renderer {
             ));
         }
 
-        private_data.all_wireframe_instances = ChunkedBuffer::new(
+        // draw furthest transparent meshes first
+        transparent_meshes.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
+
+        private_data.all_transparent_instances.replace(
+            transparent_meshes
+                .into_iter()
+                .map(|(mesh_index, instance, _)| (mesh_index, vec![instance])),
+            min_storage_buffer_offset_alignment as usize,
+        );
+
+        let previous_transparent_instances_buffer_capacity_bytes =
+            private_data.transparent_instances_buffer.capacity_bytes();
+        let transparent_instances_buffer_changed_capacity =
+            private_data.transparent_instances_buffer.write(
+                device,
+                queue,
+                private_data.all_transparent_instances.buffer(),
+            );
+
+        if transparent_instances_buffer_changed_capacity {
+            logger_log(&format!(
+                "Resized transparent instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
+                previous_transparent_instances_buffer_capacity_bytes,
+                private_data.transparent_instances_buffer.capacity_bytes(),
+                private_data.transparent_instances_buffer.length_bytes(),
+                private_data.all_transparent_instances.buffer().len(),
+            ));
+        }
+
+        private_data.all_wireframe_instances.replace(
             wireframe_mesh_index_to_gpu_instances.into_iter(),
             min_storage_buffer_offset_alignment as usize,
         );
@@ -2845,6 +3439,39 @@ impl Renderer {
                 label: Some("bones_and_unlit_instances_bind_group"),
             });
 
+        private_data.bones_and_transparent_instances_bind_group =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: bones_and_instances_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: private_data.bones_buffer.src(),
+                            offset: 0,
+                            size: NonZeroU64::new(
+                                private_data.bones_buffer.length_bytes().try_into().unwrap(),
+                            ),
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: private_data.transparent_instances_buffer.src(),
+                            offset: 0,
+                            size: NonZeroU64::new(
+                                (private_data
+                                    .all_transparent_instances
+                                    .biggest_chunk_length()
+                                    * private_data.transparent_instances_buffer.stride())
+                                .try_into()
+                                .unwrap(),
+                            ),
+                        }),
+                    },
+                ],
+                label: Some("bones_and_transparent_instances_bind_group"),
+            });
+
         private_data.bones_and_wireframe_instances_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: bones_and_instances_bind_group_layout,
@@ -2878,6 +3505,7 @@ impl Renderer {
 
         let _total_instance_buffer_memory_usage = private_data.pbr_instances_buffer.length_bytes()
             + private_data.unlit_instances_buffer.length_bytes()
+            + private_data.transparent_instances_buffer.length_bytes()
             + private_data.wireframe_instances_buffer.length_bytes();
         let _total_index_buffer_memory_usage = data
             .binded_pbr_meshes
@@ -2888,6 +3516,11 @@ impl Renderer {
                     .iter()
                     .map(|mesh| mesh.index_buffer.length_bytes()),
             )
+            .chain(
+                data.binded_transparent_meshes
+                    .iter()
+                    .map(|mesh| mesh.index_buffer.length_bytes()),
+            )
             .reduce(|acc, val| acc + val);
         let _total_vertex_buffer_memory_usage = data
             .binded_pbr_meshes
@@ -2895,6 +3528,11 @@ impl Renderer {
             .map(|mesh| mesh.geometry_buffers.vertex_buffer.length_bytes())
             .chain(
                 data.binded_unlit_meshes
+                    .iter()
+                    .map(|mesh| mesh.vertex_buffer.length_bytes()),
+            )
+            .chain(
+                data.binded_transparent_meshes
                     .iter()
                     .map(|mesh| mesh.vertex_buffer.length_bytes()),
             )
@@ -2911,6 +3549,17 @@ impl Renderer {
             bytemuck::cast_slice(&make_directional_light_uniform_buffer(
                 &game_state.directional_lights,
             )),
+        );
+        queue.write_buffer(
+            &private_data.pbr_shader_options_buffer,
+            0,
+            bytemuck::cast_slice(&[make_pbr_shader_options_uniform_buffer(
+                data.enable_soft_shadows,
+                data.shadow_bias,
+                data.soft_shadow_factor,
+                data.enable_shadow_debug,
+                data.soft_shadow_grid_dims,
+            )]),
         );
     }
 
@@ -2971,6 +3620,8 @@ impl Renderer {
                         &self.directional_shadow_map_pipeline,
                         view_proj_matrices,
                         true,
+                        2u32.pow((1 + light_index).try_into().unwrap()),
+                        None,
                     );
                 });
             (0..game_state.point_lights.len()).for_each(|light_index| {
@@ -2980,55 +3631,63 @@ impl Renderer {
                 {
                     build_cubemap_face_camera_views(
                         light_node.transform.position(),
-                        0.1,
-                        1000.0,
+                        POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
+                        POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
                         false,
                     )
                     .iter()
                     .copied()
                     .enumerate()
-                    .map(|(i, view_proj_matrices)| {
-                        (
-                            view_proj_matrices,
-                            private_data.point_shadow_map_textures.texture.create_view(
-                                &wgpu::TextureViewDescriptor {
-                                    dimension: Some(wgpu::TextureViewDimension::D2),
-                                    base_array_layer: (6 * light_index + i).try_into().unwrap(),
-                                    array_layer_count: Some(1),
-                                    ..Default::default()
+                    .for_each(|(face_index, face_view_proj_matrices)| {
+                        let culling_mask = 2u32.pow(
+                            (1 + game_state.directional_lights.len()
+                                + light_index * 6
+                                + face_index)
+                                .try_into()
+                                .unwrap(),
+                        );
+                        let face_texture_view = private_data
+                            .point_shadow_map_textures
+                            .texture
+                            .create_view(&wgpu::TextureViewDescriptor {
+                                dimension: Some(wgpu::TextureViewDimension::D2),
+                                base_array_layer: light_index.try_into().unwrap(),
+                                array_layer_count: Some(1),
+                                ..Default::default()
+                            });
+                        let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
+                            label: Some("Point light shadow map"),
+                            color_attachments: &[],
+                            depth_stencil_attachment: Some(
+                                wgpu::RenderPassDepthStencilAttachment {
+                                    view: &face_texture_view,
+                                    depth_ops: Some(wgpu::Operations {
+                                        load: if face_index == 0 {
+                                            wgpu::LoadOp::Clear(1.0)
+                                        } else {
+                                            wgpu::LoadOp::Load
+                                        },
+                                        store: true,
+                                    }),
+                                    stencil_ops: None,
                                 },
                             ),
-                        )
-                    })
-                    .for_each(
-                        |(face_view_proj_matrices, face_texture_view)| {
-                            let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
-                                label: Some("Point light shadow map"),
-                                color_attachments: &[],
-                                depth_stencil_attachment: Some(
-                                    wgpu::RenderPassDepthStencilAttachment {
-                                        view: &face_texture_view,
-                                        depth_ops: Some(wgpu::Operations {
-                                            load: wgpu::LoadOp::Clear(1.0),
-                                            store: true,
-                                        }),
-                                        stencil_ops: None,
-                                    },
-                                ),
-                            };
-                            Self::render_pbr_meshes(
-                                base,
-                                data,
-                                private_data,
-                                profiler,
-                                &mut encoder,
-                                &shadow_render_pass_desc,
-                                &self.point_shadow_map_pipeline,
-                                face_view_proj_matrices,
-                                true,
-                            );
-                        },
-                    );
+                        };
+
+                        Self::render_pbr_meshes(
+                            base,
+                            data,
+                            private_data,
+                            profiler,
+                            &mut encoder,
+                            &shadow_render_pass_desc,
+                            &self.point_shadow_map_pipeline,
+                            face_view_proj_matrices,
+                            true,
+                            culling_mask,
+                            Some(face_index.try_into().unwrap()),
+                        );
+                    });
                 }
             });
         }
@@ -3084,6 +3743,8 @@ impl Renderer {
             &self.mesh_pipeline,
             main_camera_data,
             false,
+            1, // use main camera culling mask
+            None,
         );
 
         {
@@ -3116,7 +3777,11 @@ impl Renderer {
                     bytemuck::cast_slice(&[MeshShaderCameraRaw::from(main_camera_data)]),
                 );
 
-                render_pass.set_bind_group(0, &private_data.lights_bind_group, &[]);
+                render_pass.set_bind_group(
+                    0,
+                    &private_data.lights_and_pbr_shader_options_bind_group,
+                    &[],
+                );
                 for unlit_instance_chunk in private_data.all_unlit_instances.chunks() {
                     let binded_unlit_mesh_index = unlit_instance_chunk.id;
                     let instances_buffer_start_index = unlit_instance_chunk.start_index as u32;
@@ -3182,6 +3847,10 @@ impl Renderer {
                         }
                         MeshType::Unlit => (
                             &data.binded_unlit_meshes[*source_mesh_index].vertex_buffer,
+                            0,
+                        ),
+                        MeshType::Transparent => (
+                            &data.binded_transparent_meshes[*source_mesh_index].vertex_buffer,
                             0,
                         ),
                     };
@@ -3281,7 +3950,7 @@ impl Renderer {
                     i % 2 == 0,
                 );
             });
-        } else {
+        } else if !private_data.bloom_threshold_cleared {
             // clear bloom texture
             let label = "Bloom clear";
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -3373,6 +4042,73 @@ impl Renderer {
         }
 
         {
+            let label = "Transparent";
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some(label),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &private_data.tone_mapping_texture.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &private_data.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
+            });
+
+            wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
+                render_pass.set_pipeline(&self.transparent_mesh_pipeline);
+                render_pass.set_push_constants(
+                    wgpu::ShaderStages::VERTEX,
+                    0,
+                    bytemuck::cast_slice(&[MeshShaderCameraRaw::from(main_camera_data)]),
+                );
+
+                render_pass.set_bind_group(
+                    0,
+                    &private_data.lights_and_pbr_shader_options_bind_group,
+                    &[],
+                );
+
+                for transparent_instance_chunk in private_data.all_transparent_instances.chunks() {
+                    let binded_transparent_mesh_index = transparent_instance_chunk.id;
+                    let instances_buffer_start_index =
+                        transparent_instance_chunk.start_index as u32;
+                    let instance_count = (transparent_instance_chunk.end_index
+                        - transparent_instance_chunk.start_index)
+                        / private_data.all_transparent_instances.stride();
+
+                    let geometry_buffers =
+                        &data.binded_transparent_meshes[binded_transparent_mesh_index];
+
+                    render_pass.set_bind_group(
+                        1,
+                        &private_data.bones_and_transparent_instances_bind_group,
+                        &[0, instances_buffer_start_index],
+                    );
+                    render_pass
+                        .set_vertex_buffer(0, geometry_buffers.vertex_buffer.src().slice(..));
+                    render_pass.set_index_buffer(
+                        geometry_buffers.index_buffer.src().slice(..),
+                        geometry_buffers.index_buffer_format,
+                    );
+                    render_pass.draw_indexed(
+                        0..geometry_buffers.index_buffer.length() as u32,
+                        0,
+                        0..instance_count as u32,
+                    );
+                }
+            });
+        }
+
+        {
             let label = "Surface blit";
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some(label),
@@ -3400,7 +4136,7 @@ impl Renderer {
             });
         }
 
-        // TODO: pass a difference encoder to the ui overlay so it can be profiled
+        // TODO: pass a separate encoder to the ui overlay so it can be profiled
         data.ui_overlay
             .render(&base.device, &mut encoder, &surface_texture_view);
 
@@ -3428,10 +4164,23 @@ impl Renderer {
         pipeline: &'a wgpu::RenderPipeline,
         camera: ShaderCameraData,
         is_shadow: bool,
+        culling_mask: u32,
+        cubemap_face_index: Option<u32>,
     ) {
         let device = &base.device;
 
         let mut render_pass = encoder.begin_render_pass(render_pass_descriptor);
+
+        if let Some(cubemap_face_index) = cubemap_face_index {
+            render_pass.set_viewport(
+                (cubemap_face_index * POINT_LIGHT_SHADOW_MAP_RESOLUTION) as f32,
+                0.0,
+                POINT_LIGHT_SHADOW_MAP_RESOLUTION as f32,
+                POINT_LIGHT_SHADOW_MAP_RESOLUTION as f32,
+                0.0,
+                1.0,
+            )
+        }
 
         wgpu_profiler!(
             render_pass_descriptor
@@ -3447,7 +4196,12 @@ impl Renderer {
                     0,
                     bytemuck::cast_slice(&[MeshShaderCameraRaw::from(camera)]),
                 );
-                render_pass.set_bind_group(0, &private_data.lights_bind_group, &[]);
+
+                render_pass.set_bind_group(
+                    0,
+                    &private_data.lights_and_pbr_shader_options_bind_group,
+                    &[],
+                );
                 if !is_shadow {
                     render_pass.set_bind_group(
                         1,
@@ -3455,7 +4209,16 @@ impl Renderer {
                         &[],
                     );
                 }
-                for pbr_instance_chunk in private_data.all_pbr_instances.chunks() {
+                for (pbr_instance_chunk_index, pbr_instance_chunk) in
+                    private_data.all_pbr_instances.chunks().iter().enumerate()
+                {
+                    if private_data.all_pbr_instances_culling_masks[pbr_instance_chunk_index]
+                        & culling_mask
+                        == 0
+                    {
+                        continue;
+                    }
+
                     let binded_pbr_mesh_index = pbr_instance_chunk.id;
                     let bone_transforms_buffer_start_index = private_data
                         .all_bone_transforms
