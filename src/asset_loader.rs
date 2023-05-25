@@ -160,7 +160,7 @@ impl AssetLoader {
                 .read_chunk((device_sample_rate as f32 * chunk_size_seconds) as usize)
             {
                 Ok((sound_data, reached_end_of_stream)) => {
-                    let sample_count = sound_data.0.len();
+                    // let sample_count = sound_data.0.len();
                     audio_manager
                         .lock()
                         .unwrap()
