@@ -1,10 +1,7 @@
 use std::fs::File;
 
 use anyhow::Result;
-use cpal::{
-    traits::{DeviceTrait, HostTrait, StreamTrait},
-    Stream,
-};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use glam::f32::Vec3;
 // use hound::{WavReader, WavSpec};
 use oddio::{
@@ -16,8 +13,8 @@ use symphonia::core::{
 };
 
 pub struct AudioStreams {
-    _spatial_scene_output_stream: Stream,
-    _mixer_output_stream: Stream,
+    _spatial_scene_output_stream: cpal::Stream,
+    _mixer_output_stream: cpal::Stream,
 }
 
 pub struct AudioManager {
@@ -30,9 +27,10 @@ pub struct AudioManager {
 }
 
 const CHANNEL_COUNT: usize = 2;
+pub const AUDIO_STREAM_BUFFER_LENGTH_SECONDS: f32 = 2.5;
 
-#[derive(Debug, Clone)]
-pub struct SoundData(Vec<[f32; CHANNEL_COUNT]>);
+#[derive(Debug, Clone, Default)]
+pub struct SoundData(pub Vec<[f32; CHANNEL_COUNT]>);
 
 pub struct Sound {
     volume: f32,
@@ -56,8 +54,12 @@ pub enum SoundSignalHandle {
     AmbientFixed {
         signal_handle: Handle<Stop<FixedGain<FramesSignal<[f32; 2]>>>>,
     },
+    Streamed {
+        signal_handle: Handle<Stop<Gain<oddio::Stream<[f32; 2]>>>>,
+    },
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum AudioFileFormat {
     Mp3,
     Wav,
@@ -74,6 +76,147 @@ pub struct SoundParams {
     pub initial_volume: f32,
     pub fixed_volume: bool,
     pub spacial_params: Option<SpacialParams>,
+    pub stream: bool,
+}
+
+pub struct AudioFileStreamer {
+    sample_rate: u32,
+    format_reader: Box<dyn symphonia::core::formats::FormatReader>,
+    decoder: Box<dyn symphonia::core::codecs::Decoder>,
+    track_id: u32,
+    track_sample_rate: Option<u32>,
+    file_path: String,
+}
+
+impl AudioFileStreamer {
+    pub fn new(
+        sample_rate: u32,
+        file_path: String,
+        file_format: Option<AudioFileFormat>,
+    ) -> anyhow::Result<Self> {
+        let src = File::open(&file_path)?;
+        let mss = MediaSourceStream::new(Box::new(src), Default::default());
+
+        let mut hint = Hint::new();
+        if let Some(file_format) = &file_format {
+            hint.with_extension(match file_format {
+                AudioFileFormat::Mp3 => "mp3",
+                AudioFileFormat::Wav => "wav",
+            });
+        }
+
+        let probed = symphonia::default::get_probe().format(
+            &hint,
+            mss,
+            &Default::default(),
+            &Default::default(),
+        )?;
+
+        let format_reader = probed.format;
+
+        let track = format_reader
+            .tracks()
+            .iter()
+            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+            .ok_or(anyhow::anyhow!("no supported audio tracks"))?;
+
+        let track_id = track.id;
+        let track_sample_rate = track.codec_params.sample_rate;
+
+        let decoder =
+            symphonia::default::get_codecs().make(&track.codec_params, &Default::default())?;
+
+        Ok(Self {
+            sample_rate,
+            format_reader,
+            decoder,
+            track_id,
+            track_sample_rate,
+            file_path,
+        })
+    }
+
+    /// chunk_size=0 to read the whole stream at once
+    pub fn read_chunk(&mut self, chunk_size: usize) -> Result<(SoundData, bool)> {
+        let mut samples_interleaved: Vec<f32> = vec![];
+
+        let reached_end_of_stream = loop {
+            let packet = match self.format_reader.next_packet() {
+                Ok(packet) => packet,
+                Err(symphonia::core::errors::Error::ResetRequired) => {
+                    // The track list has been changed. Re-examine it and create a new set of decoders,
+                    // then restart the decode loop. This is an advanced feature and it is not
+                    // unreasonable to consider this "the end." As of v0.5.0, the only usage of this is
+                    // for chained OGG physical streams.
+                    anyhow::bail!("idk");
+                }
+                Err(symphonia::core::errors::Error::IoError(err)) => {
+                    if err.kind() == std::io::ErrorKind::UnexpectedEof
+                        && err.to_string() == "end of stream"
+                    {
+                        break true;
+                    }
+                    anyhow::bail!(err);
+                }
+                Err(err) => {
+                    anyhow::bail!(err);
+                }
+            };
+
+            if packet.track_id() != self.track_id {
+                continue;
+            }
+
+            match self.decoder.decode(&packet) {
+                Ok(audio_buf) => {
+                    let mut sample_buf =
+                        SampleBuffer::<f32>::new(audio_buf.capacity() as u64, *audio_buf.spec());
+
+                    sample_buf.copy_interleaved_ref(audio_buf);
+
+                    let sample_count = sample_buf.samples().len();
+
+                    for sample in sample_buf.samples() {
+                        samples_interleaved.push(*sample);
+                    }
+
+                    if chunk_size != 0
+                        && (samples_interleaved.len() + sample_count) / CHANNEL_COUNT > chunk_size
+                    {
+                        break false;
+                    }
+                }
+                Err(symphonia::core::errors::Error::IoError(err)) => {
+                    if err.kind() == std::io::ErrorKind::UnexpectedEof
+                        && err.to_string() == "end of stream"
+                    {
+                        dbg!(err);
+                        break true;
+                    }
+                    anyhow::bail!(err);
+                }
+                Err(err) => {
+                    anyhow::bail!(err);
+                }
+            }
+        };
+
+        let mut samples: Vec<[f32; CHANNEL_COUNT]> = samples_interleaved
+            .chunks(CHANNEL_COUNT)
+            .map(|chunk| [chunk[0], chunk[1]])
+            .collect();
+
+        if Some(self.sample_rate) != self.track_sample_rate {
+            // resample the sound to the device sample rate using linear interpolation
+            samples = resample_linear(&samples, self.track_sample_rate.unwrap(), self.sample_rate);
+        }
+
+        Ok((SoundData(samples), reached_end_of_stream))
+    }
+
+    pub fn file_path(&self) -> &str {
+        &self.file_path
+    }
 }
 
 impl AudioManager {
@@ -134,123 +277,26 @@ impl AudioManager {
         ))
     }
 
-    pub fn decode_audio_file(
-        sample_rate: u32,
-        file_path: &str,
-        file_format: Option<AudioFileFormat>,
-    ) -> Result<SoundData> {
-        let src = File::open(file_path)?;
-        let mss = MediaSourceStream::new(Box::new(src), Default::default());
-
-        let mut hint = Hint::new();
-        if let Some(file_format) = file_format {
-            hint.with_extension(match file_format {
-                AudioFileFormat::Mp3 => "mp3",
-                AudioFileFormat::Wav => "wav",
-            });
-        }
-
-        let probed = symphonia::default::get_probe().format(
-            &hint,
-            mss,
-            &Default::default(),
-            &Default::default(),
-        )?;
-
-        let mut format = probed.format;
-
-        let track = format
-            .tracks()
-            .iter()
-            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-            .ok_or(anyhow::anyhow!("no supported audio tracks"))?;
-
-        let mut decoder =
-            symphonia::default::get_codecs().make(&track.codec_params, &Default::default())?;
-
-        let track_id = track.id;
-        let track_sample_rate = track.codec_params.sample_rate;
-
-        let mut samples_interleaved: Vec<f32> = vec![];
-
-        loop {
-            let packet = match format.next_packet() {
-                Ok(packet) => packet,
-                Err(symphonia::core::errors::Error::ResetRequired) => {
-                    // The track list has been changed. Re-examine it and create a new set of decoders,
-                    // then restart the decode loop. This is an advanced feature and it is not
-                    // unreasonable to consider this "the end." As of v0.5.0, the only usage of this is
-                    // for chained OGG physical streams.
-                    anyhow::bail!("idk");
-                }
-                Err(symphonia::core::errors::Error::IoError(err)) => {
-                    if err.kind() == std::io::ErrorKind::UnexpectedEof
-                        && err.to_string() == "end of stream"
-                    {
-                        break;
-                    }
-                    anyhow::bail!(err);
-                }
-                Err(err) => {
-                    anyhow::bail!(err);
-                }
-            };
-
-            if packet.track_id() != track_id {
-                continue;
-            }
-
-            match decoder.decode(&packet) {
-                Ok(audio_buf) => {
-                    let mut sample_buf =
-                        SampleBuffer::<f32>::new(audio_buf.capacity() as u64, *audio_buf.spec());
-
-                    sample_buf.copy_interleaved_ref(audio_buf);
-
-                    for sample in sample_buf.samples() {
-                        samples_interleaved.push(*sample);
-                    }
-                }
-                Err(symphonia::core::errors::Error::IoError(err)) => {
-                    if err.kind() == std::io::ErrorKind::UnexpectedEof
-                        && err.to_string() == "end of stream"
-                    {
-                        dbg!(err);
-                        break;
-                    }
-                    anyhow::bail!(err);
-                }
-                Err(err) => {
-                    anyhow::bail!(err);
-                }
-            }
-        }
-
-        let mut samples: Vec<[f32; CHANNEL_COUNT]> = samples_interleaved
-            .chunks(CHANNEL_COUNT)
-            .map(|chunk| [chunk[0], chunk[1]])
-            .collect();
-
-        if Some(sample_rate) != track_sample_rate {
-            // resample the sound to the device sample rate using linear interpolation
-            samples = resample_linear(&samples, track_sample_rate.unwrap(), sample_rate);
-        }
-
-        Ok(SoundData(samples))
-    }
-
     pub fn get_signal(
         sound_data: &SoundData,
         params: SoundParams,
         device_sample_rate: u32,
-    ) -> SoundSignal {
-        let SoundParams { spacial_params, .. } = params;
+    ) -> Option<SoundSignal> {
+        let SoundParams {
+            spacial_params,
+            stream,
+            ..
+        } = params;
 
         let SoundData(samples) = sound_data;
 
+        if stream {
+            return None;
+        }
+
         let channels = samples[0].len();
 
-        match spacial_params {
+        Some(match spacial_params {
             Some(SpacialParams { .. }) => {
                 let signal = FramesSignal::from(oddio::Frames::from_iter(
                     device_sample_rate,
@@ -268,18 +314,24 @@ impl AudioManager {
                 ));
                 SoundSignal::Stereo { signal }
             }
-        }
+        })
     }
 
     pub fn add_sound(
         &mut self,
         sound_data: SoundData,
         params: SoundParams,
-        signal: SoundSignal,
+        signal: Option<SoundSignal>,
     ) -> usize {
         let sound = Sound::new(self, sound_data, params, signal);
         self.sounds.push(Some(sound));
         self.sounds.len() - 1
+    }
+
+    pub fn write_stream_data(&mut self, sound_index: usize, sound_data: SoundData) {
+        if let Some(sound) = self.sounds[sound_index].as_mut() {
+            sound.write_stream_data(sound_data);
+        }
     }
 
     pub fn play_sound(&mut self, sound_index: usize) {
@@ -288,6 +340,7 @@ impl AudioManager {
         }
     }
 
+    // TODO: can't reload music. should probably separate sound and music.
     pub fn reload_sound(&mut self, sound_index: usize, params: SoundParams) {
         if let Some(sound) = self.sounds[sound_index].take() {
             let signal = Self::get_signal(&sound.data, params.clone(), self.device_sample_rate);
@@ -346,21 +399,23 @@ impl Sound {
         audio_manager: &mut AudioManager,
         sound_data: SoundData,
         params: SoundParams,
-        signal: SoundSignal,
+        signal: Option<SoundSignal>,
     ) -> Self {
         let SoundParams {
             initial_volume,
             fixed_volume,
             spacial_params,
+            stream,
         } = params;
 
-        let mut sound = match (spacial_params, signal) {
+        let mut sound = match (spacial_params, signal, stream) {
             (
                 Some(SpacialParams {
                     initial_position,
                     initial_velocity,
                 }),
-                SoundSignal::Mono { signal },
+                Some(SoundSignal::Mono { signal }),
+                false,
             ) => {
                 let signal = Gain::new(signal);
 
@@ -388,7 +443,7 @@ impl Sound {
                     data: sound_data,
                 }
             }
-            (None, SoundSignal::Stereo { signal }) => {
+            (None, Some(SoundSignal::Stereo { signal }), false) => {
                 if fixed_volume {
                     let volume_amplitude_ratio =
                         (audio_manager.master_volume * initial_volume).powf(2.0);
@@ -420,6 +475,25 @@ impl Sound {
                     sound
                 }
             }
+            (None, None, true) => {
+                let signal = Gain::new(oddio::Stream::new(
+                    audio_manager.device_sample_rate,
+                    (audio_manager.device_sample_rate as f32 * AUDIO_STREAM_BUFFER_LENGTH_SECONDS)
+                        as usize,
+                ));
+                let signal_handle = audio_manager
+                    .mixer_handle
+                    .control::<Mixer<_>, _>()
+                    .play(signal);
+                let mut sound = Sound {
+                    is_playing: true,
+                    volume: initial_volume,
+                    signal_handle: SoundSignalHandle::Streamed { signal_handle },
+                    data: sound_data,
+                };
+                sound.set_volume(audio_manager.master_volume, initial_volume);
+                sound
+            }
             _ => {
                 panic!("Signal didn't match spatial params");
             }
@@ -427,6 +501,15 @@ impl Sound {
 
         sound.pause();
         sound
+    }
+
+    fn write_stream_data(&mut self, sound_data: SoundData) {
+        if let SoundSignalHandle::Streamed { signal_handle } = &mut self.signal_handle {
+            let SoundData(samples) = sound_data;
+            signal_handle
+                .control::<oddio::Stream<_>, _>()
+                .write(&samples);
+        }
     }
 
     fn pause(&mut self) {
@@ -439,6 +522,9 @@ impl Sound {
                 signal_handle.control::<Stop<_>, _>().pause();
             }
             SoundSignalHandle::AmbientFixed { signal_handle } => {
+                signal_handle.control::<Stop<_>, _>().pause();
+            }
+            SoundSignalHandle::Streamed { signal_handle } => {
                 signal_handle.control::<Stop<_>, _>().pause();
             }
         }
@@ -454,6 +540,9 @@ impl Sound {
                 signal_handle.control::<Stop<_>, _>().resume();
             }
             SoundSignalHandle::AmbientFixed { signal_handle } => {
+                signal_handle.control::<Stop<_>, _>().resume();
+            }
+            SoundSignalHandle::Streamed { signal_handle } => {
                 signal_handle.control::<Stop<_>, _>().resume();
             }
         }
@@ -473,6 +562,11 @@ impl Sound {
                     .set_amplitude_ratio((master_volume * self.volume).powf(2.0));
             }
             SoundSignalHandle::AmbientFixed { .. } => {}
+            SoundSignalHandle::Streamed { signal_handle } => {
+                signal_handle
+                    .control::<Gain<_>, _>()
+                    .set_amplitude_ratio((master_volume * self.volume).powf(2.0));
+            }
         }
     }
 

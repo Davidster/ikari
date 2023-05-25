@@ -186,6 +186,7 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
                 initial_volume: 0.5,
                 fixed_volume: false,
                 spacial_params: None,
+                stream: true,
             },
         );
         asset_loader.load_audio(
@@ -195,6 +196,7 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
                 initial_volume: 0.75,
                 fixed_volume: true,
                 spacial_params: None,
+                stream: false,
             },
         );
     });
@@ -1507,6 +1509,7 @@ pub fn update_game_state(
                             initial_volume: 0.75,
                             fixed_volume: true,
                             spacial_params: None,
+                            stream: false,
                         },
                     )
                 }
