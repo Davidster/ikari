@@ -80,7 +80,7 @@ pub struct SoundParams {
 }
 
 pub struct AudioFileStreamer {
-    sample_rate: u32,
+    device_sample_rate: u32,
     format_reader: Box<dyn symphonia::core::formats::FormatReader>,
     decoder: Box<dyn symphonia::core::codecs::Decoder>,
     track_id: u32,
@@ -90,7 +90,7 @@ pub struct AudioFileStreamer {
 
 impl AudioFileStreamer {
     pub fn new(
-        sample_rate: u32,
+        device_sample_rate: u32,
         file_path: String,
         file_format: Option<AudioFileFormat>,
     ) -> anyhow::Result<Self> {
@@ -127,7 +127,7 @@ impl AudioFileStreamer {
             symphonia::default::get_codecs().make(&track.codec_params, &Default::default())?;
 
         Ok(Self {
-            sample_rate,
+            device_sample_rate,
             format_reader,
             decoder,
             track_id,
@@ -137,29 +137,36 @@ impl AudioFileStreamer {
     }
 
     /// chunk_size=0 to read the whole stream at once
+    #[profiling::function]
     pub fn read_chunk(&mut self, chunk_size: usize) -> Result<(SoundData, bool)> {
         let mut samples_interleaved: Vec<f32> = vec![];
 
+        let sample_rate_ratio = self.device_sample_rate as f32
+            / self.track_sample_rate.unwrap_or(self.device_sample_rate) as f32;
+
         let reached_end_of_stream = loop {
-            let packet = match self.format_reader.next_packet() {
-                Ok(packet) => packet,
-                Err(symphonia::core::errors::Error::ResetRequired) => {
-                    // The track list has been changed. Re-examine it and create a new set of decoders,
-                    // then restart the decode loop. This is an advanced feature and it is not
-                    // unreasonable to consider this "the end." As of v0.5.0, the only usage of this is
-                    // for chained OGG physical streams.
-                    anyhow::bail!("idk");
-                }
-                Err(symphonia::core::errors::Error::IoError(err)) => {
-                    if err.kind() == std::io::ErrorKind::UnexpectedEof
-                        && err.to_string() == "end of stream"
-                    {
-                        break true;
+            let packet = {
+                profiling::scope!("read from disk");
+                match self.format_reader.next_packet() {
+                    Ok(packet) => packet,
+                    Err(symphonia::core::errors::Error::ResetRequired) => {
+                        // The track list has been changed. Re-examine it and create a new set of decoders,
+                        // then restart the decode loop. This is an advanced feature and it is not
+                        // unreasonable to consider this "the end." As of v0.5.0, the only usage of this is
+                        // for chained OGG physical streams.
+                        anyhow::bail!("idk");
                     }
-                    anyhow::bail!(err);
-                }
-                Err(err) => {
-                    anyhow::bail!(err);
+                    Err(symphonia::core::errors::Error::IoError(err)) => {
+                        if err.kind() == std::io::ErrorKind::UnexpectedEof
+                            && err.to_string() == "end of stream"
+                        {
+                            break true;
+                        }
+                        anyhow::bail!(err);
+                    }
+                    Err(err) => {
+                        anyhow::bail!(err);
+                    }
                 }
             };
 
@@ -167,8 +174,14 @@ impl AudioFileStreamer {
                 continue;
             }
 
-            match self.decoder.decode(&packet) {
+            let decode_result = {
+                profiling::scope!("decode");
+                self.decoder.decode(&packet)
+            };
+
+            match decode_result {
                 Ok(audio_buf) => {
+                    profiling::scope!("copy to buf");
                     let mut sample_buf =
                         SampleBuffer::<f32>::new(audio_buf.capacity() as u64, *audio_buf.spec());
 
@@ -181,7 +194,9 @@ impl AudioFileStreamer {
                     }
 
                     if chunk_size != 0
-                        && (samples_interleaved.len() + sample_count) / CHANNEL_COUNT > chunk_size
+                        && sample_rate_ratio
+                            * ((samples_interleaved.len() + sample_count) / CHANNEL_COUNT) as f32
+                            > chunk_size as f32
                     {
                         break false;
                     }
@@ -206,9 +221,13 @@ impl AudioFileStreamer {
             .map(|chunk| [chunk[0], chunk[1]])
             .collect();
 
-        if Some(self.sample_rate) != self.track_sample_rate {
+        if Some(self.device_sample_rate) != self.track_sample_rate {
             // resample the sound to the device sample rate using linear interpolation
-            samples = resample_linear(&samples, self.track_sample_rate.unwrap(), self.sample_rate);
+            samples = resample_linear(
+                &samples,
+                self.track_sample_rate.unwrap(),
+                self.device_sample_rate,
+            );
         }
 
         Ok((SoundData(samples), reached_end_of_stream))
@@ -359,6 +378,7 @@ impl AudioManager {
     }
 }
 
+#[profiling::function]
 fn resample_linear(
     samples: &Vec<[f32; CHANNEL_COUNT]>,
     from_hz: u32,
