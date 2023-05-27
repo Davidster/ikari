@@ -25,6 +25,7 @@ use winit::{
 pub struct PlayerController {
     unprocessed_delta: Option<(f64, f64)>,
     window_focused: bool,
+    window_focused_and_clicked: bool,
 
     is_forward_pressed: bool,
     is_backward_pressed: bool,
@@ -95,6 +96,7 @@ impl PlayerController {
         Self {
             unprocessed_delta: None,
             window_focused: false,
+            window_focused_and_clicked: false,
 
             mouse_button_pressed: false,
 
@@ -112,8 +114,12 @@ impl PlayerController {
         }
     }
 
+    pub fn is_controlling_game(&self, ui_overlay: &IkariUiOverlay) -> bool {
+        self.window_focused_and_clicked && !ui_overlay.get_state().is_showing_options_menu
+    }
+
     pub fn process_device_events(&mut self, event: &DeviceEvent, ui_overlay: &mut IkariUiOverlay) {
-        if ui_overlay.get_state().is_showing_options_menu {
+        if !self.is_controlling_game(ui_overlay) {
             return;
         }
         match event {
@@ -144,8 +150,11 @@ impl PlayerController {
         ui_overlay: &mut IkariUiOverlay,
     ) {
         let is_showing_options_menu = ui_overlay.get_state().is_showing_options_menu;
+        let is_controlling_game = self.is_controlling_game(ui_overlay);
 
-        let set_cursor_grab = |grab| {
+        let update_cursor_grab = |is_window_focused_and_clicked: bool,
+                                  is_showing_options_menu: bool| {
+            let grab = is_window_focused_and_clicked && !is_showing_options_menu;
             if let Err(err) = window.set_cursor_grab(if grab {
                 CursorGrabMode::Confined
             } else {
@@ -172,12 +181,18 @@ impl PlayerController {
             } => {
                 if *state == ElementState::Pressed && *keycode == VirtualKeyCode::Escape {
                     let new_is_showing_options_menu = !is_showing_options_menu;
-                    set_cursor_grab(!new_is_showing_options_menu);
+                    update_cursor_grab(
+                        self.window_focused_and_clicked,
+                        new_is_showing_options_menu,
+                    );
+
+                    if new_is_showing_options_menu {
+                        self.mouse_button_pressed = false;
+                    }
 
                     ui_overlay.send_message(Message::TogglePopupMenu);
                 }
-                // TODO: join two if is_viewing_options_menu checks into one block
-                if !is_showing_options_menu {
+                if is_controlling_game {
                     let is_pressed = *state == ElementState::Pressed;
                     match keycode {
                         VirtualKeyCode::W => {
@@ -207,21 +222,25 @@ impl PlayerController {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                 }
 
-                logger_log(&format!("Window focused: {:?}", focused));
                 self.window_focused = *focused;
-                set_cursor_grab(!is_showing_options_menu);
+                if !self.window_focused {
+                    self.window_focused_and_clicked = false;
+                }
+                update_cursor_grab(self.window_focused_and_clicked, is_showing_options_menu);
             }
             WindowEvent::MouseInput {
                 state,
                 button: MouseButton::Left,
                 ..
             } => {
-                // TODO: join two if is_viewing_options_menu checks into one block
-                if !is_showing_options_menu {
-                    self.mouse_button_pressed = *state == ElementState::Pressed;
+                let is_pressed = *state == ElementState::Pressed;
+                self.mouse_button_pressed = is_controlling_game && is_pressed;
+
+                if self.window_focused && is_pressed {
+                    self.window_focused_and_clicked = true;
                 }
 
-                set_cursor_grab(!is_showing_options_menu);
+                update_cursor_grab(self.window_focused_and_clicked, is_showing_options_menu);
             }
             _ => {}
         };
