@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+const DEBUG_AUDIO_STREAMING: bool = false;
+
 pub struct AssetLoader {
     pub renderer_base: Arc<BaseRenderer>,
     pub pending_gltf_scenes: Arc<Mutex<Vec<String>>>,
@@ -149,28 +151,57 @@ impl AssetLoader {
     ) {
         let device_sample_rate = audio_manager.lock().unwrap().device_sample_rate();
         let mut is_first_chunk = true;
+        let mut last_buffer_fill_time: Option<std::time::Instant> = None;
+        let target_max_buffer_length_seconds = AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.75;
+        let mut buffered_amount_seconds = 0.0;
         std::thread::spawn(move || loop {
-            let chunk_size_seconds = if is_first_chunk {
-                AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.75
+            let requested_chunk_size_seconds = if is_first_chunk {
+                target_max_buffer_length_seconds
             } else {
-                AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.5
+                let deficit_seconds: f32 =
+                    target_max_buffer_length_seconds - buffered_amount_seconds;
+                if DEBUG_AUDIO_STREAMING {
+                    logger_log(&format!(
+                        "buffered_amount_seconds={:?}, deficit_seconds={:?}",
+                        buffered_amount_seconds, deficit_seconds
+                    ));
+                }
+                (AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.5 + deficit_seconds).max(0.0)
             };
+            if DEBUG_AUDIO_STREAMING {
+                logger_log(&format!(
+                    "requested_chunk_size_seconds={:?}",
+                    requested_chunk_size_seconds
+                ));
+            }
             is_first_chunk = false;
             match audio_file_streamer
-                .read_chunk((device_sample_rate as f32 * chunk_size_seconds) as usize)
+                .read_chunk((device_sample_rate as f32 * requested_chunk_size_seconds) as usize)
             {
                 Ok((sound_data, reached_end_of_stream)) => {
-                    // let sample_count = sound_data.0.len();
+                    let sample_count = sound_data.0.len();
+
+                    let added_buffer_seconds = sample_count as f32 / device_sample_rate as f32;
+                    let removed_buffer_seconds = last_buffer_fill_time
+                        .map(|last_buffer_fill_time| last_buffer_fill_time.elapsed().as_secs_f32())
+                        .unwrap_or(0.0);
+                    last_buffer_fill_time = Some(std::time::Instant::now());
+                    buffered_amount_seconds += added_buffer_seconds - removed_buffer_seconds;
+
+                    if DEBUG_AUDIO_STREAMING {
+                        logger_log(&format!(
+                            "Streamed in {:?} samples ({:?} seconds) from file: {}",
+                            sample_count,
+                            sample_count as f32 / device_sample_rate as f32,
+                            audio_file_streamer.file_path(),
+                        ));
+                    }
+
                     audio_manager
                         .lock()
                         .unwrap()
                         .write_stream_data(sound_index, sound_data);
-                    // logger_log(&format!(
-                    //     "Streamed in {:?} samples ({:?} seconds) from file: {}",
-                    //     sample_count,
-                    //     sample_count as f32 / device_sample_rate as f32,
-                    //     audio_file_streamer.file_path(),
-                    // ));
+
                     if reached_end_of_stream {
                         logger_log(&format!(
                             "Reached end of stream for file: {}",
