@@ -232,6 +232,7 @@ impl Scene {
         }
     }
 
+    #[profiling::function]
     pub fn merge_scene(
         &mut self,
         renderer_data: &mut RendererPublicData,

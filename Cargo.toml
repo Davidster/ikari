@@ -42,6 +42,11 @@ anyhow = { version = "1.0", features = ["backtrace"] }
 threadpool = "1.8.1"
 walkdir = "2.3.3"
 num_cpus = "1.15.0"
+chrono = { version = "0.4.24", default-features = false, features = [
+    "std",
+    "wasmbind",
+    "clock",
+] }
 
 # log
 console = "0.15"
@@ -95,7 +100,6 @@ iced_aw = { version = "0.5", default-features = false, features = [
     "modal",
     "card",
 ] }
-chrono = "0.4.24"
 
 [patch.crates-io]
 iced_native = { git = "https://github.com/iced-rs/iced.git", branch = "master" }

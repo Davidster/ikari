@@ -544,6 +544,7 @@ impl BaseRenderer {
         }
     }
 
+    #[profiling::function]
     pub fn make_pbr_textures_bind_group(
         &self,
         material: &PbrMaterial,
