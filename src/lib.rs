@@ -17,6 +17,7 @@ pub mod mesh;
 pub mod physics;
 pub mod physics_ball;
 pub mod player_controller;
+pub mod profile_dump;
 pub mod renderer;
 pub mod revolver;
 pub mod sampler_cache;
