@@ -2488,6 +2488,26 @@ impl Renderer {
         index_buffer
     }
 
+    pub fn set_vsync(&self, vsync: bool) {
+        let surface_config = {
+            let mut surface_config_guard = self.base.surface_config.lock().unwrap();
+            let new_present_mode = if vsync {
+                wgpu::PresentMode::AutoVsync
+            } else {
+                wgpu::PresentMode::AutoNoVsync
+            };
+            if surface_config_guard.present_mode == new_present_mode {
+                return;
+            }
+            surface_config_guard.present_mode = new_present_mode;
+            surface_config_guard.clone()
+        };
+
+        self.base
+            .surface
+            .configure(&self.base.device, &surface_config);
+    }
+
     pub fn resize(&self, new_window_size: winit::dpi::PhysicalSize<u32>, scale_factor: f64) {
         // let mut base_guard = self.base.lock().unwrap();
         let mut data_guard = self.data.lock().unwrap();

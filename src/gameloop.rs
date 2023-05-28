@@ -80,40 +80,19 @@ pub fn run(
                         )),
                     );
 
-                    renderer_data_guard.enable_soft_shadows = renderer_data_guard
-                        .ui_overlay
-                        .get_state()
-                        .enable_soft_shadows;
-                    renderer_data_guard.soft_shadow_factor = renderer_data_guard
-                        .ui_overlay
-                        .get_state()
-                        .soft_shadow_factor;
-                    renderer_data_guard.shadow_bias =
-                        renderer_data_guard.ui_overlay.get_state().shadow_bias;
-                    renderer_data_guard.enable_shadow_debug = renderer_data_guard
-                        .ui_overlay
-                        .get_state()
-                        .enable_shadow_debug;
-                    renderer_data_guard.soft_shadow_grid_dims = renderer_data_guard
-                        .ui_overlay
-                        .get_state()
-                        .soft_shadow_grid_dims;
-                    renderer_data_guard.draw_culling_frustum = renderer_data_guard
-                        .ui_overlay
-                        .get_state()
-                        .draw_culling_frustum;
-                    renderer_data_guard.draw_point_light_culling_frusta = renderer_data_guard
-                        .ui_overlay
-                        .get_state()
-                        .draw_point_light_culling_frusta;
+                    let ui_state = renderer_data_guard.ui_overlay.get_state().clone();
 
-                    renderer.set_culling_frustum_lock(
-                        &game_state,
-                        renderer_data_guard
-                            .ui_overlay
-                            .get_state()
-                            .culling_frustum_lock_mode,
-                    )
+                    renderer_data_guard.enable_soft_shadows = ui_state.enable_soft_shadows;
+                    renderer_data_guard.soft_shadow_factor = ui_state.soft_shadow_factor;
+                    renderer_data_guard.shadow_bias = ui_state.shadow_bias;
+                    renderer_data_guard.enable_shadow_debug = ui_state.enable_shadow_debug;
+                    renderer_data_guard.soft_shadow_grid_dims = ui_state.soft_shadow_grid_dims;
+                    renderer_data_guard.draw_culling_frustum = ui_state.draw_culling_frustum;
+                    renderer_data_guard.draw_point_light_culling_frusta =
+                        ui_state.draw_point_light_culling_frusta;
+                    renderer.set_vsync(ui_state.enable_vsync);
+                    renderer
+                        .set_culling_frustum_lock(&game_state, ui_state.culling_frustum_lock_mode);
                 }
 
                 match renderer.render(&mut game_state, &window, control_flow) {

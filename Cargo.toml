@@ -27,7 +27,7 @@ name = "asset_optimizer"
 path = "src/asset_optimizer/main.rs"
 
 [features]
-default = []
+default = ["tracy"]
 tracy = ["profiling/profile-with-tracy", "dep:tracing-tracy"]
 tracy-n-alloc = []
 

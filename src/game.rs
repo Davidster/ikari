@@ -29,6 +29,7 @@ use glam::f32::{Vec3, Vec4};
 use rapier3d::prelude::*;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
+pub const INITIAL_ENABLE_VSYNC: bool = true;
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;

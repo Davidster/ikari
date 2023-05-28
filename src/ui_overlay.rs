@@ -27,7 +27,7 @@ use crate::renderer::*;
 
 const FRAME_TIME_HISTORY_SIZE: usize = 720;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UiOverlay {
     fps_chart: FpsChart,
     is_showing_fps_chart: bool,
@@ -36,6 +36,7 @@ pub struct UiOverlay {
     was_exit_button_pressed: bool,
     camera_pose: Option<(Vec3, ControlledViewDirection)>, // position, direction
 
+    pub enable_vsync: bool,
     pub enable_soft_shadows: bool,
     pub shadow_bias: f32,
     pub soft_shadow_factor: f32,
@@ -55,6 +56,7 @@ pub enum Message {
     FrameCompleted(Duration),
     GpuFrameCompleted(Vec<GpuTimerScopeResultWrapper>),
     CameraPoseChanged((Vec3, ControlledViewDirection)),
+    ToggleVSync(bool),
     ToggleCameraPose(bool),
     ToggleFpsChart(bool),
     ToggleGpuSpans(bool),
@@ -127,7 +129,7 @@ impl iced::widget::container::StyleSheet for ContainerStyle {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct FpsChart {
     recent_frame_times: Vec<Duration>,
     recent_gpu_frame_times: Vec<Vec<GpuTimerScopeResultWrapper>>,
@@ -309,6 +311,9 @@ impl Program for UiOverlay {
             Message::CameraPoseChanged(new_state) => {
                 self.camera_pose = Some(new_state);
             }
+            Message::ToggleVSync(new_state) => {
+                self.enable_vsync = new_state;
+            }
             Message::ToggleCameraPose(new_state) => {
                 self.is_showing_camera_pose = new_state;
             }
@@ -476,6 +481,13 @@ impl Program for UiOverlay {
                 .horizontal_alignment(Horizontal::Center);
 
             let mut options = Column::new().spacing(16).padding(5).width(Length::Fill);
+
+            // vsync
+            options = options.push(iced_winit::widget::checkbox(
+                "Enable VSync",
+                self.enable_vsync,
+                Message::ToggleVSync,
+            ));
 
             // camera debug
             options = options.push(iced_winit::widget::checkbox(
@@ -714,6 +726,7 @@ impl IkariUiOverlay {
             is_showing_gpu_spans: false,
             is_showing_options_menu: false,
             was_exit_button_pressed: false,
+            enable_vsync: INITIAL_ENABLE_VSYNC,
             enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
             shadow_bias: INITIAL_SHADOW_BIAS,
             soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
