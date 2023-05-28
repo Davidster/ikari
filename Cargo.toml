@@ -28,11 +28,8 @@ path = "src/asset_optimizer/main.rs"
 
 [features]
 default = []
-#Not supported at this time #profile-with-optick = ["profiling/profile-with-optick"]
-#Not supported at this time #profile-with-superluminal = ["profiling/profile-with-superluminal"]
-#Not supported at this time #profile-with-tracing = ["profiling/profile-with-tracing"]
-tracy = ["profiling/profile-with-tracy"]
-tracy-n-alloc = ["tracy"]
+tracy = ["profiling/profile-with-tracy", "dep:tracing-tracy"]
+tracy-n-alloc = []
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
@@ -55,8 +52,10 @@ env_logger = { version = "0.10", default-features = false, features = [
 log = "0.4"
 
 # profiling
-profiling = "1.0.8"    # The version should be the one used by wgpu-core/hal TODO: does this version number need updating?
+# The version should be the one used by wgpu-core/hal TODO: does this version number need updating?
+profiling = "1.0.8"
 wgpu-profiler = "0.12"
+tracing-tracy = { version = "0.10.2", features = ["ondemand"], optional = true }
 
 # assets
 gltf = "1.1"
@@ -96,6 +95,7 @@ iced_aw = { version = "0.5", default-features = false, features = [
     "modal",
     "card",
 ] }
+chrono = "0.4.24"
 
 [patch.crates-io]
 iced_native = { git = "https://github.com/iced-rs/iced.git", branch = "master" }

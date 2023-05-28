@@ -22,6 +22,7 @@ use crate::game::*;
 use crate::logger::*;
 use crate::math::*;
 use crate::player_controller::*;
+use crate::profile_dump::*;
 use crate::renderer::*;
 
 const FRAME_TIME_HISTORY_SIZE: usize = 720;
@@ -44,6 +45,9 @@ pub struct UiOverlay {
     pub culling_frustum_lock_mode: CullingFrustumLockMode,
     pub soft_shadow_grid_dims: u32,
     pub is_showing_camera_pose: bool,
+
+    pub pending_perf_dump: Option<PendingPerfDump>,
+    perf_dump_completion_time: Option<std::time::Instant>,
 }
 
 #[derive(Debug, Clone)]
@@ -65,6 +69,7 @@ pub enum Message {
     TogglePopupMenu,
     ClosePopupMenu,
     ExitButtonPressed,
+    GenerateProfileDump,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
@@ -263,6 +268,27 @@ impl Program for UiOverlay {
                 if self.fps_chart.recent_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
                     self.fps_chart.recent_frame_times.remove(0);
                 }
+
+                let mut clear = false;
+                if let Some(pending_perf_dump) = &self.pending_perf_dump {
+                    let pending_perf_dump_guard = pending_perf_dump.lock().unwrap();
+                    if pending_perf_dump_guard.is_some() {
+                        if let Some(perf_dump_completion_time) = self.perf_dump_completion_time {
+                            if perf_dump_completion_time.elapsed()
+                                > std::time::Duration::from_secs_f32(2.0)
+                            {
+                                clear = true;
+                            }
+                        } else {
+                            self.perf_dump_completion_time = Some(std::time::Instant::now());
+                        }
+                    }
+                }
+
+                if clear {
+                    self.pending_perf_dump = None;
+                    self.perf_dump_completion_time = None;
+                }
             }
             Message::GpuFrameCompleted(frames) => {
                 let frame_time_ms = collect_frame_time_ms(&frames);
@@ -321,6 +347,9 @@ impl Program for UiOverlay {
             }
             Message::ClosePopupMenu => self.is_showing_options_menu = false,
             Message::ExitButtonPressed => self.was_exit_button_pressed = true,
+            Message::GenerateProfileDump => {
+                self.pending_perf_dump = Some(generate_profile_dump());
+            }
             Message::TogglePopupMenu => {
                 self.is_showing_options_menu = !self.is_showing_options_menu
             }
@@ -539,6 +568,45 @@ impl Program for UiOverlay {
                 .step(1),
             );
 
+            // profile dump
+            if let Some(pending_perf_dump) = &self.pending_perf_dump {
+                let (message, color) = if self.perf_dump_completion_time.is_some() {
+                    match *pending_perf_dump.lock().unwrap() {
+                        Some(Ok(_)) => (
+                            "Profile dump complete!".to_string(),
+                            iced::Color::from_rgb(0.7, 1.0, 0.0),
+                        ),
+                        Some(Err(_)) => (
+                            "Profile dump failed! See stdout for details.".to_string(),
+                            iced::Color::from_rgb(0.9, 0.1, 0.2),
+                        ),
+                        None => {
+                            unreachable!();
+                        }
+                    }
+                } else {
+                    let time_secs = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or(Default::default())
+                        .as_secs_f64();
+                    let ellipsis_num = 2 + (time_secs * 4.0).sin().round() as i32;
+                    let elipsis_str = (0..ellipsis_num).map(|_| ".").collect::<Vec<_>>().join("");
+                    (
+                        format!("Generating profile dump{elipsis_str}"),
+                        iced::Color::from_rgb(1.0, 0.7, 0.1),
+                    )
+                };
+                options = options.push(Text::new(message).style(color));
+            } else {
+                options = options.push(
+                    Button::new(
+                        Text::new("Generate Profile Dump").horizontal_alignment(Horizontal::Center),
+                    )
+                    .width(Length::Shrink)
+                    .on_press(Message::GenerateProfileDump),
+                );
+            }
+
             // exit button
             options = options.push(
                 Button::new(Text::new("Exit Game").horizontal_alignment(Horizontal::Center))
@@ -654,6 +722,9 @@ impl IkariUiOverlay {
             draw_point_light_culling_frusta: INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG,
             culling_frustum_lock_mode: CullingFrustumLockMode::None,
             soft_shadow_grid_dims: INITIAL_SOFT_SHADOW_GRID_DIMS,
+
+            pending_perf_dump: None,
+            perf_dump_completion_time: None,
         };
 
         let mut debug = iced_winit::Debug::new();
