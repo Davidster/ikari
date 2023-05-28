@@ -35,6 +35,7 @@ impl GpuBuffer {
         Self::from_bytes_and_capacity(device, initial_contents, stride, capacity, usage)
     }
 
+    #[profiling::function]
     pub fn from_bytes_and_capacity(
         device: &wgpu::Device,
         initial_contents: &[u8],

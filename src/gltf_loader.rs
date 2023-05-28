@@ -36,6 +36,7 @@ impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
     }
 }
 
+#[profiling::function]
 pub fn build_scene(
     base_renderer: &BaseRenderer,
     (document, buffers, images): (
@@ -115,65 +116,69 @@ pub fn build_scene(
     let mut textures_bind_group_cache: HashMap<IndexedPbrMaterial, Arc<wgpu::BindGroup>> =
         HashMap::new();
 
-    for (binded_pbr_mesh_index, (mesh, primitive_group)) in
-        make_supported_mesh_iterator().enumerate()
     {
-        let dynamic_pbr_params = get_dynamic_pbr_params(&primitive_group.material());
+        profiling::scope!("meshes");
 
-        let indexed_pbr_material = get_indexed_pbr_material(&primitive_group.material());
-        let textures_bind_group = match textures_bind_group_cache.entry(indexed_pbr_material) {
-            Entry::Occupied(entry) => entry.get().clone(),
-            Entry::Vacant(vacant_entry) => {
-                let pbr_material = get_pbr_material(vacant_entry.key(), &textures);
-                let textures_bind_group =
-                    Arc::new(base_renderer.make_pbr_textures_bind_group(&pbr_material, true)?);
-                vacant_entry.insert(textures_bind_group.clone());
-                textures_bind_group
+        for (binded_pbr_mesh_index, (mesh, primitive_group)) in
+            make_supported_mesh_iterator().enumerate()
+        {
+            let dynamic_pbr_params = get_dynamic_pbr_params(&primitive_group.material());
+
+            let indexed_pbr_material = get_indexed_pbr_material(&primitive_group.material());
+            let textures_bind_group = match textures_bind_group_cache.entry(indexed_pbr_material) {
+                Entry::Occupied(entry) => entry.get().clone(),
+                Entry::Vacant(vacant_entry) => {
+                    let pbr_material = get_pbr_material(vacant_entry.key(), &textures);
+                    let textures_bind_group =
+                        Arc::new(base_renderer.make_pbr_textures_bind_group(&pbr_material, true)?);
+                    vacant_entry.insert(textures_bind_group.clone());
+                    textures_bind_group
+                }
+            };
+
+            let (vertices, geometry_buffers, wireframe_index_buffer, wireframe_index_buffer_format) =
+                build_geometry_buffers(
+                    &base_renderer.device,
+                    &base_renderer.limits,
+                    &primitive_group,
+                    buffers,
+                )?;
+
+            let primitive_mode = crate::renderer::PrimitiveMode::Triangles;
+
+            let alpha_mode = match primitive_group.material().alpha_mode() {
+                gltf::material::AlphaMode::Opaque => crate::renderer::AlphaMode::Opaque,
+                gltf::material::AlphaMode::Mask => crate::renderer::AlphaMode::Mask,
+                gltf::material::AlphaMode::Blend => {
+                    todo!("Alpha blending isn't yet supported")
+                }
+            };
+
+            if let Some(gltf_node_indices) = mesh_node_map.get(&mesh.index()) {
+                for gltf_node_index in gltf_node_indices {
+                    let binded_pbr_mesh_indices =
+                        node_mesh_links.entry(*gltf_node_index).or_insert(vec![]);
+                    binded_pbr_mesh_indices.push(binded_pbr_mesh_index);
+                }
             }
-        };
 
-        let (vertices, geometry_buffers, wireframe_index_buffer, wireframe_index_buffer_format) =
-            build_geometry_buffers(
-                &base_renderer.device,
-                &base_renderer.limits,
-                &primitive_group,
-                buffers,
-            )?;
+            binded_pbr_meshes.push(BindedPbrMesh {
+                geometry_buffers,
+                dynamic_pbr_params,
+                textures_bind_group,
+                primitive_mode,
+                alpha_mode,
+            });
 
-        let primitive_mode = crate::renderer::PrimitiveMode::Triangles;
+            binded_wireframe_meshes.push(BindedWireframeMesh {
+                source_mesh_type: MeshType::Pbr,
+                source_mesh_index: binded_pbr_mesh_index,
+                index_buffer: wireframe_index_buffer,
+                index_buffer_format: wireframe_index_buffer_format,
+            });
 
-        let alpha_mode = match primitive_group.material().alpha_mode() {
-            gltf::material::AlphaMode::Opaque => crate::renderer::AlphaMode::Opaque,
-            gltf::material::AlphaMode::Mask => crate::renderer::AlphaMode::Mask,
-            gltf::material::AlphaMode::Blend => {
-                todo!("Alpha blending isn't yet supported")
-            }
-        };
-
-        if let Some(gltf_node_indices) = mesh_node_map.get(&mesh.index()) {
-            for gltf_node_index in gltf_node_indices {
-                let binded_pbr_mesh_indices =
-                    node_mesh_links.entry(*gltf_node_index).or_insert(vec![]);
-                binded_pbr_mesh_indices.push(binded_pbr_mesh_index);
-            }
+            pbr_mesh_vertices.push(vertices);
         }
-
-        binded_pbr_meshes.push(BindedPbrMesh {
-            geometry_buffers,
-            dynamic_pbr_params,
-            textures_bind_group,
-            primitive_mode,
-            alpha_mode,
-        });
-
-        binded_wireframe_meshes.push(BindedWireframeMesh {
-            source_mesh_type: MeshType::Pbr,
-            source_mesh_index: binded_pbr_mesh_index,
-            index_buffer: wireframe_index_buffer,
-            index_buffer_format: wireframe_index_buffer_format,
-        });
-
-        pbr_mesh_vertices.push(vertices);
     }
 
     // it is important that the node indices from the gltf document are preserved
@@ -199,102 +204,105 @@ pub fn build_scene(
 
     let animations = get_animations(document, buffers)?;
 
-    let skins: Vec<_> = document
-        .skins()
-        .enumerate()
-        .map(|(skin_index, skin)| {
-            let bone_node_indices: Vec<_> = skin.joints().map(|joint| joint.index()).collect();
-            let bone_inverse_bind_matrices: Vec<_> = skin
-                .inverse_bind_matrices()
-                .map(|accessor| {
-                    let data_type = accessor.data_type();
-                    let dimensions = accessor.dimensions();
-                    if dimensions != gltf::accessor::Dimensions::Mat4 {
-                        bail!("Expected mat4 data but found: {:?}", dimensions);
-                    }
-                    if data_type != gltf::accessor::DataType::F32 {
-                        bail!("Expected f32 data but found: {:?}", data_type);
-                    }
-                    let matrices_u8 = get_buffer_slice_from_accessor(accessor, buffers);
-                    Ok(bytemuck::cast_slice::<_, [[f32; 4]; 4]>(matrices_u8)
-                        .to_vec()
-                        .iter()
-                        .map(Mat4::from_cols_array_2d)
-                        .collect())
+    let skins: Vec<_> = {
+        profiling::scope!("skins");
+        document
+            .skins()
+            .enumerate()
+            .map(|(skin_index, skin)| {
+                let bone_node_indices: Vec<_> = skin.joints().map(|joint| joint.index()).collect();
+                let bone_inverse_bind_matrices: Vec<_> = skin
+                    .inverse_bind_matrices()
+                    .map(|accessor| {
+                        let data_type = accessor.data_type();
+                        let dimensions = accessor.dimensions();
+                        if dimensions != gltf::accessor::Dimensions::Mat4 {
+                            bail!("Expected mat4 data but found: {:?}", dimensions);
+                        }
+                        if data_type != gltf::accessor::DataType::F32 {
+                            bail!("Expected f32 data but found: {:?}", data_type);
+                        }
+                        let matrices_u8 = get_buffer_slice_from_accessor(accessor, buffers);
+                        Ok(bytemuck::cast_slice::<_, [[f32; 4]; 4]>(matrices_u8)
+                            .to_vec()
+                            .iter()
+                            .map(Mat4::from_cols_array_2d)
+                            .collect())
+                    })
+                    .transpose()?
+                    .unwrap_or_else(|| {
+                        (0..bone_node_indices.len())
+                            .map(|_| Mat4::IDENTITY)
+                            .collect()
+                    });
+
+                let skeleton_skin_node = nodes
+                    .iter()
+                    .find(|node| node.skin_index == Some(skin_index))
+                    .unwrap();
+                let skeleton_mesh_index = skeleton_skin_node.mesh.as_ref().unwrap().mesh_indices[0];
+                let skeleton_mesh_vertices = &pbr_mesh_vertices[skeleton_mesh_index];
+
+                let bone_bounding_box_transforms: Vec<_> = (0..bone_inverse_bind_matrices.len())
+                    .map(|bone_index| {
+                        let bone_inv_bind_matrix = bone_inverse_bind_matrices[bone_index];
+                        let vertex_weight_threshold = 0.5f32;
+                        let vertex_positions_for_node: Vec<_> = skeleton_mesh_vertices
+                            .iter()
+                            .filter(|vertex| {
+                                vertex
+                                    .bone_indices
+                                    .iter()
+                                    .zip(vertex.bone_weights.iter())
+                                    .any(|(v_bone_index, v_bone_weight)| {
+                                        *v_bone_index as usize == bone_index
+                                            && *v_bone_weight > vertex_weight_threshold
+                                    })
+                            })
+                            .map(|vertex| {
+                                let position = Vec4::new(
+                                    vertex.position[0],
+                                    vertex.position[1],
+                                    vertex.position[2],
+                                    1.0,
+                                );
+                                bone_inv_bind_matrix * position
+                            })
+                            .collect();
+                        if vertex_positions_for_node.is_empty() {
+                            return TransformBuilder::new()
+                                .scale(Vec3::new(0.0, 0.0, 0.0))
+                                .build();
+                        }
+                        let mut min_point = Vec3::new(
+                            vertex_positions_for_node[0].x,
+                            vertex_positions_for_node[0].y,
+                            vertex_positions_for_node[0].z,
+                        );
+                        let mut max_point = min_point;
+                        for pos in vertex_positions_for_node {
+                            min_point.x = min_point.x.min(pos.x);
+                            min_point.y = min_point.y.min(pos.y);
+                            min_point.z = min_point.z.min(pos.z);
+                            max_point.x = max_point.x.max(pos.x);
+                            max_point.y = max_point.y.max(pos.y);
+                            max_point.z = max_point.z.max(pos.z);
+                        }
+                        TransformBuilder::new()
+                            .scale((max_point - min_point) / 2.0)
+                            .position((max_point + min_point) / 2.0)
+                            .build()
+                    })
+                    .collect();
+
+                anyhow::Ok(IndexedSkin {
+                    bone_inverse_bind_matrices,
+                    bone_node_indices,
+                    bone_bounding_box_transforms,
                 })
-                .transpose()?
-                .unwrap_or_else(|| {
-                    (0..bone_node_indices.len())
-                        .map(|_| Mat4::IDENTITY)
-                        .collect()
-                });
-
-            let skeleton_skin_node = nodes
-                .iter()
-                .find(|node| node.skin_index == Some(skin_index))
-                .unwrap();
-            let skeleton_mesh_index = skeleton_skin_node.mesh.as_ref().unwrap().mesh_indices[0];
-            let skeleton_mesh_vertices = &pbr_mesh_vertices[skeleton_mesh_index];
-
-            let bone_bounding_box_transforms: Vec<_> = (0..bone_inverse_bind_matrices.len())
-                .map(|bone_index| {
-                    let bone_inv_bind_matrix = bone_inverse_bind_matrices[bone_index];
-                    let vertex_weight_threshold = 0.5f32;
-                    let vertex_positions_for_node: Vec<_> = skeleton_mesh_vertices
-                        .iter()
-                        .filter(|vertex| {
-                            vertex
-                                .bone_indices
-                                .iter()
-                                .zip(vertex.bone_weights.iter())
-                                .any(|(v_bone_index, v_bone_weight)| {
-                                    *v_bone_index as usize == bone_index
-                                        && *v_bone_weight > vertex_weight_threshold
-                                })
-                        })
-                        .map(|vertex| {
-                            let position = Vec4::new(
-                                vertex.position[0],
-                                vertex.position[1],
-                                vertex.position[2],
-                                1.0,
-                            );
-                            bone_inv_bind_matrix * position
-                        })
-                        .collect();
-                    if vertex_positions_for_node.is_empty() {
-                        return TransformBuilder::new()
-                            .scale(Vec3::new(0.0, 0.0, 0.0))
-                            .build();
-                    }
-                    let mut min_point = Vec3::new(
-                        vertex_positions_for_node[0].x,
-                        vertex_positions_for_node[0].y,
-                        vertex_positions_for_node[0].z,
-                    );
-                    let mut max_point = min_point;
-                    for pos in vertex_positions_for_node {
-                        min_point.x = min_point.x.min(pos.x);
-                        min_point.y = min_point.y.min(pos.y);
-                        min_point.z = min_point.z.min(pos.z);
-                        max_point.x = max_point.x.max(pos.x);
-                        max_point.y = max_point.y.max(pos.y);
-                        max_point.z = max_point.z.max(pos.z);
-                    }
-                    TransformBuilder::new()
-                        .scale((max_point - min_point) / 2.0)
-                        .position((max_point + min_point) / 2.0)
-                        .build()
-                })
-                .collect();
-
-            anyhow::Ok(IndexedSkin {
-                bone_inverse_bind_matrices,
-                bone_node_indices,
-                bone_bounding_box_transforms,
             })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()?
+    };
 
     let render_buffers = RenderBuffers {
         binded_pbr_meshes,
@@ -338,6 +346,7 @@ pub fn build_scene(
     Ok((scene, render_buffers))
 }
 
+#[profiling::function]
 fn get_textures(
     document: &gltf::Document,
     images: &[gltf::image::Data],
@@ -744,6 +753,7 @@ pub fn get_buffer_slice_from_accessor<'a>(
     &buffer[first_byte_offset..last_byte_offset]
 }
 
+#[profiling::function]
 pub fn build_geometry_buffers(
     device: &wgpu::Device,
     limits: &wgpu::Limits,
@@ -1275,6 +1285,7 @@ fn get_vertex_tex_coords(
     Ok(vertex_tex_coords)
 }
 
+#[profiling::function]
 fn get_indices(
     primitive_group: &gltf::Primitive,
     buffers: &[gltf::buffer::Data],

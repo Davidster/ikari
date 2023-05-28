@@ -48,6 +48,7 @@ impl AssetLoader {
                     let next_scene_path = pending_assets.lock().unwrap().remove(0);
 
                     let do_load = || {
+                        profiling::scope!("Load asset", &next_scene_path);
                         let (document, buffers, images) = gltf::import(&next_scene_path)?;
                         let (other_scene, other_render_buffers) = build_scene(
                             &renderer_base,
