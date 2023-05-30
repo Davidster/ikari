@@ -163,7 +163,7 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
     let asset_loader_clone = asset_loader.clone();
 
     std::thread::spawn(move || {
-        // std::thread::sleep(std::time::Duration::from_secs_f32(5.0));
+        std::thread::sleep(std::time::Duration::from_secs_f32(5.0));
         // load in gltf files
 
         // player's revolver
