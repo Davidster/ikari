@@ -24,6 +24,7 @@ use crate::math::*;
 use crate::player_controller::*;
 use crate::profile_dump::*;
 use crate::renderer::*;
+use crate::time::*;
 
 const FRAME_TIME_HISTORY_SIZE: usize = 720;
 
@@ -48,7 +49,7 @@ pub struct UiOverlay {
     pub is_showing_camera_pose: bool,
 
     pub pending_perf_dump: Option<PendingPerfDump>,
-    perf_dump_completion_time: Option<std::time::Instant>,
+    perf_dump_completion_time: Option<Instant>,
 }
 
 #[derive(Debug, Clone)]
@@ -282,7 +283,7 @@ impl Program for UiOverlay {
                                 clear = true;
                             }
                         } else {
-                            self.perf_dump_completion_time = Some(std::time::Instant::now());
+                            self.perf_dump_completion_time = Some(now());
                         }
                     }
                 }

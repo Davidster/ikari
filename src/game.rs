@@ -16,6 +16,7 @@ use crate::revolver::*;
 use crate::sampler_cache::*;
 use crate::scene::*;
 use crate::texture::*;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::texture_compression::*;
 use crate::transform::*;
 
@@ -133,7 +134,43 @@ fn get_misc_gltf_path() -> &'static str {
     // "./src/models/gltf/Sponza/Sponza.gltf"
 }
 
-pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<GameState> {
+#[cfg(not(target_arch = "wasm32"))]
+async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
+    let texture_compressor = TextureCompressor::new();
+    let rainbow_texture_path = "./src/textures/rainbow_gradient_vertical_compressed.bin";
+    let rainbow_texture_bytes = crate::file_loader::read(rainbow_texture_path).await?;
+    let rainbow_texture_decompressed =
+        texture_compressor.transcode_image(&rainbow_texture_bytes, false)?;
+    Texture::from_decoded_image(
+        &renderer_base,
+        &rainbow_texture_decompressed.raw,
+        (
+            rainbow_texture_decompressed.width,
+            rainbow_texture_decompressed.height,
+        ),
+        rainbow_texture_decompressed.mip_count,
+        Some(rainbow_texture_path),
+        Some(wgpu::TextureFormat::Bc7RgbaUnormSrgb),
+        false,
+        &Default::default(),
+    )
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
+    let rainbow_texture_path = "./src/textures/rainbow_gradient_vertical.jpg";
+    let rainbow_texture_bytes = crate::file_loader::read(rainbow_texture_path).await?;
+    Texture::from_encoded_image(
+        &renderer_base,
+        &rainbow_texture_bytes,
+        rainbow_texture_path,
+        wgpu::TextureFormat::Rgba8Unorm.into(),
+        false,
+        &Default::default(),
+    )
+}
+
+pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<GameState> {
     // let mut renderer_base_guard = renderer.base.lock().unwrap();
     let mut renderer_data_guard = renderer.data.lock().unwrap();
 
@@ -168,15 +205,15 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
 
         // player's revolver
         // https://done3d.com/colt-python-8-inch/
-        asset_loader.load_gltf_asset("./src/models/gltf/ColtPython/colt_python.gltf");
+        asset_loader.load_gltf_asset("./src/models/gltf/ColtPython/colt_python.glb");
         // forest
         // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
-        asset_loader.load_gltf_asset("./src/models/gltf/free_low_poly_forest/scene.gltf");
+        // asset_loader.load_gltf_asset("./src/models/gltf/free_low_poly_forest/scene.glb");
         // legendary robot
         // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-        asset_loader.load_gltf_asset("./src/models/gltf/LegendaryRobot/Legendary_Robot.gltf");
+        asset_loader.load_gltf_asset("./src/models/gltf/LegendaryRobot/Legendary_Robot.glb");
         // maze
-        // asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.gltf");
+        asset_loader.load_gltf_asset("./src/models/gltf/TestLevel/test_level.glb");
         // other
         // asset_loader.load_gltf_asset(get_misc_gltf_path());
 
@@ -202,9 +239,9 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
         );
     });
 
-    let sphere_mesh = BasicMesh::new("./src/models/sphere.obj")?;
-    let plane_mesh = BasicMesh::new("./src/models/plane.obj")?;
-    let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
+    let sphere_mesh = BasicMesh::new("./src/models/sphere.obj").await?;
+    let plane_mesh = BasicMesh::new("./src/models/plane.obj").await?;
+    let cube_mesh = BasicMesh::new("./src/models/cube.obj").await?;
 
     // add lights to the scene
     let directional_lights = vec![
@@ -271,7 +308,7 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
     }
 
     // let simple_normal_map_path = "./src/textures/simple_normal_map.jpg";
-    // let simple_normal_map_bytes = std::fs::read(simple_normal_map_path)?;
+    // let simple_normal_map_bytes = crate::file_loader::read(simple_normal_map_path).await?;
     // let simple_normal_map = Texture::from_encoded_image(
     //     &renderer.base.device,
     //     &renderer.base.queue,
@@ -282,27 +319,10 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
     //     &Default::default(),
     // )?;
 
-    let texture_compressor = TextureCompressor::new();
-    let rainbow_texture_path = "./src/textures/rainbow_gradient_vertical_compressed.bin";
-    let rainbow_texture_bytes = std::fs::read(rainbow_texture_path)?;
-    let rainbow_texture_decompressed =
-        texture_compressor.transcode_image(&rainbow_texture_bytes, false)?;
-    let rainbow_texture = Texture::from_decoded_image(
-        &renderer.base,
-        &rainbow_texture_decompressed.raw,
-        (
-            rainbow_texture_decompressed.width,
-            rainbow_texture_decompressed.height,
-        ),
-        rainbow_texture_decompressed.mip_count,
-        Some(rainbow_texture_path),
-        Some(wgpu::TextureFormat::Bc7RgbaUnormSrgb),
-        false,
-        &Default::default(),
-    )?;
+    let rainbow_texture = get_rainbow_texture(&renderer.base).await?;
 
     let brick_normal_map_path = "./src/textures/brick_normal_map.jpg";
-    let brick_normal_map_bytes = std::fs::read(brick_normal_map_path)?;
+    let brick_normal_map_bytes = crate::file_loader::read(brick_normal_map_path).await?;
     let brick_normal_map = Texture::from_encoded_image(
         &renderer.base,
         &brick_normal_map_bytes,
@@ -314,7 +334,7 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
 
     // add test object to scene
     /* let earth_texture_path = "./src/textures/8k_earth.jpg";
-    let earth_texture_bytes = std::fs::read(earth_texture_path)?;
+    let earth_texture_bytes = crate::file_loader::read(earth_texture_path).await?;
     let earth_texture = Texture::from_encoded_image(
         &renderer.base,
         &earth_texture_bytes,
@@ -333,7 +353,7 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
     )?; */
 
     /* let earth_normal_map_path = "./src/textures/8k_earth_normal_map.jpg";
-    let earth_normal_map_bytes = std::fs::read(earth_normal_map_path)?;
+    let earth_normal_map_bytes = crate::file_loader::read(earth_normal_map_path).await?;
     let earth_normal_map = Texture::from_encoded_image(
         &renderer.base,
         &earth_normal_map_bytes,
@@ -394,7 +414,7 @@ pub fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<Game
 
     // source: https://www.solarsystemscope.com/textures/
     /* let mars_texture_path = "./src/textures/8k_mars.jpg";
-    let mars_texture_bytes = std::fs::read(mars_texture_path)?;
+    let mars_texture_bytes = crate::file_loader::read(mars_texture_path).await?;
     let mars_texture = Texture::from_encoded_image(
         &renderer.base,
         &mars_texture_bytes,

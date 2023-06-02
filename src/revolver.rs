@@ -1,9 +1,8 @@
 use crate::math::*;
 use crate::player_controller::*;
 use crate::scene::*;
+use crate::time::*;
 use crate::transform::*;
-
-use std::time::Instant;
 
 use glam::f32::{Quat, Vec3};
 
@@ -119,7 +118,7 @@ impl Revolver {
                 return false;
             }
         }
-        self.last_fired_instant = Some(Instant::now());
+        self.last_fired_instant = Some(now());
         scene.animations[self.animation_index].state.is_playing = true;
         scene.animations[self.animation_index]
             .state

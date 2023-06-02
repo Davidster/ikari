@@ -3,6 +3,7 @@ use crate::gltf_loader::*;
 use crate::logger::*;
 use crate::renderer::*;
 use crate::scene::*;
+use crate::time::*;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -44,36 +45,39 @@ impl AssetLoader {
             let renderer_base = self.renderer_base.clone();
 
             std::thread::spawn(move || {
-                while pending_assets.lock().unwrap().len() > 0 {
-                    let next_scene_path = pending_assets.lock().unwrap().remove(0);
+                pollster::block_on(async {
+                    while pending_assets.lock().unwrap().len() > 0 {
+                        let next_scene_path = pending_assets.lock().unwrap().remove(0);
 
-                    let do_load = || {
-                        profiling::scope!("Load asset", &next_scene_path);
-                        let (document, buffers, images) = gltf::import(&next_scene_path)?;
-                        let (other_scene, other_render_buffers) = build_scene(
-                            &renderer_base,
-                            (&document, &buffers, &images),
-                            Path::new(&next_scene_path),
-                        )?;
-                        anyhow::Ok((other_scene, other_render_buffers))
-                    };
-                    match do_load() {
-                        Ok(result) => {
-                            let _replaced_ignored = loaded_assets
-                                .lock()
-                                .unwrap()
-                                .insert(next_scene_path, result);
-                        }
-                        Err(err) => {
-                            logger_log(&format!(
-                                "Error loading gltf asset {}: {}\n{}",
-                                next_scene_path,
-                                err,
-                                err.backtrace()
-                            ));
+                        let do_load = || async {
+                            profiling::scope!("Load asset", &next_scene_path);
+                            let (document, buffers, images) = gltf::import(&next_scene_path)?;
+                            let (other_scene, other_render_buffers) = build_scene(
+                                &renderer_base,
+                                (&document, &buffers, &images),
+                                Path::new(&next_scene_path),
+                            )
+                            .await?;
+                            anyhow::Ok((other_scene, other_render_buffers))
+                        };
+                        match do_load().await {
+                            Ok(result) => {
+                                let _replaced_ignored = loaded_assets
+                                    .lock()
+                                    .unwrap()
+                                    .insert(next_scene_path, result);
+                            }
+                            Err(err) => {
+                                logger_log(&format!(
+                                    "Error loading gltf asset {}: {}\n{}",
+                                    next_scene_path,
+                                    err,
+                                    err.backtrace()
+                                ));
+                            }
                         }
                     }
-                }
+                });
             });
         }
     }
@@ -152,7 +156,7 @@ impl AssetLoader {
     ) {
         let device_sample_rate = audio_manager.lock().unwrap().device_sample_rate();
         let mut is_first_chunk = true;
-        let mut last_buffer_fill_time: Option<std::time::Instant> = None;
+        let mut last_buffer_fill_time: Option<Instant> = None;
         let target_max_buffer_length_seconds = AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.75;
         let mut buffered_amount_seconds = 0.0;
         std::thread::spawn(move || loop {
@@ -186,7 +190,7 @@ impl AssetLoader {
                     let removed_buffer_seconds = last_buffer_fill_time
                         .map(|last_buffer_fill_time| last_buffer_fill_time.elapsed().as_secs_f32())
                         .unwrap_or(0.0);
-                    last_buffer_fill_time = Some(std::time::Instant::now());
+                    last_buffer_fill_time = Some(now());
                     buffered_amount_seconds += added_buffer_seconds - removed_buffer_seconds;
 
                     if DEBUG_AUDIO_STREAMING {

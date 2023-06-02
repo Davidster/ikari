@@ -843,7 +843,7 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Unlit Mesh Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    std::fs::read_to_string("./src/shaders/unlit_mesh.wgsl")?.into(),
+                    crate::file_loader::read_to_string("./src/shaders/unlit_mesh.wgsl").await?.into(),
                 ),
             });
 
@@ -852,7 +852,7 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Blit Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    std::fs::read_to_string("./src/shaders/blit.wgsl")?.into(),
+                    crate::file_loader::read_to_string("./src/shaders/blit.wgsl").await?.into(),
                 ),
             });
 
@@ -861,7 +861,7 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Textured Mesh Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    std::fs::read_to_string("./src/shaders/textured_mesh.wgsl")?.into(),
+                    crate::file_loader::read_to_string("./src/shaders/textured_mesh.wgsl").await?.into(),
                 ),
             });
 
@@ -870,7 +870,7 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Skybox Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    std::fs::read_to_string("./src/shaders/skybox.wgsl")?.into(),
+                    crate::file_loader::read_to_string("./src/shaders/skybox.wgsl").await?.into(),
                 ),
             });
 
@@ -1605,7 +1605,7 @@ impl Renderer {
 
         let initial_render_scale = INITIAL_RENDER_SCALE;
 
-        let cube_mesh = BasicMesh::new("./src/models/cube.obj")?;
+        let cube_mesh = BasicMesh::new("./src/models/cube.obj").await?;
 
         let skybox_mesh = Self::bind_geometry_buffers_for_basic_mesh_impl(&base.device, &cube_mesh);
 
@@ -1736,7 +1736,7 @@ impl Renderer {
 
         let skybox_texture = match skybox_background {
             SkyboxBackground::Equirectangular { image_path } => {
-                let er_skybox_texture_bytes = std::fs::read(image_path)?;
+                let er_skybox_texture_bytes = crate::file_loader::read(image_path).await?;
                 let er_skybox_texture = Texture::from_encoded_image(
                     &base,
                     &er_skybox_texture_bytes,
@@ -1764,10 +1764,10 @@ impl Renderer {
                 )
             }
             SkyboxBackground::Cube { face_image_paths } => {
-                let cubemap_skybox_images = face_image_paths
-                    .iter()
-                    .map(|path| image::load_from_memory(&std::fs::read(path)?))
-                    .collect::<Result<Vec<_>, _>>()?;
+                let mut cubemap_skybox_images: Vec<image::DynamicImage> = vec![];
+                for path in face_image_paths {
+                    cubemap_skybox_images.push(image::load_from_memory(&crate::file_loader::read(path).await?)?);
+                }
 
                 Texture::create_cubemap(
                     &base,
@@ -2208,7 +2208,7 @@ impl Renderer {
                 .try_into()
                 .unwrap();
 
-        let sphere_mesh = BasicMesh::new("./src/models/sphere.obj").unwrap();
+        let sphere_mesh = BasicMesh::new("./src/models/sphere.obj").await?;
         let sphere_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &sphere_mesh)
             .try_into()
             .unwrap();
@@ -2217,7 +2217,7 @@ impl Renderer {
                 .try_into()
                 .unwrap();
 
-        let plane_mesh = BasicMesh::new("./src/models/plane.obj").unwrap();
+        let plane_mesh = BasicMesh::new("./src/models/plane.obj").await?;
         let plane_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &plane_mesh)
             .try_into()
             .unwrap();

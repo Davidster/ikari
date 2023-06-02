@@ -162,8 +162,8 @@ pub struct BasicMesh {
 }
 
 impl BasicMesh {
-    pub fn new(obj_file_path: &str) -> Result<Self> {
-        let obj_file_string = std::fs::read_to_string(obj_file_path)?;
+    pub async fn new(obj_file_path: &str) -> Result<Self> {
+        let obj_file_string = crate::file_loader::read_to_string(obj_file_path).await?;
 
         let obj = wavefront_obj::obj::parse(obj_file_string)?
             .objects

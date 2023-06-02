@@ -2,8 +2,7 @@ use crate::game::*;
 use crate::game_state::*;
 use crate::logger::*;
 use crate::renderer::*;
-
-use std::time::{Duration, Instant};
+use crate::time::*;
 
 use winit::{
     event::{Event, WindowEvent},
@@ -29,7 +28,7 @@ pub fn run(
                 game_state.on_frame_started();
                 profiling::finish_frame!();
                 let frame_duration = last_frame_start_time.map(|time| time.elapsed());
-                last_frame_start_time = Some(Instant::now());
+                last_frame_start_time = Some(now());
 
                 update_game_state(&mut game_state, &renderer.base, renderer.data.clone());
 
@@ -38,13 +37,15 @@ pub fn run(
                     if let Err(err) = LOGGER.lock().unwrap().write_to_term() {
                         eprintln!("Error writing to terminal: {}", err);
                     }
-                    last_log_time = Some(Instant::now());
+                    last_log_time = Some(now());
                 };
 
                 match last_log_time_clone {
                     Some(last_log_time)
                         if last_log_time.elapsed()
-                            > Duration::from_millis((1000.0 / MAX_LOG_RATE as f32) as u64) =>
+                            > std::time::Duration::from_millis(
+                                (1000.0 / MAX_LOG_RATE as f32) as u64,
+                            ) =>
                     {
                         write_logs()
                     }

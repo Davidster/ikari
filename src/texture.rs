@@ -1201,7 +1201,6 @@ impl Texture {
         }
     }
 }
-
 fn generate_mipmaps_for_texture(
     base_renderer: &BaseRenderer,
     mut mip_encoder: wgpu::CommandEncoder,
@@ -1209,13 +1208,12 @@ fn generate_mipmaps_for_texture(
     mip_level_count: u32,
     format: wgpu::TextureFormat,
 ) -> Result<()> {
+    // TODO: don't crate the pipeline each time we generate mipmaps! 😠
     let blit_shader = base_renderer
         .device
         .create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
-            source: wgpu::ShaderSource::Wgsl(
-                std::fs::read_to_string("./src/shaders/blit.wgsl")?.into(),
-            ),
+            source: wgpu::ShaderSource::Wgsl(include_str!("./shaders/blit.wgsl").into()),
         });
 
     let single_texture_bind_group_layout =

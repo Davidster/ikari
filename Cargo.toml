@@ -17,6 +17,7 @@ publish = false
 [lib]
 name = "ikari"
 path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "example_game"
@@ -27,7 +28,7 @@ name = "asset_optimizer"
 path = "src/asset_optimizer/main.rs"
 
 [features]
-default = ["tracy"]
+default = []
 tracy = ["profiling/profile-with-tracy", "dep:tracing-tracy"]
 tracy-n-alloc = []
 
@@ -70,8 +71,6 @@ image = { version = "0.23.14", default-features = false, features = [
 ] } # The version should be the one used by gltf crate
 obj-rs = "0.7"
 wavefront_obj = "10.0"
-basis-universal = "0.2.0"
-zstd = "0.12.3"
 
 # rendering
 wgpu = "0.16"
@@ -96,10 +95,42 @@ plotters-iced = "0.8"
 plotters = { version = "0.3", default-features = false, features = [
     "line_series",
 ] }
-iced_aw = { version = "0.5", default-features = false, features = [
+iced_aw = { git = "https://github.com/iced-rs/iced_aw.git", branch = "main", default-features = false, features = [
     "modal",
     "card",
 ] }
+
+futures = "0.3.28"
+async-std = "1.12.0"
+instant = "0.1.12"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+basis-universal = "0.2.0"
+zstd = "0.12.3"
+# path = "../iced_aw_fork"
+
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3.63"
+wasm-bindgen-futures = "0.4.36"
+web-sys = { version = "0.3.63", features = [
+    "Document",
+    "Window",
+    "Element",
+    "Headers",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "Blob",
+] }
+getrandom = { version = "0.2.9", features = ["js"] }
+serde = "1.0.163"
+serde_derive = "1.0.163"
+console_error_panic_hook = "0.1.7"
+console_log = "1.0.0"
+wasm-bindgen = { version = "0.2.86", features = ["serde-serialize"] }
+cpal = { version = "0.15", features = ["wasm-bindgen"] }
 
 [patch.crates-io]
 iced_native = { git = "https://github.com/iced-rs/iced.git", branch = "master" }

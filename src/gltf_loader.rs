@@ -5,13 +5,13 @@ use crate::renderer::*;
 use crate::sampler_cache::*;
 use crate::scene::*;
 use crate::texture::*;
-use crate::texture_compression::texture_path_to_compressed_path;
-use crate::texture_compression::CompressedTexture;
-use crate::texture_compression::TextureCompressor;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::texture_compression::*;
 use crate::transform::*;
 
 use std::collections::{hash_map::Entry, HashMap};
 use std::path::Path;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -19,7 +19,9 @@ use anyhow::{bail, Result};
 use approx::abs_diff_eq;
 use glam::f32::{Mat4, Vec2, Vec3, Vec4};
 
+#[cfg(not(target_arch = "wasm32"))]
 const USE_TEXTURE_COMPRESSION: bool = true;
+
 const SCENE_LOAD_DEBUG: bool = false;
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
@@ -37,7 +39,7 @@ impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
 }
 
 #[profiling::function]
-pub fn build_scene(
+pub async fn build_scene(
     base_renderer: &BaseRenderer,
     (document, buffers, images): (
         &gltf::Document,
@@ -53,7 +55,7 @@ pub fn build_scene(
 
     let materials: Vec<_> = document.materials().collect();
 
-    let textures = get_textures(document, images, materials, gltf_path, base_renderer)?;
+    let textures = get_textures(document, images, materials, gltf_path, base_renderer).await?;
 
     // node index -> parent node index
     let parent_index_map: HashMap<usize, usize> = document
@@ -347,129 +349,101 @@ pub fn build_scene(
 }
 
 #[profiling::function]
-fn get_textures(
+async fn get_textures(
     document: &gltf::Document,
     images: &[gltf::image::Data],
-    materials: Vec<gltf::Material>,
+    materials: Vec<gltf::Material<'_>>,
     gltf_path: &Path,
     base_renderer: &BaseRenderer,
 ) -> Result<Vec<Texture>, anyhow::Error> {
-    let textures = document
-        .textures()
-        .map(|texture| {
-            let source_image_index = texture.source().index();
+    let mut textures: Vec<Texture> = vec![];
+    for texture in document.textures() {
+        let source_image_index = texture.source().index();
 
-            let is_srgb = materials.iter().any(|material| {
-                vec![
-                    material.emissive_texture(),
-                    material.pbr_metallic_roughness().base_color_texture(),
-                ]
-                .iter()
-                .flatten()
-                .any(|texture_info| texture_info.texture().index() == texture.index())
+        let is_srgb = materials.iter().any(|material| {
+            vec![
+                material.emissive_texture(),
+                material.pbr_metallic_roughness().base_color_texture(),
+            ]
+            .iter()
+            .flatten()
+            .any(|texture_info| texture_info.texture().index() == texture.index())
+        });
+
+        let is_normal_map = !is_srgb
+            && materials.iter().any(|material| {
+                material.normal_texture().is_some()
+                    && material.normal_texture().unwrap().texture().index() == texture.index()
             });
 
-            let is_normal_map = !is_srgb
-                && materials.iter().any(|material| {
-                    material.normal_texture().is_some()
-                        && material.normal_texture().unwrap().texture().index() == texture.index()
-                });
-
-            let compressed_image_data = match texture.source().source() {
-                gltf::image::Source::Uri { uri, .. } => {
-                    let compressed_texture_path = texture_path_to_compressed_path(
-                        &gltf_path.parent().unwrap().join(PathBuf::from(uri)),
-                    );
-                    if USE_TEXTURE_COMPRESSION && compressed_texture_path.try_exists()? {
-                        let texture_compressor = TextureCompressor::new();
-                        let texture_bytes = std::fs::read(compressed_texture_path)?;
-                        Some(texture_compressor.transcode_image(&texture_bytes, is_normal_map)?)
-                    } else {
-                        None
-                    }
-                }
-                gltf::image::Source::View { .. } => None,
-            };
-
-            let baked_mip_levels = compressed_image_data
-                .as_ref()
-                .map(|data| data.mip_count)
-                .unwrap_or(1);
-            let image_dimensions = compressed_image_data
-                .as_ref()
-                .map(|data| (data.width, data.height))
-                .unwrap_or((
-                    images[source_image_index].width,
-                    images[source_image_index].height,
-                ));
-            let generate_mipmaps = compressed_image_data.is_none();
-
-            let (image_pixels, texture_format) = match compressed_image_data {
-                Some(compressed_image_data) => {
-                    get_compressed_image_pixels(compressed_image_data, is_srgb)?
-                }
-                None => get_image_pixels(&images[source_image_index], is_srgb)?,
-            };
-
-            let gltf_sampler = texture.sampler();
-            let default_sampler = SamplerDescriptor {
-                min_filter: wgpu::FilterMode::Linear,
-                mag_filter: wgpu::FilterMode::Linear,
-                ..Default::default()
-            };
-            let address_mode_u = sampler_wrapping_mode_to_wgpu(gltf_sampler.wrap_s());
-            let address_mode_v = sampler_wrapping_mode_to_wgpu(gltf_sampler.wrap_t());
-            let mag_filter = gltf_sampler
-                .mag_filter()
-                .map(|gltf_mag_filter| match gltf_mag_filter {
-                    gltf::texture::MagFilter::Nearest => wgpu::FilterMode::Nearest,
-                    gltf::texture::MagFilter::Linear => wgpu::FilterMode::Linear,
-                })
-                .unwrap_or(default_sampler.mag_filter);
-
-            let (min_filter, mipmap_filter) = gltf_sampler
-                .min_filter()
-                .map(|gltf_min_filter| match gltf_min_filter {
-                    gltf::texture::MinFilter::Nearest => {
-                        (wgpu::FilterMode::Nearest, default_sampler.mipmap_filter)
-                    }
-                    gltf::texture::MinFilter::Linear => {
-                        (wgpu::FilterMode::Linear, default_sampler.mipmap_filter)
-                    }
-                    gltf::texture::MinFilter::NearestMipmapNearest => {
-                        (wgpu::FilterMode::Nearest, wgpu::FilterMode::Nearest)
-                    }
-                    gltf::texture::MinFilter::LinearMipmapNearest => {
-                        (wgpu::FilterMode::Linear, wgpu::FilterMode::Nearest)
-                    }
-                    gltf::texture::MinFilter::NearestMipmapLinear => {
-                        (wgpu::FilterMode::Nearest, wgpu::FilterMode::Linear)
-                    }
-                    gltf::texture::MinFilter::LinearMipmapLinear => {
-                        (wgpu::FilterMode::Linear, wgpu::FilterMode::Linear)
-                    }
-                })
-                .unwrap_or((default_sampler.min_filter, default_sampler.mipmap_filter));
-
-            Texture::from_decoded_image(
-                base_renderer,
-                &image_pixels,
-                image_dimensions,
-                baked_mip_levels,
-                texture.name(),
-                texture_format.into(),
-                generate_mipmaps,
-                &SamplerDescriptor {
-                    address_mode_u,
-                    address_mode_v,
-                    mag_filter,
-                    min_filter,
-                    mipmap_filter,
-                    ..Default::default()
-                },
+        let (image_pixels, texture_format, baked_mip_levels, image_dimensions, generate_mipmaps) =
+            get_image_pixels(
+                gltf_path,
+                &texture,
+                &images[source_image_index],
+                is_srgb,
+                is_normal_map,
             )
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+            .await?;
+
+        let gltf_sampler = texture.sampler();
+        let default_sampler = SamplerDescriptor {
+            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        };
+        let address_mode_u = sampler_wrapping_mode_to_wgpu(gltf_sampler.wrap_s());
+        let address_mode_v = sampler_wrapping_mode_to_wgpu(gltf_sampler.wrap_t());
+        let mag_filter = gltf_sampler
+            .mag_filter()
+            .map(|gltf_mag_filter| match gltf_mag_filter {
+                gltf::texture::MagFilter::Nearest => wgpu::FilterMode::Nearest,
+                gltf::texture::MagFilter::Linear => wgpu::FilterMode::Linear,
+            })
+            .unwrap_or(default_sampler.mag_filter);
+
+        let (min_filter, mipmap_filter) = gltf_sampler
+            .min_filter()
+            .map(|gltf_min_filter| match gltf_min_filter {
+                gltf::texture::MinFilter::Nearest => {
+                    (wgpu::FilterMode::Nearest, default_sampler.mipmap_filter)
+                }
+                gltf::texture::MinFilter::Linear => {
+                    (wgpu::FilterMode::Linear, default_sampler.mipmap_filter)
+                }
+                gltf::texture::MinFilter::NearestMipmapNearest => {
+                    (wgpu::FilterMode::Nearest, wgpu::FilterMode::Nearest)
+                }
+                gltf::texture::MinFilter::LinearMipmapNearest => {
+                    (wgpu::FilterMode::Linear, wgpu::FilterMode::Nearest)
+                }
+                gltf::texture::MinFilter::NearestMipmapLinear => {
+                    (wgpu::FilterMode::Nearest, wgpu::FilterMode::Linear)
+                }
+                gltf::texture::MinFilter::LinearMipmapLinear => {
+                    (wgpu::FilterMode::Linear, wgpu::FilterMode::Linear)
+                }
+            })
+            .unwrap_or((default_sampler.min_filter, default_sampler.mipmap_filter));
+
+        textures.push(Texture::from_decoded_image(
+            base_renderer,
+            &image_pixels,
+            image_dimensions,
+            baked_mip_levels,
+            texture.name(),
+            texture_format.into(),
+            generate_mipmaps,
+            &SamplerDescriptor {
+                address_mode_u,
+                address_mode_v,
+                mag_filter,
+                min_filter,
+                mipmap_filter,
+                ..Default::default()
+            },
+        )?);
+    }
     Ok(textures)
 }
 
@@ -564,6 +538,7 @@ fn get_keyframe_times(
     Ok(keyframe_times)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn get_compressed_image_pixels(
     image_data: CompressedTexture,
     is_srgb: bool,
@@ -594,7 +569,75 @@ fn get_compressed_image_pixels(
     Ok((image_pixels, texture_format))
 }
 
-fn get_image_pixels(
+#[cfg(not(target_arch = "wasm32"))]
+async fn get_image_pixels(
+    gltf_path: &Path,
+    texture: &gltf::Texture<'_>,
+    image_data: &gltf::image::Data,
+    is_srgb: bool,
+    is_normal_map: bool,
+) -> Result<(Vec<u8>, wgpu::TextureFormat, u32, (u32, u32), bool)> {
+    let compressed_image_data = match texture.source().source() {
+        gltf::image::Source::Uri { uri, .. } => {
+            let compressed_texture_path = texture_path_to_compressed_path(
+                &gltf_path.parent().unwrap().join(PathBuf::from(uri)),
+            );
+            if USE_TEXTURE_COMPRESSION && compressed_texture_path.try_exists()? {
+                let texture_compressor = TextureCompressor::new();
+                let texture_bytes =
+                    crate::file_loader::read(compressed_texture_path.as_os_str().to_str().unwrap())
+                        .await?;
+                Some(texture_compressor.transcode_image(&texture_bytes, is_normal_map)?)
+            } else {
+                None
+            }
+        }
+        gltf::image::Source::View { .. } => None,
+    };
+
+    let baked_mip_levels = compressed_image_data
+        .as_ref()
+        .map(|data| data.mip_count)
+        .unwrap_or(1);
+    let image_dimensions = compressed_image_data
+        .as_ref()
+        .map(|data| (data.width, data.height))
+        .unwrap_or((image_data.width, image_data.height));
+    let generate_mipmaps = compressed_image_data.is_none();
+
+    let (image_pixels, texture_format) = match compressed_image_data {
+        Some(compressed_image_data) => get_compressed_image_pixels(compressed_image_data, is_srgb)?,
+        None => get_uncompressed_image_pixels(&image_data, is_srgb)?,
+    };
+
+    Ok((
+        image_pixels,
+        texture_format,
+        baked_mip_levels,
+        image_dimensions,
+        generate_mipmaps,
+    ))
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn get_image_pixels(
+    _gltf_path: &Path,
+    _texture: &gltf::Texture<'_>,
+    image_data: &gltf::image::Data,
+    is_srgb: bool,
+    _is_normal_map: bool,
+) -> Result<(Vec<u8>, wgpu::TextureFormat, u32, (u32, u32), bool)> {
+    let (image_pixels, texture_format) = get_uncompressed_image_pixels(image_data, is_srgb)?;
+    Ok((
+        image_pixels,
+        texture_format,
+        1,
+        (image_data.width, image_data.height),
+        true,
+    ))
+}
+
+fn get_uncompressed_image_pixels(
     image_data: &gltf::image::Data,
     srgb: bool,
 ) -> Result<(Vec<u8>, wgpu::TextureFormat)> {

@@ -51,13 +51,17 @@ fn main() {
         let tx = tx.clone();
         let texture_paths = texture_paths.clone();
         pool.execute(move || {
-            let (path, is_srgb, is_normal_map) = &texture_paths[texture_index];
-            println!(
-                "start {:?} (srgb={:?}, is_normal_map={:?})",
-                path, is_srgb, is_normal_map
-            );
-            compress_file(path.as_path(), *is_srgb, *is_normal_map).unwrap();
-            tx.send(texture_index).unwrap();
+            pollster::block_on(async {
+                let (path, is_srgb, is_normal_map) = &texture_paths[texture_index];
+                println!(
+                    "start {:?} (srgb={:?}, is_normal_map={:?})",
+                    path, is_srgb, is_normal_map
+                );
+                compress_file(path.as_path(), *is_srgb, *is_normal_map)
+                    .await
+                    .unwrap();
+                tx.send(texture_index).unwrap();
+            });
         });
     }
     let mut done_count = 0;
@@ -131,8 +135,8 @@ fn find_dangling_texture_paths(exclude_list: HashSet<PathBuf>) -> anyhow::Result
         .collect())
 }
 
-fn compress_file(img_path: &Path, is_srgb: bool, is_normal_map: bool) -> anyhow::Result<()> {
-    let img_bytes = std::fs::read(img_path)?;
+async fn compress_file(img_path: &Path, is_srgb: bool, is_normal_map: bool) -> anyhow::Result<()> {
+    let img_bytes = ikari::file_loader::read(img_path.as_os_str().to_str().unwrap()).await?;
     let img_decoded = image::load_from_memory(&img_bytes)?.to_rgba8();
     let (img_width, img_height) = img_decoded.dimensions();
     let img_channel_count = 4;
