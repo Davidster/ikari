@@ -51,7 +51,8 @@ impl AssetLoader {
 
                         let do_load = || async {
                             profiling::scope!("Load asset", &next_scene_path);
-                            let (document, buffers, images) = gltf::import(&next_scene_path)?;
+                            let gltf_slice = crate::file_loader::read(&next_scene_path).await?;
+                            let (document, buffers, images) = gltf::import_slice(&gltf_slice)?;
                             let (other_scene, other_render_buffers) = build_scene(
                                 &renderer_base,
                                 (&document, &buffers, &images),
@@ -93,58 +94,62 @@ impl AssetLoader {
             let audio_manager = self.audio_manager.clone();
 
             std::thread::spawn(move || {
-                while pending_audio.lock().unwrap().len() > 0 {
-                    let (next_audio_path, next_audio_format, next_audio_params) =
-                        pending_audio.lock().unwrap().remove(0);
+                pollster::block_on(async {
+                    while pending_audio.lock().unwrap().len() > 0 {
+                        let (next_audio_path, next_audio_format, next_audio_params) =
+                            pending_audio.lock().unwrap().remove(0);
 
-                    let do_load = || {
-                        let device_sample_rate = audio_manager.lock().unwrap().device_sample_rate();
-                        let mut audio_file_streamer = AudioFileStreamer::new(
-                            device_sample_rate,
-                            next_audio_path.clone(),
-                            Some(next_audio_format),
-                        )?;
-                        let sound_data = if !next_audio_params.stream {
-                            audio_file_streamer.read_chunk(0)?.0
-                        } else {
-                            Default::default()
-                        };
-                        let signal = AudioManager::get_signal(
-                            &sound_data,
-                            next_audio_params.clone(),
-                            device_sample_rate,
-                        );
-                        let sound_index = audio_manager.lock().unwrap().add_sound(
-                            sound_data,
-                            next_audio_params.clone(),
-                            signal,
-                        );
-
-                        if next_audio_params.stream {
-                            Self::spawn_audio_streaming_thread(
-                                audio_manager.clone(),
-                                sound_index,
-                                audio_file_streamer,
+                        let do_load = || async {
+                            let device_sample_rate =
+                                audio_manager.lock().unwrap().device_sample_rate();
+                            let mut audio_file_streamer = AudioFileStreamer::new(
+                                device_sample_rate,
+                                &next_audio_path,
+                                Some(next_audio_format),
+                            )
+                            .await?;
+                            let sound_data = if !next_audio_params.stream {
+                                audio_file_streamer.read_chunk(0)?.0
+                            } else {
+                                Default::default()
+                            };
+                            let signal = AudioManager::get_signal(
+                                &sound_data,
+                                next_audio_params.clone(),
+                                device_sample_rate,
                             );
-                        }
+                            let sound_index = audio_manager.lock().unwrap().add_sound(
+                                sound_data,
+                                next_audio_params.clone(),
+                                signal,
+                            );
 
-                        anyhow::Ok(sound_index)
-                    };
-                    match do_load() {
-                        Ok(result) => {
-                            let _replaced_ignored =
-                                loaded_audio.lock().unwrap().insert(next_audio_path, result);
-                        }
-                        Err(err) => {
-                            logger_log(&format!(
-                                "Error loading audio asset {}: {}\n{}",
-                                next_audio_path,
-                                err,
-                                err.backtrace()
-                            ));
+                            if next_audio_params.stream {
+                                Self::spawn_audio_streaming_thread(
+                                    audio_manager.clone(),
+                                    sound_index,
+                                    audio_file_streamer,
+                                );
+                            }
+
+                            anyhow::Ok(sound_index)
+                        };
+                        match do_load().await {
+                            Ok(result) => {
+                                let _replaced_ignored =
+                                    loaded_audio.lock().unwrap().insert(next_audio_path, result);
+                            }
+                            Err(err) => {
+                                logger_log(&format!(
+                                    "Error loading audio asset {}: {}\n{}",
+                                    next_audio_path,
+                                    err,
+                                    err.backtrace()
+                                ));
+                            }
                         }
                     }
-                }
+                });
             });
         }
     }

@@ -1,6 +1,9 @@
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsValue;
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::fs::File;
+
 #[cfg(target_arch = "wasm32")]
 pub async fn read(path: &str) -> anyhow::Result<Vec<u8>> {
     const ASSET_SERVER: &str = "http://localhost:8000";
@@ -42,7 +45,7 @@ pub fn map_js_err<T>(result: std::result::Result<T, JsValue>) -> anyhow::Result<
 
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn read(path: &str) -> anyhow::Result<Vec<u8>> {
-    Ok(std::fs::read(&resolve_path(path))?)
+    Ok(std::fs::read(resolve_path(path))?)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -53,7 +56,12 @@ pub async fn read_to_string(path: &str) -> anyhow::Result<String> {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn read_to_string(path: &str) -> anyhow::Result<String> {
-    Ok(std::fs::read_to_string(path)?)
+    Ok(std::fs::read_to_string(resolve_path(path))?)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn open_file(path: &str) -> anyhow::Result<File> {
+    Ok(std::fs::File::open(resolve_path(path))?)
 }
 
 fn resolve_path(path: &str) -> String {

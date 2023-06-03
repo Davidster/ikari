@@ -1,15 +1,15 @@
-use std::fs::File;
+use std::io::Cursor;
 
 use anyhow::Result;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use glam::f32::Vec3;
-// use hound::{WavReader, WavSpec};
 use oddio::{
     FixedGain, FramesSignal, Gain, Handle, Mixer, SpatialBuffered, SpatialOptions, SpatialScene,
     Stop,
 };
 use symphonia::core::{
-    audio::SampleBuffer, codecs::CODEC_TYPE_NULL, io::MediaSourceStream, probe::Hint,
+    audio::SampleBuffer, codecs::CODEC_TYPE_NULL, io::MediaSource, io::MediaSourceStream,
+    probe::Hint,
 };
 
 pub struct AudioStreams {
@@ -88,14 +88,25 @@ pub struct AudioFileStreamer {
     file_path: String,
 }
 
+#[cfg(target_arch = "wasm32")]
+async fn get_media_source(file_path: &str) -> Result<Box<dyn MediaSource>> {
+    // TODO: implement proper streaming over http
+    let file_bytes = crate::file_loader::read(file_path).await?;
+    Ok(Box::new(Cursor::new(file_bytes)))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn get_media_source(file_path: &str) -> Result<Box<dyn MediaSource>> {
+    Ok(Box::new(crate::file_loader::open_file(file_path)?))
+}
+
 impl AudioFileStreamer {
-    pub fn new(
+    pub async fn new(
         device_sample_rate: u32,
-        file_path: String,
+        file_path: &str,
         file_format: Option<AudioFileFormat>,
     ) -> anyhow::Result<Self> {
-        let src = File::open(&file_path)?;
-        let mss = MediaSourceStream::new(Box::new(src), Default::default());
+        let mss = MediaSourceStream::new(get_media_source(file_path).await?, Default::default());
 
         let mut hint = Hint::new();
         if let Some(file_format) = &file_format {
@@ -132,7 +143,7 @@ impl AudioFileStreamer {
             decoder,
             track_id,
             track_sample_rate,
-            file_path,
+            file_path: file_path.to_string(),
         })
     }
 

@@ -1808,9 +1808,11 @@ impl Renderer {
         let er_to_cube_texture;
         let skybox_rad_texture = match skybox_hdr_environment {
             Some(SkyboxHDREnvironment::Equirectangular { image_path }) => {
+                let image_bytes;
                 let skybox_rad_texture_decoder = {
-                    let reader = BufReader::new(File::open(image_path)?);
-                    image::codecs::hdr::HdrDecoder::new(reader)?
+                    image_bytes = crate::file_loader::read(image_path).await?;
+                    let image_bytes_slice: &[u8] = &image_bytes;
+                    image::codecs::hdr::HdrDecoder::new(image_bytes_slice)?
                 };
                 let skybox_rad_texture_dimensions = {
                     let md = skybox_rad_texture_decoder.metadata();

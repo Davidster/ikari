@@ -41,8 +41,8 @@ Hopefully one day it will be used in a real game 😃
 # native
 RUST_BACKTRACE=1 cargo run --release --bin example_game
 # web
-RUSTFLAGS=--cfg=web_sys_unstable_apis cargo run-wasm --release --bin example_game --build-only
 cargo install cargo-server
+RUSTFLAGS=--cfg=web_sys_unstable_apis cargo run-wasm --release --bin example_game --build-only
 cargo server --port 8000
 ```
 

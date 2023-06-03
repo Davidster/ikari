@@ -1111,7 +1111,7 @@ pub fn update_game_state(
         let mut renderer_data_guard = renderer_data.lock().unwrap();
         if game_state.gunshot_sound_index.is_some() {
             if let Entry::Occupied(entry) =
-                loaded_assets_guard.entry("src/models/gltf/ColtPython/colt_python.gltf".to_string())
+                loaded_assets_guard.entry("src/models/gltf/ColtPython/colt_python.glb".to_string())
             {
                 let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
                 game_state.scene.merge_scene(
@@ -1151,7 +1151,7 @@ pub fn update_game_state(
         }
 
         if let Entry::Occupied(entry) =
-            loaded_assets_guard.entry("src/models/gltf/free_low_poly_forest/scene.gltf".to_string())
+            loaded_assets_guard.entry("src/models/gltf/free_low_poly_forest/scene.glb".to_string())
         {
             let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
             // hack to get the terrain to be at the same height as the ground.
@@ -1174,7 +1174,7 @@ pub fn update_game_state(
         }
 
         if let Entry::Occupied(entry) = loaded_assets_guard
-            .entry("src/models/gltf/LegendaryRobot/Legendary_Robot.gltf".to_string())
+            .entry("src/models/gltf/LegendaryRobot/Legendary_Robot.glb".to_string())
         {
             let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
             if let Some(jump_up_animation) = other_scene
@@ -1194,7 +1194,7 @@ pub fn update_game_state(
         }
 
         if let Entry::Occupied(entry) =
-            loaded_assets_guard.entry("src/models/gltf/TestLevel/test_level.gltf".to_string())
+            loaded_assets_guard.entry("src/models/gltf/TestLevel/test_level.glb".to_string())
         {
             let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
             let skip_nodes = game_state.scene.node_count();
