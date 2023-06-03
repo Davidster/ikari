@@ -843,7 +843,7 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Unlit Mesh Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    crate::file_loader::read_to_string("./src/shaders/unlit_mesh.wgsl")
+                    crate::file_loader::read_to_string("src/shaders/unlit_mesh.wgsl")
                         .await?
                         .into(),
                 ),
@@ -854,7 +854,7 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Blit Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    crate::file_loader::read_to_string("./src/shaders/blit.wgsl")
+                    crate::file_loader::read_to_string("src/shaders/blit.wgsl")
                         .await?
                         .into(),
                 ),
@@ -865,7 +865,7 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Textured Mesh Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    crate::file_loader::read_to_string("./src/shaders/textured_mesh.wgsl")
+                    crate::file_loader::read_to_string("src/shaders/textured_mesh.wgsl")
                         .await?
                         .into(),
                 ),
@@ -876,7 +876,7 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Skybox Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    crate::file_loader::read_to_string("./src/shaders/skybox.wgsl")
+                    crate::file_loader::read_to_string("src/shaders/skybox.wgsl")
                         .await?
                         .into(),
                 ),
@@ -1613,7 +1613,7 @@ impl Renderer {
 
         let initial_render_scale = INITIAL_RENDER_SCALE;
 
-        let cube_mesh = BasicMesh::new("./src/models/cube.obj").await?;
+        let cube_mesh = BasicMesh::new("src/models/cube.obj").await?;
 
         let skybox_mesh = Self::bind_geometry_buffers_for_basic_mesh_impl(&base.device, &cube_mesh);
 
@@ -2227,7 +2227,7 @@ impl Renderer {
                 .try_into()
                 .unwrap();
 
-        let sphere_mesh = BasicMesh::new("./src/models/sphere.obj").await?;
+        let sphere_mesh = BasicMesh::new("src/models/sphere.obj").await?;
         let sphere_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &sphere_mesh)
             .try_into()
             .unwrap();
@@ -2236,7 +2236,7 @@ impl Renderer {
                 .try_into()
                 .unwrap();
 
-        let plane_mesh = BasicMesh::new("./src/models/plane.obj").await?;
+        let plane_mesh = BasicMesh::new("src/models/plane.obj").await?;
         let plane_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &plane_mesh)
             .try_into()
             .unwrap();

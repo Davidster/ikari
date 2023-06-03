@@ -4,6 +4,9 @@ use crate::logger::*;
 use crate::renderer::*;
 use crate::time::*;
 
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -94,6 +97,24 @@ pub fn run(
                     renderer.set_vsync(ui_state.enable_vsync);
                     renderer
                         .set_culling_frustum_lock(&game_state, ui_state.culling_frustum_lock_mode);
+                }
+
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let dom_window = web_sys::window().unwrap();
+                    let document = dom_window.document().unwrap();
+                    let canvas_container = document
+                        .get_element_by_id("canvas_container")
+                        .unwrap()
+                        .dyn_into::<web_sys::HtmlElement>()
+                        .unwrap();
+                    let new_size = winit::dpi::PhysicalSize::new(
+                        canvas_container.offset_width() as u32,
+                        canvas_container.offset_height() as u32,
+                    );
+                    if window.inner_size() != new_size {
+                        window.set_inner_size(new_size);
+                    }
                 }
 
                 match renderer.render(&mut game_state, &window, control_flow) {
