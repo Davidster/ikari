@@ -9,8 +9,10 @@ struct ToneMappingConfigUniform {
     exposure: vec4<f32>,
 }
 
+@group(1) @binding(0)
 var<push_constant> BLOOM_CONFIG: BloomConfig;
 
+@group(1) @binding(0)
 var<push_constant> TONE_MAPPING_CONFIG: ToneMappingConfigUniform;
 
 struct VertexOutput {

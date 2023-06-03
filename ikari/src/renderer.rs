@@ -19,6 +19,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::num::NonZeroU64;
 use std::path::PathBuf;
+use std::primitive;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
@@ -320,7 +321,6 @@ impl BaseRenderer {
         features &= wgpu_profiler::GpuProfiler::ALL_WGPU_TIMER_FEATURES;
 
         // panic if these features are missing
-        features |= wgpu::Features::PUSH_CONSTANTS;
         features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
 
         let (device, queue) = adapter
@@ -716,11 +716,13 @@ pub struct RendererPrivateData {
     frustum_culling_lock: CullingFrustumLock, // for debug
 
     // gpu
-    lights_and_pbr_shader_options_bind_group: wgpu::BindGroup,
+    // camera_lights_and_pbr_shader_options_bind_groups: Vec<wgpu::BindGroup>,
     bones_and_pbr_instances_bind_group: wgpu::BindGroup,
     bones_and_unlit_instances_bind_group: wgpu::BindGroup,
     bones_and_transparent_instances_bind_group: wgpu::BindGroup,
     bones_and_wireframe_instances_bind_group: wgpu::BindGroup,
+    bloom_config_bind_groups: [wgpu::BindGroup; 2],
+    tone_mapping_config_bind_group: wgpu::BindGroup,
 
     environment_textures_bind_group: wgpu::BindGroup,
     shading_and_bloom_textures_bind_group: wgpu::BindGroup,
@@ -728,9 +730,12 @@ pub struct RendererPrivateData {
     shading_texture_bind_group: wgpu::BindGroup,
     bloom_pingpong_texture_bind_groups: [wgpu::BindGroup; 2],
 
+    camera_buffers: Vec<wgpu::Buffer>,
     point_lights_buffer: wgpu::Buffer,
     directional_lights_buffer: wgpu::Buffer,
     pbr_shader_options_buffer: wgpu::Buffer,
+    bloom_config_buffers: [wgpu::Buffer; 2],
+    tone_mapping_config_buffer: wgpu::Buffer,
     bones_buffer: GpuBuffer,
     pbr_instances_buffer: GpuBuffer,
     unlit_instances_buffer: GpuBuffer,
@@ -1026,7 +1031,7 @@ impl Renderer {
                     label: Some("single_uniform_bind_group_layout"),
                 });
 
-        let lights_and_pbr_shader_options_bind_group_layout =
+        let two_uniform_bind_group_layout =
             base.device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     entries: &[
@@ -1050,19 +1055,47 @@ impl Renderer {
                             },
                             count: None,
                         },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
                     ],
-                    label: Some("lights_and_shader_options_bind_group_layout"),
+                    label: Some("two_uniform_bind_group_layout"),
                 });
+
+        let camera_lights_and_pbr_shader_options_bind_group_layout = base
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+                label: Some("camera_lights_and_pbr_shader_options_bind_group_layout"),
+            });
 
         let fragment_shader_color_targets = &[Some(wgpu::ColorTargetState {
             format: wgpu::TextureFormat::Rgba16Float,
@@ -1070,27 +1103,17 @@ impl Renderer {
             write_mask: wgpu::ColorWrites::ALL,
         })];
 
-        let mesh_camera_push_constant_range = wgpu::PushConstantRange {
-            stages: wgpu::ShaderStages::VERTEX,
-            range: 0..std::mem::size_of::<MeshShaderCameraRaw>() as u32,
-        };
-
-        let skybox_camera_push_constant_range = wgpu::PushConstantRange {
-            stages: wgpu::ShaderStages::VERTEX,
-            range: 0..std::mem::size_of::<SkyboxShaderCameraRaw>() as u32,
-        };
-
         let mesh_pipeline_layout =
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Mesh Pipeline Layout"),
                     bind_group_layouts: &[
-                        &lights_and_pbr_shader_options_bind_group_layout,
+                        &camera_lights_and_pbr_shader_options_bind_group_layout,
                         &environment_textures_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
                         &base.pbr_textures_bind_group_layout,
                     ],
-                    push_constant_ranges: &[mesh_camera_push_constant_range.clone()],
+                    push_constant_ranges: &[],
                 });
 
         let mesh_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -1139,10 +1162,10 @@ impl Renderer {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Unlit Mesh Pipeline Layout"),
                     bind_group_layouts: &[
-                        &lights_and_pbr_shader_options_bind_group_layout,
+                        &camera_lights_and_pbr_shader_options_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
                     ],
-                    push_constant_ranges: &[mesh_camera_push_constant_range.clone()],
+                    push_constant_ranges: &[],
                 });
         let mut unlit_mesh_pipeline_descriptor = mesh_pipeline_descriptor.clone();
         unlit_mesh_pipeline_descriptor.label = Some("Unlit Mesh Render Pipeline");
@@ -1196,11 +1219,11 @@ impl Renderer {
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: None,
-                    bind_group_layouts: &[&base.single_texture_bind_group_layout],
-                    push_constant_ranges: &[wgpu::PushConstantRange {
-                        stages: wgpu::ShaderStages::FRAGMENT,
-                        range: 0..12,
-                    }],
+                    bind_group_layouts: &[
+                        &base.single_texture_bind_group_layout,
+                        &single_uniform_bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
                 });
         let bloom_threshold_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: Some("Bloom Threshold Pipeline"),
@@ -1308,11 +1331,11 @@ impl Renderer {
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: None,
-                    bind_group_layouts: &[&base.two_texture_bind_group_layout],
-                    push_constant_ranges: &[wgpu::PushConstantRange {
-                        stages: wgpu::ShaderStages::FRAGMENT,
-                        range: 0..4,
-                    }],
+                    bind_group_layouts: &[
+                        &base.two_texture_bind_group_layout,
+                        &single_uniform_bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
                 });
         let tone_mapping_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: Some("Tone Mapping Render Pipeline"),
@@ -1354,8 +1377,11 @@ impl Renderer {
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Skybox Render Pipeline Layout"),
-                    bind_group_layouts: &[&environment_textures_bind_group_layout],
-                    push_constant_ranges: &[skybox_camera_push_constant_range.clone()],
+                    bind_group_layouts: &[
+                        &environment_textures_bind_group_layout,
+                        &camera_lights_and_pbr_shader_options_bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
                 });
 
         let skybox_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -1389,8 +1415,11 @@ impl Renderer {
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Equirectangular To Cubemap Render Pipeline Layout"),
-                    bind_group_layouts: &[&base.single_texture_bind_group_layout],
-                    push_constant_ranges: &[skybox_camera_push_constant_range.clone()],
+                    bind_group_layouts: &[
+                        &base.single_texture_bind_group_layout,
+                        &single_uniform_bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
                 });
 
         let equirectangular_to_cubemap_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -1424,8 +1453,11 @@ impl Renderer {
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("diffuse env map Gen Pipeline Layout"),
-                    bind_group_layouts: &[&single_cube_texture_bind_group_layout],
-                    push_constant_ranges: &[skybox_camera_push_constant_range.clone()],
+                    bind_group_layouts: &[
+                        &single_cube_texture_bind_group_layout,
+                        &single_uniform_bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
                 });
         let diffuse_env_map_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: Some("diffuse env map Gen Pipeline"),
@@ -1460,9 +1492,9 @@ impl Renderer {
                     label: Some("specular env map Gen Pipeline Layout"),
                     bind_group_layouts: &[
                         &single_cube_texture_bind_group_layout,
-                        &single_uniform_bind_group_layout,
+                        &two_uniform_bind_group_layout,
                     ],
-                    push_constant_ranges: &[skybox_camera_push_constant_range.clone()],
+                    push_constant_ranges: &[],
                 });
 
         let specular_env_map_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -1497,7 +1529,7 @@ impl Renderer {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Brdf Lut Gen Pipeline Layout"),
                     bind_group_layouts: &[],
-                    push_constant_ranges: &[skybox_camera_push_constant_range],
+                    push_constant_ranges: &[],
                 });
 
         let brdf_lut_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -1530,10 +1562,10 @@ impl Renderer {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("Shadow Map Pipeline Layout"),
                     bind_group_layouts: &[
-                        &lights_and_pbr_shader_options_bind_group_layout,
+                        &camera_lights_and_pbr_shader_options_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
                     ],
-                    push_constant_ranges: &[mesh_camera_push_constant_range],
+                    push_constant_ranges: &[],
                 });
         let point_shadow_map_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: Some("Point Shadow Map Pipeline"),
@@ -1746,6 +1778,58 @@ impl Renderer {
             ];
         }
 
+        let bloom_config_buffers = [
+            base.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Bloom Config Buffer 0"),
+                    contents: bytemuck::cast_slice(&[0f32, 0f32, 0f32]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                }),
+            base.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Bloom Config Buffer 1"),
+                    contents: bytemuck::cast_slice(&[0f32, 0f32, 0f32]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                }),
+        ];
+
+        let bloom_config_bind_groups = [
+            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &single_uniform_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: bloom_config_buffers[0].as_entire_binding(),
+                }],
+                label: Some("bloom_config_bind_group_0"),
+            }),
+            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &single_uniform_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: bloom_config_buffers[1].as_entire_binding(),
+                }],
+                label: Some("bloom_config_bind_group_1"),
+            }),
+        ];
+
+        let tone_mapping_config_buffer =
+            base.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Tone Mapping Config Buffer"),
+                    contents: bytemuck::cast_slice(&[0f32]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+
+        let tone_mapping_config_bind_group =
+            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &single_uniform_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: tone_mapping_config_buffer.as_entire_binding(),
+                }],
+                label: Some("tone_mapping_config_bind_group"),
+            });
+
         let depth_texture =
             Texture::create_depth_texture(&base, initial_render_scale, "depth_texture");
 
@@ -1928,25 +2012,25 @@ impl Renderer {
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
-        let lights_and_pbr_shader_options_bind_group =
-            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &lights_and_pbr_shader_options_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: point_lights_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: directional_lights_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: pbr_shader_options_buffer.as_entire_binding(),
-                    },
-                ],
-                label: Some("lights_and_pbr_shader_options_bind_group"),
-            });
+        // let camera_lights_and_pbr_shader_options_bind_group =
+        //     base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        //         layout: &camera_lights_and_pbr_shader_options_bind_group_layout,
+        //         entries: &[
+        //             wgpu::BindGroupEntry {
+        //                 binding: 0,
+        //                 resource: point_lights_buffer.as_entire_binding(),
+        //             },
+        //             wgpu::BindGroupEntry {
+        //                 binding: 1,
+        //                 resource: directional_lights_buffer.as_entire_binding(),
+        //             },
+        //             wgpu::BindGroupEntry {
+        //                 binding: 2,
+        //                 resource: pbr_shader_options_buffer.as_entire_binding(),
+        //             },
+        //         ],
+        //         label: Some("lights_and_pbr_shader_options_bind_group"),
+        //     });
 
         let bones_buffer = GpuBuffer::empty(
             &base.device,
@@ -2272,11 +2356,12 @@ impl Renderer {
                 bloom_threshold_cleared: true,
                 frustum_culling_lock: CullingFrustumLock::None,
 
-                lights_and_pbr_shader_options_bind_group,
                 bones_and_pbr_instances_bind_group,
                 bones_and_unlit_instances_bind_group,
                 bones_and_transparent_instances_bind_group,
                 bones_and_wireframe_instances_bind_group,
+                bloom_config_bind_groups,
+                tone_mapping_config_bind_group,
 
                 environment_textures_bind_group,
                 shading_and_bloom_textures_bind_group,
@@ -2284,8 +2369,11 @@ impl Renderer {
                 shading_texture_bind_group,
                 bloom_pingpong_texture_bind_groups,
 
+                camera_buffers: vec![],
                 point_lights_buffer,
                 directional_lights_buffer,
+                bloom_config_buffers,
+                tone_mapping_config_buffer,
                 pbr_shader_options_buffer,
                 bones_buffer,
                 pbr_instances_buffer,
@@ -3545,6 +3633,13 @@ impl Renderer {
                 label: Some("bones_and_wireframe_instances_bind_group"),
             });
 
+        let mut all_camera_data: Vec<ShaderCameraData> = vec![];
+
+        // collect all camera data
+
+        // write all camera data, adding new buffers if necessary
+        // private_data.camera_buffers
+
         let _total_instance_buffer_memory_usage = private_data.pbr_instances_buffer.length_bytes()
             + private_data.unlit_instances_buffer.length_bytes()
             + private_data.transparent_instances_buffer.length_bytes()
@@ -3591,6 +3686,21 @@ impl Renderer {
             bytemuck::cast_slice(&make_directional_light_uniform_buffer(
                 &game_state.directional_lights,
             )),
+        );
+        queue.write_buffer(
+            &private_data.tone_mapping_config_buffer,
+            0,
+            bytemuck::cast_slice(&[data.tone_mapping_exposure]),
+        );
+        base.queue.write_buffer(
+            &private_data.bloom_config_buffers[0],
+            0,
+            bytemuck::cast_slice(&[0.0f32, data.bloom_threshold, data.bloom_ramp_size]),
+        );
+        base.queue.write_buffer(
+            &private_data.bloom_config_buffers[1],
+            0,
+            bytemuck::cast_slice(&[1.0f32, data.bloom_threshold, data.bloom_ramp_size]),
         );
         queue.write_buffer(
             &private_data.pbr_shader_options_buffer,
@@ -3660,7 +3770,7 @@ impl Renderer {
                         &mut encoder,
                         &shadow_render_pass_desc,
                         &self.directional_shadow_map_pipeline,
-                        view_proj_matrices,
+                        todo!(),
                         true,
                         2u32.pow((1 + light_index).try_into().unwrap()),
                         None,
@@ -3724,7 +3834,7 @@ impl Renderer {
                             &mut encoder,
                             &shadow_render_pass_desc,
                             &self.point_shadow_map_pipeline,
-                            face_view_proj_matrices,
+                            todo!(),
                             true,
                             culling_mask,
                             Some(face_index.try_into().unwrap()),
@@ -3783,7 +3893,7 @@ impl Renderer {
             &mut encoder,
             &shading_render_pass_desc,
             &self.mesh_pipeline,
-            main_camera_data,
+            todo!(),
             false,
             1, // use main camera culling mask
             None,
@@ -3813,17 +3923,8 @@ impl Renderer {
 
             wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
                 render_pass.set_pipeline(&self.unlit_mesh_pipeline);
-                render_pass.set_push_constants(
-                    wgpu::ShaderStages::VERTEX,
-                    0,
-                    bytemuck::cast_slice(&[MeshShaderCameraRaw::from(main_camera_data)]),
-                );
 
-                render_pass.set_bind_group(
-                    0,
-                    &private_data.lights_and_pbr_shader_options_bind_group,
-                    &[],
-                );
+                render_pass.set_bind_group(0, todo!(), &[]);
                 for unlit_instance_chunk in private_data.all_unlit_instances.chunks() {
                     let binded_unlit_mesh_index = unlit_instance_chunk.id;
                     let instances_buffer_start_index = unlit_instance_chunk.start_index as u32;
@@ -3936,12 +4037,8 @@ impl Renderer {
 
                 wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
                     render_pass.set_pipeline(&self.bloom_threshold_pipeline);
-                    render_pass.set_push_constants(
-                        wgpu::ShaderStages::FRAGMENT,
-                        0,
-                        bytemuck::cast_slice(&[0.0f32, data.bloom_threshold, data.bloom_ramp_size]),
-                    );
                     render_pass.set_bind_group(0, &private_data.shading_texture_bind_group, &[]);
+                    render_pass.set_bind_group(1, &private_data.bloom_config_bind_groups[0], &[]);
                     render_pass.draw(0..3, 0..1);
                 });
             }
@@ -3977,6 +4074,11 @@ impl Renderer {
                             ]),
                         );
                         render_pass.set_bind_group(0, src_texture, &[]);
+                        render_pass.set_bind_group(
+                            1,
+                            &private_data.bloom_config_bind_groups[if horizontal { 0 } else { 1 }],
+                            &[],
+                        );
                         render_pass.draw(0..3, 0..1);
                     });
                 };
@@ -4079,6 +4181,7 @@ impl Renderer {
                     &private_data.shading_and_bloom_textures_bind_group,
                     &[],
                 );
+                render_pass.set_bind_group(1, &private_data.tone_mapping_config_bind_group, &[]);
                 render_pass.draw(0..3, 0..1);
             });
         }
@@ -4107,17 +4210,8 @@ impl Renderer {
 
             wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
                 render_pass.set_pipeline(&self.transparent_mesh_pipeline);
-                render_pass.set_push_constants(
-                    wgpu::ShaderStages::VERTEX,
-                    0,
-                    bytemuck::cast_slice(&[MeshShaderCameraRaw::from(main_camera_data)]),
-                );
 
-                render_pass.set_bind_group(
-                    0,
-                    &private_data.lights_and_pbr_shader_options_bind_group,
-                    &[],
-                );
+                render_pass.set_bind_group(0, todo!(), &[]);
 
                 for transparent_instance_chunk in private_data.all_transparent_instances.chunks() {
                     let binded_transparent_mesh_index = transparent_instance_chunk.id;
@@ -4204,7 +4298,7 @@ impl Renderer {
         encoder: &mut wgpu::CommandEncoder,
         render_pass_descriptor: &wgpu::RenderPassDescriptor<'a, 'a>,
         pipeline: &'a wgpu::RenderPipeline,
-        camera: ShaderCameraData,
+        camera_lights_shader_options_bind_group: &'a wgpu::BindGroup,
         is_shadow: bool,
         culling_mask: u32,
         cubemap_face_index: Option<u32>,
@@ -4233,17 +4327,8 @@ impl Renderer {
             device,
             {
                 render_pass.set_pipeline(pipeline);
-                render_pass.set_push_constants(
-                    wgpu::ShaderStages::VERTEX,
-                    0,
-                    bytemuck::cast_slice(&[MeshShaderCameraRaw::from(camera)]),
-                );
 
-                render_pass.set_bind_group(
-                    0,
-                    &private_data.lights_and_pbr_shader_options_bind_group,
-                    &[],
-                );
+                render_pass.set_bind_group(0, camera_lights_shader_options_bind_group, &[]);
                 if !is_shadow {
                     render_pass.set_bind_group(
                         1,

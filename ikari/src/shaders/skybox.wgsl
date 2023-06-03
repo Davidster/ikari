@@ -5,13 +5,14 @@ struct MeshShaderCameraRaw {
     far_plane_distance: f32, // not used in this shader
 }
 
-var<push_constant> CAMERA: MeshShaderCameraRaw;
+@group(1) @binding(0)
+var<uniform> CAMERA: MeshShaderCameraRaw;
 
 struct RougnessInput {
     value: f32,
 }
-@group(1) @binding(0)
-var<uniform> roughness_input: RougnessInput; // TODO: convert to push_constant?
+@group(1) @binding(1)
+var<uniform> roughness_input: RougnessInput;
 
 struct VertexInput {
     @location(0) object_position: vec3<f32>,

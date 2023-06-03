@@ -5,7 +5,8 @@ struct MeshShaderCameraRaw {
     far_plane_distance: f32,
 }
 
-var<push_constant> CAMERA: MeshShaderCameraRaw;
+@group(0) @binding(0)
+var<uniform> CAMERA: MeshShaderCameraRaw;
 
 const MAX_LIGHTS = 32u;
 const MAX_BONES = 512u;
@@ -51,11 +52,11 @@ struct PbrShaderOptionsUniform {
     options_4: vec4<f32>,
 }
 
-@group(0) @binding(0)
-var<uniform> point_lights: PointLightsUniform;
 @group(0) @binding(1)
-var<uniform> directional_lights: DirectionalLightsUniform;
+var<uniform> point_lights: PointLightsUniform;
 @group(0) @binding(2)
+var<uniform> directional_lights: DirectionalLightsUniform;
+@group(0) @binding(3)
 var<uniform> shader_options: PbrShaderOptionsUniform;
 
 @group(2) @binding(0)

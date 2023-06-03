@@ -5,7 +5,8 @@ struct MeshShaderCameraRaw {
     far_plane_distance: f32,
 }
 
-var<push_constant> CAMERA: MeshShaderCameraRaw;
+@group(0) @binding(0)
+var<uniform> CAMERA: MeshShaderCameraRaw;
 
 struct Instance {
     model_transform_0: vec4<f32>,

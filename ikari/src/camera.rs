@@ -103,7 +103,7 @@ impl From<ShaderCameraData> for MeshShaderCameraRaw {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Default, Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SkyboxShaderCameraRaw {
     rotation_only_view_proj: [[f32; 4]; 4],
     position: [f32; 3],
