@@ -1,4 +1,4 @@
-#[cfg(target_arch = "wasm32")]
+/* #[cfg(target_arch = "wasm32")]
 use crate::game::*;
 #[cfg(target_arch = "wasm32")]
 use crate::renderer::*;
@@ -6,7 +6,7 @@ use crate::renderer::*;
 use crate::scene::*;
 
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::prelude::*; */
 
 pub mod animation;
 pub mod asset_loader;
@@ -43,7 +43,7 @@ pub mod time_tracker;
 pub mod transform;
 pub mod ui_overlay;
 
-#[cfg(target_arch = "wasm32")]
+/* #[cfg(target_arch = "wasm32")]
 async fn start() {
     let event_loop = winit::event_loop::EventLoop::new();
 
@@ -107,3 +107,4 @@ pub async fn run() {
     console_log::init_with_level(log::Level::Info).expect("Couldn't initialize logger");
     start().await;
 }
+ */

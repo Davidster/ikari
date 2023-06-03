@@ -142,7 +142,7 @@ async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
     let rainbow_texture_decompressed =
         texture_compressor.transcode_image(&rainbow_texture_bytes, false)?;
     Texture::from_decoded_image(
-        &renderer_base,
+        renderer_base,
         &rainbow_texture_decompressed.raw,
         (
             rainbow_texture_decompressed.width,
@@ -161,7 +161,7 @@ async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
     let rainbow_texture_path = "./src/textures/rainbow_gradient_vertical.jpg";
     let rainbow_texture_bytes = crate::file_loader::read(rainbow_texture_path).await?;
     Texture::from_encoded_image(
-        &renderer_base,
+        renderer_base,
         &rainbow_texture_bytes,
         rainbow_texture_path,
         wgpu::TextureFormat::Rgba8Unorm.into(),
@@ -171,9 +171,6 @@ async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
 }
 
 pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<GameState> {
-    // let mut renderer_base_guard = renderer.base.lock().unwrap();
-    let mut renderer_data_guard = renderer.data.lock().unwrap();
-
     let mut physics_state = PhysicsState::new();
 
     // create player
@@ -280,8 +277,11 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
     ];
     // let point_lights: Vec<(crate::transform::Transform, Vec3, f32)> = vec![];
 
-    let point_light_unlit_mesh_index =
-        Renderer::bind_basic_unlit_mesh(&renderer.base, &mut renderer_data_guard, &sphere_mesh);
+    let point_light_unlit_mesh_index = Renderer::bind_basic_unlit_mesh(
+        &renderer.base,
+        &mut renderer.data.lock().unwrap(),
+        &sphere_mesh,
+    );
     let mut point_light_node_ids: Vec<GameNodeId> = Vec::new();
     let mut point_light_components: Vec<PointLightComponent> = Vec::new();
     for (transform, color, intensity) in point_lights {
@@ -444,7 +444,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
 
     let test_object_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
         &renderer.base,
-        &mut renderer_data_guard,
+        &mut renderer.data.lock().unwrap(),
         &sphere_mesh,
         &PbrMaterial {
             base_color: Some(&rainbow_texture),
@@ -478,7 +478,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
 
     let ball_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
         &renderer.base,
-        &mut renderer_data_guard,
+        &mut renderer.data.lock().unwrap(),
         &sphere_mesh,
         &PbrMaterial {
             base_color: Some(&rainbow_texture),
@@ -524,7 +524,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
         )?;
         let ball_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
             &renderer.base,
-            &mut renderer_data_guard,
+            &mut renderer.data.lock().unwrap(),
             &sphere_mesh,
             &PbrMaterial {
                 base_color: Some(&rainbow_texture),
@@ -550,7 +550,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
 
         let wall_mesh_index = Renderer::bind_basic_pbr_mesh(
             &renderer.base,
-            &mut renderer_data_guard,
+            &mut renderer.data.lock().unwrap(),
             &plane_mesh,
             &PbrMaterial {
                 base_color: Some(&checkerboard_texture),
@@ -707,7 +707,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
     // create the floor and add it to the scene
     let floor_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
         &renderer.base,
-        &mut renderer_data_guard,
+        &mut renderer.data.lock().unwrap(),
         &plane_mesh,
         &PbrMaterial {
             base_color: Some(&checkerboard_texture),
@@ -766,7 +766,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
     let (bouncing_ball_node_id, bouncing_ball_body_handle) = {
         let bouncing_ball_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
             &renderer.base,
-            &mut renderer_data_guard,
+            &mut renderer.data.lock().unwrap(),
             &sphere_mesh,
             &PbrMaterial {
                 base_color: Some(&checkerboard_texture),
@@ -887,7 +887,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
     let crosshair_metallic_roughness = Texture::from_color(&renderer.base, [0, 0, 255, 0])?;
     let crosshair_mesh_index = Renderer::bind_basic_pbr_mesh(
         &renderer.base,
-        &mut renderer_data_guard,
+        &mut renderer.data.lock().unwrap(),
         &crosshair_quad,
         &PbrMaterial {
             ambient_occlusion: Some(&crosshair_ambient_occlusion),

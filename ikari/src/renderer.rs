@@ -843,7 +843,9 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Unlit Mesh Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    crate::file_loader::read_to_string("./src/shaders/unlit_mesh.wgsl").await?.into(),
+                    crate::file_loader::read_to_string("./src/shaders/unlit_mesh.wgsl")
+                        .await?
+                        .into(),
                 ),
             });
 
@@ -852,7 +854,9 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Blit Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    crate::file_loader::read_to_string("./src/shaders/blit.wgsl").await?.into(),
+                    crate::file_loader::read_to_string("./src/shaders/blit.wgsl")
+                        .await?
+                        .into(),
                 ),
             });
 
@@ -861,7 +865,9 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Textured Mesh Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    crate::file_loader::read_to_string("./src/shaders/textured_mesh.wgsl").await?.into(),
+                    crate::file_loader::read_to_string("./src/shaders/textured_mesh.wgsl")
+                        .await?
+                        .into(),
                 ),
             });
 
@@ -870,7 +876,9 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Skybox Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    crate::file_loader::read_to_string("./src/shaders/skybox.wgsl").await?.into(),
+                    crate::file_loader::read_to_string("./src/shaders/skybox.wgsl")
+                        .await?
+                        .into(),
                 ),
             });
 
@@ -1620,114 +1628,123 @@ impl Renderer {
             initial_render_scale,
             "tone_mapping_texture",
         );
-        let sampler_cache_guard = base.sampler_cache.lock().unwrap();
-        let shading_texture_bind_group =
-            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &base.single_texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&shading_texture.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(
-                            sampler_cache_guard.get_sampler_by_index(shading_texture.sampler_index),
-                        ),
-                    },
-                ],
-                label: Some("shading_texture_bind_group"),
-            });
-        let tone_mapping_texture_bind_group =
-            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &base.single_texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&tone_mapping_texture.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(
-                            sampler_cache_guard
-                                .get_sampler_by_index(tone_mapping_texture.sampler_index),
-                        ),
-                    },
-                ],
-                label: Some("tone_mapping_texture_bind_group"),
-            });
-        let shading_and_bloom_textures_bind_group =
-            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &base.two_texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&shading_texture.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(
-                            sampler_cache_guard.get_sampler_by_index(shading_texture.sampler_index),
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(
-                            &bloom_pingpong_textures[0].view,
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Sampler(
-                            sampler_cache_guard
-                                .get_sampler_by_index(bloom_pingpong_textures[0].sampler_index),
-                        ),
-                    },
-                ],
-                label: Some("surface_blit_textures_bind_group"),
-            });
+        let shading_texture_bind_group;
+        let tone_mapping_texture_bind_group;
+        let shading_and_bloom_textures_bind_group;
+        let bloom_pingpong_texture_bind_groups;
+        {
+            let sampler_cache_guard = base.sampler_cache.lock().unwrap();
+            shading_texture_bind_group =
+                base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &base.single_texture_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&shading_texture.view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(
+                                sampler_cache_guard
+                                    .get_sampler_by_index(shading_texture.sampler_index),
+                            ),
+                        },
+                    ],
+                    label: Some("shading_texture_bind_group"),
+                });
+            tone_mapping_texture_bind_group =
+                base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &base.single_texture_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(
+                                &tone_mapping_texture.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(
+                                sampler_cache_guard
+                                    .get_sampler_by_index(tone_mapping_texture.sampler_index),
+                            ),
+                        },
+                    ],
+                    label: Some("tone_mapping_texture_bind_group"),
+                });
+            shading_and_bloom_textures_bind_group =
+                base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &base.two_texture_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&shading_texture.view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(
+                                sampler_cache_guard
+                                    .get_sampler_by_index(shading_texture.sampler_index),
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(
+                                &bloom_pingpong_textures[0].view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::Sampler(
+                                sampler_cache_guard
+                                    .get_sampler_by_index(bloom_pingpong_textures[0].sampler_index),
+                            ),
+                        },
+                    ],
+                    label: Some("surface_blit_textures_bind_group"),
+                });
 
-        let bloom_pingpong_texture_bind_groups = [
-            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &base.single_texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(
-                            &bloom_pingpong_textures[0].view,
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(
-                            sampler_cache_guard
-                                .get_sampler_by_index(bloom_pingpong_textures[0].sampler_index),
-                        ),
-                    },
-                ],
-                label: Some("bloom_texture_bind_group_1"),
-            }),
-            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &base.single_texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(
-                            &bloom_pingpong_textures[1].view,
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(
-                            sampler_cache_guard
-                                .get_sampler_by_index(bloom_pingpong_textures[1].sampler_index),
-                        ),
-                    },
-                ],
-                label: Some("bloom_texture_bind_group_2"),
-            }),
-        ];
-        drop(sampler_cache_guard);
+            bloom_pingpong_texture_bind_groups = [
+                base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &base.single_texture_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(
+                                &bloom_pingpong_textures[0].view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(
+                                sampler_cache_guard
+                                    .get_sampler_by_index(bloom_pingpong_textures[0].sampler_index),
+                            ),
+                        },
+                    ],
+                    label: Some("bloom_texture_bind_group_1"),
+                }),
+                base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &base.single_texture_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(
+                                &bloom_pingpong_textures[1].view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(
+                                sampler_cache_guard
+                                    .get_sampler_by_index(bloom_pingpong_textures[1].sampler_index),
+                            ),
+                        },
+                    ],
+                    label: Some("bloom_texture_bind_group_2"),
+                }),
+            ];
+        }
 
         let depth_texture =
             Texture::create_depth_texture(&base, initial_render_scale, "depth_texture");
@@ -1766,7 +1783,9 @@ impl Renderer {
             SkyboxBackground::Cube { face_image_paths } => {
                 let mut cubemap_skybox_images: Vec<image::DynamicImage> = vec![];
                 for path in face_image_paths {
-                    cubemap_skybox_images.push(image::load_from_memory(&crate::file_loader::read(path).await?)?);
+                    cubemap_skybox_images.push(image::load_from_memory(
+                        &crate::file_loader::read(path).await?,
+                    )?);
                 }
 
                 Texture::create_cubemap(
@@ -2087,8 +2106,8 @@ impl Renderer {
             2, // TODO: this currently puts on hard limit on number of directional lights at a time
         );
 
-        let sampler_cache_guard = base.sampler_cache.lock().unwrap();
-        let environment_textures_bind_group =
+        let environment_textures_bind_group = {
+            let sampler_cache_guard = base.sampler_cache.lock().unwrap();
             base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &environment_textures_bind_group_layout,
                 entries: &[
@@ -2162,8 +2181,8 @@ impl Renderer {
                     },
                 ],
                 label: Some("skybox_texture_bind_group"),
-            });
-        drop(sampler_cache_guard);
+            })
+        };
 
         let ui_overlay = IkariUiOverlay::new(
             window,
@@ -2943,7 +2962,7 @@ impl Renderer {
         camera_culling_frustum: &Frustum,
         point_lights_frusta: &Vec<Option<Vec<Frustum>>>,
     ) -> u32 {
-        assert!(1 + game_state.directional_lights.len() + point_lights_frusta.len() * 6 <= 32, 
+        assert!(1 + game_state.directional_lights.len() + point_lights_frusta.len() * 6 <= 32,
             "u32 can only store a max of 5 point lights, might be worth using a larger, might be worth using a larger bitvec or a Vec<bool> or something"
         );
 

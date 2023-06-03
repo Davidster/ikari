@@ -12,7 +12,7 @@ use ikari::texture_compression::{texture_path_to_compressed_path, TextureCompres
 const DATA_FOLDER: &str = "./src";
 const COMPRESSION_THREAD_COUNT: usize = 4;
 
-fn main() {
+pub fn run() {
     let mut texture_paths = find_gltf_texture_paths().unwrap();
 
     let gltf_exlusion_map: HashSet<PathBuf> = texture_paths

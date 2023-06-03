@@ -1,141 +1,29 @@
-[package]
-name = "ikari"
-version = "0.1.0"
-authors = [
-    "David Huculak https://github.com/Davidster",
-    "Ikari Contributors https://github.com/Davidster/ikari/graphs/contributors",
-]
+[workspace]
+resolver = "2"
+members = ["ikari", "run-wasm"]
+default-members = ["ikari"]
+
+[workspace.package]
+version = "0.0.1"
 edition = "2021"
 rust-version = "1.66"
-description = "3D renderer that will be used to make a simple first person shooter"
-repository = "https://github.com/Davidster/ikari"
+description = "3D Game Engine"
+keywords = ["renderer", "3D", "rust", "wgpu", "game"]
 license = "MIT"
-keywords = ["renderer", "first person shooter", "3D", "rust", "wgpu", "game"]
+repository = "https://github.com/Davidster/ikari"
 categories = ["rendering", "game framework", "gamedev"]
-publish = false
-
-[lib]
-name = "ikari"
-path = "src/lib.rs"
-crate-type = ["cdylib", "rlib"]
-
-[[bin]]
-name = "example_game"
-path = "src/example_game/main.rs"
-
-[[bin]]
-name = "asset_optimizer"
-path = "src/asset_optimizer/main.rs"
-
-[features]
-default = []
-tracy = ["profiling/profile-with-tracy", "dep:tracing-tracy"]
-tracy-n-alloc = []
-
-[dependencies]
-bytemuck = { version = "1", features = ["derive"] }
-half = "2"
-pollster = "0.3"
-twox-hash = "1.6"
-lazy_static = "1.4"
-smallvec = { version = "1.10", features = ["union", "const_generics"] }
-anyhow = { version = "1.0", features = ["backtrace"] }
-threadpool = "1.8.1"
-walkdir = "2.3.3"
-num_cpus = "1.15.0"
-chrono = { version = "0.4.24", default-features = false, features = [
-    "std",
-    "wasmbind",
-    "clock",
-] }
-
-# log
-console = "0.15"
-env_logger = { version = "0.10", default-features = false, features = [
-    "auto-color",
-    "humantime",
-] }
-log = "0.4"
-
-# profiling
-# The version should be the one used by wgpu-core/hal TODO: does this version number need updating?
-profiling = "1.0.8"
-wgpu-profiler = "0.12"
-tracing-tracy = { version = "0.10.2", features = ["ondemand"], optional = true }
-
-# assets
-gltf = "1.1"
-image = { version = "0.23.14", default-features = false, features = [
-    "hdr",
-    "jpeg",
-] } # The version should be the one used by gltf crate
-obj-rs = "0.7"
-wavefront_obj = "10.0"
-
-# rendering
-wgpu = "0.16"
-winit = { version = "0.27", git = "https://github.com/iced-rs/winit.git", rev = "940457522e9fb9f5dac228b0ecfafe0138b4048c" }
-
-# math
-rand = { version = "0.8", features = ["small_rng"] }
-rapier3d = "0.17"
-glam = { version = "0.23.0", features = ["approx", "bytemuck"] }
-approx = "0.5"
-
-# audio
-cpal = "0.15"
-oddio = "0.6"
-symphonia = { version = "0.5.2", features = ["mp3", "wav"] }
-
-# UI
-iced_wgpu = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
-iced = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
-iced_winit = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
-plotters-iced = "0.8"
-plotters = { version = "0.3", default-features = false, features = [
-    "line_series",
-] }
-iced_aw = { git = "https://github.com/iced-rs/iced_aw.git", branch = "main", default-features = false, features = [
-    "modal",
-    "card",
-] }
-
-futures = "0.3.28"
-async-std = "1.12.0"
-instant = "0.1.12"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-basis-universal = "0.2.0"
-zstd = "0.12.3"
-# path = "../iced_aw_fork"
-
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-js-sys = "0.3.63"
-wasm-bindgen-futures = "0.4.36"
-web-sys = { version = "0.3.63", features = [
-    "Document",
-    "Window",
-    "Element",
-    "Headers",
-    "Request",
-    "RequestInit",
-    "RequestMode",
-    "Response",
-    "Blob",
-] }
-getrandom = { version = "0.2.9", features = ["js"] }
-serde = "1.0.163"
-serde_derive = "1.0.163"
-console_error_panic_hook = "0.1.7"
-console_log = "1.0.0"
-wasm-bindgen = { version = "0.2.86", features = ["serde-serialize"] }
-cpal = { version = "0.15", features = ["wasm-bindgen"] }
+authors = [
+  "David Huculak https://github.com/Davidster",
+  "Ikari Contributors https://github.com/Davidster/ikari/graphs/contributors",
+]
 
 [patch.crates-io]
-iced_native = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
-iced_graphics = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
-iced_style = { git = "https://github.com/iced-rs/iced.git", branch = "master" }
+iced_native = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
+iced_graphics = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
+iced_style = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
+# iced_native = { path = "../iced-fork/native" }
+# iced_graphics = { path = "../iced-fork/graphics" }
+# iced_style = { path = "../iced-fork/style" }
 
 [profile.dev.package."basis-universal-sys"]
 opt-level = 3

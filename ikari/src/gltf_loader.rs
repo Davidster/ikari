@@ -607,7 +607,7 @@ async fn get_image_pixels(
 
     let (image_pixels, texture_format) = match compressed_image_data {
         Some(compressed_image_data) => get_compressed_image_pixels(compressed_image_data, is_srgb)?,
-        None => get_uncompressed_image_pixels(&image_data, is_srgb)?,
+        None => get_uncompressed_image_pixels(image_data, is_srgb)?,
     };
 
     Ok((

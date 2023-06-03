@@ -1,3 +1,6 @@
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
 use ikari::game::*;
 use ikari::renderer::*;
 use ikari::scene::*;
@@ -21,6 +24,27 @@ async fn start() {
             .build(&event_loop)
             .expect("Failed to create window")
     };
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        log::info!("3");
+        // Winit prevents sizing with CSS, so we have to set
+        // the size manually when on web.
+        use winit::dpi::PhysicalSize;
+        window.set_inner_size(PhysicalSize::new(450, 400));
+
+        use winit::platform::web::WindowExtWebSys;
+        web_sys::window()
+            .and_then(|win| win.document())
+            .and_then(|doc| doc.body())
+            .and_then(|body| {
+                body.append_child(&web_sys::Element::from(window.canvas()))
+                    .ok()
+            })
+            .expect("Couldn't append canvas to document body.");
+
+        log::info!("4");
+    }
 
     let base_render_state = {
         let backends = if cfg!(target_os = "linux") {
@@ -67,4 +91,12 @@ fn main() {
     profiling::tracy_client::Client::start();
 
     pollster::block_on(start());
+}
+
+#[cfg(target_arch = "wasm32")]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
+pub async fn run() {
+    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    console_log::init_with_level(log::Level::Info).expect("Couldn't initialize logger");
+    start().await;
 }
