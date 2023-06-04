@@ -1,0 +1,129 @@
+[package]
+name = "ikari"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+keywords.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "ikari"
+path = "src/lib.rs"
+# crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "example_game"
+path = "src/example_game/main.rs"
+
+[[bin]]
+name = "asset_optimizer"
+path = "src/asset_optimizer/main.rs"
+
+[features]
+default = []
+tracy = ["profiling/profile-with-tracy", "dep:tracing-tracy"]
+tracy-n-alloc = []
+
+[dependencies]
+bytemuck = { version = "1", features = ["derive"] }
+half = "2"
+pollster = "0.3"
+twox-hash = "1.6"
+lazy_static = "1.4"
+smallvec = { version = "1.10", features = ["union", "const_generics"] }
+anyhow = { version = "1.0", features = ["backtrace"] }
+threadpool = "1.8.1"
+walkdir = "2.3.3"
+num_cpus = "1.15.0"
+chrono = { version = "0.4.24", default-features = false, features = [
+    "std",
+    "wasmbind",
+    "clock",
+] }
+instant = "0.1.12"
+
+# log
+console = "0.15"
+env_logger = { version = "0.10", default-features = false, features = [
+    "auto-color",
+    "humantime",
+] }
+log = "0.4"
+
+# profiling
+# The version should be the one used by wgpu-core/hal TODO: does this version number need updating?
+profiling = "1.0.8"
+wgpu-profiler = "0.12"
+# wgpu-profiler = { path = "../../wgpu-profiler-fork" }
+tracing-tracy = { version = "0.10.2", features = ["ondemand"], optional = true }
+
+# assets
+gltf = "1.1"
+image = { version = "0.24", default-features = false, features = [
+    "hdr",
+    "jpeg",
+] }
+obj-rs = "0.7"
+wavefront_obj = "10.0"
+
+# rendering
+wgpu = "0.16"
+# wgpu = { path = "../../wgpu/wgpu" }
+winit = { version = "0.27", git = "https://github.com/iced-rs/winit.git", rev = "940457522e9fb9f5dac228b0ecfafe0138b4048c" }
+
+# math
+rand = { version = "0.8", features = ["small_rng"] }
+rapier3d = "0.17"
+glam = { version = "0.23.0", features = ["approx", "bytemuck"] }
+approx = "0.5"
+
+# audio
+cpal = "0.15"
+oddio = "0.6"
+symphonia = { version = "0.5.2", features = ["mp3", "wav"] }
+
+# UI
+iced_wgpu = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
+iced = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
+iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
+# iced_wgpu = { path = "../../iced-fork/wgpu", default-features = false, features = [
+# ] }
+# iced = { path = "../../iced-fork" }
+# iced_winit = { path = "../../iced-fork/winit" }
+plotters-iced = "0.8"
+plotters = { version = "0.3", default-features = false, features = [
+    "line_series",
+] }
+iced_aw = { git = "https://github.com/iced-rs/iced_aw.git", branch = "main", default-features = false, features = [
+    "modal",
+    "card",
+] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+basis-universal = "0.2.0"
+zstd = "0.12.3"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3.63"
+wasm-bindgen-futures = "0.4.36"
+web-sys = { version = "0.3.63", features = [
+    "Document",
+    "Window",
+    "Element",
+    "Headers",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "Blob",
+] }
+getrandom = { version = "0.2.9", features = ["js"] }
+serde = "1.0.163"
+serde_derive = "1.0.163"
+console_error_panic_hook = "0.1.7"
+console_log = "1.0.0"
+wasm-bindgen = { version = "0.2.86", features = ["serde-serialize"] }
+cpal = { version = "0.15", features = ["wasm-bindgen"] }
