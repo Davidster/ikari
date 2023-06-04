@@ -29,6 +29,7 @@ const FRAME_TIME_HISTORY_SIZE: usize = 720;
 
 #[derive(Debug, Clone)]
 pub struct UiOverlay {
+    viewport_dims: (u32, u32),
     fps_chart: FpsChart,
     is_showing_fps_chart: bool,
     is_showing_gpu_spans: bool,
@@ -53,6 +54,7 @@ pub struct UiOverlay {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    ViewportDimsChanged((u32, u32)),
     FrameCompleted(Duration),
     GpuFrameCompleted(Vec<GpuTimerScopeResultWrapper>),
     CameraPoseChanged((Vec3, ControlledViewDirection)),
@@ -255,6 +257,9 @@ impl Program for UiOverlay {
         let moving_average_alpha = 0.01;
 
         match message {
+            Message::ViewportDimsChanged(new_state) => {
+                self.viewport_dims = new_state;
+            }
             Message::FrameCompleted(frame_duration) => {
                 let frame_time_ms = frame_duration.as_nanos() as f64 / 1_000_000.0;
                 self.fps_chart.avg_frame_time_millis =
@@ -480,14 +485,20 @@ impl Program for UiOverlay {
                 .width(Length::Fill)
                 .horizontal_alignment(Horizontal::Center);
 
-            let mut options = Column::new().spacing(16).padding(5).width(Length::Fill);
+            let mut options = Column::new()
+                .spacing(16)
+                .padding([6, 48, 6, 6])
+                .width(Length::Fill);
 
             // vsync
-            options = options.push(iced_winit::widget::checkbox(
-                "Enable VSync",
-                self.enable_vsync,
-                Message::ToggleVSync,
-            ));
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                options = options.push(iced_winit::widget::checkbox(
+                    "Enable VSync",
+                    self.enable_vsync,
+                    Message::ToggleVSync,
+                ));
+            }
 
             // camera debug
             options = options.push(iced_winit::widget::checkbox(
@@ -626,10 +637,15 @@ impl Program for UiOverlay {
                     .on_press(Message::ExitButtonPressed),
             );
 
-            Card::new(Text::new("Options"), options)
-                .max_width(300.0)
-                .on_close(Message::ClosePopupMenu)
-                .into()
+            Card::new(
+                Text::new("Options"),
+                iced::widget::scrollable(options).height(iced::Length::Fixed(
+                    self.viewport_dims.1 as f32 * 0.75 - 50.0,
+                )),
+            )
+            .max_width(300.0)
+            .on_close(Message::ClosePopupMenu)
+            .into()
         })
         .into()
     }
@@ -714,6 +730,7 @@ impl IkariUiOverlay {
         let staging_belt = wgpu::util::StagingBelt::new(5 * 1024);
 
         let state = UiOverlay {
+            viewport_dims: (window.inner_size().width, window.inner_size().height),
             fps_chart: FpsChart {
                 recent_frame_times: vec![],
                 recent_gpu_frame_times: vec![],
@@ -814,6 +831,12 @@ impl IkariUiOverlay {
                 &mut self.debug,
             );
         }
+
+        self.program_container
+            .queue_message(Message::ViewportDimsChanged((
+                window.inner_size().width,
+                window.inner_size().height,
+            )));
 
         let cursor_icon =
             iced_winit::conversion::mouse_interaction(self.program_container.mouse_interaction());
