@@ -205,7 +205,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
         asset_loader.load_gltf_asset("src/models/gltf/ColtPython/colt_python.glb");
         // forest
         // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
-        // asset_loader.load_gltf_asset("src/models/gltf/free_low_poly_forest/scene.glb");
+        asset_loader.load_gltf_asset("src/models/gltf/free_low_poly_forest/scene.glb");
         // legendary robot
         // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
         asset_loader.load_gltf_asset("src/models/gltf/LegendaryRobot/Legendary_Robot.glb");
