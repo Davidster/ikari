@@ -119,14 +119,15 @@ pub fn run(
 
                 match renderer.render(&mut game_state, &window, control_flow) {
                     Ok(_) => {}
-                    // Reconfigure the surface if lost
-                    Err(wgpu::SurfaceError::Lost) => {
-                        renderer.resize(window.inner_size(), window.scale_factor())
-                    }
-                    // The system is out of memory, we should probably quit
-                    Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                    // All other errors (Outdated, Timeout) should be resolved by the next frame
-                    Err(e) => logger_log(&format!("{:?}", e)),
+                    Err(err) => match err.downcast_ref::<wgpu::SurfaceError>() {
+                        // Reconfigure the surface if lost
+                        Some(wgpu::SurfaceError::Lost) => {
+                            renderer.resize(window.inner_size(), window.scale_factor())
+                        }
+                        // The system is out of memory, we should probably quit
+                        Some(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
+                        _ => logger_log(&format!("{:?}", err)),
+                    },
                 }
             }
             Event::MainEventsCleared => {

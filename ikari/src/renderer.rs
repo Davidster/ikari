@@ -328,13 +328,7 @@ impl BaseRenderer {
                 &wgpu::DeviceDescriptor {
                     label: None,
                     features,
-                    limits: wgpu::Limits {
-                        // the camera is the biggest thing we send in the shader
-                        max_push_constant_size: (std::mem::size_of::<MeshShaderCameraRaw>()
-                            .max(std::mem::size_of::<SkyboxShaderCameraRaw>()))
-                            as u32,
-                        ..Default::default()
-                    },
+                    limits: Default::default(),
                 },
                 None,
             )
@@ -716,7 +710,9 @@ pub struct RendererPrivateData {
     frustum_culling_lock: CullingFrustumLock, // for debug
 
     // gpu
-    // camera_lights_and_pbr_shader_options_bind_groups: Vec<wgpu::BindGroup>,
+    camera_lights_and_pbr_shader_options_bind_group_layout: wgpu::BindGroupLayout,
+
+    camera_lights_and_pbr_shader_options_bind_groups: Vec<wgpu::BindGroup>,
     bones_and_pbr_instances_bind_group: wgpu::BindGroup,
     bones_and_unlit_instances_bind_group: wgpu::BindGroup,
     bones_and_transparent_instances_bind_group: wgpu::BindGroup,
@@ -1093,6 +1089,16 @@ impl Renderer {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
                 label: Some("camera_lights_and_pbr_shader_options_bind_group_layout"),
             });
@@ -1285,10 +1291,7 @@ impl Renderer {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: None,
                     bind_group_layouts: &[&base.single_texture_bind_group_layout],
-                    push_constant_ranges: &[wgpu::PushConstantRange {
-                        stages: wgpu::ShaderStages::FRAGMENT,
-                        range: 0..12,
-                    }],
+                    push_constant_ranges: &[],
                 });
         let surface_blit_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: Some("Surface Blit Render Pipeline"),
@@ -1816,7 +1819,7 @@ impl Renderer {
             base.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Tone Mapping Config Buffer"),
-                    contents: bytemuck::cast_slice(&[0f32]),
+                    contents: bytemuck::cast_slice(&[0f32, 0f32, 0f32, 0f32]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
@@ -2356,6 +2359,9 @@ impl Renderer {
                 bloom_threshold_cleared: true,
                 frustum_culling_lock: CullingFrustumLock::None,
 
+                camera_lights_and_pbr_shader_options_bind_group_layout,
+
+                camera_lights_and_pbr_shader_options_bind_groups: vec![],
                 bones_and_pbr_instances_bind_group,
                 bones_and_unlit_instances_bind_group,
                 bones_and_transparent_instances_bind_group,
@@ -3015,7 +3021,7 @@ impl Renderer {
         game_state: &mut GameState,
         window: &winit::window::Window,
         control_flow: &mut winit::event_loop::ControlFlow,
-    ) -> Result<(), wgpu::SurfaceError> {
+    ) -> anyhow::Result<()> {
         // let mut base_guard = self.base.lock().unwrap();
         let mut data_guard = self.data.lock().unwrap();
         let mut private_data_guard = self.private_data.lock().unwrap();
@@ -3637,7 +3643,96 @@ impl Renderer {
 
         // collect all camera data
 
+        // main camera
+        let player_transform = game_state
+            .scene
+            .get_global_transform_for_node(game_state.player_node_id);
+        all_camera_data.push(ShaderCameraData::from_mat4(
+            player_transform.into(),
+            window_size.width as f32 / window_size.height as f32,
+            NEAR_PLANE_DISTANCE,
+            FAR_PLANE_DISTANCE,
+            deg_to_rad(FOV_Y_DEG),
+            true,
+        ));
+
+        // directional lights
+        for directional_light in &game_state.directional_lights {
+            all_camera_data.push(build_directional_light_camera_view(
+                -directional_light.direction,
+                100.0,
+                100.0,
+                1000.0,
+            ));
+        }
+
+        // point lights
+        for point_light in &game_state.point_lights {
+            let light_position = game_state
+                .scene
+                .get_node(point_light.node_id)
+                .map(|node| node.transform.position())
+                .unwrap_or_default();
+            all_camera_data.append(&mut build_cubemap_face_camera_views(
+                light_position,
+                POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
+                POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
+                false,
+            ));
+        }
+
+        // main camera but only rotation, for skybox
+        all_camera_data.push(all_camera_data[0]);
+
         // write all camera data, adding new buffers if necessary
+        for (i, camera_data) in all_camera_data.iter().enumerate() {
+            let contents = if i == all_camera_data.len() - 1 {
+                bytemuck::cast_slice(&[SkyboxShaderCameraRaw::from(*camera_data)]).to_vec()
+            } else {
+                bytemuck::cast_slice(&[MeshShaderCameraRaw::from(*camera_data)]).to_vec()
+            };
+            if private_data.camera_buffers.len() == i {
+                private_data
+                    .camera_buffers
+                    .push(
+                        base.device
+                            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("Camera Buffer"),
+                                contents: &contents,
+                                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                            }),
+                    );
+                private_data
+                    .camera_lights_and_pbr_shader_options_bind_groups
+                    .push(base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        layout:
+                            &private_data.camera_lights_and_pbr_shader_options_bind_group_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: private_data.camera_buffers[i].as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: private_data.point_lights_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource:
+                                    private_data.directional_lights_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 3,
+                                resource:
+                                    private_data.pbr_shader_options_buffer.as_entire_binding(),
+                            },
+                        ],
+                        label: Some("camera_lights_and_pbr_shader_options_bind_group"),
+                    }));
+            } else {
+                queue.write_buffer(&private_data.camera_buffers[i], 0, &contents)
+            }
+        }
         // private_data.camera_buffers
 
         let _total_instance_buffer_memory_usage = private_data.pbr_instances_buffer.length_bytes()
@@ -3690,7 +3785,7 @@ impl Renderer {
         queue.write_buffer(
             &private_data.tone_mapping_config_buffer,
             0,
-            bytemuck::cast_slice(&[data.tone_mapping_exposure]),
+            bytemuck::cast_slice(&[data.tone_mapping_exposure, 0f32, 0f32, 0f32]),
         );
         base.queue.write_buffer(
             &private_data.bloom_config_buffers[0],
@@ -3723,7 +3818,7 @@ impl Renderer {
         private_data: &mut RendererPrivateData,
         profiler: &mut wgpu_profiler::GpuProfiler,
         game_state: &mut GameState,
-    ) -> Result<(), wgpu::SurfaceError> {
+    ) -> anyhow::Result<()> {
         let surface_texture = base.surface.get_current_texture()?;
         let surface_texture_view = surface_texture
             .texture
@@ -3770,7 +3865,8 @@ impl Renderer {
                         &mut encoder,
                         &shadow_render_pass_desc,
                         &self.directional_shadow_map_pipeline,
-                        todo!(),
+                        &private_data.camera_lights_and_pbr_shader_options_bind_groups
+                            [1 + light_index],
                         true,
                         2u32.pow((1 + light_index).try_into().unwrap()),
                         None,
@@ -3834,7 +3930,10 @@ impl Renderer {
                             &mut encoder,
                             &shadow_render_pass_desc,
                             &self.point_shadow_map_pipeline,
-                            todo!(),
+                            &private_data.camera_lights_and_pbr_shader_options_bind_groups[1
+                                + game_state.directional_lights.len()
+                                + light_index * 6
+                                + face_index],
                             true,
                             culling_mask,
                             Some(face_index.try_into().unwrap()),
@@ -3871,19 +3970,7 @@ impl Renderer {
             }),
         };
 
-        let player_transform = game_state
-            .scene
-            .get_global_transform_for_node(game_state.player_node_id);
         let window_size = *base.window_size.lock().unwrap();
-
-        let main_camera_data = ShaderCameraData::from_mat4(
-            player_transform.into(),
-            window_size.width as f32 / window_size.height as f32,
-            NEAR_PLANE_DISTANCE,
-            FAR_PLANE_DISTANCE,
-            deg_to_rad(FOV_Y_DEG),
-            true,
-        );
 
         Self::render_pbr_meshes(
             base,
@@ -3893,7 +3980,7 @@ impl Renderer {
             &mut encoder,
             &shading_render_pass_desc,
             &self.mesh_pipeline,
-            todo!(),
+            &private_data.camera_lights_and_pbr_shader_options_bind_groups[0],
             false,
             1, // use main camera culling mask
             None,
@@ -3924,7 +4011,11 @@ impl Renderer {
             wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
                 render_pass.set_pipeline(&self.unlit_mesh_pipeline);
 
-                render_pass.set_bind_group(0, todo!(), &[]);
+                render_pass.set_bind_group(
+                    0,
+                    &private_data.camera_lights_and_pbr_shader_options_bind_groups[0],
+                    &[],
+                );
                 for unlit_instance_chunk in private_data.all_unlit_instances.chunks() {
                     let binded_unlit_mesh_index = unlit_instance_chunk.id;
                     let instances_buffer_start_index = unlit_instance_chunk.start_index as u32;
@@ -4064,15 +4155,6 @@ impl Renderer {
 
                     wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
                         render_pass.set_pipeline(&self.bloom_blur_pipeline);
-                        render_pass.set_push_constants(
-                            wgpu::ShaderStages::FRAGMENT,
-                            0,
-                            bytemuck::cast_slice(&[
-                                if horizontal { 0.0f32 } else { 1.0f32 },
-                                data.bloom_threshold,
-                                data.bloom_ramp_size,
-                            ]),
-                        );
                         render_pass.set_bind_group(0, src_texture, &[]);
                         render_pass.set_bind_group(
                             1,
@@ -4137,12 +4219,15 @@ impl Renderer {
 
             wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
                 render_pass.set_pipeline(&self.skybox_pipeline);
-                render_pass.set_push_constants(
-                    wgpu::ShaderStages::VERTEX,
-                    0,
-                    bytemuck::cast_slice(&[SkyboxShaderCameraRaw::from(main_camera_data)]),
-                );
                 render_pass.set_bind_group(0, &private_data.environment_textures_bind_group, &[]);
+                render_pass.set_bind_group(
+                    1,
+                    &private_data.camera_lights_and_pbr_shader_options_bind_groups[private_data
+                        .camera_lights_and_pbr_shader_options_bind_groups
+                        .len()
+                        - 1],
+                    &[],
+                );
                 render_pass.set_vertex_buffer(0, data.skybox_mesh.vertex_buffer.src().slice(..));
                 render_pass.set_index_buffer(
                     data.skybox_mesh.index_buffer.src().slice(..),
@@ -4171,11 +4256,6 @@ impl Renderer {
             });
             wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
                 render_pass.set_pipeline(&self.tone_mapping_pipeline);
-                render_pass.set_push_constants(
-                    wgpu::ShaderStages::FRAGMENT,
-                    0,
-                    bytemuck::cast_slice(&[data.tone_mapping_exposure]),
-                );
                 render_pass.set_bind_group(
                     0,
                     &private_data.shading_and_bloom_textures_bind_group,
@@ -4211,7 +4291,11 @@ impl Renderer {
             wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
                 render_pass.set_pipeline(&self.transparent_mesh_pipeline);
 
-                render_pass.set_bind_group(0, todo!(), &[]);
+                render_pass.set_bind_group(
+                    0,
+                    &private_data.camera_lights_and_pbr_shader_options_bind_groups[0],
+                    &[],
+                );
 
                 for transparent_instance_chunk in private_data.all_transparent_instances.chunks() {
                     let binded_transparent_mesh_index = transparent_instance_chunk.id;
@@ -4282,9 +4366,9 @@ impl Renderer {
 
         surface_texture.present();
 
-        profiler.end_frame().expect(
-            "Something went wrong with wgpu_profiler. Does the crate still not report error details?",
-        );
+        profiler.end_frame().map_err(|_| anyhow::anyhow!(
+            "Something went wrong with wgpu_profiler. Does the crate still not report error details?"
+        ))?;
 
         Ok(())
     }

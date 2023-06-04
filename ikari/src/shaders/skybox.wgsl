@@ -1,12 +1,11 @@
-// must stay below 128 bytes to fit in push constant
-struct MeshShaderCameraRaw {
+struct SkyboxShaderCameraRaw {
     rotation_only_view_proj: mat4x4<f32>,
     position: vec3<f32>, // not used in this shader
     far_plane_distance: f32, // not used in this shader
 }
 
 @group(1) @binding(0)
-var<uniform> CAMERA: MeshShaderCameraRaw;
+var<uniform> CAMERA: SkyboxShaderCameraRaw;
 
 struct RougnessInput {
     value: f32,

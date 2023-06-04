@@ -1350,10 +1350,7 @@ fn generate_mipmaps_for_texture(
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Mesh Pipeline Layout"),
                 bind_group_layouts: &[&single_texture_bind_group_layout],
-                push_constant_ranges: &[wgpu::PushConstantRange {
-                    stages: wgpu::ShaderStages::VERTEX,
-                    range: 0..std::mem::size_of::<MeshShaderCameraRaw>() as u32,
-                }],
+                push_constant_ranges: &[],
             });
 
     let mip_render_pipeline =

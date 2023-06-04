@@ -1,4 +1,3 @@
-// must stay below 128 bytes to fit in push constant in dx12
 struct MeshShaderCameraRaw {
     view_proj: mat4x4<f32>,
     position: vec3<f32>,
