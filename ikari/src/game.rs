@@ -171,7 +171,6 @@ async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
 }
 
 pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<GameState> {
-    log::info!("1");
     let mut physics_state = PhysicsState::new();
 
     // create player
@@ -186,10 +185,8 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
         },
     );
 
-    log::info!("2");
     let (audio_manager, audio_streams) = AudioManager::new()?;
 
-    log::info!("3");
     let audio_manager_mutex = Arc::new(Mutex::new(audio_manager));
 
     let asset_loader = Arc::new(AssetLoader::new(
@@ -199,7 +196,6 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
 
     let asset_loader_clone = asset_loader.clone();
 
-    log::info!("spawning thread for init_game_state");
     crate::thread::spawn(move || {
         // crate::thread::sleep(std::time::Duration::from_secs_f32(5.0));
         // load in gltf files

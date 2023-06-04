@@ -47,7 +47,6 @@ impl AssetLoader {
             let loaded_assets = self.loaded_gltf_scenes.clone();
             let renderer_base = self.renderer_base.clone();
 
-            log::info!("spawning thead for load_gltf_asset");
             crate::thread::spawn(move || {
                 crate::block_on(async move {
                     while pending_assets.lock().unwrap().len() > 0 {
@@ -97,7 +96,6 @@ impl AssetLoader {
             let loaded_audio = self.loaded_audio.clone();
             let audio_manager = self.audio_manager.clone();
 
-            log::info!("spawning thead for load_audio");
             crate::thread::spawn(move || {
                 crate::block_on(async move {
                     while pending_audio.lock().unwrap().len() > 0 {
@@ -169,7 +167,6 @@ impl AssetLoader {
         let mut last_buffer_fill_time: Option<Instant> = None;
         let target_max_buffer_length_seconds = AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.75;
         let mut buffered_amount_seconds = 0.0;
-        log::info!("spawning thead for spawn_audio_streaming_thread");
         crate::thread::spawn(move || loop {
             let requested_chunk_size_seconds = if is_first_chunk {
                 target_max_buffer_length_seconds
@@ -226,7 +223,6 @@ impl AssetLoader {
                         break;
                     }
 
-                    log::info!("sleeping thread for spawn_audio_streaming_thread");
                     crate::thread::sleep(std::time::Duration::from_secs_f32(
                         AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.5,
                     ));

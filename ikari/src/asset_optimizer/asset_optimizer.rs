@@ -51,7 +51,7 @@ pub fn run() {
         let tx = tx.clone();
         let texture_paths = texture_paths.clone();
         pool.execute(move || {
-            crate::block_on(async {
+            ikari::block_on(async {
                 let (path, is_srgb, is_normal_map) = &texture_paths[texture_index];
                 println!(
                     "start {:?} (srgb={:?}, is_normal_map={:?})",

@@ -58,9 +58,7 @@ async fn start() {
         };
         let game_scene = Scene::default();
 
-        log::info!("about to make renderer");
         let mut renderer = Renderer::new(base_render_state, &window).await?;
-        log::info!("done making renderer");
 
         let game_state = init_game_state(game_scene, &mut renderer).await?;
 

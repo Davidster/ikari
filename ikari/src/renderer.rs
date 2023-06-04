@@ -820,7 +820,6 @@ pub struct Renderer {
 
 impl Renderer {
     pub async fn new(base: BaseRenderer, window: &Window) -> Result<Self> {
-        log::info!("Renderer::new 1");
         logger_log("Controls:");
         vec![
             "Look Around:             Mouse",
@@ -1161,8 +1160,6 @@ impl Renderer {
             },
             multiview: None,
         };
-
-        log::info!("Renderer::new 2");
 
         let mesh_pipeline = base
             .device
@@ -1543,8 +1540,6 @@ impl Renderer {
                     push_constant_ranges: &[],
                 });
 
-        log::info!("Renderer::new 3");
-
         let brdf_lut_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: Some("Brdf Lut Gen Pipeline"),
             layout: Some(&brdf_lut_gen_pipeline_layout),
@@ -1902,19 +1897,12 @@ impl Renderer {
             }
         };
 
-        log::info!("Renderer::new 4");
-
         let er_to_cube_texture;
         let skybox_rad_texture = match skybox_hdr_environment {
             Some(SkyboxHDREnvironment::Equirectangular { image_path }) => {
-                let image_bytes;
-                log::info!("Renderer::new creating hdr decoder");
-                let skybox_rad_texture_decoder = {
-                    image_bytes = crate::file_loader::read(image_path).await?;
-                    let image_bytes_slice: &[u8] = &image_bytes;
-                    image::codecs::hdr::HdrDecoder::new(image_bytes_slice)?
-                };
-                log::info!("Renderer::new done creating hdr decoder");
+                let image_bytes = crate::file_loader::read(image_path).await?;
+                let skybox_rad_texture_decoder =
+                    image::codecs::hdr::HdrDecoder::new(image_bytes.as_slice())?;
                 let skybox_rad_texture_dimensions = {
                     let md = skybox_rad_texture_decoder.metadata();
                     (md.width, md.height)
@@ -1932,8 +1920,6 @@ impl Renderer {
                         })
                         .collect()
                 };
-
-                log::info!("Renderer::new done creating hdr decoder 2");
 
                 let skybox_rad_texture_er = Texture::from_decoded_image(
                     &base,
