@@ -118,7 +118,7 @@ impl Revolver {
                 return false;
             }
         }
-        self.last_fired_instant = Some(now());
+        self.last_fired_instant = Some(Instant::now());
         scene.animations[self.animation_index].state.is_playing = true;
         scene.animations[self.animation_index]
             .state

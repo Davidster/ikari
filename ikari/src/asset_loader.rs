@@ -198,7 +198,7 @@ impl AssetLoader {
                     let removed_buffer_seconds = last_buffer_fill_time
                         .map(|last_buffer_fill_time| last_buffer_fill_time.elapsed().as_secs_f32())
                         .unwrap_or(0.0);
-                    last_buffer_fill_time = Some(now());
+                    last_buffer_fill_time = Some(Instant::now());
                     buffered_amount_seconds += added_buffer_seconds - removed_buffer_seconds;
 
                     if DEBUG_AUDIO_STREAMING {
@@ -223,7 +223,7 @@ impl AssetLoader {
                         break;
                     }
 
-                    crate::thread::sleep(std::time::Duration::from_secs_f32(
+                    crate::thread::sleep(Duration::from_secs_f32(
                         AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.5,
                     ));
                 }

@@ -1,7 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::time::Duration;
 
 use glam::Vec3;
 use iced::alignment::Horizontal;
@@ -283,7 +282,7 @@ impl Program for UiOverlay {
                                 clear = true;
                             }
                         } else {
-                            self.perf_dump_completion_time = Some(now());
+                            self.perf_dump_completion_time = Some(Instant::now());
                         }
                     }
                 }

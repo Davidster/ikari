@@ -1,4 +1,3 @@
-// pub type Mutex<T> = parking_lot::ReentrantMutex<T>;
 #[cfg(not(target_arch = "wasm32"))]
 pub use pollster::block_on;
 #[cfg(target_arch = "wasm32")]
