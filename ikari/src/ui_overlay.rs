@@ -701,7 +701,11 @@ pub struct IkariUiOverlay {
 }
 
 impl IkariUiOverlay {
-    pub fn new(window: &Window, device: &wgpu::Device) -> Self {
+    pub fn new(
+        window: &Window,
+        device: &wgpu::Device,
+        output_texture_format: wgpu::TextureFormat,
+    ) -> Self {
         let viewport = iced_wgpu::Viewport::with_physical_size(
             iced::Size::new(window.inner_size().width, window.inner_size().height),
             window.scale_factor(),
@@ -740,7 +744,7 @@ impl IkariUiOverlay {
         let mut renderer = iced_wgpu::Renderer::new(iced_wgpu::Backend::new(
             device,
             iced_wgpu::Settings::default(),
-            wgpu::TextureFormat::Rgba16Float,
+            output_texture_format,
         ));
 
         let program_container = iced_winit::program::State::new(
