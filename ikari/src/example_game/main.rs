@@ -74,19 +74,7 @@ async fn start() {
             err.backtrace()
         );
         #[cfg(target_arch = "wasm32")]
-        {
-            web_sys::window()
-                .and_then(|win| win.document())
-                .and_then(|document| {
-                    let div = document
-                        .create_element("div")
-                        .expect("Couldn't create div element");
-                    div.set_class_name("fatalerror");
-                    div.set_text_content(Some("Fatal error occured. See console log for details"));
-                    document.body().unwrap().append_child(&div).ok()
-                })
-                .expect("Couldn't append error message to document body.");
-        }
+        show_error_div();
     }
 }
 
@@ -107,9 +95,30 @@ fn main() {
 }
 
 #[cfg(target_arch = "wasm32")]
+pub fn show_error_div() {
+    web_sys::window()
+        .and_then(|win| win.document())
+        .and_then(|document| {
+            let div = document
+                .create_element("div")
+                .expect("Couldn't create div element");
+            div.set_class_name("fatalerror");
+            div.set_text_content(Some("Fatal error occured. See console log for details"));
+            document.body().unwrap().append_child(&div).ok()
+        })
+        .expect("Couldn't append error message to document body.");
+}
+
+#[cfg(target_arch = "wasm32")]
+fn panic_hook(info: &std::panic::PanicInfo) {
+    console_error_panic_hook::hook(info);
+    show_error_div();
+}
+
+#[cfg(target_arch = "wasm32")]
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub async fn run() {
-    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    std::panic::set_hook(Box::new(panic_hook));
     console_log::init_with_level(log::Level::Info).expect("Couldn't initialize logger");
     start().await;
 }
