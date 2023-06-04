@@ -155,7 +155,11 @@ impl PlayerController {
                                   is_showing_options_menu: bool| {
             let grab = is_window_focused_and_clicked && !is_showing_options_menu;
             if let Err(err) = window.set_cursor_grab(if grab {
-                CursorGrabMode::Confined
+                if cfg!(target_arch = "wasm32") {
+                    CursorGrabMode::Locked
+                } else {
+                    CursorGrabMode::Confined
+                }
             } else {
                 CursorGrabMode::None
             }) {
