@@ -48,11 +48,11 @@ async fn start() {
         }
 
         let base_render_state = {
-            let backends = if cfg!(target_os = "linux") {
-                wgpu::Backends::from(wgpu::Backend::Vulkan)
-            } else {
+            let backends = if cfg!(target_os = "windows") {
                 wgpu::Backends::from(wgpu::Backend::Dx12)
                 // wgpu::Backends::PRIMARY
+            } else {
+                wgpu::Backends::PRIMARY
             };
             BaseRenderer::new(&window, backends, wgpu::PresentMode::AutoNoVsync).await
         };

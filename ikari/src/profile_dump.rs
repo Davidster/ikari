@@ -42,13 +42,13 @@ fn generate_profile_dump_internal() -> anyhow::Result<String> {
         &format!("{dump_size_seconds}"),
     ];
     let mut child_process = if cfg!(target_os = "windows") {
-        Command::new("./bin/tracy/win/capture.exe")
+        Command::new("./ikari/bin/tracy/win/capture.exe")
             .args(args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?
     } else {
-        Command::new("./bin/tracy/unix/capture")
+        Command::new("./ikari/bin/tracy/unix/capture")
             .args(args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
