@@ -128,6 +128,19 @@ pub fn run(
                     },
                 }
             }
+            Event::LoopDestroyed => {
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let dom_window = web_sys::window().unwrap();
+                    let document = dom_window.document().unwrap();
+                    let canvas_container = document
+                        .get_element_by_id("canvas_container")
+                        .unwrap()
+                        .dyn_into::<web_sys::HtmlElement>()
+                        .unwrap();
+                    canvas_container.remove();
+                }
+            }
             Event::MainEventsCleared => {
                 // RedrawRequested will only trigger once, unless we manually
                 // request it.
