@@ -1,5 +1,3 @@
-use std::io::Cursor;
-
 use anyhow::Result;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use glam::f32::Vec3;
@@ -92,7 +90,7 @@ pub struct AudioFileStreamer {
 async fn get_media_source(file_path: &str) -> Result<Box<dyn MediaSource>> {
     // TODO: implement proper streaming over http
     let file_bytes = crate::file_loader::read(file_path).await?;
-    Ok(Box::new(Cursor::new(file_bytes)))
+    Ok(Box::new(std::io::Cursor::new(file_bytes)))
 }
 
 #[cfg(not(target_arch = "wasm32"))]

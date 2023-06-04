@@ -702,11 +702,7 @@ pub struct IkariUiOverlay {
 }
 
 impl IkariUiOverlay {
-    pub fn new(
-        window: &Window,
-        device: &wgpu::Device,
-        surface_format: wgpu::TextureFormat,
-    ) -> Self {
+    pub fn new(window: &Window, device: &wgpu::Device) -> Self {
         let viewport = iced_wgpu::Viewport::with_physical_size(
             iced::Size::new(window.inner_size().width, window.inner_size().height),
             window.scale_factor(),

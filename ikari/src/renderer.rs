@@ -15,11 +15,8 @@ use crate::transform::*;
 use crate::ui_overlay::*;
 
 use std::collections::{hash_map::Entry, HashMap};
-use std::fs::File;
-use std::io::BufReader;
 use std::num::NonZeroU64;
 use std::path::PathBuf;
-use std::primitive;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
@@ -2275,11 +2272,7 @@ impl Renderer {
             })
         };
 
-        let ui_overlay = IkariUiOverlay::new(
-            window,
-            &base.device,
-            base.surface_config.lock().unwrap().format,
-        );
+        let ui_overlay = IkariUiOverlay::new(window, &base.device);
 
         let mut data = RendererPublicData {
             binded_pbr_meshes: vec![],
@@ -3845,7 +3838,7 @@ impl Renderer {
                 .iter()
                 .enumerate()
                 .for_each(|(light_index, light)| {
-                    let view_proj_matrices =
+                    let _view_proj_matrices =
                         build_directional_light_camera_view(-light.direction, 100.0, 100.0, 1000.0);
                     let texture_view = private_data
                         .directional_shadow_map_textures
@@ -3897,7 +3890,7 @@ impl Renderer {
                     .iter()
                     .copied()
                     .enumerate()
-                    .for_each(|(face_index, face_view_proj_matrices)| {
+                    .for_each(|(face_index, _face_view_proj_matrices)| {
                         let culling_mask = 2u32.pow(
                             (1 + game_state.directional_lights.len()
                                 + light_index * 6
@@ -3980,8 +3973,6 @@ impl Renderer {
                 stencil_ops: None,
             }),
         };
-
-        let window_size = *base.window_size.lock().unwrap();
 
         Self::render_pbr_meshes(
             base,
