@@ -36,16 +36,20 @@ impl AssetLoader {
 
     pub fn load_gltf_asset(&self, path: &str) {
         let pending_assets_clone = self.pending_gltf_scenes.clone();
-        let mut pending_assets_clone_guard = pending_assets_clone.lock().unwrap();
-        pending_assets_clone_guard.push(path.to_string());
+        let pending_asset_count = {
+            let mut pending_assets_clone_guard = pending_assets_clone.lock().unwrap();
+            pending_assets_clone_guard.push(path.to_string());
+            pending_assets_clone_guard.len()
+        };
 
-        if pending_assets_clone_guard.len() == 1 {
+        if pending_asset_count == 1 {
             let pending_assets = self.pending_gltf_scenes.clone();
             let loaded_assets = self.loaded_gltf_scenes.clone();
             let renderer_base = self.renderer_base.clone();
 
-            std::thread::spawn(move || {
-                pollster::block_on(async {
+            log::info!("spawning thead for load_gltf_asset");
+            crate::thread::spawn(move || {
+                crate::block_on(async move {
                     while pending_assets.lock().unwrap().len() > 0 {
                         let next_scene_path = pending_assets.lock().unwrap().remove(0);
 
@@ -93,8 +97,9 @@ impl AssetLoader {
             let loaded_audio = self.loaded_audio.clone();
             let audio_manager = self.audio_manager.clone();
 
-            std::thread::spawn(move || {
-                pollster::block_on(async {
+            log::info!("spawning thead for load_audio");
+            crate::thread::spawn(move || {
+                crate::block_on(async move {
                     while pending_audio.lock().unwrap().len() > 0 {
                         let (next_audio_path, next_audio_format, next_audio_params) =
                             pending_audio.lock().unwrap().remove(0);
@@ -164,7 +169,8 @@ impl AssetLoader {
         let mut last_buffer_fill_time: Option<Instant> = None;
         let target_max_buffer_length_seconds = AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.75;
         let mut buffered_amount_seconds = 0.0;
-        std::thread::spawn(move || loop {
+        log::info!("spawning thead for spawn_audio_streaming_thread");
+        crate::thread::spawn(move || loop {
             let requested_chunk_size_seconds = if is_first_chunk {
                 target_max_buffer_length_seconds
             } else {
@@ -219,7 +225,9 @@ impl AssetLoader {
                         ));
                         break;
                     }
-                    std::thread::sleep(std::time::Duration::from_secs_f32(
+
+                    log::info!("sleeping thread for spawn_audio_streaming_thread");
+                    crate::thread::sleep(std::time::Duration::from_secs_f32(
                         AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.5,
                     ));
                 }

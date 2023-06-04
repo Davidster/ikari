@@ -745,7 +745,7 @@ impl IkariUiOverlay {
         let mut renderer = iced_wgpu::Renderer::new(iced_wgpu::Backend::new(
             device,
             iced_wgpu::Settings::default(),
-            surface_format,
+            wgpu::TextureFormat::Rgba16Float,
         ));
 
         let program_container = iced_winit::program::State::new(

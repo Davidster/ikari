@@ -339,9 +339,11 @@ impl BaseRenderer {
             .get_default_config(&adapter, window_size.width, window_size.height)
             .expect("Window surface is incompatible with the graphics adapter");
         surface_config.usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
-        surface_config.format = wgpu::TextureFormat::Bgra8UnormSrgb;
+        // surface_config.format = wgpu::TextureFormat::Bgra8UnormSrgb;
         surface_config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
         surface_config.present_mode = present_mode;
+
+        println!("swapchain_format={:?}", surface_config.format);
 
         surface.configure(&device, &surface_config);
 
@@ -818,6 +820,7 @@ pub struct Renderer {
 
 impl Renderer {
     pub async fn new(base: BaseRenderer, window: &Window) -> Result<Self> {
+        log::info!("Renderer::new 1");
         logger_log("Controls:");
         vec![
             "Look Around:             Mouse",
@@ -1159,6 +1162,8 @@ impl Renderer {
             multiview: None,
         };
 
+        log::info!("Renderer::new 2");
+
         let mesh_pipeline = base
             .device
             .create_render_pipeline(&mesh_pipeline_descriptor);
@@ -1290,7 +1295,10 @@ impl Renderer {
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: None,
-                    bind_group_layouts: &[&base.single_texture_bind_group_layout],
+                    bind_group_layouts: &[
+                        &base.single_texture_bind_group_layout,
+                        &single_uniform_bind_group_layout,
+                    ],
                     push_constant_ranges: &[],
                 });
         let surface_blit_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
@@ -1303,7 +1311,7 @@ impl Renderer {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &blit_shader,
-                entry_point: "fs_main",
+                entry_point: "surface_blit_fs_main",
                 targets: surface_blit_color_targets,
             }),
             primitive: wgpu::PrimitiveState {
@@ -1534,6 +1542,8 @@ impl Renderer {
                     bind_group_layouts: &[],
                     push_constant_ranges: &[],
                 });
+
+        log::info!("Renderer::new 3");
 
         let brdf_lut_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
             label: Some("Brdf Lut Gen Pipeline"),
@@ -1892,15 +1902,19 @@ impl Renderer {
             }
         };
 
+        log::info!("Renderer::new 4");
+
         let er_to_cube_texture;
         let skybox_rad_texture = match skybox_hdr_environment {
             Some(SkyboxHDREnvironment::Equirectangular { image_path }) => {
                 let image_bytes;
+                log::info!("Renderer::new creating hdr decoder");
                 let skybox_rad_texture_decoder = {
                     image_bytes = crate::file_loader::read(image_path).await?;
                     let image_bytes_slice: &[u8] = &image_bytes;
                     image::codecs::hdr::HdrDecoder::new(image_bytes_slice)?
                 };
+                log::info!("Renderer::new done creating hdr decoder");
                 let skybox_rad_texture_dimensions = {
                     let md = skybox_rad_texture_decoder.metadata();
                     (md.width, md.height)
@@ -1918,6 +1932,8 @@ impl Renderer {
                         })
                         .collect()
                 };
+
+                log::info!("Renderer::new done creating hdr decoder 2");
 
                 let skybox_rad_texture_er = Texture::from_decoded_image(
                     &base,
@@ -3785,7 +3801,16 @@ impl Renderer {
         queue.write_buffer(
             &private_data.tone_mapping_config_buffer,
             0,
-            bytemuck::cast_slice(&[data.tone_mapping_exposure, 0f32, 0f32, 0f32]),
+            bytemuck::cast_slice(&[
+                data.tone_mapping_exposure,
+                if self.base.surface_config.lock().unwrap().format.is_srgb() {
+                    0f32
+                } else {
+                    1f32
+                },
+                0f32,
+                0f32,
+            ]),
         );
         base.queue.write_buffer(
             &private_data.bloom_config_buffers[0],
@@ -4328,6 +4353,13 @@ impl Renderer {
             });
         }
 
+        // TODO: pass a separate encoder to the ui overlay so it can be profiled
+        data.ui_overlay.render(
+            &base.device,
+            &mut encoder,
+            &private_data.tone_mapping_texture.view,
+        );
+
         {
             let label = "Surface blit";
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -4351,14 +4383,15 @@ impl Renderer {
                         &private_data.tone_mapping_texture_bind_group,
                         &[],
                     );
+                    render_pass.set_bind_group(
+                        1,
+                        &private_data.tone_mapping_config_bind_group,
+                        &[],
+                    );
                     render_pass.draw(0..3, 0..1);
                 }
             });
         }
-
-        // TODO: pass a separate encoder to the ui overlay so it can be profiled
-        data.ui_overlay
-            .render(&base.device, &mut encoder, &surface_texture_view);
 
         profiler.resolve_queries(&mut encoder);
 

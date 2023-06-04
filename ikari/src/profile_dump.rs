@@ -1,11 +1,11 @@
+use crate::logger::*;
+
 use chrono::prelude::*;
 use std::{
     io::{BufRead, BufReader},
     process::{Command, Stdio},
     sync::{Arc, Mutex},
 };
-
-use crate::logger::*;
 
 pub type PendingPerfDump = Arc<Mutex<Option<anyhow::Result<String>>>>;
 
@@ -23,7 +23,7 @@ pub fn generate_profile_dump() -> PendingPerfDump {
     let result: PendingPerfDump = Arc::new(Mutex::new(None));
     let result_clone = result.clone();
 
-    std::thread::spawn(move || {
+    crate::thread::spawn(move || {
         let dump_res = generate_profile_dump_internal();
         *result.lock().unwrap() = Some(dump_res);
     });

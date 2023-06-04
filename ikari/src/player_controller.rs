@@ -217,8 +217,9 @@ impl PlayerController {
                 }
             }
             WindowEvent::Focused(focused) => {
+                #[cfg(not(target_arch = "wasm32"))]
                 if *focused {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    crate::thread::sleep(std::time::Duration::from_millis(100));
                 }
 
                 self.window_focused = *focused;

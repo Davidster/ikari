@@ -6,7 +6,7 @@ struct BloomConfig {
 }
 
 struct ToneMappingConfigUniform {
-    exposure: vec4<f32>,
+    exposure_srgb: vec4<f32>,
 }
 
 @group(1) @binding(0)
@@ -72,8 +72,20 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 @fragment
+fn surface_blit_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let is_srgb = TONE_MAPPING_CONFIG.exposure_srgb.y > 0.0;
+    let sample = textureSample(texture_1, sampler_1, in.tex_coords);
+    if is_srgb {
+        let gamma_corrected = pow(sample.rgb, vec3<f32>(1.0/2.2));
+        return vec4<f32>(gamma_corrected, sample.w);
+    } else {
+        return sample;
+    }
+}
+
+@fragment
 fn tone_mapping_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let exposure = TONE_MAPPING_CONFIG.exposure.x;
+    let exposure = TONE_MAPPING_CONFIG.exposure_srgb.x;
     let shaded_color = textureSample(texture_1, sampler_1, in.tex_coords).rgb;
     let bloom_color = textureSample(texture_2, sampler_2, in.tex_coords).rgb;
     let final_color_hdr = shaded_color + bloom_color;

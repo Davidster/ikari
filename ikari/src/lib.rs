@@ -1,12 +1,8 @@
-/* #[cfg(target_arch = "wasm32")]
-use crate::game::*;
+// pub type Mutex<T> = parking_lot::ReentrantMutex<T>;
+#[cfg(not(target_arch = "wasm32"))]
+pub use pollster::block_on;
 #[cfg(target_arch = "wasm32")]
-use crate::renderer::*;
-#[cfg(target_arch = "wasm32")]
-use crate::scene::*;
-
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*; */
+pub use wasm_bindgen_futures::spawn_local as block_on;
 
 pub mod animation;
 pub mod asset_loader;
@@ -38,6 +34,7 @@ pub mod skinning;
 pub mod texture;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod texture_compression;
+pub mod thread;
 pub mod time;
 pub mod time_tracker;
 pub mod transform;
