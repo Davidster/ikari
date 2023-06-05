@@ -382,12 +382,28 @@ impl Program for UiOverlay {
             .height(Length::Shrink)
             .spacing(4);
 
+        let has_gpu_frame_time_data = self
+            .fps_chart
+            .recent_gpu_frame_times
+            .iter()
+            .any(|list| !list.is_empty());
+
         if let Some(avg_frame_time_millis) = self.fps_chart.avg_frame_time_millis {
-            rows = rows.push(iced_winit::widget::text(&format!(
-                "Frametime: {:.2}ms ({:.2}fps), GPU: {:.2}ms",
+            let cpu_frametime_string = format!(
+                "{:.2}ms ({:.2}fps)",
                 avg_frame_time_millis,
                 1_000.0 / avg_frame_time_millis,
-                self.fps_chart.avg_gpu_frame_time_millis.unwrap_or_default()
+            );
+            let gpu_frametime_string = if has_gpu_frame_time_data {
+                format!(
+                    ", GPU: {:.2}ms",
+                    self.fps_chart.avg_gpu_frame_time_millis.unwrap_or_default()
+                )
+            } else {
+                "".into()
+            };
+            rows = rows.push(iced_winit::widget::text(&format!(
+                "Frametime: {cpu_frametime_string}{gpu_frametime_string}"
             )));
         }
 
@@ -480,7 +496,7 @@ impl Program for UiOverlay {
                     .style(iced::theme::Container::Custom(container_style)),
             );
 
-        Modal::new(self.is_showing_options_menu, content, || {
+        Modal::new(self.is_showing_options_menu, content, move || {
             let separator_line = Text::new("-------------")
                 .width(Length::Fill)
                 .horizontal_alignment(Horizontal::Center);
@@ -513,11 +529,14 @@ impl Program for UiOverlay {
                 self.is_showing_fps_chart,
                 Message::ToggleFpsChart,
             ));
-            options = options.push(iced_winit::widget::checkbox(
-                "Show Detailed GPU Frametimes",
-                self.is_showing_gpu_spans,
-                Message::ToggleGpuSpans,
-            ));
+
+            if has_gpu_frame_time_data {
+                options = options.push(iced_winit::widget::checkbox(
+                    "Show Detailed GPU Frametimes",
+                    self.is_showing_gpu_spans,
+                    Message::ToggleGpuSpans,
+                ));
+            }
 
             // frustum culling debug
             options = options.push(separator_line.clone());
