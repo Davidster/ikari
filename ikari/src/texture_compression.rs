@@ -60,7 +60,6 @@ impl TextureCompressor {
         } else {
             basis_universal::ColorSpace::Linear
         });
-        params.set_use_global_codebook(false);
         params.set_print_status_to_stdout(false);
 
         if is_normal_map {
