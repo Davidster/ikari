@@ -221,7 +221,11 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
                 initial_volume: 0.5,
                 fixed_volume: false,
                 spacial_params: None,
-                stream: true,
+                stream: if cfg!(target_arch = "wasm32") {
+                    false
+                } else {
+                    true
+                },
             },
         );
         asset_loader.load_audio(
@@ -396,7 +400,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
         &checkerboard_texture_img,
         checkerboard_texture_img.dimensions(),
         1,
-        Some("checkerboard_texture"),
+        USE_LABELS.then_some("checkerboard_texture"),
         None,
         true,
         &SamplerDescriptor {
@@ -1243,6 +1247,12 @@ pub fn update_game_state(
         }
     }
 
+    // if game_state
+    //     .asset_loader
+    //     .pending_gltf_scenes
+    //     .lock()
+    //     .unwrap()
+    //     .is_empty()
     {
         let mut loaded_audio_guard = game_state.asset_loader.loaded_audio.lock().unwrap();
         let mut audio_manager_guard = game_state.audio_manager.lock().unwrap();
@@ -1474,6 +1484,8 @@ pub fn update_game_state(
         // logger_log(&format!("Ball count: {:?}", new_ball_count));
     }
 
+    // log::info!("global_time_seconds={}", time_tracker.global_time_seconds());
+
     // let physics_time_step_start = Instant::now();
 
     // logger_log(&format!("Physics step time: {:?}", physics_time_step_start.elapsed()));
@@ -1519,6 +1531,17 @@ pub fn update_game_state(
 
         if game_state.player_controller.mouse_button_pressed && revolver.fire(&mut game_state.scene)
         {
+            /* if let Some(bgm_sound_index) = game_state.bgm_sound_index {
+                if time_tracker.global_time_seconds() > 30.0 {
+                    game_state
+                        .audio_manager
+                        .lock()
+                        .unwrap()
+                        .play_sound(bgm_sound_index);
+                    game_state.bgm_sound_index = None;
+                }
+            } */
+
             if let Some(gunshot_sound_index) = game_state.gunshot_sound_index {
                 {
                     let mut audio_manager_guard = game_state.audio_manager.lock().unwrap();

@@ -24,6 +24,19 @@ pub fn run(
     let mut last_log_time: Option<Instant> = None;
     let mut last_frame_start_time: Option<Instant> = None;
 
+    #[cfg(target_arch = "wasm32")]
+    let canvas_container;
+    #[cfg(target_arch = "wasm32")]
+    {
+        let dom_window = web_sys::window().unwrap();
+        let document = dom_window.document().unwrap();
+        canvas_container = document
+            .get_element_by_id("canvas_container")
+            .unwrap()
+            .dyn_into::<web_sys::HtmlElement>()
+            .unwrap();
+    }
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
         match event {
@@ -99,13 +112,6 @@ pub fn run(
 
                 #[cfg(target_arch = "wasm32")]
                 {
-                    let dom_window = web_sys::window().unwrap();
-                    let document = dom_window.document().unwrap();
-                    let canvas_container = document
-                        .get_element_by_id("canvas_container")
-                        .unwrap()
-                        .dyn_into::<web_sys::HtmlElement>()
-                        .unwrap();
                     let new_size = winit::dpi::PhysicalSize::new(
                         canvas_container.offset_width() as u32,
                         canvas_container.offset_height() as u32,

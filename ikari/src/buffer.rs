@@ -1,3 +1,5 @@
+use crate::renderer::USE_LABELS;
+
 use wgpu::util::DeviceExt;
 
 #[derive(Debug)]
@@ -14,7 +16,7 @@ impl GpuBuffer {
         let capacity = 1;
         Self {
             src: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("GpuBuffer"),
+                label: USE_LABELS.then_some("GpuBuffer"),
                 contents: &vec![0u8; capacity * stride],
                 usage,
             }),
@@ -57,7 +59,7 @@ impl GpuBuffer {
 
         Self {
             src: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("GpuBuffer"),
+                label: USE_LABELS.then_some("GpuBuffer"),
                 contents: &contents_padded,
                 usage,
             }),

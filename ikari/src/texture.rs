@@ -77,7 +77,7 @@ impl Texture {
             let texture = base_renderer
                 .device
                 .create_texture(&wgpu::TextureDescriptor {
-                    label,
+                    label: if USE_LABELS { label } else { None },
                     size,
                     mip_level_count,
                     sample_count: 1,
@@ -108,7 +108,7 @@ impl Texture {
                 base_renderer
                     .device
                     .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("mip_encoder"),
+                        label: USE_LABELS.then_some("mip_encoder"),
                     });
 
             generate_mipmaps_for_texture(
@@ -238,7 +238,7 @@ impl Texture {
         let texture = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
-                label: Some(label),
+                label: USE_LABELS.then_some(label),
                 size,
                 mip_level_count: 1,
                 sample_count: 1,
@@ -292,7 +292,7 @@ impl Texture {
         let texture = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
-                label: Some(label),
+                label: USE_LABELS.then_some(label),
                 size,
                 mip_level_count: 1,
                 sample_count: 1,
@@ -478,7 +478,7 @@ impl Texture {
                         },
                         count: None,
                     }],
-                    label: Some("single_uniform_bind_group_layout"),
+                    label: USE_LABELS.then_some("single_uniform_bind_group_layout"),
                 });
 
         let single_texture_bind_group_layout =
@@ -503,7 +503,7 @@ impl Texture {
                             count: None,
                         },
                     ],
-                    label: Some("single_texture_bind_group_layout"),
+                    label: USE_LABELS.then_some("single_texture_bind_group_layout"),
                 });
 
         let cubemap_texture = base_renderer
@@ -524,7 +524,7 @@ impl Texture {
             base_renderer
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Cubemap Generation Camera Buffer"),
+                    label: USE_LABELS.then_some("Cubemap Generation Camera Buffer"),
                     contents: bytemuck::cast_slice(&[SkyboxShaderCameraRaw::default()]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
@@ -537,7 +537,7 @@ impl Texture {
                         binding: 0,
                         resource: camera_buffer.as_entire_binding(),
                     }],
-                    label: Some("cubemap_gen_camera_bind_group"),
+                    label: USE_LABELS.then_some("cubemap_gen_camera_bind_group"),
                 });
 
         let faces: Vec<_> = build_cubemap_face_camera_views(
@@ -567,7 +567,8 @@ impl Texture {
                 base_renderer
                     .device
                     .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("create_cubemap_texture_from_equirectangular encoder"),
+                        label: USE_LABELS
+                            .then_some("create_cubemap_texture_from_equirectangular encoder"),
                     });
             let er_texture_bind_group;
             {
@@ -790,7 +791,7 @@ impl Texture {
                         },
                         count: None,
                     }],
-                    label: Some("single_uniform_bind_group_layout"),
+                    label: USE_LABELS.then_some("single_uniform_bind_group_layout"),
                 });
 
         let single_cube_texture_bind_group_layout =
@@ -815,7 +816,7 @@ impl Texture {
                             count: None,
                         },
                     ],
-                    label: Some("single_cube_texture_bind_group_layout"),
+                    label: USE_LABELS.then_some("single_cube_texture_bind_group_layout"),
                 });
 
         let env_map = base_renderer
@@ -836,7 +837,7 @@ impl Texture {
             base_renderer
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Env map Generation Camera Buffer"),
+                    label: USE_LABELS.then_some("Env map Generation Camera Buffer"),
                     contents: bytemuck::cast_slice(&[SkyboxShaderCameraRaw::default()]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
@@ -849,7 +850,7 @@ impl Texture {
                         binding: 0,
                         resource: camera_buffer.as_entire_binding(),
                     }],
-                    label: Some("env_map_gen_camera_bind_group"),
+                    label: USE_LABELS.then_some("env_map_gen_camera_bind_group"),
                 });
 
         let faces: Vec<_> = build_cubemap_face_camera_views(
@@ -879,7 +880,7 @@ impl Texture {
                 base_renderer
                     .device
                     .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("create_env_map encoder"),
+                        label: USE_LABELS.then_some("create_env_map encoder"),
                     });
             let skybox_ir_texture_bind_group =
                 base_renderer
@@ -1011,7 +1012,7 @@ impl Texture {
                             count: None,
                         },
                     ],
-                    label: Some("two_uniform_bind_group_layout "),
+                    label: USE_LABELS.then_some("two_uniform_bind_group_layout "),
                 });
 
         let single_cube_texture_bind_group_layout =
@@ -1036,7 +1037,7 @@ impl Texture {
                             count: None,
                         },
                     ],
-                    label: Some("single_cube_texture_bind_group_layout"),
+                    label: USE_LABELS.then_some("single_cube_texture_bind_group_layout"),
                 });
 
         let mip_level_count = 5;
@@ -1059,7 +1060,7 @@ impl Texture {
             base_renderer
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Env map Generation Camera Buffer"),
+                    label: USE_LABELS.then_some("Env map Generation Camera Buffer"),
                     contents: bytemuck::cast_slice(&[SkyboxShaderCameraRaw::default()]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
@@ -1068,7 +1069,7 @@ impl Texture {
             base_renderer
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Env map Generation Roughness Buffer"),
+                    label: USE_LABELS.then_some("Env map Generation Roughness Buffer"),
                     contents: bytemuck::cast_slice(&[0.0f32]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
@@ -1087,7 +1088,7 @@ impl Texture {
                             resource: roughness_buffer.as_entire_binding(),
                         },
                     ],
-                    label: Some("spec_env_map_gen_roughness_bind_group"),
+                    label: USE_LABELS.then_some("spec_env_map_gen_roughness_bind_group"),
                 });
 
         let camera_projection_matrices = build_cubemap_face_camera_views(
@@ -1122,7 +1123,7 @@ impl Texture {
                     .for_each(|(face_view_proj_matrices, face_texture_view)| {
                         let mut encoder = base_renderer.device.create_command_encoder(
                             &wgpu::CommandEncoderDescriptor {
-                                label: Some("create_env_map encoder"),
+                                label: USE_LABELS.then_some("create_env_map encoder"),
                             },
                         );
                         let skybox_ir_texture_bind_group =
@@ -1240,7 +1241,7 @@ impl Texture {
         let texture = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
-                label: Some("Brdf Lut"),
+                label: USE_LABELS.then_some("Brdf Lut"),
                 size,
                 mip_level_count: 1,
                 sample_count: 1,
@@ -1276,7 +1277,7 @@ impl Texture {
             base_renderer
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("create_brdf_lut encoder"),
+                    label: USE_LABELS.then_some("create_brdf_lut encoder"),
                 });
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1341,14 +1342,14 @@ fn generate_mipmaps_for_texture(
                         count: None,
                     },
                 ],
-                label: Some("single_texture_bind_group_layout"),
+                label: USE_LABELS.then_some("single_texture_bind_group_layout"),
             });
 
     let mip_pipeline_layout =
         base_renderer
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Mesh Pipeline Layout"),
+                label: USE_LABELS.then_some("Mesh Pipeline Layout"),
                 bind_group_layouts: &[&single_texture_bind_group_layout],
                 push_constant_ranges: &[],
             });
@@ -1357,7 +1358,7 @@ fn generate_mipmaps_for_texture(
         base_renderer
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("mip_render_pipeline"),
+                label: USE_LABELS.then_some("mip_render_pipeline"),
                 layout: Some(&mip_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &blit_shader,
@@ -1381,7 +1382,7 @@ fn generate_mipmaps_for_texture(
     let mip_texure_views = (0..mip_level_count)
         .map(|mip| {
             texture.create_view(&wgpu::TextureViewDescriptor {
-                label: Some("mip"),
+                label: USE_LABELS.then_some("mip"),
                 format: None,
                 dimension: None,
                 aspect: wgpu::TextureAspect::All,

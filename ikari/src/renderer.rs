@@ -28,6 +28,8 @@ use wgpu::InstanceDescriptor;
 use wgpu_profiler::wgpu_profiler;
 use winit::window::Window;
 
+pub const USE_LABELS: bool = false;
+
 pub const MAX_LIGHT_COUNT: usize = 32;
 pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const FAR_PLANE_DISTANCE: f32 = 100000.0;
@@ -364,7 +366,7 @@ impl BaseRenderer {
                         count: None,
                     },
                 ],
-                label: Some("single_texture_bind_group_layout"),
+                label: USE_LABELS.then_some("single_texture_bind_group_layout"),
             });
         let two_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -402,7 +404,7 @@ impl BaseRenderer {
                         count: None,
                     },
                 ],
-                label: Some("two_texture_bind_group_layout"),
+                label: USE_LABELS.then_some("two_texture_bind_group_layout"),
             });
         let pbr_textures_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -488,7 +490,7 @@ impl BaseRenderer {
                         count: None,
                     },
                 ],
-                label: Some("pbr_textures_bind_group_layout"),
+                label: USE_LABELS.then_some("pbr_textures_bind_group_layout"),
             });
 
         let bones_and_instances_bind_group_layout =
@@ -515,7 +517,7 @@ impl BaseRenderer {
                         count: None,
                     },
                 ],
-                label: Some("bones_and_instances_bind_group_layout"),
+                label: USE_LABELS.then_some("bones_and_instances_bind_group_layout"),
             });
 
         let limits = device.limits();
@@ -653,7 +655,7 @@ impl BaseRenderer {
                     ),
                 },
             ],
-            label: Some("InstancedMeshComponent textures_bind_group"),
+            label: USE_LABELS.then_some("InstancedMeshComponent textures_bind_group"),
         });
 
         Ok(textures_bind_group)
@@ -847,7 +849,7 @@ impl Renderer {
         let unlit_mesh_shader = base
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Unlit Mesh Shader"),
+                label: USE_LABELS.then_some("Unlit Mesh Shader"),
                 source: wgpu::ShaderSource::Wgsl(
                     crate::file_loader::read_to_string("src/shaders/unlit_mesh.wgsl")
                         .await?
@@ -858,7 +860,7 @@ impl Renderer {
         let blit_shader = base
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Blit Shader"),
+                label: USE_LABELS.then_some("Blit Shader"),
                 source: wgpu::ShaderSource::Wgsl(
                     crate::file_loader::read_to_string("src/shaders/blit.wgsl")
                         .await?
@@ -869,7 +871,7 @@ impl Renderer {
         let textured_mesh_shader = base
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Textured Mesh Shader"),
+                label: USE_LABELS.then_some("Textured Mesh Shader"),
                 source: wgpu::ShaderSource::Wgsl(
                     crate::file_loader::read_to_string("src/shaders/textured_mesh.wgsl")
                         .await?
@@ -880,7 +882,7 @@ impl Renderer {
         let skybox_shader = base
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Skybox Shader"),
+                label: USE_LABELS.then_some("Skybox Shader"),
                 source: wgpu::ShaderSource::Wgsl(
                     crate::file_loader::read_to_string("src/shaders/skybox.wgsl")
                         .await?
@@ -909,7 +911,7 @@ impl Renderer {
                             count: None,
                         },
                     ],
-                    label: Some("single_cube_texture_bind_group_layout"),
+                    label: USE_LABELS.then_some("single_cube_texture_bind_group_layout"),
                 });
 
         let environment_textures_bind_group_layout =
@@ -1013,7 +1015,7 @@ impl Renderer {
                             count: None,
                         },
                     ],
-                    label: Some("environment_textures_bind_group_layout"),
+                    label: USE_LABELS.then_some("environment_textures_bind_group_layout"),
                 });
 
         let single_uniform_bind_group_layout =
@@ -1029,7 +1031,7 @@ impl Renderer {
                         },
                         count: None,
                     }],
-                    label: Some("single_uniform_bind_group_layout"),
+                    label: USE_LABELS.then_some("single_uniform_bind_group_layout"),
                 });
 
         let two_uniform_bind_group_layout =
@@ -1057,7 +1059,7 @@ impl Renderer {
                             count: None,
                         },
                     ],
-                    label: Some("two_uniform_bind_group_layout"),
+                    label: USE_LABELS.then_some("two_uniform_bind_group_layout"),
                 });
 
         let camera_lights_and_pbr_shader_options_bind_group_layout = base
@@ -1105,7 +1107,8 @@ impl Renderer {
                         count: None,
                     },
                 ],
-                label: Some("camera_lights_and_pbr_shader_options_bind_group_layout"),
+                label: USE_LABELS
+                    .then_some("camera_lights_and_pbr_shader_options_bind_group_layout"),
             });
 
         let fragment_shader_color_targets = &[Some(wgpu::ColorTargetState {
@@ -1117,7 +1120,7 @@ impl Renderer {
         let mesh_pipeline_layout =
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Mesh Pipeline Layout"),
+                    label: USE_LABELS.then_some("Mesh Pipeline Layout"),
                     bind_group_layouts: &[
                         &camera_lights_and_pbr_shader_options_bind_group_layout,
                         &environment_textures_bind_group_layout,
@@ -1128,7 +1131,7 @@ impl Renderer {
                 });
 
         let mesh_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("Mesh Pipeline"),
+            label: USE_LABELS.then_some("Mesh Pipeline"),
             layout: Some(&mesh_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
@@ -1171,7 +1174,7 @@ impl Renderer {
         let unlit_mesh_pipeline_layout =
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Unlit Mesh Pipeline Layout"),
+                    label: USE_LABELS.then_some("Unlit Mesh Pipeline Layout"),
                     bind_group_layouts: &[
                         &camera_lights_and_pbr_shader_options_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
@@ -1237,7 +1240,7 @@ impl Renderer {
                     push_constant_ranges: &[],
                 });
         let bloom_threshold_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("Bloom Threshold Pipeline"),
+            label: USE_LABELS.then_some("Bloom Threshold Pipeline"),
             layout: Some(&bloom_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &blit_shader,
@@ -1262,7 +1265,7 @@ impl Renderer {
             .create_render_pipeline(&bloom_threshold_pipeline_descriptor);
 
         let bloom_blur_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("Bloom Blur Pipeline"),
+            label: USE_LABELS.then_some("Bloom Blur Pipeline"),
             layout: Some(&bloom_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &blit_shader,
@@ -1302,7 +1305,7 @@ impl Renderer {
                     push_constant_ranges: &[],
                 });
         let surface_blit_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("Surface Blit Render Pipeline"),
+            label: USE_LABELS.then_some("Surface Blit Render Pipeline"),
             layout: Some(&surface_blit_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &blit_shader,
@@ -1369,7 +1372,7 @@ impl Renderer {
                     push_constant_ranges: &[],
                 });
         let tone_mapping_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("Tone Mapping Render Pipeline"),
+            label: USE_LABELS.then_some("Tone Mapping Render Pipeline"),
             layout: Some(&tone_mapping_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &blit_shader,
@@ -1407,7 +1410,7 @@ impl Renderer {
         let skybox_render_pipeline_layout =
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Skybox Render Pipeline Layout"),
+                    label: USE_LABELS.then_some("Skybox Render Pipeline Layout"),
                     bind_group_layouts: &[
                         &environment_textures_bind_group_layout,
                         &camera_lights_and_pbr_shader_options_bind_group_layout,
@@ -1416,7 +1419,7 @@ impl Renderer {
                 });
 
         let skybox_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("Skybox Render Pipeline"),
+            label: USE_LABELS.then_some("Skybox Render Pipeline"),
             layout: Some(&skybox_render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
@@ -1445,7 +1448,8 @@ impl Renderer {
         let equirectangular_to_cubemap_pipeline_layout =
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Equirectangular To Cubemap Render Pipeline Layout"),
+                    label: USE_LABELS
+                        .then_some("Equirectangular To Cubemap Render Pipeline Layout"),
                     bind_group_layouts: &[
                         &base.single_texture_bind_group_layout,
                         &single_uniform_bind_group_layout,
@@ -1454,7 +1458,7 @@ impl Renderer {
                 });
 
         let equirectangular_to_cubemap_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("Equirectangular To Cubemap Render Pipeline"),
+            label: USE_LABELS.then_some("Equirectangular To Cubemap Render Pipeline"),
             layout: Some(&equirectangular_to_cubemap_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
@@ -1483,7 +1487,7 @@ impl Renderer {
         let diffuse_env_map_gen_pipeline_layout =
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("diffuse env map Gen Pipeline Layout"),
+                    label: USE_LABELS.then_some("diffuse env map Gen Pipeline Layout"),
                     bind_group_layouts: &[
                         &single_cube_texture_bind_group_layout,
                         &single_uniform_bind_group_layout,
@@ -1491,7 +1495,7 @@ impl Renderer {
                     push_constant_ranges: &[],
                 });
         let diffuse_env_map_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("diffuse env map Gen Pipeline"),
+            label: USE_LABELS.then_some("diffuse env map Gen Pipeline"),
             layout: Some(&diffuse_env_map_gen_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
@@ -1520,7 +1524,7 @@ impl Renderer {
         let specular_env_map_gen_pipeline_layout =
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("specular env map Gen Pipeline Layout"),
+                    label: USE_LABELS.then_some("specular env map Gen Pipeline Layout"),
                     bind_group_layouts: &[
                         &single_cube_texture_bind_group_layout,
                         &two_uniform_bind_group_layout,
@@ -1529,7 +1533,7 @@ impl Renderer {
                 });
 
         let specular_env_map_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("specular env map Gen Pipeline"),
+            label: USE_LABELS.then_some("specular env map Gen Pipeline"),
             layout: Some(&specular_env_map_gen_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
@@ -1558,13 +1562,13 @@ impl Renderer {
         let brdf_lut_gen_pipeline_layout =
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Brdf Lut Gen Pipeline Layout"),
+                    label: USE_LABELS.then_some("Brdf Lut Gen Pipeline Layout"),
                     bind_group_layouts: &[],
                     push_constant_ranges: &[],
                 });
 
         let brdf_lut_gen_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("Brdf Lut Gen Pipeline"),
+            label: USE_LABELS.then_some("Brdf Lut Gen Pipeline"),
             layout: Some(&brdf_lut_gen_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &blit_shader,
@@ -1591,7 +1595,7 @@ impl Renderer {
         let shadow_map_pipeline_layout =
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Shadow Map Pipeline Layout"),
+                    label: USE_LABELS.then_some("Shadow Map Pipeline Layout"),
                     bind_group_layouts: &[
                         &camera_lights_and_pbr_shader_options_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
@@ -1599,7 +1603,7 @@ impl Renderer {
                     push_constant_ranges: &[],
                 });
         let point_shadow_map_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("Point Shadow Map Pipeline"),
+            label: USE_LABELS.then_some("Point Shadow Map Pipeline"),
             layout: Some(&shadow_map_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
@@ -1639,7 +1643,7 @@ impl Renderer {
             .create_render_pipeline(&point_shadow_map_pipeline_descriptor);
 
         let directional_shadow_map_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: Some("Directional Shadow Map Pipeline"),
+            label: USE_LABELS.then_some("Directional Shadow Map Pipeline"),
             layout: Some(&shadow_map_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
@@ -1719,7 +1723,7 @@ impl Renderer {
                             ),
                         },
                     ],
-                    label: Some("pre_gamma_fb_bind_group"),
+                    label: USE_LABELS.then_some("pre_gamma_fb_bind_group"),
                 })
             });
             shading_texture_bind_group =
@@ -1738,7 +1742,7 @@ impl Renderer {
                             ),
                         },
                     ],
-                    label: Some("shading_texture_bind_group"),
+                    label: USE_LABELS.then_some("shading_texture_bind_group"),
                 });
             tone_mapping_texture_bind_group =
                 base.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1758,7 +1762,7 @@ impl Renderer {
                             ),
                         },
                     ],
-                    label: Some("tone_mapping_texture_bind_group"),
+                    label: USE_LABELS.then_some("tone_mapping_texture_bind_group"),
                 });
             shading_and_bloom_textures_bind_group =
                 base.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1789,7 +1793,7 @@ impl Renderer {
                             ),
                         },
                     ],
-                    label: Some("surface_blit_textures_bind_group"),
+                    label: USE_LABELS.then_some("surface_blit_textures_bind_group"),
                 });
 
             bloom_pingpong_texture_bind_groups = [
@@ -1810,7 +1814,7 @@ impl Renderer {
                             ),
                         },
                     ],
-                    label: Some("bloom_texture_bind_group_1"),
+                    label: USE_LABELS.then_some("bloom_texture_bind_group_1"),
                 }),
                 base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: &base.single_texture_bind_group_layout,
@@ -1829,7 +1833,7 @@ impl Renderer {
                             ),
                         },
                     ],
-                    label: Some("bloom_texture_bind_group_2"),
+                    label: USE_LABELS.then_some("bloom_texture_bind_group_2"),
                 }),
             ];
         }
@@ -1837,13 +1841,13 @@ impl Renderer {
         let bloom_config_buffers = [
             base.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Bloom Config Buffer 0"),
+                    label: USE_LABELS.then_some("Bloom Config Buffer 0"),
                     contents: bytemuck::cast_slice(&[0f32, 0f32, 0f32]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 }),
             base.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Bloom Config Buffer 1"),
+                    label: USE_LABELS.then_some("Bloom Config Buffer 1"),
                     contents: bytemuck::cast_slice(&[0f32, 0f32, 0f32]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 }),
@@ -1856,7 +1860,7 @@ impl Renderer {
                     binding: 0,
                     resource: bloom_config_buffers[0].as_entire_binding(),
                 }],
-                label: Some("bloom_config_bind_group_0"),
+                label: USE_LABELS.then_some("bloom_config_bind_group_0"),
             }),
             base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &single_uniform_bind_group_layout,
@@ -1864,14 +1868,14 @@ impl Renderer {
                     binding: 0,
                     resource: bloom_config_buffers[1].as_entire_binding(),
                 }],
-                label: Some("bloom_config_bind_group_1"),
+                label: USE_LABELS.then_some("bloom_config_bind_group_1"),
             }),
         ];
 
         let tone_mapping_config_buffer =
             base.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Tone Mapping Config Buffer"),
+                    label: USE_LABELS.then_some("Tone Mapping Config Buffer"),
                     contents: bytemuck::cast_slice(&[0f32, 0f32, 0f32, 0f32]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
@@ -1883,7 +1887,7 @@ impl Renderer {
                     binding: 0,
                     resource: tone_mapping_config_buffer.as_entire_binding(),
                 }],
-                label: Some("tone_mapping_config_bind_group"),
+                label: USE_LABELS.then_some("tone_mapping_config_bind_group"),
             });
 
         let depth_texture =
@@ -2028,7 +2032,7 @@ impl Renderer {
         let point_lights_buffer =
             base.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Point Lights Buffer"),
+                    label: USE_LABELS.then_some("Point Lights Buffer"),
                     contents: &initial_point_lights_buffer,
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
@@ -2040,7 +2044,7 @@ impl Renderer {
         let directional_lights_buffer =
             base.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Directional Lights Buffer"),
+                    label: USE_LABELS.then_some("Directional Lights Buffer"),
                     contents: &initial_directional_lights_buffer,
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
@@ -2060,30 +2064,10 @@ impl Renderer {
         let pbr_shader_options_buffer =
             base.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("PBR Shader Options Buffer"),
+                    label: USE_LABELS.then_some("PBR Shader Options Buffer"),
                     contents: bytemuck::cast_slice(&[initial_pbr_shader_options_buffer]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
-
-        // let camera_lights_and_pbr_shader_options_bind_group =
-        //     base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-        //         layout: &camera_lights_and_pbr_shader_options_bind_group_layout,
-        //         entries: &[
-        //             wgpu::BindGroupEntry {
-        //                 binding: 0,
-        //                 resource: point_lights_buffer.as_entire_binding(),
-        //             },
-        //             wgpu::BindGroupEntry {
-        //                 binding: 1,
-        //                 resource: directional_lights_buffer.as_entire_binding(),
-        //             },
-        //             wgpu::BindGroupEntry {
-        //                 binding: 2,
-        //                 resource: pbr_shader_options_buffer.as_entire_binding(),
-        //             },
-        //         ],
-        //         label: Some("lights_and_pbr_shader_options_bind_group"),
-        //     });
 
         let bones_buffer = GpuBuffer::empty(
             &base.device,
@@ -2138,7 +2122,7 @@ impl Renderer {
                         }),
                     },
                 ],
-                label: Some("bones_and_pbr_instances_bind_group"),
+                label: USE_LABELS.then_some("bones_and_pbr_instances_bind_group"),
             });
 
         let bones_and_unlit_instances_bind_group =
@@ -2164,7 +2148,7 @@ impl Renderer {
                         }),
                     },
                 ],
-                label: Some("bones_and_unlit_instances_bind_group"),
+                label: USE_LABELS.then_some("bones_and_unlit_instances_bind_group"),
             });
 
         let bones_and_transparent_instances_bind_group =
@@ -2193,7 +2177,7 @@ impl Renderer {
                         }),
                     },
                 ],
-                label: Some("bones_and_transparent_instances_bind_group"),
+                label: USE_LABELS.then_some("bones_and_transparent_instances_bind_group"),
             });
 
         let bones_and_wireframe_instances_bind_group =
@@ -2222,7 +2206,7 @@ impl Renderer {
                         }),
                     },
                 ],
-                label: Some("bones_and_wireframe_instances_bind_group"),
+                label: USE_LABELS.then_some("bones_and_wireframe_instances_bind_group"),
             });
 
         let point_shadow_map_textures = Texture::create_depth_texture_array(
@@ -2319,7 +2303,7 @@ impl Renderer {
                         ),
                     },
                 ],
-                label: Some("skybox_texture_bind_group"),
+                label: USE_LABELS.then_some("environment_textures_bind_group"),
             })
         };
 
@@ -2745,7 +2729,7 @@ impl Renderer {
                             ),
                         },
                     ],
-                    label: Some("pre_gamma_fb_bind_group"),
+                    label: USE_LABELS.then_some("pre_gamma_fb_bind_group"),
                 })
             });
 
@@ -2768,7 +2752,7 @@ impl Renderer {
                         ),
                     },
                 ],
-                label: Some("shading_texture_bind_group"),
+                label: USE_LABELS.then_some("shading_texture_bind_group"),
             });
 
         private_data_guard.tone_mapping_texture_bind_group =
@@ -2790,7 +2774,7 @@ impl Renderer {
                         ),
                     },
                 ],
-                label: Some("tone_mapping_texture_bind_group"),
+                label: USE_LABELS.then_some("tone_mapping_texture_bind_group"),
             });
         private_data_guard.shading_and_bloom_textures_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -2825,7 +2809,7 @@ impl Renderer {
                         ),
                     },
                 ],
-                label: Some("surface_blit_textures_bind_group"),
+                label: USE_LABELS.then_some("shading_and_bloom_textures_bind_group"),
             });
         private_data_guard.bloom_pingpong_texture_bind_groups = [
             device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -2846,7 +2830,7 @@ impl Renderer {
                         ),
                     },
                 ],
-                label: Some("bloom_texture_bind_group_1"),
+                label: USE_LABELS.then_some("bloom_texture_bind_group_1"),
             }),
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: single_texture_bind_group_layout,
@@ -2866,7 +2850,7 @@ impl Renderer {
                         ),
                     },
                 ],
-                label: Some("bloom_texture_bind_group_2"),
+                label: USE_LABELS.then_some("bloom_texture_bind_group_2"),
             }),
         ];
     }
@@ -3618,7 +3602,7 @@ impl Renderer {
                         }),
                     },
                 ],
-                label: Some("bones_and_pbr_instances_bind_group"),
+                label: USE_LABELS.then_some("bones_and_pbr_instances_bind_group"),
             });
 
         private_data.bones_and_unlit_instances_bind_group =
@@ -3649,7 +3633,7 @@ impl Renderer {
                         }),
                     },
                 ],
-                label: Some("bones_and_unlit_instances_bind_group"),
+                label: USE_LABELS.then_some("bones_and_unlit_instances_bind_group"),
             });
 
         private_data.bones_and_transparent_instances_bind_group =
@@ -3682,7 +3666,7 @@ impl Renderer {
                         }),
                     },
                 ],
-                label: Some("bones_and_transparent_instances_bind_group"),
+                label: USE_LABELS.then_some("bones_and_transparent_instances_bind_group"),
             });
 
         private_data.bones_and_wireframe_instances_bind_group =
@@ -3713,7 +3697,7 @@ impl Renderer {
                         }),
                     },
                 ],
-                label: Some("bones_and_wireframe_instances_bind_group"),
+                label: USE_LABELS.then_some("bones_and_wireframe_instances_bind_group"),
             });
 
         let mut all_camera_data: Vec<ShaderCameraData> = vec![];
@@ -3774,7 +3758,7 @@ impl Renderer {
                     .push(
                         base.device
                             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("Camera Buffer"),
+                                label: USE_LABELS.then_some("Camera Buffer"),
                                 contents: &contents,
                                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                             }),
@@ -3804,7 +3788,8 @@ impl Renderer {
                                     private_data.pbr_shader_options_buffer.as_entire_binding(),
                             },
                         ],
-                        label: Some("camera_lights_and_pbr_shader_options_bind_group"),
+                        label:
+                            USE_LABELS.then_some("camera_lights_and_pbr_shader_options_bind_group"),
                     }));
             } else {
                 queue.write_buffer(&private_data.camera_buffers[i], 0, &contents)
@@ -3928,7 +3913,7 @@ impl Renderer {
                             ..Default::default()
                         });
                     let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
-                        label: Some("Directional light shadow map"),
+                        label: USE_LABELS.then_some("Directional light shadow map"),
                         color_attachments: &[],
                         depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                             view: &texture_view,
@@ -3986,7 +3971,7 @@ impl Renderer {
                                 ..Default::default()
                             });
                         let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
-                            label: Some("Point light shadow map"),
+                            label: USE_LABELS.then_some("Point light shadow map"),
                             color_attachments: &[],
                             depth_stencil_attachment: Some(
                                 wgpu::RenderPassDepthStencilAttachment {
@@ -4033,7 +4018,7 @@ impl Renderer {
         };
 
         let shading_render_pass_desc = wgpu::RenderPassDescriptor {
-            label: Some("Pbr meshes"),
+            label: USE_LABELS.then_some("Pbr meshes"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &private_data.shading_texture.view,
                 resolve_target: None,
@@ -4069,7 +4054,7 @@ impl Renderer {
         {
             let label = "Unlit and wireframe";
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some(label),
+                label: USE_LABELS.then_some(label),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &private_data.shading_texture.view,
                     resolve_target: None,
@@ -4194,7 +4179,7 @@ impl Renderer {
             {
                 let label = "Bloom threshold";
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some(label),
+                    label: USE_LABELS.then_some(label),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &private_data.bloom_pingpong_textures[0].view,
                         resolve_target: None,
@@ -4221,7 +4206,7 @@ impl Renderer {
                  horizontal: bool| {
                     let label = "Bloom blur";
                     let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some(label),
+                        label: USE_LABELS.then_some(label),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: dst_texture,
                             resolve_target: None,
@@ -4278,7 +4263,7 @@ impl Renderer {
         {
             let label = "Skybox";
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some(label),
+                label: USE_LABELS.then_some(label),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &private_data.tone_mapping_texture.view,
                     resolve_target: None,
@@ -4323,7 +4308,7 @@ impl Renderer {
         {
             let label = "Tone mapping";
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some(label),
+                label: USE_LABELS.then_some(label),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &private_data.tone_mapping_texture.view,
                     resolve_target: None,
@@ -4349,7 +4334,7 @@ impl Renderer {
         {
             let label = "Transparent";
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some(label),
+                label: USE_LABELS.then_some(label),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &private_data.tone_mapping_texture.view,
                     resolve_target: None,
@@ -4412,7 +4397,7 @@ impl Renderer {
             {
                 let label = "Pre-gamma Surface blit";
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some(label),
+                    label: USE_LABELS.then_some(label),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &pre_gamma_fb.view,
                         resolve_target: None,
@@ -4445,7 +4430,7 @@ impl Renderer {
         {
             let label = "Surface blit";
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some(label),
+                label: USE_LABELS.then_some(label),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &surface_texture_view,
                     resolve_target: None,
