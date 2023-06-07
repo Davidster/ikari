@@ -1251,12 +1251,19 @@ pub fn update_game_state(
     //     .is_empty()
     {
         let mut loaded_audio_guard = game_state.asset_loader.loaded_audio.lock().unwrap();
-        let mut audio_manager_guard = game_state.audio_manager.lock().unwrap();
+        let mut _audio_manager_guard = game_state.audio_manager.lock().unwrap();
 
         if let Entry::Occupied(entry) = loaded_audio_guard.entry("src/sounds/bgm.mp3".to_string()) {
             let (_, bgm_sound_index) = entry.remove_entry();
-            audio_manager_guard.play_sound(bgm_sound_index);
             game_state.bgm_sound_index = Some(bgm_sound_index);
+
+            let audio_manager_clone = game_state.audio_manager.clone();
+            let bgm_sound_index_clone = bgm_sound_index;
+            crate::thread::spawn(move || {
+                crate::thread::sleep(crate::time::Duration::from_secs_f32(5.0));
+                let mut audio_manager_guard = audio_manager_clone.lock().unwrap();
+                audio_manager_guard.play_sound(bgm_sound_index_clone);
+            });
             // logger_log("loaded bgm sound");
         }
 

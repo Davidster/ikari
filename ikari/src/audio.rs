@@ -145,9 +145,12 @@ impl AudioFileStreamer {
         })
     }
 
-    /// chunk_size=0 to read the whole stream at once
+    /// max_chunk_size=0 to read the whole stream at once
+    /// The chunk size will be a little lower than this value since we read
+    /// the audio file in small 'packets' which might not fit evenly into max_chunk_size
+    /// so we make sure not to overshoot
     #[profiling::function]
-    pub fn read_chunk(&mut self, chunk_size: usize) -> Result<(SoundData, bool)> {
+    pub fn read_chunk(&mut self, max_chunk_size: usize) -> Result<(SoundData, bool)> {
         let mut samples_interleaved: Vec<f32> = vec![];
 
         let sample_rate_ratio = self.device_sample_rate as f32
@@ -202,10 +205,10 @@ impl AudioFileStreamer {
                         samples_interleaved.push(*sample);
                     }
 
-                    if chunk_size != 0
+                    if max_chunk_size != 0
                         && sample_rate_ratio
                             * ((samples_interleaved.len() + sample_count) / CHANNEL_COUNT) as f32
-                            > chunk_size as f32
+                            > max_chunk_size as f32
                     {
                         break false;
                     }
@@ -376,6 +379,13 @@ impl AudioManager {
         }
     }
 
+    pub fn sound_is_playing(&self, sound_index: usize) -> bool {
+        self.sounds[sound_index]
+            .as_ref()
+            .map(|sound| sound.is_playing)
+            .unwrap_or(false)
+    }
+
     pub fn _set_sound_volume(&mut self, sound_index: usize, volume: f32) {
         if let Some(sound) = self.sounds[sound_index].as_mut() {
             sound.set_volume(self.master_volume, volume)
@@ -466,7 +476,7 @@ impl Sound {
                     );
 
                 Sound {
-                    is_playing: true,
+                    is_playing: false,
                     volume: initial_volume,
                     signal_handle: SoundSignalHandle::Spacial { signal_handle },
                     data: sound_data,
@@ -483,7 +493,7 @@ impl Sound {
                         .control::<Mixer<_>, _>()
                         .play(signal);
                     Sound {
-                        is_playing: true,
+                        is_playing: false,
                         volume: initial_volume,
                         signal_handle: SoundSignalHandle::AmbientFixed { signal_handle },
                         data: sound_data,
@@ -495,7 +505,7 @@ impl Sound {
                         .control::<Mixer<_>, _>()
                         .play(signal);
                     let mut sound = Sound {
-                        is_playing: true,
+                        is_playing: false,
                         volume: initial_volume,
                         signal_handle: SoundSignalHandle::Ambient { signal_handle },
                         data: sound_data,
@@ -515,7 +525,7 @@ impl Sound {
                     .control::<Mixer<_>, _>()
                     .play(signal);
                 let mut sound = Sound {
-                    is_playing: true,
+                    is_playing: false,
                     volume: initial_volume,
                     signal_handle: SoundSignalHandle::Streamed { signal_handle },
                     data: sound_data,

@@ -165,7 +165,8 @@ impl AssetLoader {
         let device_sample_rate = audio_manager.lock().unwrap().device_sample_rate();
         let mut is_first_chunk = true;
         let mut last_buffer_fill_time: Option<Instant> = None;
-        let target_max_buffer_length_seconds = AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.75;
+        let target_max_buffer_length_seconds = AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.4;
+        let max_chunk_size_length_seconds = AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.3;
         let mut buffered_amount_seconds = 0.0;
         crate::thread::spawn(move || loop {
             let requested_chunk_size_seconds = if is_first_chunk {
@@ -179,7 +180,7 @@ impl AssetLoader {
                         buffered_amount_seconds, deficit_seconds
                     ));
                 }
-                (AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.5 + deficit_seconds).max(0.0)
+                (max_chunk_size_length_seconds + deficit_seconds).max(0.0)
             };
             if DEBUG_AUDIO_STREAMING {
                 logger_log(&format!(
@@ -198,7 +199,6 @@ impl AssetLoader {
                     let removed_buffer_seconds = last_buffer_fill_time
                         .map(|last_buffer_fill_time| last_buffer_fill_time.elapsed().as_secs_f32())
                         .unwrap_or(0.0);
-                    last_buffer_fill_time = Some(Instant::now());
                     buffered_amount_seconds += added_buffer_seconds - removed_buffer_seconds;
 
                     if DEBUG_AUDIO_STREAMING {
@@ -214,6 +214,15 @@ impl AssetLoader {
                         .lock()
                         .unwrap()
                         .write_stream_data(sound_index, sound_data);
+                    loop {
+                        if audio_manager.lock().unwrap().sound_is_playing(sound_index) {
+                            break;
+                        } else {
+                            crate::thread::sleep(Duration::from_secs_f32(0.05));
+                        }
+                    }
+
+                    last_buffer_fill_time = Some(Instant::now());
 
                     if reached_end_of_stream {
                         logger_log(&format!(
@@ -223,9 +232,7 @@ impl AssetLoader {
                         break;
                     }
 
-                    crate::thread::sleep(Duration::from_secs_f32(
-                        AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.5,
-                    ));
+                    crate::thread::sleep(Duration::from_secs_f32(max_chunk_size_length_seconds));
                 }
                 Err(err) => {
                     logger_log(&format!(
