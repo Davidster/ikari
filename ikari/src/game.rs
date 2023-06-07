@@ -221,11 +221,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
                 initial_volume: 0.5,
                 fixed_volume: false,
                 spacial_params: None,
-                stream: if cfg!(target_arch = "wasm32") {
-                    false
-                } else {
-                    true
-                },
+                stream: !cfg!(target_arch = "wasm32"),
             },
         );
         asset_loader.load_audio(
