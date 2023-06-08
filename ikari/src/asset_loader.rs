@@ -122,7 +122,9 @@ impl AssetLoader {
                                 device_sample_rate,
                             );
                             let sound_index = audio_manager.lock().unwrap().add_sound(
+                                &next_audio_path,
                                 sound_data,
+                                audio_file_streamer.track_length_seconds(),
                                 next_audio_params.clone(),
                                 signal,
                             );

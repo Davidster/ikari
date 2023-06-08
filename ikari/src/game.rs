@@ -1251,7 +1251,7 @@ pub fn update_game_state(
     //     .is_empty()
     {
         let mut loaded_audio_guard = game_state.asset_loader.loaded_audio.lock().unwrap();
-        let mut _audio_manager_guard = game_state.audio_manager.lock().unwrap();
+        // let mut audio_manager_guard = game_state.audio_manager.lock().unwrap();
 
         if let Entry::Occupied(entry) = loaded_audio_guard.entry("src/sounds/bgm.mp3".to_string()) {
             let (_, bgm_sound_index) = entry.remove_entry();

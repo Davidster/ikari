@@ -1,3 +1,4 @@
+use crate::time::Instant;
 use anyhow::Result;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use glam::f32::Vec3;
@@ -35,6 +36,12 @@ pub struct Sound {
     is_playing: bool,
     signal_handle: SoundSignalHandle,
     data: SoundData,
+    length_seconds: Option<f32>,
+    file_path: String,
+    /// position within the track in milliseconds,
+    last_pause_pos_seconds: f32,
+    last_resume_time: Option<Instant>,
+    buffered_to_pos_seconds: f32,
 }
 
 pub enum SoundSignal {
@@ -83,6 +90,7 @@ pub struct AudioFileStreamer {
     decoder: Box<dyn symphonia::core::codecs::Decoder>,
     track_id: u32,
     track_sample_rate: Option<u32>,
+    track_length_seconds: Option<f32>,
     file_path: String,
 }
 
@@ -129,6 +137,15 @@ impl AudioFileStreamer {
             .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
             .ok_or(anyhow::anyhow!("no supported audio tracks"))?;
 
+        let track_length_seconds = match (track.codec_params.time_base, track.codec_params.n_frames)
+        {
+            (Some(time_base), Some(n_frames)) => {
+                let time = time_base.calc_time(n_frames);
+                Some(time.seconds as f32 + time.frac as f32)
+            }
+            _ => None,
+        };
+
         let track_id = track.id;
         let track_sample_rate = track.codec_params.sample_rate;
 
@@ -140,6 +157,7 @@ impl AudioFileStreamer {
             format_reader,
             decoder,
             track_id,
+            track_length_seconds,
             track_sample_rate,
             file_path: file_path.to_string(),
         })
@@ -243,6 +261,10 @@ impl AudioFileStreamer {
         }
 
         Ok((SoundData(samples), reached_end_of_stream))
+    }
+
+    pub fn track_length_seconds(&self) -> Option<f32> {
+        self.track_length_seconds
     }
 
     pub fn file_path(&self) -> &str {
@@ -350,18 +372,20 @@ impl AudioManager {
 
     pub fn add_sound(
         &mut self,
+        file_path: &str,
         sound_data: SoundData,
+        length_seconds: Option<f32>,
         params: SoundParams,
         signal: Option<SoundSignal>,
     ) -> usize {
-        let sound = Sound::new(self, sound_data, params, signal);
+        let sound = Sound::new(self, file_path, sound_data, length_seconds, params, signal);
         self.sounds.push(Some(sound));
         self.sounds.len() - 1
     }
 
     pub fn write_stream_data(&mut self, sound_index: usize, sound_data: SoundData) {
         if let Some(sound) = self.sounds[sound_index].as_mut() {
-            sound.write_stream_data(sound_data);
+            sound.write_stream_data(sound_data, self.device_sample_rate);
         }
     }
 
@@ -375,7 +399,14 @@ impl AudioManager {
     pub fn reload_sound(&mut self, sound_index: usize, params: SoundParams) {
         if let Some(sound) = self.sounds[sound_index].take() {
             let signal = Self::get_signal(&sound.data, params.clone(), self.device_sample_rate);
-            self.sounds[sound_index] = Some(Sound::new(self, sound.data, params, signal));
+            self.sounds[sound_index] = Some(Sound::new(
+                self,
+                &sound.file_path,
+                sound.data,
+                sound.length_seconds,
+                params,
+                signal,
+            ));
         }
     }
 
@@ -386,6 +417,30 @@ impl AudioManager {
             .unwrap_or(false)
     }
 
+    pub fn get_sound_length_seconds(&self, sound_index: usize) -> Option<Option<f32>> {
+        self.sounds[sound_index]
+            .as_ref()
+            .map(|sound| sound.length_seconds)
+    }
+
+    pub fn get_sound_pos_seconds(&self, sound_index: usize) -> Option<f32> {
+        self.sounds[sound_index]
+            .as_ref()
+            .map(|sound| sound.pos_seconds())
+    }
+
+    pub fn get_sound_buffered_to_pos_seconds(&self, sound_index: usize) -> Option<f32> {
+        self.sounds[sound_index]
+            .as_ref()
+            .map(|sound| sound.buffered_to_pos_seconds)
+    }
+
+    pub fn get_sound_file_path(&self, sound_index: usize) -> Option<&String> {
+        self.sounds[sound_index]
+            .as_ref()
+            .map(|sound| &sound.file_path)
+    }
+
     pub fn _set_sound_volume(&mut self, sound_index: usize, volume: f32) {
         if let Some(sound) = self.sounds[sound_index].as_mut() {
             sound.set_volume(self.master_volume, volume)
@@ -394,6 +449,13 @@ impl AudioManager {
 
     pub fn device_sample_rate(&self) -> u32 {
         self.device_sample_rate
+    }
+
+    pub fn sound_indices(&self) -> impl Iterator<Item = usize> + '_ {
+        self.sounds
+            .iter()
+            .enumerate()
+            .filter_map(|(sound_index, sound)| sound.as_ref().map(|_| sound_index))
     }
 }
 
@@ -436,7 +498,9 @@ fn resample_linear(
 impl Sound {
     fn new(
         audio_manager: &mut AudioManager,
+        file_path: &str,
         sound_data: SoundData,
+        length_seconds: Option<f32>,
         params: SoundParams,
         signal: Option<SoundSignal>,
     ) -> Self {
@@ -447,7 +511,12 @@ impl Sound {
             stream,
         } = params;
 
-        let mut sound = match (spacial_params, signal, stream) {
+        let last_pause_pos_seconds = 0.0;
+        let last_resume_time = None;
+        let buffered_to_pos_seconds =
+            sound_data.0.len() as f32 / audio_manager.device_sample_rate as f32;
+
+        let signal_handle = match (spacial_params, signal, stream) {
             (
                 Some(SpacialParams {
                     initial_position,
@@ -475,12 +544,7 @@ impl Sound {
                         0.1,
                     );
 
-                Sound {
-                    is_playing: false,
-                    volume: initial_volume,
-                    signal_handle: SoundSignalHandle::Spacial { signal_handle },
-                    data: sound_data,
-                }
+                SoundSignalHandle::Spacial { signal_handle }
             }
             (None, Some(SoundSignal::Stereo { signal }), false) => {
                 if fixed_volume {
@@ -492,26 +556,14 @@ impl Sound {
                         .mixer_handle
                         .control::<Mixer<_>, _>()
                         .play(signal);
-                    Sound {
-                        is_playing: false,
-                        volume: initial_volume,
-                        signal_handle: SoundSignalHandle::AmbientFixed { signal_handle },
-                        data: sound_data,
-                    }
+                    SoundSignalHandle::AmbientFixed { signal_handle }
                 } else {
                     let signal = Gain::new(signal);
                     let signal_handle = audio_manager
                         .mixer_handle
                         .control::<Mixer<_>, _>()
                         .play(signal);
-                    let mut sound = Sound {
-                        is_playing: false,
-                        volume: initial_volume,
-                        signal_handle: SoundSignalHandle::Ambient { signal_handle },
-                        data: sound_data,
-                    };
-                    sound.set_volume(audio_manager.master_volume, initial_volume);
-                    sound
+                    SoundSignalHandle::Ambient { signal_handle }
                 }
             }
             (None, None, true) => {
@@ -524,26 +576,33 @@ impl Sound {
                     .mixer_handle
                     .control::<Mixer<_>, _>()
                     .play(signal);
-                let mut sound = Sound {
-                    is_playing: false,
-                    volume: initial_volume,
-                    signal_handle: SoundSignalHandle::Streamed { signal_handle },
-                    data: sound_data,
-                };
-                sound.set_volume(audio_manager.master_volume, initial_volume);
-                sound
+                SoundSignalHandle::Streamed { signal_handle }
             }
             _ => {
                 panic!("Signal didn't match spatial params");
             }
         };
 
+        let mut sound = Sound {
+            is_playing: false,
+            volume: initial_volume,
+            signal_handle,
+            file_path: String::from(file_path),
+            data: sound_data,
+            length_seconds,
+            last_pause_pos_seconds,
+            last_resume_time,
+            buffered_to_pos_seconds,
+        };
+
+        sound.set_volume(audio_manager.master_volume, initial_volume);
         sound.pause();
         sound
     }
 
-    fn write_stream_data(&mut self, sound_data: SoundData) {
+    fn write_stream_data(&mut self, sound_data: SoundData, device_sample_rate: u32) {
         if let SoundSignalHandle::Streamed { signal_handle } = &mut self.signal_handle {
+            self.buffered_to_pos_seconds += sound_data.0.len() as f32 / device_sample_rate as f32;
             let SoundData(samples) = sound_data;
             signal_handle
                 .control::<oddio::Stream<_>, _>()
@@ -567,6 +626,7 @@ impl Sound {
                 signal_handle.control::<Stop<_>, _>().pause();
             }
         }
+        self.last_pause_pos_seconds = self.pos_seconds();
     }
 
     fn resume(&mut self) {
@@ -585,6 +645,7 @@ impl Sound {
                 signal_handle.control::<Stop<_>, _>().resume();
             }
         }
+        self.last_resume_time = Some(Instant::now());
     }
 
     fn set_volume(&mut self, master_volume: f32, volume: f32) {
@@ -607,6 +668,17 @@ impl Sound {
                     .set_amplitude_ratio((master_volume * self.volume).powf(2.0));
             }
         }
+    }
+
+    fn pos_seconds(&self) -> f32 {
+        let pos = self.last_pause_pos_seconds
+            + self
+                .last_resume_time
+                .map(|last_resume_time| last_resume_time.elapsed().as_secs_f32())
+                .unwrap_or(0.0);
+        self.length_seconds
+            .map(|length_seconds| length_seconds.min(pos))
+            .unwrap_or(pos)
     }
 
     fn _set_motion(&mut self, position: Vec3, velocity: Vec3, discontinuity: bool) {

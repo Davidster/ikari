@@ -1,4 +1,4 @@
-use std::collections::hash_map::Entry;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -28,14 +28,24 @@ use crate::time::*;
 const FRAME_TIME_HISTORY_SIZE: usize = 720;
 
 #[derive(Debug, Clone)]
+pub struct AudioSoundStats {
+    pub length_seconds: Option<f32>,
+    pub pos_seconds: f32,
+    pub buffered_to_pos_seconds: f32,
+}
+
+#[derive(Debug, Clone)]
 pub struct UiOverlay {
     viewport_dims: (u32, u32),
     fps_chart: FpsChart,
     is_showing_fps_chart: bool,
     is_showing_gpu_spans: bool,
+    is_showing_audio_stats: bool,
     pub is_showing_options_menu: bool,
     was_exit_button_pressed: bool,
     camera_pose: Option<(Vec3, ControlledViewDirection)>, // position, direction
+
+    audio_sound_stats: BTreeMap<String, AudioSoundStats>,
 
     pub enable_vsync: bool,
     pub enable_soft_shadows: bool,
@@ -58,6 +68,7 @@ pub enum Message {
     FrameCompleted(Duration),
     GpuFrameCompleted(Vec<GpuTimerScopeResultWrapper>),
     CameraPoseChanged((Vec3, ControlledViewDirection)),
+    AudioSoundStatsChanged((String, AudioSoundStats)),
     ToggleVSync(bool),
     ToggleCameraPose(bool),
     ToggleFpsChart(bool),
@@ -66,6 +77,7 @@ pub enum Message {
     ToggleDrawCullingFrustum(bool),
     ToggleDrawPointLightCullingFrusta(bool),
     ToggleShadowDebug(bool),
+    ToggleAudioStats(bool),
     ShadowBiasChanged(f32),
     SoftShadowFactorChanged(f32),
     SoftShadowGridDimsChanged(u32),
@@ -313,6 +325,9 @@ impl Program for UiOverlay {
                     self.fps_chart.recent_gpu_frame_times.remove(0);
                 }
             }
+            Message::AudioSoundStatsChanged((track_path, stats)) => {
+                self.audio_sound_stats.insert(track_path, stats);
+            }
             Message::CameraPoseChanged(new_state) => {
                 self.camera_pose = Some(new_state);
             }
@@ -342,6 +357,9 @@ impl Program for UiOverlay {
             }
             Message::ToggleShadowDebug(new_state) => {
                 self.enable_soft_shadows = new_state;
+            }
+            Message::ToggleAudioStats(new_state) => {
+                self.is_showing_audio_stats = new_state;
             }
             Message::ShadowBiasChanged(new_state) => {
                 self.shadow_bias = new_state;
@@ -430,6 +448,24 @@ impl Program for UiOverlay {
             }
         }
 
+        if self.is_showing_audio_stats {
+            for (file_path, stats) in &self.audio_sound_stats {
+                let format_timestamp = |timestamp| format!("{timestamp:.2}");
+                let pos = format_timestamp(stats.pos_seconds);
+                let length = stats
+                    .length_seconds
+                    .map(|length_seconds| {
+                        let length = format_timestamp(length_seconds);
+                        format!("/ {length}")
+                    })
+                    .unwrap_or_default();
+                let buffered_pos = format_timestamp(stats.buffered_to_pos_seconds);
+                rows = rows.push(iced_winit::widget::text(&format!(
+                    "{file_path}: {pos}{length}, buffer to {buffered_pos}"
+                )));
+            }
+        }
+
         if self.is_showing_gpu_spans {
             let mut span_set: HashSet<&str> = HashSet::new();
             for frame_spans in &self.fps_chart.recent_gpu_frame_times {
@@ -456,6 +492,8 @@ impl Program for UiOverlay {
                 }
 
                 for span_name in &span_names {
+                    use std::collections::hash_map::Entry;
+
                     let frame_time = totals_by_span.entry(span_name).or_default();
                     match avg_span_times.entry(span_name) {
                         Entry::Occupied(mut entry) => {
@@ -521,6 +559,13 @@ impl Program for UiOverlay {
                 "Show Camera Pose",
                 self.is_showing_camera_pose,
                 Message::ToggleCameraPose,
+            ));
+
+            // camera debug
+            options = options.push(iced_winit::widget::checkbox(
+                "Show Audio Stats",
+                self.is_showing_audio_stats,
+                Message::ToggleAudioStats,
             ));
 
             // fps overlay
@@ -756,12 +801,16 @@ impl IkariUiOverlay {
                 avg_frame_time_millis: None,
                 avg_gpu_frame_time_millis: None,
             },
+
+            audio_sound_stats: BTreeMap::new(),
+
             camera_pose: None,
             is_showing_camera_pose: INITIAL_IS_SHOWING_CAMERA_POSE,
             is_showing_fps_chart: false,
             is_showing_gpu_spans: false,
             is_showing_options_menu: false,
             was_exit_button_pressed: false,
+            is_showing_audio_stats: false,
             enable_vsync: INITIAL_ENABLE_VSYNC,
             enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
             shadow_bias: INITIAL_SHADOW_BIAS,

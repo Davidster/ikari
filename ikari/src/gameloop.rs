@@ -3,6 +3,7 @@ use crate::game_state::*;
 use crate::logger::*;
 use crate::renderer::*;
 use crate::time::*;
+use crate::ui_overlay::AudioSoundStats;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -94,6 +95,35 @@ pub fn run(
                             camera_view_direction,
                         )),
                     );
+
+                    {
+                        let audio_manager_guard = game_state.audio_manager.lock().unwrap();
+                        for sound_index in audio_manager_guard.sound_indices() {
+                            let file_path = audio_manager_guard
+                                .get_sound_file_path(sound_index)
+                                .unwrap();
+                            let length_seconds = audio_manager_guard
+                                .get_sound_length_seconds(sound_index)
+                                .unwrap();
+                            let pos_seconds = audio_manager_guard
+                                .get_sound_pos_seconds(sound_index)
+                                .unwrap();
+                            let buffered_to_pos_seconds = audio_manager_guard
+                                .get_sound_buffered_to_pos_seconds(sound_index)
+                                .unwrap();
+
+                            renderer_data_guard.ui_overlay.send_message(
+                                crate::ui_overlay::Message::AudioSoundStatsChanged((
+                                    file_path.clone(),
+                                    AudioSoundStats {
+                                        length_seconds,
+                                        pos_seconds,
+                                        buffered_to_pos_seconds,
+                                    },
+                                )),
+                            );
+                        }
+                    }
 
                     let ui_state = renderer_data_guard.ui_overlay.get_state().clone();
 
