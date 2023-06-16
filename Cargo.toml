@@ -101,6 +101,7 @@ iced_aw = { version = "0.5", default-features = false, features = [
     "modal",
     "card",
 ] }
+parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
 
 [patch.crates-io]
 iced_native = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_arcanized" }

@@ -3,6 +3,23 @@ use ikari::renderer::*;
 use ikari::scene::*;
 
 async fn start() {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(10));
+        let deadlocks = parking_lot::deadlock::check_deadlock();
+        if deadlocks.is_empty() {
+            continue;
+        }
+
+        println!("{} deadlocks detected", deadlocks.len());
+        for (i, threads) in deadlocks.iter().enumerate() {
+            println!("Deadlock #{}", i);
+            for t in threads {
+                println!("Thread Id {:#?}", t.thread_id());
+                println!("{:#?}", t.backtrace());
+            }
+        }
+    });
+
     let event_loop = winit::event_loop::EventLoop::new();
 
     let window = {
@@ -26,7 +43,7 @@ async fn start() {
         let backends = if cfg!(target_os = "linux") {
             wgpu::Backends::from(wgpu::Backend::Vulkan)
         } else {
-            wgpu::Backends::from(wgpu::Backend::Dx12)
+            wgpu::Backends::from(wgpu::Backend::Vulkan)
             // wgpu::Backends::PRIMARY
         };
         BaseRenderer::new(&window, backends, wgpu::PresentMode::AutoNoVsync).await
