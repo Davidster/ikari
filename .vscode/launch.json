@@ -1,0 +1,105 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug unit tests in library 'ikari'",
+      "cargo": {
+        "args": [
+          "test",
+          "--no-run",
+          "--lib",
+          "--package=ikari"
+        ],
+        "filter": {
+          "name": "ikari",
+          "kind": "lib"
+        }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "env": {
+        "RUST_LOG": "wgpu_core::device=debug",
+      },
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug executable 'example_game'",
+      "cargo": {
+        "args": [
+          "build",
+          "--release",
+          "--bin=example_game",
+          "--package=ikari"
+        ],
+        "filter": {
+          "name": "example_game",
+          "kind": "bin"
+        }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug unit tests in executable 'example_game'",
+      "cargo": {
+        "args": [
+          "test",
+          "--no-run",
+          "--bin=example_game",
+          "--package=ikari"
+        ],
+        "filter": {
+          "name": "example_game",
+          "kind": "bin"
+        }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug executable 'asset_optimizer'",
+      "cargo": {
+        "args": [
+          "build",
+          "--bin=asset_optimizer",
+          "--package=ikari"
+        ],
+        "filter": {
+          "name": "asset_optimizer",
+          "kind": "bin"
+        }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug unit tests in executable 'asset_optimizer'",
+      "cargo": {
+        "args": [
+          "test",
+          "--no-run",
+          "--bin=asset_optimizer",
+          "--package=ikari"
+        ],
+        "filter": {
+          "name": "asset_optimizer",
+          "kind": "bin"
+        }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}
