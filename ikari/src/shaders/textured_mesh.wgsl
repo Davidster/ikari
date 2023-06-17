@@ -10,6 +10,11 @@ var<uniform> CAMERA: MeshShaderCameraRaw;
 const MAX_LIGHTS = 32u;
 const MAX_BONES = 512u;
 
+const pi: f32 = 3.141592653589793;
+const two_pi: f32 = 6.283185307179586;
+const half_pi: f32 = 1.570796326794897;
+const epsilon: f32 = 0.00001;
+
 struct PointLight {
     position: vec4<f32>,
     color: vec4<f32>,
@@ -106,11 +111,80 @@ struct FragmentOutput {
 struct ShadowMappingVertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) world_position: vec3<f32>,
+    @location(1) tex_coords: vec2<f32>,
+    @location(2) alpha_cutoff: f32,
 }
 
 struct ShadowMappingFragmentOutput {
     @builtin(frag_depth) depth: f32,
 }
+
+@group(2) @binding(0)
+var shadow_diffuse_texture: texture_2d<f32>;
+@group(2) @binding(1)
+var shadow_diffuse_sampler: sampler;
+@group(2) @binding(2)
+var shadow_normal_map_texture: texture_2d<f32>;
+@group(2) @binding(3)
+var shadow_normal_map_sampler: sampler;
+@group(2) @binding(4)
+var shadow_metallic_roughness_map_texture: texture_2d<f32>;
+@group(2) @binding(5)
+var shadow_metallic_roughness_map_sampler: sampler;
+@group(2) @binding(6)
+var shadow_emissive_map_texture: texture_2d<f32>;
+@group(2) @binding(7)
+var shadow_emissive_map_sampler: sampler;
+@group(2) @binding(8)
+var shadow_ambient_occlusion_map_texture: texture_2d<f32>;
+@group(2) @binding(9)
+var shadow_ambient_occlusion_map_sampler: sampler;
+
+@group(3) @binding(0)
+var diffuse_texture: texture_2d<f32>;
+@group(3) @binding(1)
+var diffuse_sampler: sampler;
+@group(3) @binding(2)
+var normal_map_texture: texture_2d<f32>;
+@group(3) @binding(3)
+var normal_map_sampler: sampler;
+@group(3) @binding(4)
+var metallic_roughness_map_texture: texture_2d<f32>;
+@group(3) @binding(5)
+var metallic_roughness_map_sampler: sampler;
+@group(3) @binding(6)
+var emissive_map_texture: texture_2d<f32>;
+@group(3) @binding(7)
+var emissive_map_sampler: sampler;
+@group(3) @binding(8)
+var ambient_occlusion_map_texture: texture_2d<f32>;
+@group(3) @binding(9)
+var ambient_occlusion_map_sampler: sampler;
+
+@group(1) @binding(0)
+var skybox_texture: texture_cube<f32>;
+@group(1) @binding(1)
+var skybox_sampler: sampler;
+@group(1) @binding(2)
+var diffuse_env_map_texture: texture_cube<f32>;
+@group(1) @binding(3)
+var diffuse_env_map_sampler: sampler;
+@group(1) @binding(4)
+var specular_env_map_texture: texture_cube<f32>;
+@group(1) @binding(5)
+var specular_env_map_sampler: sampler;
+@group(1) @binding(6)
+var brdf_lut_texture: texture_2d<f32>;
+@group(1) @binding(7)
+var brdf_lut_sampler: sampler;
+@group(1) @binding(8)
+var point_shadow_map_textures: texture_2d_array<f32>;
+@group(1) @binding(9)
+var point_shadow_map_sampler: sampler;
+@group(1) @binding(10)
+var directional_shadow_map_textures: texture_2d_array<f32>;
+@group(1) @binding(11)
+var directional_shadow_map_sampler: sampler;
 
 fn get_soft_shadows_are_enabled() -> bool {
     return shader_options.options_1[0] > 0.0;
@@ -239,10 +313,11 @@ fn shadow_map_vs_main(
     let world_position = skinned_model_transform * object_position;
     let clip_position = CAMERA.view_proj * skinned_model_transform * object_position;
 
-
     var out: ShadowMappingVertexOutput;
     out.clip_position = clip_position;
     out.world_position = world_position.xyz;
+    out.tex_coords = vshader_input.object_tex_coords;
+    out.alpha_cutoff = instance.alpha_cutoff[0];
     return out;
 }
 
@@ -250,63 +325,22 @@ fn shadow_map_vs_main(
 fn point_shadow_map_fs_main(
     in: ShadowMappingVertexOutput
 ) -> ShadowMappingFragmentOutput {
+
+    let base_color_alpha = textureSample(
+        shadow_diffuse_texture,
+        shadow_diffuse_sampler,
+        in.tex_coords
+    ).a;
+
+    if base_color_alpha <= in.alpha_cutoff {
+        discard;
+    }
+
     var out: ShadowMappingFragmentOutput;
     let light_distance = length(in.world_position - CAMERA.position.xyz);
     out.depth = light_distance / CAMERA.far_plane_distance;
     return out;
 }
-
-@group(3) @binding(0)
-var diffuse_texture: texture_2d<f32>;
-@group(3) @binding(1)
-var diffuse_sampler: sampler;
-@group(3) @binding(2)
-var normal_map_texture: texture_2d<f32>;
-@group(3) @binding(3)
-var normal_map_sampler: sampler;
-@group(3) @binding(4)
-var metallic_roughness_map_texture: texture_2d<f32>;
-@group(3) @binding(5)
-var metallic_roughness_map_sampler: sampler;
-@group(3) @binding(6)
-var emissive_map_texture: texture_2d<f32>;
-@group(3) @binding(7)
-var emissive_map_sampler: sampler;
-@group(3) @binding(8)
-var ambient_occlusion_map_texture: texture_2d<f32>;
-@group(3) @binding(9)
-var ambient_occlusion_map_sampler: sampler;
-
-@group(1) @binding(0)
-var skybox_texture: texture_cube<f32>;
-@group(1) @binding(1)
-var skybox_sampler: sampler;
-@group(1) @binding(2)
-var diffuse_env_map_texture: texture_cube<f32>;
-@group(1) @binding(3)
-var diffuse_env_map_sampler: sampler;
-@group(1) @binding(4)
-var specular_env_map_texture: texture_cube<f32>;
-@group(1) @binding(5)
-var specular_env_map_sampler: sampler;
-@group(1) @binding(6)
-var brdf_lut_texture: texture_2d<f32>;
-@group(1) @binding(7)
-var brdf_lut_sampler: sampler;
-@group(1) @binding(8)
-var point_shadow_map_textures: texture_2d_array<f32>;
-@group(1) @binding(9)
-var point_shadow_map_sampler: sampler;
-@group(1) @binding(10)
-var directional_shadow_map_textures: texture_2d_array<f32>;
-@group(1) @binding(11)
-var directional_shadow_map_sampler: sampler;
-
-
-const pi: f32 = 3.141592653589793;
-const two_pi: f32 = 6.283185307179586;
-const half_pi: f32 = 1.570796326794897;
-const epsilon: f32 = 0.00001;
 
 // https://learnopengl.com/PBR/Theory
 fn normal_distribution_func_tr_ggx(
@@ -652,14 +686,16 @@ fn do_fragment_shade(
     let brdf_lut_res = textureSample(brdf_lut_texture, brdf_lut_sampler, vec2<f32>(n_dot_v, roughness));
     let env_map_diffuse_irradiance = textureSample(diffuse_env_map_texture, diffuse_env_map_sampler, world_normal_to_cubemap_vec(world_normal)).rgb;
 
+    if base_color_t.a <= alpha_cutoff {
+        discard;
+    }
+
     var random_seed_x = 1000.0 * vec3<f32>(
         world_position.x,
         world_position.y,
         world_position.z,
     );
-
     var random_seed_y = random_seed_x + 1000.0;
-
     var random_jitter = vec2(2.0, 2.0) * vec2(noise3(random_seed_x), noise3(random_seed_y)) - vec2(1.0, 1.0);
 
     let shadow_bias = get_shadow_bias();
@@ -1006,10 +1042,6 @@ fn do_fragment_shade(
 
     // let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
     let final_color = vec4<f32>(combined_irradiance_hdr, 1.0);
-
-    if base_color_t.a <= alpha_cutoff {
-        discard;
-    }
 
     var out: FragmentOutput;
     out.color = final_color;

@@ -28,7 +28,7 @@ use wgpu::InstanceDescriptor;
 use wgpu_profiler::wgpu_profiler;
 use winit::window::Window;
 
-pub const USE_LABELS: bool = false;
+pub const USE_LABELS: bool = true;
 
 pub const MAX_LIGHT_COUNT: usize = 32;
 pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
@@ -1599,6 +1599,7 @@ impl Renderer {
                     bind_group_layouts: &[
                         &camera_lights_and_pbr_shader_options_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
+                        &base.pbr_textures_bind_group_layout,
                     ],
                     push_constant_ranges: &[],
                 });
@@ -4568,9 +4569,11 @@ impl Renderer {
                             instances_buffer_start_index,
                         ],
                     );
-                    if !is_shadow {
-                        render_pass.set_bind_group(3, textures_bind_group, &[]);
-                    }
+                    render_pass.set_bind_group(
+                        if is_shadow { 2 } else { 3 },
+                        textures_bind_group,
+                        &[],
+                    );
                     render_pass
                         .set_vertex_buffer(0, geometry_buffers.vertex_buffer.src().slice(..));
                     render_pass.set_index_buffer(
