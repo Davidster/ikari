@@ -3796,7 +3796,6 @@ impl Renderer {
                 queue.write_buffer(&private_data.camera_buffers[i], 0, &contents)
             }
         }
-        // private_data.camera_buffers
 
         let _total_instance_buffer_memory_usage = private_data.pbr_instances_buffer.length_bytes()
             + private_data.unlit_instances_buffer.length_bytes()

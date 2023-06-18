@@ -164,7 +164,7 @@ impl AudioFileStreamer {
     }
 
     /// max_chunk_size=0 to read the whole stream at once
-    /// The chunk size will be a little lower than this value since we read
+    /// The actual chunk size we end up getting will be a little lower than this value since we read
     /// the audio file in small 'packets' which might not fit evenly into max_chunk_size
     /// so we make sure not to overshoot
     #[profiling::function]
