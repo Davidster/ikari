@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+
+    <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>ikari</title>
+    </head>
+
+    <body>
+        <style>
+            body, html {
+                margin: 0px;
+                width: 100%; 
+                height: 100%;
+                overflow: hidden;
+            }
+
+            body {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            canvas {
+                background-color: rgb(175, 175, 175);
+            }
+
+            .fatalerror {
+                position: absolute;
+                color: rgb(225, 25, 50);
+                font-size: 1.8rem;
+                font-family: arial;
+                background-color: rgba(0, 0, 0, 0.3);
+                padding: 16px 20px;
+                margin: 16px;
+                border-radius: 8px;
+            }
+
+            #canvas_container {
+                width: 100%; 
+                height: 100%;
+            }
+
+        </style>
+        <div id="canvas_container"></div>
+        <script type="module">
+            import init from "./target/wasm-examples/example_game/example_game.js";
+            (async () => {
+                try {
+                    await init();
+                } catch (err) {
+                    console.error(err);
+                }
+            })();
+        </script>
+    </body>
+
+</html>

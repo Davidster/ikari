@@ -37,8 +37,13 @@ Hopefully one day it will be used in a real game 😃
 
 ## Try it out
 
-```
-cargo run --release --bin example_game
+```sh
+# native
+RUST_BACKTRACE=1 cargo run --release --features="tracy" --bin example_game
+# web
+cargo install cargo-server
+RUSTFLAGS=--cfg=web_sys_unstable_apis cargo run-wasm --release --bin example_game --build-only
+cargo server --port 8000
 ```
 
 See console logs for list of available controls

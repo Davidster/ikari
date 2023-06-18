@@ -1,0 +1,9 @@
+[package]
+name = "run-wasm"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+cargo-run-wasm = "0.3.2"
