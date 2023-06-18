@@ -570,6 +570,7 @@ fn get_compressed_image_pixels(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[profiling::function]
 async fn get_image_pixels(
     gltf_path: &Path,
     texture: &gltf::Texture<'_>,

@@ -28,15 +28,7 @@ impl TextureCompressor {
         Self(())
     }
 
-    /// # Safety
-    ///
-    /// Compressing with invalid parameters may cause undefined behavior. (The underlying C++
-    /// library does not thoroughly validate parameters)
-    /// see https://docs.rs/basis-universal/0.2.0/basis_universal/encoding/struct.Compressor.html#method.process
-    pub unsafe fn compress_raw_image(
-        &self,
-        args: TextureCompressionArgs,
-    ) -> anyhow::Result<Vec<u8>> {
+    pub fn compress_raw_image(&self, args: TextureCompressionArgs) -> anyhow::Result<Vec<u8>> {
         basis_universal::encoder_init();
 
         let TextureCompressionArgs {
@@ -80,10 +72,18 @@ impl TextureCompressor {
         }
 
         let mut basisu_compressor = basis_universal::Compressor::new(thread_count);
-        basisu_compressor.init(&params);
 
-        if let Err(error_code) = basisu_compressor.process() {
-            anyhow::bail!("Error compressing img to basisu {:?}", error_code);
+        // Safety
+        //
+        // Compressing with invalid parameters may cause undefined behavior. (The underlying C++
+        // library does not thoroughly validate parameters)
+        // see https://docs.rs/basis-universal/0.2.0/basis_universal/encoding/struct.Compressor.html#method.process
+        unsafe {
+            basisu_compressor.init(&params);
+
+            if let Err(error_code) = basisu_compressor.process() {
+                anyhow::bail!("Error compressing img to basisu {:?}", error_code);
+            }
         }
 
         // 0 = default compression level
@@ -92,6 +92,7 @@ impl TextureCompressor {
         Ok(zstd_encoded_data)
     }
 
+    #[profiling::function]
     pub fn transcode_image(
         &self,
         img_bytes: &[u8],

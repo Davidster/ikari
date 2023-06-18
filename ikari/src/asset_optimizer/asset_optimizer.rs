@@ -142,17 +142,15 @@ async fn compress_file(img_path: &Path, is_srgb: bool, is_normal_map: bool) -> a
     let img_channel_count = 4;
 
     let compressor = ikari::texture_compression::TextureCompressor::new();
-    let compressed_img_bytes = unsafe {
-        compressor.compress_raw_image(TextureCompressionArgs {
-            img_bytes: &img_decoded,
-            img_width,
-            img_height,
-            img_channel_count,
-            is_srgb,
-            is_normal_map,
-            thread_count: COMPRESSION_THREAD_COUNT as u32,
-        })
-    }?;
+    let compressed_img_bytes = compressor.compress_raw_image(TextureCompressionArgs {
+        img_bytes: &img_decoded,
+        img_width,
+        img_height,
+        img_channel_count,
+        is_srgb,
+        is_normal_map,
+        thread_count: COMPRESSION_THREAD_COUNT as u32,
+    })?;
 
     // println!(
     //     "path: {:?} jpg: {:?}, decoded: {:?}, compressed: {:?}",

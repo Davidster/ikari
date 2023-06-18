@@ -197,7 +197,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
     let asset_loader_clone = asset_loader.clone();
 
     crate::thread::spawn(move || {
-        // crate::thread::sleep(Duration::from_secs_f32(5.0));
+        // crate::thread::sleep(crate::time::Duration::from_secs_f32(5.0));
         // load in gltf files
 
         // player's revolver
