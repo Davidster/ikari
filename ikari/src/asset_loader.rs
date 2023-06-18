@@ -48,14 +48,25 @@ impl AssetLoader {
             let renderer_base = self.renderer_base.clone();
 
             crate::thread::spawn(move || {
+                profiling::register_thread!("GLTF loader");
                 crate::block_on(async move {
                     while pending_assets.lock().unwrap().len() > 0 {
                         let next_scene_path = pending_assets.lock().unwrap().remove(0);
 
                         let do_load = || async {
                             profiling::scope!("Load asset", &next_scene_path);
-                            let gltf_slice = crate::file_loader::read(&next_scene_path).await?;
-                            let (document, buffers, images) = gltf::import_slice(&gltf_slice)?;
+                            let gltf_slice;
+                            {
+                                profiling::scope!("Read root file");
+                                gltf_slice = crate::file_loader::read(&next_scene_path).await?;
+                            }
+
+                            let (document, buffers, images);
+                            {
+                                profiling::scope!("Parse root & children");
+                                (document, buffers, images) = gltf::import_slice(&gltf_slice)?;
+                            }
+
                             let (other_scene, other_render_buffers) = build_scene(
                                 &renderer_base,
                                 (&document, &buffers, &images),
@@ -97,6 +108,7 @@ impl AssetLoader {
             let audio_manager = self.audio_manager.clone();
 
             crate::thread::spawn(move || {
+                profiling::register_thread!("Audio loader");
                 crate::block_on(async move {
                     while pending_audio.lock().unwrap().len() > 0 {
                         let (next_audio_path, next_audio_format, next_audio_params) =
@@ -171,6 +183,7 @@ impl AssetLoader {
         let max_chunk_size_length_seconds = AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.3;
         let mut buffered_amount_seconds = 0.0;
         crate::thread::spawn(move || loop {
+            profiling::register_thread!("Audio streamer");
             let requested_chunk_size_seconds = if is_first_chunk {
                 target_max_buffer_length_seconds
             } else {

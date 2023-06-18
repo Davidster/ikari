@@ -24,6 +24,7 @@ pub fn generate_profile_dump() -> PendingPerfDump {
     let result_clone = result.clone();
 
     crate::thread::spawn(move || {
+        profiling::register_thread!("Generate profile dump");
         let dump_res = generate_profile_dump_internal();
         *result.lock().unwrap() = Some(dump_res);
     });

@@ -1305,6 +1305,8 @@ impl Texture {
         }
     }
 }
+
+#[profiling::function]
 fn generate_mipmaps_for_texture(
     base_renderer: &BaseRenderer,
     mut mip_encoder: wgpu::CommandEncoder,
