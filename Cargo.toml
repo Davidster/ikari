@@ -33,7 +33,7 @@ tracy-n-alloc = []
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
-half = "2"
+half = "2.2.1"
 pollster = "0.3"
 twox-hash = "1.6"
 lazy_static = "1.4"
@@ -102,7 +102,7 @@ iced_aw = { version = "0.5", default-features = false, features = [
     "card",
 ] }
 parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
-backtrace-on-stack-overflow = "0.3.0"
+# backtrace-on-stack-overflow = "0.3.0"
 
 [patch.crates-io]
 iced_native = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_arcanized" }
