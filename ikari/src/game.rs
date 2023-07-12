@@ -209,21 +209,23 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
         // legendary robot
         // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
         asset_loader.load_gltf_asset("src/models/gltf/LegendaryRobot/Legendary_Robot.glb");
+        // martens engine
+        asset_loader.load_gltf_asset("src/models/gltf/MartensEngine/MartensEngine.glb");
         // maze
-        asset_loader.load_gltf_asset("src/models/gltf/TestLevel/test_level.glb");
+        // asset_loader.load_gltf_asset("src/models/gltf/TestLevel/test_level.glb");
         // other
         // asset_loader.load_gltf_asset(get_misc_gltf_path());
 
-        asset_loader.load_audio(
-            "src/sounds/bgm.mp3",
-            AudioFileFormat::Mp3,
-            SoundParams {
-                initial_volume: 0.5,
-                fixed_volume: false,
-                spacial_params: None,
-                stream: !cfg!(target_arch = "wasm32"),
-            },
-        );
+        // asset_loader.load_audio(
+        //     "src/sounds/bgm.mp3",
+        //     AudioFileFormat::Mp3,
+        //     SoundParams {
+        //         initial_volume: 0.5,
+        //         fixed_volume: false,
+        //         spacial_params: None,
+        //         stream: !cfg!(target_arch = "wasm32"),
+        //     },
+        // );
         asset_loader.load_audio(
             "src/sounds/gunshot.wav",
             AudioFileFormat::Wav,
@@ -1185,6 +1187,28 @@ pub fn update_game_state(
                 jump_up_animation.speed = 0.25;
                 jump_up_animation.state.is_playing = true;
                 jump_up_animation.state.loop_type = LoopType::Wrap;
+            }
+            game_state.scene.merge_scene(
+                &mut renderer_data_guard,
+                other_scene,
+                other_render_buffers,
+            );
+        }
+
+        if let Entry::Occupied(entry) =
+            loaded_assets_guard.entry("src/models/gltf/MartensEngine/MartensEngine.glb".to_string())
+        {
+            let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
+            for node in other_scene.nodes_mut() {
+                if node.name.as_ref().unwrap() == "Root" {
+                    node.transform.set_scale(Vec3::new(0.05, 0.05, 0.05));
+                    node.transform.set_position(Vec3::new(9.0, 1.0, 9.0));
+                }
+            }
+            for animation in other_scene.animations.iter_mut() {
+                animation.speed = 5.0;
+                animation.state.is_playing = true;
+                animation.state.loop_type = LoopType::Wrap;
             }
             game_state.scene.merge_scene(
                 &mut renderer_data_guard,
