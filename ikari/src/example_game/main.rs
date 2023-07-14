@@ -119,6 +119,6 @@ fn panic_hook(info: &std::panic::PanicInfo) {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub async fn run() {
     std::panic::set_hook(Box::new(panic_hook));
-    console_log::init_with_level(log::Level::Info).expect("Couldn't initialize logger");
+    console_log::init().expect("Couldn't initialize logger");
     start().await;
 }

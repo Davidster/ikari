@@ -21,6 +21,7 @@ authors = [
 iced_native = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
 iced_graphics = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
 iced_style = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
+wgpu = { path = "../wgpu/wgpu" }
 # iced_native = { path = "../iced-fork/native" }
 # iced_graphics = { path = "../iced-fork/graphics" }
 # iced_style = { path = "../iced-fork/style" }

@@ -1,8 +1,20 @@
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::JsValue;
+use wasm_bindgen::prelude::*;
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+extern "C" {
+    type Global;
+
+    #[wasm_bindgen(method, getter, js_name = Window)]
+    fn window(this: &Global) -> JsValue;
+
+    #[wasm_bindgen(method, getter, js_name = WorkerGlobalScope)]
+    fn worker(this: &Global) -> JsValue;
+}
 
 #[cfg(target_arch = "wasm32")]
 pub async fn read(path: &str) -> anyhow::Result<Vec<u8>> {
@@ -16,18 +28,27 @@ pub async fn read(path: &str) -> anyhow::Result<Vec<u8>> {
     let path = resolve_path(path);
     let url = format!("{ASSET_SERVER}/{path}");
     let request = map_js_err(web_sys::Request::new_with_str_and_init(&url, &opts))?;
-    let window = web_sys::window().unwrap();
-    let resp_value = run_promise(window.fetch_with_request(&request)).await?;
-    assert!(resp_value.is_instance_of::<Response>());
-    let resp: Response = resp_value.dyn_into().unwrap();
 
+    let global: Global = js_sys::global().unchecked_into();
+    let resp_value = run_promise(if !global.window().is_undefined() {
+        global
+            .unchecked_into::<web_sys::Window>()
+            .fetch_with_request(&request)
+    } else if !global.worker().is_undefined() {
+        let global_scope = global.unchecked_into::<web_sys::WorkerGlobalScope>();
+        global_scope.fetch_with_request(&request)
+    } else {
+        panic!("read function is only supported on the main thread or from a dedicated worker");
+    })
+    .await?;
+
+    let resp: Response = resp_value.dyn_into().unwrap();
     if !resp.ok() {
         let status = resp.status();
         anyhow::bail!("Request to {url} responded with error status code: {status}")
     }
 
-    let blob_promise = map_js_err(resp.blob())?;
-    let blob = run_promise(blob_promise).await?;
+    let blob = run_promise(map_js_err(resp.blob())?).await?;
     let array_buffer: JsValue = run_promise(Blob::from(blob).array_buffer()).await?;
 
     anyhow::Ok(js_sys::Uint8Array::new(&array_buffer).to_vec())

@@ -237,7 +237,7 @@ impl Scene {
         &mut self,
         renderer_data: &mut RendererPublicData,
         mut other_scene: Scene,
-        mut other_render_buffers: RenderBuffers,
+        mut other_render_buffers: BindedSceneData,
     ) {
         let pbr_mesh_index_offset = renderer_data.binded_pbr_meshes.len();
         let unlit_mesh_index_offset = renderer_data.binded_unlit_meshes.len();

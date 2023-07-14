@@ -1,10 +1,8 @@
-use crate::buffer::*;
 use crate::logger::*;
 use crate::mesh::*;
 use crate::renderer::*;
 use crate::sampler_cache::*;
 use crate::scene::*;
-use crate::texture::*;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::texture_compression::*;
 use crate::transform::*;
@@ -40,14 +38,13 @@ impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
 
 #[profiling::function]
 pub async fn build_scene(
-    base_renderer: &BaseRenderer,
     (document, buffers, images): (
         &gltf::Document,
         &Vec<gltf::buffer::Data>,
         &Vec<gltf::image::Data>,
     ),
     gltf_path: &Path,
-) -> Result<(Scene, RenderBuffers)> {
+) -> Result<(Scene, BindableSceneData)> {
     let scene_index = document
         .default_scene()
         .map(|scene| scene.index())
@@ -55,7 +52,7 @@ pub async fn build_scene(
 
     let materials: Vec<_> = document.materials().collect();
 
-    let textures = get_textures(document, images, materials, gltf_path, base_renderer).await?;
+    let textures = get_textures(document, images, materials, gltf_path).await?;
 
     // node index -> parent node index
     let parent_index_map: HashMap<usize, usize> = document
@@ -107,16 +104,11 @@ pub async fn build_scene(
 
     let supported_mesh_count = make_supported_mesh_iterator().count();
 
-    let mut binded_pbr_meshes: Vec<BindedPbrMesh> = Vec::with_capacity(supported_mesh_count);
-    let mut binded_wireframe_meshes: Vec<BindedWireframeMesh> =
+    let mut bindable_pbr_meshes: Vec<BindablePbrMesh> = Vec::with_capacity(supported_mesh_count);
+    let mut bindable_wireframe_meshes: Vec<BindableWireframeMesh> =
         Vec::with_capacity(supported_mesh_count);
-    let mut pbr_mesh_vertices: Vec<Vec<Vertex>> = Vec::with_capacity(supported_mesh_count);
     // gltf node index -> game node
     let mut node_mesh_links: HashMap<usize, Vec<usize>> = HashMap::new();
-
-    // IndexedPbrMaterial
-    let mut textures_bind_group_cache: HashMap<IndexedPbrMaterial, Arc<wgpu::BindGroup>> =
-        HashMap::new();
 
     {
         profiling::scope!("meshes");
@@ -126,25 +118,9 @@ pub async fn build_scene(
         {
             let dynamic_pbr_params = get_dynamic_pbr_params(&primitive_group.material());
 
-            let indexed_pbr_material = get_indexed_pbr_material(&primitive_group.material());
-            let textures_bind_group = match textures_bind_group_cache.entry(indexed_pbr_material) {
-                Entry::Occupied(entry) => entry.get().clone(),
-                Entry::Vacant(vacant_entry) => {
-                    let pbr_material = get_pbr_material(vacant_entry.key(), &textures);
-                    let textures_bind_group =
-                        Arc::new(base_renderer.make_pbr_textures_bind_group(&pbr_material, true)?);
-                    vacant_entry.insert(textures_bind_group.clone());
-                    textures_bind_group
-                }
-            };
+            let material = get_indexed_pbr_material(&primitive_group.material());
 
-            let (vertices, geometry_buffers, wireframe_index_buffer, wireframe_index_buffer_format) =
-                build_geometry_buffers(
-                    &base_renderer.device,
-                    &base_renderer.limits,
-                    &primitive_group,
-                    buffers,
-                )?;
+            let (geometry, wireframe_indices) = build_geometry(&primitive_group, buffers)?;
 
             let primitive_mode = crate::renderer::PrimitiveMode::Triangles;
 
@@ -164,22 +140,19 @@ pub async fn build_scene(
                 }
             }
 
-            binded_pbr_meshes.push(BindedPbrMesh {
-                geometry_buffers,
+            bindable_wireframe_meshes.push(BindableWireframeMesh {
+                source_mesh_type: MeshType::Pbr,
+                source_mesh_index: binded_pbr_mesh_index,
+                indices: wireframe_indices,
+            });
+
+            bindable_pbr_meshes.push(BindablePbrMesh {
+                geometry,
+                material,
                 dynamic_pbr_params,
-                textures_bind_group,
                 primitive_mode,
                 alpha_mode,
             });
-
-            binded_wireframe_meshes.push(BindedWireframeMesh {
-                source_mesh_type: MeshType::Pbr,
-                source_mesh_index: binded_pbr_mesh_index,
-                index_buffer: wireframe_index_buffer,
-                index_buffer_format: wireframe_index_buffer_format,
-            });
-
-            pbr_mesh_vertices.push(vertices);
         }
     }
 
@@ -243,7 +216,8 @@ pub async fn build_scene(
                     .find(|node| node.skin_index == Some(skin_index))
                     .unwrap();
                 let skeleton_mesh_index = skeleton_skin_node.mesh.as_ref().unwrap().mesh_indices[0];
-                let skeleton_mesh_vertices = &pbr_mesh_vertices[skeleton_mesh_index];
+                let skeleton_mesh_vertices =
+                    &bindable_pbr_meshes[skeleton_mesh_index].geometry.vertices;
 
                 let bone_bounding_box_transforms: Vec<_> = (0..bone_inverse_bind_matrices.len())
                     .map(|bone_index| {
@@ -306,11 +280,11 @@ pub async fn build_scene(
             .collect::<Result<Vec<_>, _>>()?
     };
 
-    let render_buffers = RenderBuffers {
-        binded_pbr_meshes,
-        binded_unlit_meshes: vec![],
-        binded_transparent_meshes: vec![],
-        binded_wireframe_meshes,
+    let bindable_scene_data = BindableSceneData {
+        bindable_pbr_meshes,
+        bindable_unlit_meshes: vec![],
+        bindable_transparent_meshes: vec![],
+        bindable_wireframe_meshes,
         textures,
     };
 
@@ -323,29 +297,29 @@ pub async fn build_scene(
         logger_log("  Render buffers:");
         logger_log(&format!(
             "    - PBR mesh count: {:?}",
-            render_buffers.binded_pbr_meshes.len()
+            bindable_scene_data.bindable_pbr_meshes.len()
         ));
         logger_log(&format!(
             "    - Unlit mesh count: {:?}",
-            render_buffers.binded_unlit_meshes.len()
+            bindable_scene_data.bindable_unlit_meshes.len()
         ));
         logger_log(&format!(
             "    - Transparent mesh count: {:?}",
-            render_buffers.binded_transparent_meshes.len()
+            bindable_scene_data.bindable_transparent_meshes.len()
         ));
         logger_log(&format!(
             "    - Wireframe mesh count: {:?}",
-            render_buffers.binded_wireframe_meshes.len()
+            bindable_scene_data.bindable_transparent_meshes.len()
         ));
         logger_log(&format!(
             "    - Texture count: {:?}",
-            render_buffers.textures.len()
+            bindable_scene_data.textures.len()
         ));
     }
 
     let scene = Scene::new(nodes, skins, animations);
 
-    Ok((scene, render_buffers))
+    Ok((scene, bindable_scene_data))
 }
 
 #[profiling::function]
@@ -354,9 +328,8 @@ async fn get_textures(
     images: &[gltf::image::Data],
     materials: Vec<gltf::Material<'_>>,
     gltf_path: &Path,
-    base_renderer: &BaseRenderer,
-) -> Result<Vec<Texture>, anyhow::Error> {
-    let mut textures: Vec<Texture> = vec![];
+) -> Result<Vec<BindableTexture>> {
+    let mut textures: Vec<BindableTexture> = vec![];
     for texture in document.textures() {
         let source_image_index = texture.source().index();
 
@@ -426,15 +399,14 @@ async fn get_textures(
             })
             .unwrap_or((default_sampler.min_filter, default_sampler.mipmap_filter));
 
-        textures.push(Texture::from_decoded_image(
-            base_renderer,
-            &image_pixels,
+        textures.push(BindableTexture {
+            image_pixels,
             image_dimensions,
             baked_mip_levels,
-            texture.name(),
-            texture_format.into(),
+            name: texture.name().map(|name| name.to_string()),
+            format: texture_format.into(),
             generate_mipmaps,
-            &SamplerDescriptor {
+            sampler_descriptor: SamplerDescriptor {
                 address_mode_u,
                 address_mode_v,
                 mag_filter,
@@ -442,7 +414,7 @@ async fn get_textures(
                 mipmap_filter,
                 ..Default::default()
             },
-        )?);
+        });
     }
     Ok(textures)
 }
@@ -750,19 +722,6 @@ fn get_indexed_pbr_material(material: &gltf::material::Material) -> IndexedPbrMa
     }
 }
 
-fn get_pbr_material<'a>(material: &IndexedPbrMaterial, textures: &'a [Texture]) -> PbrMaterial<'a> {
-    let get_texture =
-        |texture_index: Option<usize>| texture_index.map(|texture_index| &textures[texture_index]);
-
-    PbrMaterial {
-        base_color: get_texture(material.base_color),
-        normal: get_texture(material.normal),
-        emissive: get_texture(material.emissive),
-        ambient_occlusion: get_texture(material.ambient_occlusion),
-        metallic_roughness: get_texture(material.metallic_roughness),
-    }
-}
-
 fn get_dynamic_pbr_params(material: &gltf::material::Material) -> DynamicPbrParams {
     let pbr_info = material.pbr_metallic_roughness();
 
@@ -798,12 +757,10 @@ pub fn get_buffer_slice_from_accessor<'a>(
 }
 
 #[profiling::function]
-pub fn build_geometry_buffers(
-    device: &wgpu::Device,
-    limits: &wgpu::Limits,
+pub fn build_geometry(
     primitive_group: &gltf::mesh::Primitive,
     buffers: &[gltf::buffer::Data],
-) -> Result<(Vec<Vertex>, GeometryBuffers, GpuBuffer, wgpu::IndexFormat)> {
+) -> Result<(BindableGeometryBuffers, BindableIndices)> {
     let vertex_positions = get_vertex_positions(primitive_group, buffers)?;
     let vertex_position_count = vertex_positions.len();
     let bounding_box = {
@@ -905,12 +862,12 @@ pub fn build_geometry_buffers(
         &vertex_tex_coords,
     )?;
 
-    let mut vertices_with_all_data = Vec::with_capacity(vertex_position_count);
+    let mut vertices = Vec::with_capacity(vertex_position_count);
     for index in 0..vertex_position_count {
         let to_arr = |vec: &Vec3| [vec.x, vec.y, vec.z];
         let (tangent, bitangent) = vertex_tangents_and_bitangents[index];
 
-        vertices_with_all_data.push(Vertex {
+        vertices.push(Vertex {
             position: vertex_positions[index].into(),
             normal: vertex_normals[index].into(),
             tex_coords: vertex_tex_coords[index],
@@ -922,20 +879,7 @@ pub fn build_geometry_buffers(
         });
     }
 
-    let vertex_buffer_bytes = bytemuck::cast_slice(&vertices_with_all_data);
-
-    if vertex_buffer_bytes.len() as u64 > limits.max_buffer_size {
-        bail!("Tried to upload a vertex buffer of size {:?} which is larger than the max buffer size of {:?}", vertex_buffer_bytes.len(), limits.max_buffer_size);
-    }
-
-    let vertex_buffer = GpuBuffer::from_bytes(
-        device,
-        vertex_buffer_bytes,
-        std::mem::size_of::<Vertex>(),
-        wgpu::BufferUsages::VERTEX,
-    );
-
-    let into_index_buffer = |indices: &Vec<u32>| {
+    let make_bindable_indices = |indices: &Vec<u32>| {
         let mut indices_u16 = Vec::with_capacity(indices.len());
         for index in indices {
             match u16::try_from(*index) {
@@ -943,41 +887,15 @@ pub fn build_geometry_buffers(
                     indices_u16.push(index_u16);
                 }
                 Err(_) => {
-                    break;
+                    // failed to fit a u16 into a u32, so give up and use u32 indices
+                    return BindableIndices::U32(indices.to_vec());
                 }
             };
         }
-        let (index_buffer_bytes, index_buffer_format) = if indices_u16.len() == indices.len() {
-            (
-                bytemuck::cast_slice::<u16, u8>(&indices_u16),
-                wgpu::IndexFormat::Uint16,
-            )
-        } else {
-            (
-                bytemuck::cast_slice::<u32, u8>(indices),
-                wgpu::IndexFormat::Uint32,
-            )
-        };
-
-        if index_buffer_bytes.len() as u64 > limits.max_buffer_size {
-            bail!("Tried to upload an index buffer of size {:?} which is larger than the max buffer size of {:?}", index_buffer_bytes.len(), limits.max_buffer_size);
-        }
-
-        Ok((
-            GpuBuffer::from_bytes(
-                device,
-                index_buffer_bytes,
-                match index_buffer_format {
-                    wgpu::IndexFormat::Uint16 => std::mem::size_of::<u16>(),
-                    wgpu::IndexFormat::Uint32 => std::mem::size_of::<u32>(),
-                },
-                wgpu::BufferUsages::INDEX,
-            ),
-            index_buffer_format,
-        ))
+        BindableIndices::U16(indices_u16)
     };
 
-    let (index_buffer, index_buffer_format) = into_index_buffer(&indices)?;
+    let bindable_indices = make_bindable_indices(&indices);
 
     let mut wireframe_indices = Vec::with_capacity(indices.len() * 2);
     for triangle in indices.chunks(3) {
@@ -990,19 +908,15 @@ pub fn build_geometry_buffers(
             triangle[0],
         ]);
     }
-    let (wireframe_index_buffer, wireframe_index_buffer_format) =
-        into_index_buffer(&wireframe_indices)?;
+    let bindable_wireframe_indices = make_bindable_indices(&wireframe_indices);
 
     Ok((
-        vertices_with_all_data,
-        GeometryBuffers {
-            vertex_buffer,
-            index_buffer,
-            index_buffer_format,
+        BindableGeometryBuffers {
+            vertices,
+            indices: bindable_indices,
             bounding_box,
         },
-        wireframe_index_buffer,
-        wireframe_index_buffer_format,
+        bindable_wireframe_indices,
     ))
 }
 

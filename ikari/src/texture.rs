@@ -447,7 +447,7 @@ impl Texture {
     pub fn create_cubemap_from_equirectangular(
         base_renderer: &BaseRenderer,
         label: Option<&str>,
-        skybox_buffers: &GeometryBuffers,
+        skybox_buffers: &BindedGeometryBuffers,
         er_to_cubemap_pipeline: &wgpu::RenderPipeline,
         er_texture: &Texture,
         generate_mipmaps: bool,
@@ -627,10 +627,14 @@ impl Texture {
                 rpass.set_bind_group(1, &camera_bind_group, &[]);
                 rpass.set_vertex_buffer(0, skybox_buffers.vertex_buffer.src().slice(..));
                 rpass.set_index_buffer(
-                    skybox_buffers.index_buffer.src().slice(..),
-                    skybox_buffers.index_buffer_format,
+                    skybox_buffers.index_buffer.buffer.src().slice(..),
+                    skybox_buffers.index_buffer.format,
                 );
-                rpass.draw_indexed(0..(skybox_buffers.index_buffer.length() as u32), 0, 0..1);
+                rpass.draw_indexed(
+                    0..(skybox_buffers.index_buffer.buffer.length() as u32),
+                    0,
+                    0..1,
+                );
             }
             base_renderer.queue.submit(Some(encoder.finish()));
         }
@@ -760,7 +764,7 @@ impl Texture {
     pub fn create_diffuse_env_map(
         base_renderer: &BaseRenderer,
         label: Option<&str>,
-        skybox_buffers: &GeometryBuffers,
+        skybox_buffers: &BindedGeometryBuffers,
         env_map_gen_pipeline: &wgpu::RenderPipeline,
         skybox_rad_texture: &Texture,
         generate_mipmaps: bool,
@@ -931,10 +935,14 @@ impl Texture {
                 rpass.set_bind_group(1, &camera_bind_group, &[]);
                 rpass.set_vertex_buffer(0, skybox_buffers.vertex_buffer.src().slice(..));
                 rpass.set_index_buffer(
-                    skybox_buffers.index_buffer.src().slice(..),
-                    skybox_buffers.index_buffer_format,
+                    skybox_buffers.index_buffer.buffer.src().slice(..),
+                    skybox_buffers.index_buffer.format,
                 );
-                rpass.draw_indexed(0..(skybox_buffers.index_buffer.length() as u32), 0, 0..1);
+                rpass.draw_indexed(
+                    0..(skybox_buffers.index_buffer.buffer.length() as u32),
+                    0,
+                    0..1,
+                );
             }
             base_renderer.queue.submit(Some(encoder.finish()));
         }
@@ -976,7 +984,7 @@ impl Texture {
     pub fn create_specular_env_map(
         base_renderer: &BaseRenderer,
         label: Option<&str>,
-        skybox_buffers: &GeometryBuffers,
+        skybox_buffers: &BindedGeometryBuffers,
         env_map_gen_pipeline: &wgpu::RenderPipeline,
         skybox_rad_texture: &Texture,
     ) -> Self {
@@ -1185,11 +1193,11 @@ impl Texture {
                             rpass
                                 .set_vertex_buffer(0, skybox_buffers.vertex_buffer.src().slice(..));
                             rpass.set_index_buffer(
-                                skybox_buffers.index_buffer.src().slice(..),
-                                skybox_buffers.index_buffer_format,
+                                skybox_buffers.index_buffer.buffer.src().slice(..),
+                                skybox_buffers.index_buffer.format,
                             );
                             rpass.draw_indexed(
-                                0..(skybox_buffers.index_buffer.length() as u32),
+                                0..(skybox_buffers.index_buffer.buffer.length() as u32),
                                 0,
                                 0..1,
                             );

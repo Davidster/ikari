@@ -189,51 +189,51 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
 
     let audio_manager_mutex = Arc::new(Mutex::new(audio_manager));
 
-    let asset_loader = Arc::new(AssetLoader::new(
-        renderer.base.clone(),
-        audio_manager_mutex.clone(),
-    ));
+    let asset_loader = Arc::new(AssetLoader::new(audio_manager_mutex.clone()));
 
     let asset_loader_clone = asset_loader.clone();
 
     crate::thread::spawn(move || {
-        // crate::thread::sleep(crate::time::Duration::from_secs_f32(5.0));
-        // load in gltf files
+        crate::block_on(async move {
+            crate::thread::sleep_async(crate::time::Duration::from_secs_f32(5.0)).await;
 
-        // player's revolver
-        // https://done3d.com/colt-python-8-inch/
-        asset_loader.load_gltf_asset("src/models/gltf/ColtPython/colt_python.glb");
-        // forest
-        // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
-        asset_loader.load_gltf_asset("src/models/gltf/free_low_poly_forest/scene.glb");
-        // legendary robot
-        // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-        asset_loader.load_gltf_asset("src/models/gltf/LegendaryRobot/Legendary_Robot.glb");
-        // maze
-        asset_loader.load_gltf_asset("src/models/gltf/TestLevel/test_level.glb");
-        // other
-        // asset_loader.load_gltf_asset(get_misc_gltf_path());
+            // load in gltf files
 
-        asset_loader.load_audio(
-            "src/sounds/bgm.mp3",
-            AudioFileFormat::Mp3,
-            SoundParams {
-                initial_volume: 0.5,
-                fixed_volume: false,
-                spacial_params: None,
-                stream: !cfg!(target_arch = "wasm32"),
-            },
-        );
-        asset_loader.load_audio(
-            "src/sounds/gunshot.wav",
-            AudioFileFormat::Wav,
-            SoundParams {
-                initial_volume: 0.75,
-                fixed_volume: true,
-                spacial_params: None,
-                stream: false,
-            },
-        );
+            // player's revolver
+            // https://done3d.com/colt-python-8-inch/
+            asset_loader.load_gltf_scene("src/models/gltf/ColtPython/colt_python.glb");
+            // forest
+            // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
+            asset_loader.load_gltf_scene("src/models/gltf/free_low_poly_forest/scene.glb");
+            // legendary robot
+            // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
+            asset_loader.load_gltf_scene("src/models/gltf/LegendaryRobot/Legendary_Robot.glb");
+            // maze
+            asset_loader.load_gltf_scene("src/models/gltf/TestLevel/test_level.glb");
+            // other
+            // asset_loader.load_gltf_scene(get_misc_gltf_path());
+
+            asset_loader.load_audio(
+                "src/sounds/bgm.mp3",
+                AudioFileFormat::Mp3,
+                SoundParams {
+                    initial_volume: 0.5,
+                    fixed_volume: false,
+                    spacial_params: None,
+                    stream: !cfg!(target_arch = "wasm32"),
+                },
+            );
+            asset_loader.load_audio(
+                "src/sounds/gunshot.wav",
+                AudioFileFormat::Wav,
+                SoundParams {
+                    initial_volume: 0.75,
+                    fixed_volume: true,
+                    spacial_params: None,
+                    stream: false,
+                },
+            );
+        })
     });
 
     let sphere_mesh = BasicMesh::new("src/models/sphere.obj").await?;
@@ -1103,11 +1103,13 @@ pub fn increment_bloom_threshold(renderer_data: &mut RendererPublicData, increas
 #[profiling::function]
 pub fn update_game_state(
     game_state: &mut GameState,
-    renderer_base: &BaseRenderer,
+    base_renderer: Arc<BaseRenderer>,
     renderer_data: Arc<Mutex<RendererPublicData>>,
 ) {
+    game_state.asset_loader.update(base_renderer.clone());
     {
-        let mut loaded_assets_guard = game_state.asset_loader.loaded_gltf_scenes.lock().unwrap();
+        let loaded_scenes = game_state.asset_loader.loaded_scenes();
+        let mut loaded_assets_guard = loaded_scenes.lock().unwrap();
         let mut renderer_data_guard = renderer_data.lock().unwrap();
         if game_state.gunshot_sound_index.is_some() {
             if let Entry::Occupied(entry) =
@@ -1260,7 +1262,9 @@ pub fn update_game_state(
             let audio_manager_clone = game_state.audio_manager.clone();
             let bgm_sound_index_clone = bgm_sound_index;
             crate::thread::spawn(move || {
+                #[cfg(not(target_arch = "wasm32"))]
                 crate::thread::sleep(crate::time::Duration::from_secs_f32(5.0));
+
                 let mut audio_manager_guard = audio_manager_clone.lock().unwrap();
                 audio_manager_guard.play_sound(bgm_sound_index_clone);
             });
@@ -1297,7 +1301,7 @@ pub fn update_game_state(
             Character::new(
                 &mut game_state.scene,
                 &mut game_state.physics_state,
-                renderer_base,
+                &base_renderer,
                 &mut renderer_data.lock().unwrap(),
                 legendary_robot_root_node_id,
                 legendary_robot_skin_index,
@@ -1487,8 +1491,6 @@ pub fn update_game_state(
         // logger_log(&format!("Ball count: {:?}", new_ball_count));
     }
 
-    // log::info!("global_time_seconds={}", time_tracker.global_time_seconds());
-
     // let physics_time_step_start = Instant::now();
 
     // logger_log(&format!("Physics step time: {:?}", physics_time_step_start.elapsed()));
@@ -1519,7 +1521,7 @@ pub fn update_game_state(
                     deg_to_rad(90.0),
                 ))
                 .scale(
-                    (1080.0 / renderer_base.window_size.lock().unwrap().height as f32)
+                    (1080.0 / base_renderer.window_size.lock().unwrap().height as f32)
                         * 0.06
                         * Vec3::new(1.0, 1.0, 1.0),
                 )

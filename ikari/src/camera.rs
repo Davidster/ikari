@@ -232,10 +232,10 @@ mod tests {
         let reverse_proj_pos = reverse_z_mat * pos;
         let reg_proj_pos = reg_z_mat * pos;
         let persp_div = |yo: Vec4| yo / yo.w;
-        println!("{:?}", reverse_z_mat);
-        println!("{:?}", reg_z_mat);
-        println!("{:?}", reverse_proj_pos);
-        println!("{:?}", reg_proj_pos);
+        println!("{reverse_z_mat:?}");
+        println!("{reg_z_mat:?}");
+        println!("{reverse_proj_pos:?}");
+        println!("{reg_proj_pos:?}");
         println!("{:?}", persp_div(reverse_proj_pos));
         println!("{:?}", persp_div(reg_proj_pos));
         assert_eq!(true, true);

@@ -296,7 +296,7 @@ impl AudioManager {
                 oddio::run(&spatial_scene, device_sample_rate, out_stereo);
             },
             move |err| {
-                eprintln!("{}", err);
+                eprintln!("{err}");
             },
             None,
         )?;
@@ -307,7 +307,7 @@ impl AudioManager {
                 oddio::run(&mixer, device_sample_rate, out_stereo);
             },
             move |err| {
-                eprintln!("{}", err);
+                eprintln!("{err}");
             },
             None,
         )?;

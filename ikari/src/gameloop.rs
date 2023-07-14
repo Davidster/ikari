@@ -47,12 +47,16 @@ pub fn run(
                 let frame_duration = last_frame_start_time.map(|time| time.elapsed());
                 last_frame_start_time = Some(Instant::now());
 
-                update_game_state(&mut game_state, &renderer.base, renderer.data.clone());
+                update_game_state(
+                    &mut game_state,
+                    renderer.base.clone(),
+                    renderer.data.clone(),
+                );
 
                 let last_log_time_clone = last_log_time;
                 let mut write_logs = || {
                     if let Err(err) = LOGGER.lock().unwrap().write_to_term() {
-                        eprintln!("Error writing to terminal: {}", err);
+                        eprintln!("Error writing to terminal: {err}");
                     }
                     last_log_time = Some(Instant::now());
                 };
@@ -160,7 +164,7 @@ pub fn run(
                         }
                         // The system is out of memory, we should probably quit
                         Some(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                        _ => logger_log(&format!("{:?}", err)),
+                        _ => logger_log(&format!("{err:?}")),
                     },
                 }
             }
