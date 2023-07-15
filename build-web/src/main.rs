@@ -3,15 +3,15 @@ use std::{ffi::OsStr, path::PathBuf, process::Command};
 use arboard::Clipboard;
 
 const HELP: &str = "\
-cargo run-wasm
+cargo build-web
 
 Hosts a binary or example of the local package as wasm in a local web server.
 
 USAGE:
-  cargo run-wasm [OPTIONS]
+  cargo build-web [OPTIONS]
 
 OPTIONS:
-  cargo run-wasm custom options:
+  cargo build-web custom options:
     --build-only                 Only build the WASM artifacts, do not run the dev server
     --port <PORT>                Makes the dev server listen on port (default '8000')
 
@@ -45,7 +45,7 @@ OPTIONS:
 At least one of `--package`, `--bin` or `--example` must be used.
 
 Normally you can run just `cargo run` to run the main binary of the current package.
-The equivalent of that is `cargo run-wasm --package name_of_current_package`
+The equivalent of that is `cargo build-web --package name_of_current_package`
 ";
 
 struct Args {
@@ -100,7 +100,7 @@ Remove one flag or the other to continue."#
                 .is_some()
             {
                 return Err(format!(
-                    "cargo-run-wasm does not support the {option} option"
+                    "cargo-build-web does not support the {option} option"
                 ));
             }
         }
@@ -108,7 +108,7 @@ Remove one flag or the other to continue."#
         let binary_name = match example.as_ref().or(bin.as_ref()).or(package.as_ref()) {
             Some(name) => name.clone(),
             None => {
-                return Err("Need to use at least one of `--package NAME`, `--example NAME` `--bin NAME`.\nRun cargo run-wasm --help for more info.".to_owned());
+                return Err("Need to use at least one of `--package NAME`, `--example NAME` `--bin NAME`.\nRun cargo build-web --help for more info.".to_owned());
             }
         };
 
@@ -132,7 +132,7 @@ Remove one flag or the other to continue."#
     }
 }
 
-/// Adapted from cargo-run-wasm v0.3.2
+/// Adapted from cargo-build-web v0.3.2
 fn main() {
     let args = match Args::from_env() {
         Ok(args) => args,
