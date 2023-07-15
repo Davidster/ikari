@@ -37,8 +37,6 @@ Hopefully one day it will be used in a real game 😃
 
 ## TODO
 
-- find a way to pass compiler flags automatically for web builds, such that it doesn't spam the console with warnings within run-wasm crate
-- convert serve to local server setup
 - change the logger to use rust log crate only (log::info!())
 - add a start button to the web build for audio purpose
 
@@ -48,8 +46,7 @@ Hopefully one day it will be used in a real game 😃
 # native
 RUST_BACKTRACE=1 cargo run --release --features="tracy" --bin example_game
 # web
-RUSTFLAGS="--cfg=web_sys_unstable_apis -C target-feature=+atomics,+bulk-memory,+mutable-globals" cargo run-wasm --release --bin example_game --build-only -Z build-std=panic_abort,std
-npx serve -p 8000
+cargo build-web --release --bin example_game
 ```
 
 See console logs for list of available controls

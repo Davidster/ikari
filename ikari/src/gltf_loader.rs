@@ -11,7 +11,6 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::path::Path;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use anyhow::{bail, Result};
 use approx::abs_diff_eq;

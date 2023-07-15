@@ -29,7 +29,7 @@ tracy-n-alloc = []
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
-half = "2"
+half = "2.2.1"
 pollster = "0.3"
 twox-hash = "1.6"
 lazy_static = "1.4"
