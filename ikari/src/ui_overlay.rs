@@ -655,42 +655,46 @@ impl Program for UiOverlay {
             );
 
             // profile dump
-            if let Some(pending_perf_dump) = &self.pending_perf_dump {
-                let (message, color) = if self.perf_dump_completion_time.is_some() {
-                    match *pending_perf_dump.lock().unwrap() {
-                        Some(Ok(_)) => (
-                            "Profile dump complete!".to_string(),
-                            iced::Color::from_rgb(0.7, 1.0, 0.0),
-                        ),
-                        Some(Err(_)) => (
-                            "Profile dump failed! See stdout for details.".to_string(),
-                            iced::Color::from_rgb(0.9, 0.1, 0.2),
-                        ),
-                        None => {
-                            unreachable!();
+            if cfg!(not(target_arch = "wasm32")) {
+                if let Some(pending_perf_dump) = &self.pending_perf_dump {
+                    let (message, color) = if self.perf_dump_completion_time.is_some() {
+                        match *pending_perf_dump.lock().unwrap() {
+                            Some(Ok(_)) => (
+                                "Profile dump complete!".to_string(),
+                                iced::Color::from_rgb(0.7, 1.0, 0.0),
+                            ),
+                            Some(Err(_)) => (
+                                "Profile dump failed! See stdout for details.".to_string(),
+                                iced::Color::from_rgb(0.9, 0.1, 0.2),
+                            ),
+                            None => {
+                                unreachable!();
+                            }
                         }
-                    }
+                    } else {
+                        let time_secs = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or(Default::default())
+                            .as_secs_f64();
+                        let ellipsis_num = 2 + (time_secs * 4.0).sin().round() as i32;
+                        let elipsis_str =
+                            (0..ellipsis_num).map(|_| ".").collect::<Vec<_>>().join("");
+                        (
+                            format!("Generating profile dump{elipsis_str}"),
+                            iced::Color::from_rgb(1.0, 0.7, 0.1),
+                        )
+                    };
+                    options = options.push(Text::new(message).style(color));
                 } else {
-                    let time_secs = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or(Default::default())
-                        .as_secs_f64();
-                    let ellipsis_num = 2 + (time_secs * 4.0).sin().round() as i32;
-                    let elipsis_str = (0..ellipsis_num).map(|_| ".").collect::<Vec<_>>().join("");
-                    (
-                        format!("Generating profile dump{elipsis_str}"),
-                        iced::Color::from_rgb(1.0, 0.7, 0.1),
-                    )
-                };
-                options = options.push(Text::new(message).style(color));
-            } else {
-                options = options.push(
-                    Button::new(
-                        Text::new("Generate Profile Dump").horizontal_alignment(Horizontal::Center),
-                    )
-                    .width(Length::Shrink)
-                    .on_press(Message::GenerateProfileDump),
-                );
+                    options = options.push(
+                        Button::new(
+                            Text::new("Generate Profile Dump")
+                                .horizontal_alignment(Horizontal::Center),
+                        )
+                        .width(Length::Shrink)
+                        .on_press(Message::GenerateProfileDump),
+                    );
+                }
             }
 
             // exit button

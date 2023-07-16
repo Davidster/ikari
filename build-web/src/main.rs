@@ -231,8 +231,8 @@ fn main() {
         .generate(&example_dest)
         .unwrap();
 
-    // process template index.html and write to the destination folder
-    let index_template = include_str!("index.template.html");
+    // process template html and write to the destination folder
+    let index_template = include_str!("ikari-web.template.html");
     let index_processed = index_template.replace("{{name}}", &binary_name).replace(
         "{{jspath}}",
         &format!("./target/{examples_dir_name}/{binary_name}/{binary_name}.js"),
