@@ -4,7 +4,6 @@ use crate::collisions::*;
 use crate::game::*;
 use crate::game_state::*;
 use crate::light::*;
-use crate::logger::*;
 use crate::math::*;
 use crate::mesh::*;
 use crate::sampler_cache::*;
@@ -25,6 +24,7 @@ use glam::Vec4;
 use image::Pixel;
 use wgpu::util::DeviceExt;
 use wgpu::InstanceDescriptor;
+
 use wgpu_profiler::wgpu_profiler;
 use winit::window::Window;
 
@@ -199,31 +199,81 @@ pub enum SkyboxHDREnvironment<'a> {
     Equirectangular { image_path: &'a str },
 }
 
-// TODO: store a global list of GeometryBuffers, and store indices into them in BindedPbrMesh and BindedUnlitMesh.
-//       this would not work if the Vertex attributes / format every becomes different between these two shaders
 #[derive(Debug)]
-pub struct BindedPbrMesh {
-    pub geometry_buffers: GeometryBuffers,
-    pub textures_bind_group: Arc<wgpu::BindGroup>,
-    pub dynamic_pbr_params: DynamicPbrParams,
+pub struct BindableTexture {
+    pub image_pixels: Vec<u8>,
+    pub image_dimensions: (u32, u32),
+    pub baked_mip_levels: u32,
+    pub name: Option<String>,
+    pub format: Option<wgpu::TextureFormat>,
+    pub generate_mipmaps: bool,
+    pub sampler_descriptor: crate::sampler_cache::SamplerDescriptor,
+}
 
+#[derive(Debug)]
+pub struct BindablePbrMesh {
+    pub geometry: BindableGeometryBuffers,
+    pub material: IndexedPbrMaterial,
+    pub dynamic_pbr_params: DynamicPbrParams,
     pub alpha_mode: AlphaMode,
     pub primitive_mode: PrimitiveMode,
 }
 
+// TODO: store a global list of GeometryBuffers, and store indices into them in BindedPbrMesh and BindedUnlitMesh.
+//       this would not work if the Vertex attributes / format every becomes different between these two shaders
 #[derive(Debug)]
-pub struct GeometryBuffers {
-    pub vertex_buffer: GpuBuffer,
-    pub index_buffer: GpuBuffer,
-    pub index_buffer_format: wgpu::IndexFormat,
+pub struct BindedPbrMesh {
+    pub geometry_buffers: BindedGeometryBuffers,
+    pub textures_bind_group: Arc<wgpu::BindGroup>,
+    pub dynamic_pbr_params: DynamicPbrParams,
+    pub alpha_mode: AlphaMode,
+    pub primitive_mode: PrimitiveMode,
+}
+
+#[derive(Debug, Clone)]
+pub enum BindableIndices {
+    U16(Vec<u16>),
+    U32(Vec<u32>),
+}
+
+impl BindableIndices {
+    pub fn format(&self) -> wgpu::IndexFormat {
+        match self {
+            BindableIndices::U16(_) => wgpu::IndexFormat::Uint16,
+            BindableIndices::U32(_) => wgpu::IndexFormat::Uint32,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct BindableGeometryBuffers {
+    pub vertices: Vec<Vertex>,
+    pub indices: BindableIndices,
     pub bounding_box: crate::collisions::Aabb,
 }
 
-pub type BindedUnlitMesh = GeometryBuffers;
+#[derive(Debug)]
+pub struct BindedIndexBuffer {
+    pub buffer: GpuBuffer,
+    pub format: wgpu::IndexFormat,
+}
 
-pub type BindedTransparentMesh = GeometryBuffers;
+#[derive(Debug)]
+pub struct BindedGeometryBuffers {
+    pub vertex_buffer: GpuBuffer,
+    pub index_buffer: BindedIndexBuffer,
+    pub bounding_box: crate::collisions::Aabb,
+}
 
-#[derive(Debug, PartialEq, Eq)]
+pub type BindableUnlitMesh = BindableGeometryBuffers;
+
+pub type BindableTransparentMesh = BindableGeometryBuffers;
+
+pub type BindedUnlitMesh = BindedGeometryBuffers;
+
+pub type BindedTransparentMesh = BindedGeometryBuffers;
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum MeshType {
     Pbr,
     Unlit,
@@ -241,20 +291,26 @@ impl From<GameNodeMeshType> for MeshType {
 }
 
 #[derive(Debug)]
-pub struct BindedWireframeMesh {
+pub struct BindableWireframeMesh {
     pub source_mesh_type: MeshType,
     pub source_mesh_index: usize,
-    pub index_buffer: GpuBuffer,
-    pub index_buffer_format: wgpu::IndexFormat,
+    pub indices: BindableIndices,
 }
 
 #[derive(Debug)]
+pub struct BindedWireframeMesh {
+    pub source_mesh_type: MeshType,
+    pub source_mesh_index: usize,
+    pub index_buffer: BindedIndexBuffer,
+}
+
+#[derive(Debug, Copy, Clone)]
 pub enum AlphaMode {
     Opaque,
     Mask,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum PrimitiveMode {
     Triangles,
 }
@@ -297,8 +353,8 @@ impl BaseRenderer {
         let instance = wgpu::Instance::new(InstanceDescriptor {
             backends,
             dx12_shader_compiler: wgpu::Dx12Compiler::Dxc {
-                dxil_path: Some(PathBuf::from("dxc/")),
-                dxc_path: Some(PathBuf::from("dxc/")),
+                dxil_path: Some(PathBuf::from("ikari/dxc/")),
+                dxc_path: Some(PathBuf::from("ikari/dxc/")),
             },
         });
         let surface = unsafe { instance.create_surface(&window).unwrap() };
@@ -310,9 +366,6 @@ impl BaseRenderer {
             })
             .await
             .expect("Failed to find an appropriate adapter");
-
-        let adapter_info = adapter.get_info();
-        log::info!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
 
         let mut features = adapter.features();
 
@@ -341,8 +394,6 @@ impl BaseRenderer {
         // surface_config.format = wgpu::TextureFormat::Bgra8UnormSrgb;
         surface_config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
         surface_config.present_mode = present_mode;
-
-        println!("swapchain_format={:?}", surface_config.format);
 
         surface.configure(&device, &surface_config);
 
@@ -751,7 +802,16 @@ pub struct RendererPrivateData {
 }
 
 #[derive(Debug)]
-pub struct RenderBuffers {
+pub struct BindableSceneData {
+    pub bindable_pbr_meshes: Vec<BindablePbrMesh>,
+    pub bindable_unlit_meshes: Vec<BindableUnlitMesh>,
+    pub bindable_transparent_meshes: Vec<BindableTransparentMesh>,
+    pub bindable_wireframe_meshes: Vec<BindableWireframeMesh>,
+    pub textures: Vec<BindableTexture>,
+}
+
+#[derive(Debug, Default)]
+pub struct BindedSceneData {
     pub binded_pbr_meshes: Vec<BindedPbrMesh>,
     pub binded_unlit_meshes: Vec<BindedUnlitMesh>,
     pub binded_transparent_meshes: Vec<BindedTransparentMesh>,
@@ -766,7 +826,7 @@ pub struct RendererPublicData {
     pub binded_wireframe_meshes: Vec<BindedWireframeMesh>,
     pub textures: Vec<Texture>,
 
-    pub skybox_mesh: GeometryBuffers,
+    pub skybox_mesh: BindedGeometryBuffers,
 
     pub tone_mapping_exposure: f32,
     pub bloom_threshold: f32,
@@ -823,7 +883,7 @@ pub struct Renderer {
 
 impl Renderer {
     pub async fn new(base: BaseRenderer, window: &Window) -> Result<Self> {
-        logger_log("Controls:");
+        log::info!("Controls:");
         vec![
             "Look Around:             Mouse",
             "Move Around:             WASD, Space Bar, Ctrl",
@@ -841,7 +901,7 @@ impl Renderer {
         ]
         .iter()
         .for_each(|line| {
-            logger_log(&format!("  {line}"));
+            log::info!("  {line}");
         });
 
         let surface_format = base.surface_config.lock().unwrap().format;
@@ -2474,8 +2534,10 @@ impl Renderer {
         data.binded_wireframe_meshes.push(BindedWireframeMesh {
             source_mesh_type: MeshType::Unlit,
             source_mesh_index: unlit_mesh_index,
-            index_buffer: wireframe_index_buffer,
-            index_buffer_format: wgpu::IndexFormat::Uint16,
+            index_buffer: BindedIndexBuffer {
+                buffer: wireframe_index_buffer,
+                format: wgpu::IndexFormat::Uint16,
+            },
         });
 
         unlit_mesh_index
@@ -2495,8 +2557,10 @@ impl Renderer {
         data.binded_wireframe_meshes.push(BindedWireframeMesh {
             source_mesh_type: MeshType::Transparent,
             source_mesh_index: transparent_mesh_index,
-            index_buffer: wireframe_index_buffer,
-            index_buffer_format: wgpu::IndexFormat::Uint16,
+            index_buffer: BindedIndexBuffer {
+                buffer: wireframe_index_buffer,
+                format: wgpu::IndexFormat::Uint16,
+            },
         });
 
         transparent_mesh_index
@@ -2519,8 +2583,8 @@ impl Renderer {
             .unwrap();
 
         geometry_buffers.vertex_buffer.destroy();
-        geometry_buffers.index_buffer.destroy();
-        wireframe_mesh.index_buffer.destroy();
+        geometry_buffers.index_buffer.buffer.destroy();
+        wireframe_mesh.index_buffer.buffer.destroy();
     }
 
     // returns index of mesh in the RenderScene::binded_pbr_meshes list
@@ -2548,8 +2612,10 @@ impl Renderer {
         data.binded_wireframe_meshes.push(BindedWireframeMesh {
             source_mesh_type: MeshType::Pbr,
             source_mesh_index: pbr_mesh_index,
-            index_buffer: wireframe_index_buffer,
-            index_buffer_format: wgpu::IndexFormat::Uint16,
+            index_buffer: BindedIndexBuffer {
+                buffer: wireframe_index_buffer,
+                format: wgpu::IndexFormat::Uint16,
+            },
         });
 
         Ok(pbr_mesh_index)
@@ -2558,14 +2624,14 @@ impl Renderer {
     fn bind_geometry_buffers_for_basic_mesh(
         base: &BaseRenderer,
         mesh: &BasicMesh,
-    ) -> GeometryBuffers {
+    ) -> BindedGeometryBuffers {
         Self::bind_geometry_buffers_for_basic_mesh_impl(&base.device, mesh)
     }
 
     fn bind_geometry_buffers_for_basic_mesh_impl(
         device: &wgpu::Device,
         mesh: &BasicMesh,
-    ) -> GeometryBuffers {
+    ) -> BindedGeometryBuffers {
         let vertex_buffer = GpuBuffer::from_bytes(
             device,
             bytemuck::cast_slice(&mesh.vertices),
@@ -2601,10 +2667,12 @@ impl Renderer {
             }
         };
 
-        GeometryBuffers {
+        BindedGeometryBuffers {
             vertex_buffer,
-            index_buffer,
-            index_buffer_format: wgpu::IndexFormat::Uint16,
+            index_buffer: BindedIndexBuffer {
+                buffer: index_buffer,
+                format: wgpu::IndexFormat::Uint16,
+            },
             bounding_box,
         }
     }
@@ -3250,13 +3318,13 @@ impl Renderer {
             &private_data.all_bone_transforms.buffer,
         );
         if bones_buffer_changed_capacity {
-            logger_log(&format!(
+            log::debug!(
                 "Resized bones instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
                 previous_bones_buffer_capacity_bytes,
                 private_data.bones_buffer.capacity_bytes(),
                 private_data.bones_buffer.length_bytes(),
                 private_data.all_bone_transforms.buffer.len(),
-            ));
+            );
         }
 
         let mut pbr_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuPbrMeshInstance>> =
@@ -3407,8 +3475,7 @@ impl Renderer {
                                             && MeshType::from(*mesh_type)
                                                 == wireframe_mesh.source_mesh_type
                                     })
-                                    .unwrap_or_else(|| panic!("Attempted to draw mesh {:?} in wireframe mode without a corresponding wireframe object",
-                                        mesh_index))
+                                    .unwrap_or_else(|| panic!("Attempted to draw mesh {mesh_index:?} in wireframe mode without a corresponding wireframe object"))
                                     .0;
                                 let gpu_instance = GpuWireframeMeshInstance {
                                     color,
@@ -3493,13 +3560,13 @@ impl Renderer {
         );
 
         if pbr_instances_buffer_changed_capacity {
-            logger_log(&format!(
+            log::debug!(
                 "Resized pbr instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
                 previous_pbr_instances_buffer_capacity_bytes,
                 private_data.pbr_instances_buffer.capacity_bytes(),
                 private_data.pbr_instances_buffer.length_bytes(),
                 private_data.all_pbr_instances.buffer().len(),
-            ));
+            );
         }
 
         private_data.all_unlit_instances.replace(
@@ -3516,13 +3583,13 @@ impl Renderer {
         );
 
         if unlit_instances_buffer_changed_capacity {
-            logger_log(&format!(
+            log::debug!(
                 "Resized unlit instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
                 previous_unlit_instances_buffer_capacity_bytes,
                 private_data.unlit_instances_buffer.capacity_bytes(),
                 private_data.unlit_instances_buffer.length_bytes(),
                 private_data.all_unlit_instances.buffer().len(),
-            ));
+            );
         }
 
         // draw furthest transparent meshes first
@@ -3545,13 +3612,13 @@ impl Renderer {
             );
 
         if transparent_instances_buffer_changed_capacity {
-            logger_log(&format!(
+            log::debug!(
                 "Resized transparent instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
                 previous_transparent_instances_buffer_capacity_bytes,
                 private_data.transparent_instances_buffer.capacity_bytes(),
                 private_data.transparent_instances_buffer.length_bytes(),
                 private_data.all_transparent_instances.buffer().len(),
-            ));
+            );
         }
 
         private_data.all_wireframe_instances.replace(
@@ -3566,13 +3633,13 @@ impl Renderer {
             .write(device, queue, private_data.all_wireframe_instances.buffer());
 
         if wireframe_instances_buffer_changed_capacity {
-            logger_log(&format!(
+            log::debug!(
                 "Resized wireframe instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
                 previous_wireframe_instances_buffer_capacity_bytes,
                 private_data.wireframe_instances_buffer.capacity_bytes(),
                 private_data.wireframe_instances_buffer.length_bytes(),
                 private_data.all_wireframe_instances.buffer().len(),
-            ));
+            );
         }
 
         private_data.bones_and_pbr_instances_bind_group =
@@ -3804,16 +3871,16 @@ impl Renderer {
         let _total_index_buffer_memory_usage = data
             .binded_pbr_meshes
             .iter()
-            .map(|mesh| mesh.geometry_buffers.index_buffer.length_bytes())
+            .map(|mesh| mesh.geometry_buffers.index_buffer.buffer.length_bytes())
             .chain(
                 data.binded_unlit_meshes
                     .iter()
-                    .map(|mesh| mesh.index_buffer.length_bytes()),
+                    .map(|mesh| mesh.index_buffer.buffer.length_bytes()),
             )
             .chain(
                 data.binded_transparent_meshes
                     .iter()
-                    .map(|mesh| mesh.index_buffer.length_bytes()),
+                    .map(|mesh| mesh.index_buffer.buffer.length_bytes()),
             )
             .reduce(|acc, val| acc + val);
         let _total_vertex_buffer_memory_usage = data
@@ -4098,11 +4165,11 @@ impl Renderer {
                     render_pass
                         .set_vertex_buffer(0, geometry_buffers.vertex_buffer.src().slice(..));
                     render_pass.set_index_buffer(
-                        geometry_buffers.index_buffer.src().slice(..),
-                        geometry_buffers.index_buffer_format,
+                        geometry_buffers.index_buffer.buffer.src().slice(..),
+                        geometry_buffers.index_buffer.format,
                     );
                     render_pass.draw_indexed(
-                        0..geometry_buffers.index_buffer.length() as u32,
+                        0..geometry_buffers.index_buffer.buffer.length() as u32,
                         0,
                         0..instance_count as u32,
                     );
@@ -4121,7 +4188,6 @@ impl Renderer {
                         source_mesh_type,
                         source_mesh_index,
                         index_buffer,
-                        index_buffer_format,
                         ..
                     } = &data.binded_wireframe_meshes[binded_wireframe_mesh_index];
 
@@ -4163,9 +4229,9 @@ impl Renderer {
                     );
                     render_pass.set_vertex_buffer(0, vertex_buffer.src().slice(..));
                     render_pass
-                        .set_index_buffer(index_buffer.src().slice(..), *index_buffer_format);
+                        .set_index_buffer(index_buffer.buffer.src().slice(..), index_buffer.format);
                     render_pass.draw_indexed(
-                        0..index_buffer.length() as u32,
+                        0..index_buffer.buffer.length() as u32,
                         0,
                         0..instance_count as u32,
                     );
@@ -4295,11 +4361,11 @@ impl Renderer {
                 );
                 render_pass.set_vertex_buffer(0, data.skybox_mesh.vertex_buffer.src().slice(..));
                 render_pass.set_index_buffer(
-                    data.skybox_mesh.index_buffer.src().slice(..),
-                    data.skybox_mesh.index_buffer_format,
+                    data.skybox_mesh.index_buffer.buffer.src().slice(..),
+                    data.skybox_mesh.index_buffer.format,
                 );
                 render_pass.draw_indexed(
-                    0..(data.skybox_mesh.index_buffer.length() as u32),
+                    0..(data.skybox_mesh.index_buffer.buffer.length() as u32),
                     0,
                     0..1,
                 );
@@ -4381,11 +4447,11 @@ impl Renderer {
                     render_pass
                         .set_vertex_buffer(0, geometry_buffers.vertex_buffer.src().slice(..));
                     render_pass.set_index_buffer(
-                        geometry_buffers.index_buffer.src().slice(..),
-                        geometry_buffers.index_buffer_format,
+                        geometry_buffers.index_buffer.buffer.src().slice(..),
+                        geometry_buffers.index_buffer.format,
                     );
                     render_pass.draw_indexed(
-                        0..geometry_buffers.index_buffer.length() as u32,
+                        0..geometry_buffers.index_buffer.buffer.length() as u32,
                         0,
                         0..instance_count as u32,
                     );
@@ -4576,11 +4642,11 @@ impl Renderer {
                     render_pass
                         .set_vertex_buffer(0, geometry_buffers.vertex_buffer.src().slice(..));
                     render_pass.set_index_buffer(
-                        geometry_buffers.index_buffer.src().slice(..),
-                        geometry_buffers.index_buffer_format,
+                        geometry_buffers.index_buffer.buffer.src().slice(..),
+                        geometry_buffers.index_buffer.format,
                     );
                     render_pass.draw_indexed(
-                        0..geometry_buffers.index_buffer.length() as u32,
+                        0..geometry_buffers.index_buffer.buffer.length() as u32,
                         0,
                         0..instance_count as u32,
                     );

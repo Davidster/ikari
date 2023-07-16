@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["ikari", "run-wasm"]
+members = ["ikari", "build-web"]
 default-members = ["ikari"]
 
 [workspace.package]

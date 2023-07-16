@@ -29,7 +29,7 @@ tracy-n-alloc = []
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
-half = "2"
+half = "2.2.1"
 pollster = "0.3"
 twox-hash = "1.6"
 lazy_static = "1.4"
@@ -44,6 +44,7 @@ chrono = { version = "0.4.26", default-features = false, features = [
     "clock",
 ] }
 instant = "0.1.12"
+async-std = "1.12.0"
 
 # log
 console = "0.15"
@@ -81,7 +82,7 @@ glam = { version = "0.24.0", features = ["approx", "bytemuck"] }
 approx = "0.5"
 
 # audio
-cpal = "0.15"
+cpal = { git = "https://github.com/DouglasDwyer/cpal.git", rev = "91aeb4d" }
 oddio = "0.6"
 symphonia = { version = "0.5.3", features = ["mp3", "wav"] }
 
@@ -93,6 +94,7 @@ iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl
 # ] }
 # iced = { path = "../../iced-fork" }
 # iced_winit = { path = "../../iced-fork/winit" }
+
 plotters-iced = "0.8"
 plotters = { version = "0.3", default-features = false, features = [
     "line_series",
@@ -101,7 +103,7 @@ iced_aw = { git = "https://github.com/iced-rs/iced_aw.git", branch = "main", def
     "modal",
     "card",
 ] }
-
+wasm_thread = { version = "0.2.0", features = ["es_modules"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 basis-universal = "0.3.0"
 zstd = "0.12.3"
@@ -119,6 +121,7 @@ web-sys = { version = "0.3.63", features = [
     "RequestMode",
     "Response",
     "Blob",
+    "WorkerGlobalScope",
 ] }
 getrandom = { version = "0.2.9", features = ["js"] }
 serde = "1.0.163"
@@ -126,4 +129,6 @@ serde_derive = "1.0.163"
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
 wasm-bindgen = { version = "0.2.86", features = ["serde-serialize"] }
-cpal = { version = "0.15", features = ["wasm-bindgen"] }
+cpal = { git = "https://github.com/DouglasDwyer/cpal.git", rev = "91aeb4d", features = [
+    "wasm-bindgen",
+] }

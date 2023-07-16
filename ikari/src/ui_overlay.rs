@@ -18,7 +18,6 @@ use plotters_iced::{Chart, ChartWidget, DrawingBackend};
 use winit::{event::WindowEvent, window::Window};
 
 use crate::game::*;
-use crate::logger::*;
 use crate::math::*;
 use crate::player_controller::*;
 use crate::profile_dump::*;
@@ -216,7 +215,7 @@ impl Chart<Message> for FpsChart {
             chart
                 .configure_mesh()
                 .x_label_formatter(&|x| format!("{}s", x.abs().round() as i32))
-                .y_label_formatter(&|y| format!("{} fps", y))
+                .y_label_formatter(&|y| format!("{y} fps"))
                 .disable_x_mesh()
                 .y_max_light_lines(1)
                 .set_all_tick_mark_size(1)
@@ -246,7 +245,7 @@ impl Chart<Message> for FpsChart {
         })();
 
         if let Err(err) = result {
-            logger_log(&format!("Error building fps chart: {:?}", err));
+            log::error!("Error building fps chart: {err:?}");
         }
     }
 }
@@ -514,7 +513,7 @@ impl Program for UiOverlay {
             });
             avg_span_times_vec.reverse();
             for (span, span_frame_time) in avg_span_times_vec {
-                let msg = &format!("{:}: {:.2}ms", span, span_frame_time);
+                let msg = &format!("{span:}: {span_frame_time:.2}ms");
                 rows = rows.push(iced_winit::widget::text(msg).size(14));
             }
         }
@@ -594,7 +593,7 @@ impl Program for UiOverlay {
                 options = options.push(Text::new("Lock Culling Frustum"));
                 for mode in CullingFrustumLockMode::ALL {
                     options = options.push(iced_winit::widget::radio(
-                        format!("{}", mode),
+                        format!("{mode}"),
                         mode,
                         Some(self.culling_frustum_lock_mode),
                         Message::CullingFrustumLockModeChanged,
@@ -656,42 +655,46 @@ impl Program for UiOverlay {
             );
 
             // profile dump
-            if let Some(pending_perf_dump) = &self.pending_perf_dump {
-                let (message, color) = if self.perf_dump_completion_time.is_some() {
-                    match *pending_perf_dump.lock().unwrap() {
-                        Some(Ok(_)) => (
-                            "Profile dump complete!".to_string(),
-                            iced::Color::from_rgb(0.7, 1.0, 0.0),
-                        ),
-                        Some(Err(_)) => (
-                            "Profile dump failed! See stdout for details.".to_string(),
-                            iced::Color::from_rgb(0.9, 0.1, 0.2),
-                        ),
-                        None => {
-                            unreachable!();
+            if cfg!(not(target_arch = "wasm32")) {
+                if let Some(pending_perf_dump) = &self.pending_perf_dump {
+                    let (message, color) = if self.perf_dump_completion_time.is_some() {
+                        match *pending_perf_dump.lock().unwrap() {
+                            Some(Ok(_)) => (
+                                "Profile dump complete!".to_string(),
+                                iced::Color::from_rgb(0.7, 1.0, 0.0),
+                            ),
+                            Some(Err(_)) => (
+                                "Profile dump failed! See stdout for details.".to_string(),
+                                iced::Color::from_rgb(0.9, 0.1, 0.2),
+                            ),
+                            None => {
+                                unreachable!();
+                            }
                         }
-                    }
+                    } else {
+                        let time_secs = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or(Default::default())
+                            .as_secs_f64();
+                        let ellipsis_num = 2 + (time_secs * 4.0).sin().round() as i32;
+                        let elipsis_str =
+                            (0..ellipsis_num).map(|_| ".").collect::<Vec<_>>().join("");
+                        (
+                            format!("Generating profile dump{elipsis_str}"),
+                            iced::Color::from_rgb(1.0, 0.7, 0.1),
+                        )
+                    };
+                    options = options.push(Text::new(message).style(color));
                 } else {
-                    let time_secs = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or(Default::default())
-                        .as_secs_f64();
-                    let ellipsis_num = 2 + (time_secs * 4.0).sin().round() as i32;
-                    let elipsis_str = (0..ellipsis_num).map(|_| ".").collect::<Vec<_>>().join("");
-                    (
-                        format!("Generating profile dump{elipsis_str}"),
-                        iced::Color::from_rgb(1.0, 0.7, 0.1),
-                    )
-                };
-                options = options.push(Text::new(message).style(color));
-            } else {
-                options = options.push(
-                    Button::new(
-                        Text::new("Generate Profile Dump").horizontal_alignment(Horizontal::Center),
-                    )
-                    .width(Length::Shrink)
-                    .on_press(Message::GenerateProfileDump),
-                );
+                    options = options.push(
+                        Button::new(
+                            Text::new("Generate Profile Dump")
+                                .horizontal_alignment(Horizontal::Center),
+                        )
+                        .width(Length::Shrink)
+                        .on_press(Message::GenerateProfileDump),
+                    );
+                }
             }
 
             // exit button
@@ -806,7 +809,7 @@ impl IkariUiOverlay {
 
             camera_pose: None,
             is_showing_camera_pose: INITIAL_IS_SHOWING_CAMERA_POSE,
-            is_showing_fps_chart: false,
+            is_showing_fps_chart: true,
             is_showing_gpu_spans: false,
             is_showing_options_menu: false,
             was_exit_button_pressed: false,

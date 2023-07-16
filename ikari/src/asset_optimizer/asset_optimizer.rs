@@ -54,8 +54,7 @@ pub fn run() {
             ikari::block_on(async {
                 let (path, is_srgb, is_normal_map) = &texture_paths[texture_index];
                 println!(
-                    "start {:?} (srgb={:?}, is_normal_map={:?})",
-                    path, is_srgb, is_normal_map
+                    "start {path:?} (srgb={is_srgb:?}, is_normal_map={is_normal_map:?})"
                 );
                 compress_file(path.as_path(), *is_srgb, *is_normal_map)
                     .await

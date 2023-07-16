@@ -1,6 +1,5 @@
 use crate::collisions::*;
 use crate::game::*;
-use crate::logger::*;
 use crate::math::*;
 use crate::physics::*;
 use crate::renderer::*;
@@ -163,11 +162,11 @@ impl PlayerController {
             } else {
                 CursorGrabMode::None
             }) {
-                logger_log(&format!(
+                log::error!(
                     "Couldn't {:?} cursor: {:?}",
                     if grab { "grab" } else { "release" },
                     err
-                ))
+                )
             }
             window.set_cursor_visible(!grab);
         };

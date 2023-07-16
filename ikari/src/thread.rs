@@ -7,12 +7,10 @@ where
     F: Send + 'static,
     T: Send + 'static,
 {
-    f();
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn sleep(_dur: Duration) {
-    // TODO: log a warning here, no-op
+    wasm_thread::spawn(|| {
+        f();
+        wasm_bindgen::throw_str("Cursed hack to keep workers alive. See https://github.com/rustwasm/wasm-bindgen/issues/2945");
+    });
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -28,4 +26,8 @@ where
 #[cfg(not(target_arch = "wasm32"))]
 pub fn sleep(dur: Duration) {
     std::thread::sleep(dur);
+}
+
+pub async fn sleep_async(dur: Duration) {
+    async_std::task::sleep(dur).await;
 }
