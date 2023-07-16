@@ -353,8 +353,8 @@ impl BaseRenderer {
         let instance = wgpu::Instance::new(InstanceDescriptor {
             backends,
             dx12_shader_compiler: wgpu::Dx12Compiler::Dxc {
-                dxil_path: Some(PathBuf::from("dxc/")),
-                dxc_path: Some(PathBuf::from("dxc/")),
+                dxil_path: Some(PathBuf::from("ikari/dxc/")),
+                dxc_path: Some(PathBuf::from("ikari/dxc/")),
             },
         });
         let surface = unsafe { instance.create_surface(&window).unwrap() };
