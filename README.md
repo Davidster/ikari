@@ -39,7 +39,7 @@ Hopefully one day it will be used in a real game 😃
 
 ```sh
 # native
-RUST_LOG=ikari=debug,wgpu=warn RUST_BACKTRACE=1 cargo run --release --features="tracy" --bin example_game
+RUST_LOG=ikari=info,wgpu=warn RUST_BACKTRACE=1 cargo run --release --features="tracy" --bin example_game
 # web
 cargo build-web --release --bin example_game
 ```
