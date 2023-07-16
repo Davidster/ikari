@@ -35,11 +35,6 @@ Hopefully one day it will be used in a real game 😃
 - Mipmapping
 - Reverse-Z for better depth accuracy / less z-fighting
 
-## TODO
-
-- add a start button to the web build for audio purpose
-- fix scroll wheel on web
-
 ## Try it out
 
 ```sh
