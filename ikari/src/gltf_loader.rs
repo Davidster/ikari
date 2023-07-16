@@ -1,4 +1,3 @@
-use crate::logger::*;
 use crate::mesh::*;
 use crate::renderer::*;
 use crate::sampler_cache::*;
@@ -19,6 +18,7 @@ use glam::f32::{Mat4, Vec2, Vec3, Vec4};
 #[cfg(not(target_arch = "wasm32"))]
 const USE_TEXTURE_COMPRESSION: bool = true;
 
+// TODO: replace with log::debug and use RUST_LOG module filter to view logs?
 const SCENE_LOAD_DEBUG: bool = false;
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
@@ -288,32 +288,32 @@ pub async fn build_scene(
     };
 
     if SCENE_LOAD_DEBUG {
-        logger_log("Scene loaded:");
+        log::info!("Scene loaded:");
 
-        logger_log(&format!("  - node count: {:?}", nodes.len()));
-        logger_log(&format!("  - skin count: {:?}", skins.len()));
-        logger_log(&format!("  - animation count: {:?}", animations.len()));
-        logger_log("  Render buffers:");
-        logger_log(&format!(
+        log::info!("  - node count: {:?}", nodes.len());
+        log::info!("  - skin count: {:?}", skins.len());
+        log::info!("  - animation count: {:?}", animations.len());
+        log::info!("  Render buffers:");
+        log::info!(
             "    - PBR mesh count: {:?}",
             bindable_scene_data.bindable_pbr_meshes.len()
-        ));
-        logger_log(&format!(
+        );
+        log::info!(
             "    - Unlit mesh count: {:?}",
             bindable_scene_data.bindable_unlit_meshes.len()
-        ));
-        logger_log(&format!(
+        );
+        log::info!(
             "    - Transparent mesh count: {:?}",
             bindable_scene_data.bindable_transparent_meshes.len()
-        ));
-        logger_log(&format!(
+        );
+        log::info!(
             "    - Wireframe mesh count: {:?}",
             bindable_scene_data.bindable_transparent_meshes.len()
-        ));
-        logger_log(&format!(
+        );
+        log::info!(
             "    - Texture count: {:?}",
             bindable_scene_data.textures.len()
-        ));
+        );
     }
 
     let scene = Scene::new(nodes, skins, animations);

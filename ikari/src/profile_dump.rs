@@ -1,5 +1,3 @@
-use crate::logger::*;
-
 use chrono::prelude::*;
 use std::{
     io::{BufRead, BufReader},
@@ -16,7 +14,7 @@ pub fn profiling_is_enabled() -> bool {
 pub fn generate_profile_dump() -> PendingPerfDump {
     if !profiling_is_enabled() {
         let msg = "Warning: tried to capture a profile dump but profiling is not enabled. Please enable the tracy feature in cargo";
-        logger_log(msg);
+        log::warn!("{msg}");
         return Arc::new(Mutex::new(Some(Err(anyhow::anyhow!(msg)))));
     }
 

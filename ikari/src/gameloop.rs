@@ -1,6 +1,5 @@
 use crate::game::*;
 use crate::game_state::*;
-use crate::logger::*;
 use crate::renderer::*;
 use crate::time::*;
 use crate::ui_overlay::AudioSoundStats;
@@ -14,15 +13,12 @@ use winit::{
     window::Window,
 };
 
-const MAX_LOG_RATE: i64 = 24; // 24 logs per second
-
 pub fn run(
     mut window: Window,
     event_loop: EventLoop<()>,
     mut game_state: GameState,
     renderer: Renderer,
 ) {
-    let mut last_log_time: Option<Instant> = None;
     let mut last_frame_start_time: Option<Instant> = None;
 
     #[cfg(target_arch = "wasm32")]
@@ -52,25 +48,6 @@ pub fn run(
                     renderer.base.clone(),
                     renderer.data.clone(),
                 );
-
-                let last_log_time_clone = last_log_time;
-                let mut write_logs = || {
-                    if let Err(err) = LOGGER.lock().unwrap().write_to_term() {
-                        eprintln!("Error writing to terminal: {err}");
-                    }
-                    last_log_time = Some(Instant::now());
-                };
-
-                match last_log_time_clone {
-                    Some(last_log_time)
-                        if last_log_time.elapsed()
-                            > Duration::from_millis((1000.0 / MAX_LOG_RATE as f32) as u64) =>
-                    {
-                        write_logs()
-                    }
-                    None => write_logs(),
-                    _ => {}
-                }
 
                 {
                     // sync UI
@@ -164,7 +141,7 @@ pub fn run(
                         }
                         // The system is out of memory, we should probably quit
                         Some(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                        _ => logger_log(&format!("{err:?}")),
+                        _ => log::error!("{err:?}"),
                     },
                 }
             }

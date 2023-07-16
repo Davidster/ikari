@@ -4,7 +4,6 @@ use crate::collisions::*;
 use crate::game::*;
 use crate::game_state::*;
 use crate::light::*;
-use crate::logger::*;
 use crate::math::*;
 use crate::mesh::*;
 use crate::sampler_cache::*;
@@ -884,7 +883,7 @@ pub struct Renderer {
 
 impl Renderer {
     pub async fn new(base: BaseRenderer, window: &Window) -> Result<Self> {
-        logger_log("Controls:");
+        log::info!("Controls:");
         vec![
             "Look Around:             Mouse",
             "Move Around:             WASD, Space Bar, Ctrl",
@@ -902,7 +901,7 @@ impl Renderer {
         ]
         .iter()
         .for_each(|line| {
-            logger_log(&format!("  {line}"));
+            log::info!("  {line}");
         });
 
         let surface_format = base.surface_config.lock().unwrap().format;
@@ -3319,13 +3318,13 @@ impl Renderer {
             &private_data.all_bone_transforms.buffer,
         );
         if bones_buffer_changed_capacity {
-            logger_log(&format!(
+            log::debug!(
                 "Resized bones instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
                 previous_bones_buffer_capacity_bytes,
                 private_data.bones_buffer.capacity_bytes(),
                 private_data.bones_buffer.length_bytes(),
                 private_data.all_bone_transforms.buffer.len(),
-            ));
+            );
         }
 
         let mut pbr_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuPbrMeshInstance>> =
@@ -3561,13 +3560,13 @@ impl Renderer {
         );
 
         if pbr_instances_buffer_changed_capacity {
-            logger_log(&format!(
+            log::debug!(
                 "Resized pbr instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
                 previous_pbr_instances_buffer_capacity_bytes,
                 private_data.pbr_instances_buffer.capacity_bytes(),
                 private_data.pbr_instances_buffer.length_bytes(),
                 private_data.all_pbr_instances.buffer().len(),
-            ));
+            );
         }
 
         private_data.all_unlit_instances.replace(
@@ -3584,13 +3583,13 @@ impl Renderer {
         );
 
         if unlit_instances_buffer_changed_capacity {
-            logger_log(&format!(
+            log::debug!(
                 "Resized unlit instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
                 previous_unlit_instances_buffer_capacity_bytes,
                 private_data.unlit_instances_buffer.capacity_bytes(),
                 private_data.unlit_instances_buffer.length_bytes(),
                 private_data.all_unlit_instances.buffer().len(),
-            ));
+            );
         }
 
         // draw furthest transparent meshes first
@@ -3613,13 +3612,13 @@ impl Renderer {
             );
 
         if transparent_instances_buffer_changed_capacity {
-            logger_log(&format!(
+            log::debug!(
                 "Resized transparent instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
                 previous_transparent_instances_buffer_capacity_bytes,
                 private_data.transparent_instances_buffer.capacity_bytes(),
                 private_data.transparent_instances_buffer.length_bytes(),
                 private_data.all_transparent_instances.buffer().len(),
-            ));
+            );
         }
 
         private_data.all_wireframe_instances.replace(
@@ -3634,13 +3633,13 @@ impl Renderer {
             .write(device, queue, private_data.all_wireframe_instances.buffer());
 
         if wireframe_instances_buffer_changed_capacity {
-            logger_log(&format!(
+            log::debug!(
                 "Resized wireframe instances buffer capacity from {:?} bytes to {:?}, length={:?}, buffer_length={:?}",
                 previous_wireframe_instances_buffer_capacity_bytes,
                 private_data.wireframe_instances_buffer.capacity_bytes(),
                 private_data.wireframe_instances_buffer.length_bytes(),
                 private_data.all_wireframe_instances.buffer().len(),
-            ));
+            );
         }
 
         private_data.bones_and_pbr_instances_bind_group =

@@ -37,14 +37,14 @@ Hopefully one day it will be used in a real game 😃
 
 ## TODO
 
-- change the logger to use rust log crate only (log::info!())
 - add a start button to the web build for audio purpose
+- fix scroll wheel on web
 
 ## Try it out
 
 ```sh
 # native
-RUST_BACKTRACE=1 cargo run --release --features="tracy" --bin example_game
+RUST_LOG=ikari=debug,wgpu=warn RUST_BACKTRACE=1 cargo run --release --features="tracy" --bin example_game
 # web
 cargo build-web --release --bin example_game
 ```

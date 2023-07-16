@@ -1,7 +1,6 @@
 use crate::audio::*;
 use crate::buffer::*;
 use crate::gltf_loader::*;
-use crate::logger::*;
 use crate::mesh::*;
 use crate::renderer::*;
 use crate::scene::*;
@@ -14,6 +13,7 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+// TODO: replace with log::debug and use RUST_LOG module filter to view logs?
 const DEBUG_AUDIO_STREAMING: bool = false;
 
 pub struct AssetLoader {
@@ -110,14 +110,14 @@ impl AssetLoader {
                             .await?;
 
                             if !other_scene_bindable_data.bindable_unlit_meshes.is_empty() {
-                                logger_log("Warning: loading unlit meshes is not yet supported in the asset loader");
+                                log::warn!("Warning: loading unlit meshes is not yet supported in the asset loader");
                             }
 
                             if !other_scene_bindable_data
                                 .bindable_transparent_meshes
                                 .is_empty()
                             {
-                                logger_log(
+                                log::warn!(
                                     "Warning: loading transparent meshes is not yet supported in the asset loader",
                                 );
                             }
@@ -132,12 +132,12 @@ impl AssetLoader {
                                     .insert(next_scene_path, result);
                             }
                             Err(err) => {
-                                logger_log(&format!(
+                                log::error!(
                                     "Error loading scene asset {}: {}\n{}",
                                     next_scene_path,
                                     err,
                                     err.backtrace()
-                                ));
+                                );
                             }
                         }
                     }
@@ -214,12 +214,12 @@ impl AssetLoader {
                                     loaded_audio.lock().unwrap().insert(next_audio_path, result);
                             }
                             Err(err) => {
-                                logger_log(&format!(
+                                log::error!(
                                     "Error loading audio asset {}: {}\n{}",
                                     next_audio_path,
                                     err,
                                     err.backtrace()
-                                ));
+                                );
                             }
                         }
                     }
@@ -247,16 +247,14 @@ impl AssetLoader {
                 let deficit_seconds: f32 =
                     target_max_buffer_length_seconds - buffered_amount_seconds;
                 if DEBUG_AUDIO_STREAMING {
-                    logger_log(&format!(
+                    log::info!(
                         "buffered_amount_seconds={buffered_amount_seconds:?}, deficit_seconds={deficit_seconds:?}",
-                    ));
+                    );
                 }
                 (max_chunk_size_length_seconds + deficit_seconds).max(0.0)
             };
             if DEBUG_AUDIO_STREAMING {
-                logger_log(&format!(
-                    "requested_chunk_size_seconds={requested_chunk_size_seconds:?}"
-                ));
+                log::info!("requested_chunk_size_seconds={requested_chunk_size_seconds:?}");
             }
             is_first_chunk = false;
             match audio_file_streamer
@@ -272,12 +270,12 @@ impl AssetLoader {
                     buffered_amount_seconds += added_buffer_seconds - removed_buffer_seconds;
 
                     if DEBUG_AUDIO_STREAMING {
-                        logger_log(&format!(
+                        log::info!(
                             "Streamed in {:?} samples ({:?} seconds) from file: {}",
                             sample_count,
                             sample_count as f32 / device_sample_rate as f32,
                             audio_file_streamer.file_path(),
-                        ));
+                        );
                     }
 
                     audio_manager
@@ -296,10 +294,10 @@ impl AssetLoader {
                     last_buffer_fill_time = Some(Instant::now());
 
                     if reached_end_of_stream {
-                        logger_log(&format!(
+                        log::info!(
                             "Reached end of stream for file: {}",
                             audio_file_streamer.file_path(),
-                        ));
+                        );
                         break;
                     }
 
@@ -307,12 +305,12 @@ impl AssetLoader {
                     crate::thread::sleep(Duration::from_secs_f32(max_chunk_size_length_seconds));
                 }
                 Err(err) => {
-                    logger_log(&format!(
+                    log::error!(
                         "Error loading audio asset {}: {}\n{}",
                         audio_file_streamer.file_path(),
                         err,
                         err.backtrace()
-                    ));
+                    );
                 }
             }
         });
@@ -395,12 +393,12 @@ impl BindScene for ThreadedSceneBinder {
                             .insert(scene_id, (scene, result));
                     }
                     Err(err) => {
-                        logger_log(&format!(
+                        log::error!(
                             "Error loading scene asset {}: {}\n{}",
                             scene_id,
                             err,
                             err.backtrace()
-                        ));
+                        );
                     }
                 }
             }
@@ -539,12 +537,12 @@ impl BindScene for TimeSlicedSceneBinder {
                         bindable_scenes_guard.insert(scene_id, (scene, bindable_scene));
                     }
                     Err(err) => {
-                        logger_log(&format!(
+                        log::error!(
                             "Error loading asset {}: {}\n{}",
                             scene_id,
                             err,
                             err.backtrace()
-                        ));
+                        );
                         break;
                     }
                 }

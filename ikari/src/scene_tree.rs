@@ -1,5 +1,4 @@
 use crate::collisions::*;
-use crate::logger::*;
 use crate::renderer::*;
 use crate::scene::*;
 
@@ -103,7 +102,7 @@ impl SceneTree {
     fn insert(&mut self, node_id: GameNodeId, node_bounding_sphere: Sphere) {
         let root = self.root_mut();
         if !root.aabb().fully_contains_sphere(node_bounding_sphere) {
-            logger_log(&format!("WARNING Tried to insert a node that's not fully contained by the scene tree. Consider increasing size of the base scene tree. Sphere: {:?}, Root aabb: {:?}", node_bounding_sphere, root.base_aabb));
+            log::warn!("WARNING Tried to insert a node that's not fully contained by the scene tree. Consider increasing size of the base scene tree. Sphere: {:?}, Root aabb: {:?}", node_bounding_sphere, root.base_aabb);
         }
         self.insert_internal(0, node_id, node_bounding_sphere, 0);
     }

@@ -18,7 +18,6 @@ use plotters_iced::{Chart, ChartWidget, DrawingBackend};
 use winit::{event::WindowEvent, window::Window};
 
 use crate::game::*;
-use crate::logger::*;
 use crate::math::*;
 use crate::player_controller::*;
 use crate::profile_dump::*;
@@ -246,7 +245,7 @@ impl Chart<Message> for FpsChart {
         })();
 
         if let Err(err) = result {
-            logger_log(&format!("Error building fps chart: {err:?}"));
+            log::error!("Error building fps chart: {err:?}");
         }
     }
 }

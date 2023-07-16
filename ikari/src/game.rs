@@ -5,7 +5,6 @@ use crate::ball::*;
 use crate::character::*;
 use crate::game_state::*;
 use crate::light::*;
-use crate::logger::*;
 use crate::math::*;
 use crate::mesh::*;
 use crate::physics::*;
@@ -1067,14 +1066,14 @@ pub fn increment_render_scale(
         let surface_config_guard = renderer_base.surface_config.lock().unwrap();
         renderer_data_guard.render_scale =
             (renderer_data_guard.render_scale + change).clamp(0.1, 4.0);
-        logger_log(&format!(
+        log::info!(
             "Render scale: {:?} ({:?}x{:?})",
             renderer_data_guard.render_scale,
             (surface_config_guard.width as f32 * renderer_data_guard.render_scale.sqrt()).round()
                 as u32,
             (surface_config_guard.height as f32 * renderer_data_guard.render_scale.sqrt()).round()
                 as u32,
-        ));
+        )
     }
     renderer.resize(window.inner_size(), window.scale_factor());
 }
@@ -1084,20 +1083,14 @@ pub fn increment_exposure(renderer_data: &mut RendererPublicData, increase: bool
     let change = if increase { delta } else { -delta };
     renderer_data.tone_mapping_exposure =
         (renderer_data.tone_mapping_exposure + change).clamp(0.0, 20.0);
-    logger_log(&format!(
-        "Exposure: {:?}",
-        renderer_data.tone_mapping_exposure
-    ));
+    log::info!("Exposure: {:?}", renderer_data.tone_mapping_exposure);
 }
 
 pub fn increment_bloom_threshold(renderer_data: &mut RendererPublicData, increase: bool) {
     let delta = 0.05;
     let change = if increase { delta } else { -delta };
     renderer_data.bloom_threshold = (renderer_data.bloom_threshold + change).clamp(0.0, 20.0);
-    logger_log(&format!(
-        "Bloom Threshold: {:?}",
-        renderer_data.bloom_threshold
-    ));
+    log::info!("Bloom Threshold: {:?}", renderer_data.bloom_threshold);
 }
 
 #[profiling::function]
