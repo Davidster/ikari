@@ -6,7 +6,6 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-devserver_lib = "0.4.2"
 arboard = "3.2.0"
 pico-args = "0.5.0"
 # TODO: versions 0.2.86 and 0.2.87 seemed to cause an OOM panic when loading a huge
@@ -14,3 +13,5 @@ pico-args = "0.5.0"
 # causes this and open a bug report? Also, why doesn't changing this version number affect
 # the Cargo.lock file?
 wasm-bindgen-cli-support = "0.2.78"
+warp = "0.3.5"
+tokio = { version = "1", features = ["full"] }

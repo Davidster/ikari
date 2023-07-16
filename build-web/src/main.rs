@@ -1,6 +1,7 @@
 use std::{ffi::OsStr, path::PathBuf, process::Command};
 
 use arboard::Clipboard;
+use warp::{http::HeaderValue, hyper::HeaderMap, Filter};
 
 const HELP: &str = "\
 cargo build-web
@@ -243,14 +244,13 @@ fn main() {
     std::fs::write(workspace_root.join(html_file_name), index_processed).unwrap();
 
     if !args.build_only {
-        let host = "localhost";
         let port = args
             .port
             .unwrap_or_else(|| "8000".into())
             .parse()
             .expect("Port should be an integer");
 
-        let url = format!("http://{host}:{port}/{html_file_name}");
+        let url = format!("http://localhost:{port}/{html_file_name}");
 
         println!("\nServing `{binary_name}` on {url}");
 
@@ -263,12 +263,27 @@ fn main() {
             }
         }
 
-        devserver_lib::run(
-            host,
-            port,
-            workspace_root.as_os_str().to_str().unwrap(),
-            false,
-            "\nCross-Origin-Opener-Policy: same-origin\nCross-Origin-Embedder-Policy: require-corp",
-        );
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let mut headers = HeaderMap::new();
+                headers.insert(
+                    "Cross-Origin-Opener-Policy",
+                    HeaderValue::from_static("same-origin"),
+                );
+                headers.insert(
+                    "Cross-Origin-Embedder-Policy",
+                    HeaderValue::from_static("require-corp"),
+                );
+                warp::serve(
+                    warp::fs::dir(workspace_root).with(warp::reply::with::headers(headers)),
+                )
+                .run(([127, 0, 0, 1], port))
+                .await;
+            });
     }
 }
+
+// async fn run_server(port: u16, root: PathBuf) {}
