@@ -887,7 +887,7 @@ impl Renderer {
         vec![
             "Look Around:             Mouse",
             "Move Around:             WASD, Space Bar, Ctrl",
-            "Adjust Speed:            Scroll",
+            "Adjust Speed:            Scroll or Up/Down Arrow Keys",
             "Adjust Render Scale:     Z / X",
             "Adjust Exposure:         E / R",
             "Adjust Bloom Threshold:  T / Y",
@@ -897,7 +897,7 @@ impl Renderer {
             "Toggle Wireframe:        F",
             "Toggle Collision Boxes:  C",
             "Draw Bounding Spheres:   J",
-            "Open Options Menu:       Escape",
+            "Open Options Menu:       Tab",
         ]
         .iter()
         .for_each(|line| {
