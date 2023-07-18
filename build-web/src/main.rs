@@ -285,5 +285,3 @@ fn main() {
             });
     }
 }
-
-// async fn run_server(port: u16, root: PathBuf) {}
