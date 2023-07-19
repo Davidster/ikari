@@ -1,3 +1,4 @@
+use std::error::Error;
 use std::{ffi::OsStr, path::PathBuf, process::Command};
 
 use arboard::Clipboard;
@@ -135,6 +136,8 @@ Remove one flag or the other to continue."#
 
 /// Adapted from cargo-build-web v0.3.2
 fn main() {
+    env_logger::init();
+
     let args = match Args::from_env() {
         Ok(args) => args,
         Err(err) => {
@@ -254,14 +257,12 @@ fn main() {
 
         println!("\nServing `{binary_name}` on {url}");
 
-        match Clipboard::new().and_then(|mut clipboard| clipboard.set_text(url)) {
-            Ok(_) => {
-                println!("URL copied to clipboard!");
-            }
-            Err(err) => {
+        std::thread::spawn(move || {
+            println!("Attempted to copy to clipboard");
+            if let Err(err) = copy_text_to_clipboard(&url) {
                 eprintln!("Failed to copy URL to clipboard: {err}");
             }
-        }
+        });
 
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -284,4 +285,21 @@ fn main() {
                 .await;
             });
     }
+}
+
+fn copy_text_to_clipboard(text: &str) -> Result<(), arboard::Error> {
+    let mut clipboard = Clipboard::new()?;
+
+    #[cfg(target_os = "linux")]
+    {
+        use arboard::SetExtLinux;
+        clipboard.set().wait().text(text)?;
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        clipboard.set().text(text)?;
+    }
+
+    Ok(())
 }
