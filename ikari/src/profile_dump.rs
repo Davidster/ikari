@@ -68,8 +68,8 @@ fn generate_profile_dump_internal() -> anyhow::Result<String> {
     let exit_status = child_process.wait()?;
 
     let std_out_lines = std_out_lines.join("\n");
-    println!("Profile capture stdout:");
-    println!("{std_out_lines}");
+    log::info!("Profile capture stdout:");
+    log::info!("{std_out_lines}");
 
     if !exit_status.success() {
         anyhow::bail!(std_out_lines);

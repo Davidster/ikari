@@ -216,28 +216,3 @@ pub fn build_directional_light_camera_view(
         far_plane_distance: depth / 2.0,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use glam::f32::Vec4;
-
-    use super::*;
-
-    #[test]
-    fn should_i_exist() {
-        let reverse_z_mat =
-            make_perspective_proj_matrix(0.1, 100000.0, deg_to_rad(90.0), 1.0, true);
-        let reg_z_mat = make_perspective_proj_matrix(0.1, 100000.0, deg_to_rad(90.0), 1.0, false);
-        let pos = Vec4::new(-0.5, -0.5, -0.11, 1.0);
-        let reverse_proj_pos = reverse_z_mat * pos;
-        let reg_proj_pos = reg_z_mat * pos;
-        let persp_div = |yo: Vec4| yo / yo.w;
-        println!("{reverse_z_mat:?}");
-        println!("{reg_z_mat:?}");
-        println!("{reverse_proj_pos:?}");
-        println!("{reg_proj_pos:?}");
-        println!("{:?}", persp_div(reverse_proj_pos));
-        println!("{:?}", persp_div(reg_proj_pos));
-        assert_eq!(true, true);
-    }
-}
