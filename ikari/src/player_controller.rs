@@ -227,6 +227,13 @@ impl PlayerController {
                         }
                         _ => {}
                     }
+                } else {
+                    self.is_forward_pressed = false;
+                    self.is_left_pressed = false;
+                    self.is_backward_pressed = false;
+                    self.is_right_pressed = false;
+                    self.is_up_pressed = false;
+                    self.is_down_pressed = false;
                 }
             }
             WindowEvent::Focused(focused) => {
