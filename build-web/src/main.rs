@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::{ffi::OsStr, path::PathBuf, process::Command};
 
 use arboard::Clipboard;
