@@ -398,6 +398,7 @@ name = "build-web"
 version = "0.0.1"
 dependencies = [
  "arboard",
+ "env_logger",
  "pico-args",
  "tokio",
  "warp",

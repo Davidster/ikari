@@ -1959,6 +1959,7 @@ impl Renderer {
         let skybox_texture = match skybox_background {
             SkyboxBackground::Equirectangular { image_path } => {
                 let er_skybox_texture_bytes = crate::file_loader::read(image_path).await?;
+
                 let er_skybox_texture = Texture::from_encoded_image(
                     &base,
                     &er_skybox_texture_bytes,
@@ -1981,6 +1982,8 @@ impl Renderer {
                     Some(image_path),
                     &skybox_mesh,
                     &equirectangular_to_cubemap_pipeline,
+                    &base.single_texture_bind_group_layout,
+                    &single_uniform_bind_group_layout,
                     &er_skybox_texture,
                     false, // an artifact occurs between the edges of the texture with mipmaps enabled
                 )
@@ -2058,6 +2061,8 @@ impl Renderer {
                     Some(image_path),
                     &skybox_mesh,
                     &equirectangular_to_cubemap_pipeline,
+                    &base.single_texture_bind_group_layout,
+                    &single_uniform_bind_group_layout,
                     &skybox_rad_texture_er,
                     false,
                 );
@@ -2072,6 +2077,8 @@ impl Renderer {
             Some("diffuse env map"),
             &skybox_mesh,
             &diffuse_env_map_gen_pipeline,
+            &single_cube_texture_bind_group_layout,
+            &single_uniform_bind_group_layout,
             skybox_rad_texture,
             false,
         );
@@ -2081,6 +2088,8 @@ impl Renderer {
             Some("specular env map"),
             &skybox_mesh,
             &specular_env_map_gen_pipeline,
+            &single_cube_texture_bind_group_layout,
+            &two_uniform_bind_group_layout,
             skybox_rad_texture,
         );
 

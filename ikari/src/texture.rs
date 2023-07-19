@@ -444,11 +444,14 @@ impl Texture {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create_cubemap_from_equirectangular(
         base_renderer: &BaseRenderer,
         label: Option<&str>,
         skybox_buffers: &BindedGeometryBuffers,
         er_to_cubemap_pipeline: &wgpu::RenderPipeline,
+        single_texture_bind_group_layout: &wgpu::BindGroupLayout,
+        single_uniform_bind_group_layout: &wgpu::BindGroupLayout,
         er_texture: &Texture,
         generate_mipmaps: bool,
     ) -> Self {
@@ -463,48 +466,6 @@ impl Texture {
         } else {
             1
         };
-
-        let single_uniform_bind_group_layout =
-            base_renderer
-                .device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
-                    label: USE_LABELS.then_some("single_uniform_bind_group_layout"),
-                });
-
-        let single_texture_bind_group_layout =
-            base_renderer
-                .device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                multisampled: false,
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                    ],
-                    label: USE_LABELS.then_some("single_texture_bind_group_layout"),
-                });
 
         let cubemap_texture = base_renderer
             .device
@@ -532,7 +493,7 @@ impl Texture {
             base_renderer
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &single_uniform_bind_group_layout,
+                    layout: single_uniform_bind_group_layout,
                     entries: &[wgpu::BindGroupEntry {
                         binding: 0,
                         resource: camera_buffer.as_entire_binding(),
@@ -589,7 +550,7 @@ impl Texture {
                     base_renderer
                         .device
                         .create_bind_group(&wgpu::BindGroupDescriptor {
-                            layout: &single_texture_bind_group_layout,
+                            layout: single_texture_bind_group_layout,
                             entries: &[
                                 wgpu::BindGroupEntry {
                                     binding: 0,
@@ -761,11 +722,14 @@ impl Texture {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create_diffuse_env_map(
         base_renderer: &BaseRenderer,
         label: Option<&str>,
         skybox_buffers: &BindedGeometryBuffers,
         env_map_gen_pipeline: &wgpu::RenderPipeline,
+        single_cube_texture_bind_group_layout: &wgpu::BindGroupLayout,
+        single_uniform_bind_group_layout: &wgpu::BindGroupLayout,
         skybox_rad_texture: &Texture,
         generate_mipmaps: bool,
     ) -> Self {
@@ -780,48 +744,6 @@ impl Texture {
         } else {
             1
         };
-
-        let single_uniform_bind_group_layout =
-            base_renderer
-                .device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
-                    label: USE_LABELS.then_some("single_uniform_bind_group_layout"),
-                });
-
-        let single_cube_texture_bind_group_layout =
-            base_renderer
-                .device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                multisampled: false,
-                                view_dimension: wgpu::TextureViewDimension::Cube,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                    ],
-                    label: USE_LABELS.then_some("single_cube_texture_bind_group_layout"),
-                });
 
         let env_map = base_renderer
             .device
@@ -849,7 +771,7 @@ impl Texture {
             base_renderer
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &single_uniform_bind_group_layout,
+                    layout: single_uniform_bind_group_layout,
                     entries: &[wgpu::BindGroupEntry {
                         binding: 0,
                         resource: camera_buffer.as_entire_binding(),
@@ -890,7 +812,7 @@ impl Texture {
                 base_renderer
                     .device
                     .create_bind_group(&wgpu::BindGroupDescriptor {
-                        layout: &single_cube_texture_bind_group_layout,
+                        layout: single_cube_texture_bind_group_layout,
                         entries: &[
                             wgpu::BindGroupEntry {
                                 binding: 0,
@@ -986,6 +908,8 @@ impl Texture {
         label: Option<&str>,
         skybox_buffers: &BindedGeometryBuffers,
         env_map_gen_pipeline: &wgpu::RenderPipeline,
+        single_cube_texture_bind_group_layout: &wgpu::BindGroupLayout,
+        two_uniform_bind_group_layout: &wgpu::BindGroupLayout,
         skybox_rad_texture: &Texture,
     ) -> Self {
         let size = wgpu::Extent3d {
@@ -993,60 +917,6 @@ impl Texture {
             height: skybox_rad_texture.size.height,
             depth_or_array_layers: 6,
         };
-
-        let two_uniform_bind_group_layout =
-            base_renderer
-                .device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Uniform,
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                    ],
-                    label: USE_LABELS.then_some("two_uniform_bind_group_layout "),
-                });
-
-        let single_cube_texture_bind_group_layout =
-            base_renderer
-                .device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                multisampled: false,
-                                view_dimension: wgpu::TextureViewDimension::Cube,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                    ],
-                    label: USE_LABELS.then_some("single_cube_texture_bind_group_layout"),
-                });
 
         let mip_level_count = 5;
 
@@ -1085,7 +955,7 @@ impl Texture {
             base_renderer
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &two_uniform_bind_group_layout,
+                    layout: two_uniform_bind_group_layout,
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
@@ -1138,7 +1008,7 @@ impl Texture {
                             base_renderer
                                 .device
                                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                                    layout: &single_cube_texture_bind_group_layout,
+                                    layout: single_cube_texture_bind_group_layout,
                                     entries: &[
                                         wgpu::BindGroupEntry {
                                             binding: 0,
