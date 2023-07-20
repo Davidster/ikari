@@ -194,7 +194,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
 
     crate::thread::spawn(move || {
         crate::block_on(async move {
-            crate::thread::sleep_async(crate::time::Duration::from_secs_f32(5.0)).await;
+            // crate::thread::sleep_async(crate::time::Duration::from_secs_f32(5.0)).await;
 
             // load in gltf files
 
@@ -216,7 +216,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
                 "src/sounds/bgm.mp3",
                 AudioFileFormat::Mp3,
                 SoundParams {
-                    initial_volume: 0.5,
+                    initial_volume: 0.3,
                     fixed_volume: false,
                     spacial_params: None,
                     stream: !cfg!(target_arch = "wasm32"),
@@ -226,7 +226,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
                 "src/sounds/gunshot.wav",
                 AudioFileFormat::Wav,
                 SoundParams {
-                    initial_volume: 0.75,
+                    initial_volume: 0.4,
                     fixed_volume: true,
                     spacial_params: None,
                     stream: false,
@@ -1255,8 +1255,8 @@ pub fn update_game_state(
             let audio_manager_clone = game_state.audio_manager.clone();
             let bgm_sound_index_clone = bgm_sound_index;
             crate::thread::spawn(move || {
-                #[cfg(not(target_arch = "wasm32"))]
-                crate::thread::sleep(crate::time::Duration::from_secs_f32(5.0));
+                // #[cfg(not(target_arch = "wasm32"))]
+                // crate::thread::sleep(crate::time::Duration::from_secs_f32(5.0));
 
                 let mut audio_manager_guard = audio_manager_clone.lock().unwrap();
                 audio_manager_guard.play_sound(bgm_sound_index_clone);
@@ -1547,7 +1547,7 @@ pub fn update_game_state(
                     audio_manager_guard.reload_sound(
                         gunshot_sound_index,
                         SoundParams {
-                            initial_volume: 0.75,
+                            initial_volume: 0.4,
                             fixed_volume: true,
                             spacial_params: None,
                             stream: false,
