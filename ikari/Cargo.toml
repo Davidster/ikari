@@ -29,15 +29,15 @@ tracy-n-alloc = []
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
-half = "2.2.1"
+half = "2.3.1"
 pollster = "0.3"
 twox-hash = "1.6"
 lazy_static = "1.4"
-smallvec = { version = "1.10", features = ["union", "const_generics"] }
+smallvec = { version = "1.11", features = ["union", "const_generics"] }
 anyhow = { version = "1.0", features = ["backtrace"] }
 threadpool = "1.8.1"
 walkdir = "2.3.3"
-num_cpus = "1.15.0"
+num_cpus = "1.16.0"
 chrono = { version = "0.4.26", default-features = false, features = [
     "std",
     "wasmbind",
@@ -62,7 +62,7 @@ wgpu-profiler = "0.12"
 tracing-tracy = { version = "0.10.2", features = ["ondemand"], optional = true }
 
 # assets
-gltf = "1.1"
+gltf = "1.2"
 image = { version = "0.24", default-features = false, features = [
     "hdr",
     "jpeg",
@@ -78,7 +78,7 @@ winit = { version = "0.27", git = "https://github.com/iced-rs/winit.git", rev = 
 # math
 rand = { version = "0.8", features = ["small_rng"] }
 rapier3d = "0.17"
-glam = { version = "0.24.0", features = ["approx", "bytemuck"] }
+glam = { version = "0.24.1", features = ["approx", "bytemuck"] }
 approx = "0.5"
 
 # audio
@@ -106,12 +106,12 @@ iced_aw = { git = "https://github.com/iced-rs/iced_aw.git", branch = "main", def
 wasm_thread = { version = "0.2.0", features = ["es_modules"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 basis-universal = "0.3.0"
-zstd = "0.12.3"
+zstd = "0.12.4"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-js-sys = "0.3.63"
-wasm-bindgen-futures = "0.4.36"
-web-sys = { version = "0.3.63", features = [
+js-sys = "0.3.64"
+wasm-bindgen-futures = "0.4.37"
+web-sys = { version = "0.3.64", features = [
     "Document",
     "Window",
     "Element",
@@ -123,12 +123,12 @@ web-sys = { version = "0.3.63", features = [
     "Blob",
     "WorkerGlobalScope",
 ] }
-getrandom = { version = "0.2.9", features = ["js"] }
-serde = "1.0.163"
-serde_derive = "1.0.163"
+getrandom = { version = "0.2.10", features = ["js"] }
+serde = "1.0.173"
+serde_derive = "1.0.173"
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
-wasm-bindgen = { version = "0.2.86", features = ["serde-serialize"] }
+wasm-bindgen = { version = "0.2.87", features = ["serde-serialize"] }
 cpal = { git = "https://github.com/DouglasDwyer/cpal.git", rev = "91aeb4d", features = [
     "wasm-bindgen",
 ] }
