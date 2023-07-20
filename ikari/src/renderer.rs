@@ -26,6 +26,7 @@ use wgpu::util::DeviceExt;
 use wgpu::InstanceDescriptor;
 
 use wgpu_profiler::wgpu_profiler;
+use wgpu_profiler::GpuProfiler;
 use winit::window::Window;
 
 pub const USE_LABELS: bool = true;
@@ -843,13 +844,12 @@ pub struct RendererPublicData {
     pub soft_shadow_factor: f32,
     pub enable_shadow_debug: bool,
     pub soft_shadow_grid_dims: u32,
-
-    pub ui_overlay: IkariUiOverlay,
 }
 
 pub struct Renderer {
     pub base: Arc<BaseRenderer>,
     pub data: Arc<Mutex<RendererPublicData>>,
+    pub ui_overlay: IkariUiOverlay,
 
     private_data: Mutex<RendererPrivateData>,
 
@@ -884,8 +884,7 @@ pub struct Renderer {
 impl Renderer {
     pub async fn new(base: BaseRenderer, window: &Window) -> Result<Self> {
         log::info!("Controls:");
-        vec![
-            "Look Around:             Mouse",
+        ["Look Around:             Mouse",
             "Move Around:             WASD, Space Bar, Ctrl",
             "Adjust Speed:            Scroll or Up/Down Arrow Keys",
             "Adjust Render Scale:     Z / X",
@@ -897,8 +896,7 @@ impl Renderer {
             "Toggle Wireframe:        F",
             "Toggle Collision Boxes:  C",
             "Draw Bounding Spheres:   J",
-            "Open Options Menu:       Tab",
-        ]
+            "Open Options Menu:       Tab"]
         .iter()
         .for_each(|line| {
             log::info!("  {line}");
@@ -2412,8 +2410,6 @@ impl Renderer {
             soft_shadow_factor,
             enable_shadow_debug,
             soft_shadow_grid_dims,
-
-            ui_overlay,
         };
 
         let box_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &cube_mesh)
@@ -2448,6 +2444,7 @@ impl Renderer {
         let renderer = Self {
             base: Arc::new(base),
             data: Arc::new(Mutex::new(data)),
+            ui_overlay,
 
             private_data: Mutex::new(RendererPrivateData {
                 all_bone_transforms: AllBoneTransforms {
@@ -2575,7 +2572,7 @@ impl Renderer {
         transparent_mesh_index
     }
 
-    pub fn unbind_transparent_mesh(data: &mut RendererPublicData, mesh_index: usize) {
+    pub fn unbind_transparent_mesh(data: &RendererPublicData, mesh_index: usize) {
         let geometry_buffers = &data.binded_transparent_meshes[mesh_index];
         let wireframe_mesh = data
             .binded_wireframe_meshes
@@ -2742,13 +2739,13 @@ impl Renderer {
             .configure(&self.base.device, &surface_config);
     }
 
-    pub fn resize(&self, new_window_size: winit::dpi::PhysicalSize<u32>, scale_factor: f64) {
+    pub fn resize(&mut self, new_window_size: winit::dpi::PhysicalSize<u32>, scale_factor: f64) {
         // let mut base_guard = self.base.lock().unwrap();
-        let mut data_guard = self.data.lock().unwrap();
+        let data_guard = self.data.lock().unwrap();
         let mut private_data_guard = self.private_data.lock().unwrap();
         let render_scale = data_guard.render_scale;
 
-        data_guard.ui_overlay.resize(new_window_size, scale_factor);
+        self.ui_overlay.resize(new_window_size, scale_factor);
 
         *self.base.window_size.lock().unwrap() = new_window_size;
         let surface_config = {
@@ -3155,31 +3152,13 @@ impl Renderer {
     }
 
     pub fn render(
-        &self,
+        &mut self,
         game_state: &mut GameState,
         window: &winit::window::Window,
         control_flow: &mut winit::event_loop::ControlFlow,
     ) -> anyhow::Result<()> {
-        // let mut base_guard = self.base.lock().unwrap();
-        let mut data_guard = self.data.lock().unwrap();
-        let mut private_data_guard = self.private_data.lock().unwrap();
-        let mut profiler_guard = self.profiler.lock().unwrap();
-
-        self.update_internal(
-            &self.base,
-            &mut data_guard,
-            &mut private_data_guard,
-            game_state,
-            window,
-            control_flow,
-        );
-        self.render_internal(
-            &self.base,
-            &mut data_guard,
-            &mut private_data_guard,
-            &mut profiler_guard,
-            game_state,
-        )
+        self.update_internal(game_state, window, control_flow);
+        self.render_internal(game_state)
     }
 
     // culling mask is a bitmask where each bit corresponds to a frustum
@@ -3264,18 +3243,21 @@ impl Renderer {
     /// Prepare and send all data to gpu so it's ready to render
     #[profiling::function]
     fn update_internal(
-        &self,
-        base: &BaseRenderer,
-        data: &mut RendererPublicData,
-        private_data: &mut RendererPrivateData,
+        &mut self,
         game_state: &mut GameState,
         window: &winit::window::Window,
         control_flow: &mut winit::event_loop::ControlFlow,
     ) {
-        data.ui_overlay.update(window, control_flow);
+        let mut data_guard = self.data.lock().unwrap();
+        let data: &mut RendererPublicData = &mut data_guard;
+
+        let mut private_data_guard = self.private_data.lock().unwrap();
+        let private_data: &mut RendererPrivateData = &mut private_data_guard;
+
+        self.ui_overlay.update(window, control_flow);
 
         let surface_format = self.base.surface_config.lock().unwrap().format;
-        let window_size = *base.window_size.lock().unwrap();
+        let window_size = *self.base.window_size.lock().unwrap();
         let aspect_ratio = window_size.width as f32 / window_size.height as f32;
         let camera_position = game_state
             .player_controller
@@ -3311,10 +3293,11 @@ impl Renderer {
         // TODO: compute node bounding spheres here too?
         game_state.scene.recompute_global_node_transforms();
 
-        let limits = &base.limits;
-        let queue = &base.queue;
-        let device = &base.device;
-        let bones_and_instances_bind_group_layout = &base.bones_and_instances_bind_group_layout;
+        let limits = &self.base.limits;
+        let queue = &self.base.queue;
+        let device = &self.base.device;
+        let bones_and_instances_bind_group_layout =
+            &self.base.bones_and_instances_bind_group_layout;
 
         private_data.all_bone_transforms = get_all_bone_data(
             &game_state.scene,
@@ -3539,7 +3522,8 @@ impl Renderer {
             }
         }
 
-        let min_storage_buffer_offset_alignment = base.limits.min_storage_buffer_offset_alignment;
+        let min_storage_buffer_offset_alignment =
+            self.base.limits.min_storage_buffer_offset_alignment;
 
         private_data.all_pbr_instances_culling_masks.clear();
 
@@ -3833,7 +3817,8 @@ impl Renderer {
                 private_data
                     .camera_buffers
                     .push(
-                        base.device
+                        self.base
+                            .device
                             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                                 label: USE_LABELS.then_some("Camera Buffer"),
                                 contents: &contents,
@@ -3842,32 +3827,41 @@ impl Renderer {
                     );
                 private_data
                     .camera_lights_and_pbr_shader_options_bind_groups
-                    .push(base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        layout:
-                            &private_data.camera_lights_and_pbr_shader_options_bind_group_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: private_data.camera_buffers[i].as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: private_data.point_lights_buffer.as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 2,
-                                resource:
-                                    private_data.directional_lights_buffer.as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 3,
-                                resource:
-                                    private_data.pbr_shader_options_buffer.as_entire_binding(),
-                            },
-                        ],
-                        label:
-                            USE_LABELS.then_some("camera_lights_and_pbr_shader_options_bind_group"),
-                    }));
+                    .push(
+                        self.base
+                            .device
+                            .create_bind_group(&wgpu::BindGroupDescriptor {
+                                layout: &private_data
+                                    .camera_lights_and_pbr_shader_options_bind_group_layout,
+                                entries: &[
+                                    wgpu::BindGroupEntry {
+                                        binding: 0,
+                                        resource: private_data.camera_buffers[i]
+                                            .as_entire_binding(),
+                                    },
+                                    wgpu::BindGroupEntry {
+                                        binding: 1,
+                                        resource: private_data
+                                            .point_lights_buffer
+                                            .as_entire_binding(),
+                                    },
+                                    wgpu::BindGroupEntry {
+                                        binding: 2,
+                                        resource: private_data
+                                            .directional_lights_buffer
+                                            .as_entire_binding(),
+                                    },
+                                    wgpu::BindGroupEntry {
+                                        binding: 3,
+                                        resource: private_data
+                                            .pbr_shader_options_buffer
+                                            .as_entire_binding(),
+                                    },
+                                ],
+                                label: USE_LABELS
+                                    .then_some("camera_lights_and_pbr_shader_options_bind_group"),
+                            }),
+                    );
             } else {
                 queue.write_buffer(&private_data.camera_buffers[i], 0, &contents)
             }
@@ -3930,12 +3924,12 @@ impl Renderer {
                 0f32,
             ]),
         );
-        base.queue.write_buffer(
+        self.base.queue.write_buffer(
             &private_data.bloom_config_buffers[0],
             0,
             bytemuck::cast_slice(&[0.0f32, data.bloom_threshold, data.bloom_ramp_size]),
         );
-        base.queue.write_buffer(
+        self.base.queue.write_buffer(
             &private_data.bloom_config_buffers[1],
             0,
             bytemuck::cast_slice(&[1.0f32, data.bloom_threshold, data.bloom_ramp_size]),
@@ -3954,20 +3948,23 @@ impl Renderer {
     }
 
     #[profiling::function]
-    pub fn render_internal(
-        &self,
-        base: &BaseRenderer,
-        data: &mut RendererPublicData,
-        private_data: &mut RendererPrivateData,
-        profiler: &mut wgpu_profiler::GpuProfiler,
-        game_state: &mut GameState,
-    ) -> anyhow::Result<()> {
-        let surface_texture = base.surface.get_current_texture()?;
+    pub fn render_internal(&mut self, game_state: &mut GameState) -> anyhow::Result<()> {
+        let mut data_guard = self.data.lock().unwrap();
+        let data: &mut RendererPublicData = &mut data_guard;
+
+        let mut private_data_guard = self.private_data.lock().unwrap();
+        let private_data: &mut RendererPrivateData = &mut private_data_guard;
+
+        let mut profiler_guard = self.profiler.lock().unwrap();
+        let profiler: &mut GpuProfiler = &mut profiler_guard;
+
+        let surface_texture = self.base.surface.get_current_texture()?;
         let surface_texture_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = base
+        let mut encoder = self
+            .base
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
@@ -4001,7 +3998,7 @@ impl Renderer {
                         }),
                     };
                     Self::render_pbr_meshes(
-                        base,
+                        &self.base,
                         data,
                         private_data,
                         profiler,
@@ -4066,7 +4063,7 @@ impl Renderer {
                         };
 
                         Self::render_pbr_meshes(
-                            base,
+                            &self.base,
                             data,
                             private_data,
                             profiler,
@@ -4114,7 +4111,7 @@ impl Renderer {
         };
 
         Self::render_pbr_meshes(
-            base,
+            &self.base,
             data,
             private_data,
             profiler,
@@ -4149,7 +4146,7 @@ impl Renderer {
                 }),
             });
 
-            wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
+            wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
                 render_pass.set_pipeline(&self.unlit_mesh_pipeline);
 
                 render_pass.set_bind_group(
@@ -4266,7 +4263,7 @@ impl Renderer {
                     depth_stencil_attachment: None,
                 });
 
-                wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
+                wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
                     render_pass.set_pipeline(&self.bloom_threshold_pipeline);
                     render_pass.set_bind_group(0, &private_data.shading_texture_bind_group, &[]);
                     render_pass.set_bind_group(1, &private_data.bloom_config_bind_groups[0], &[]);
@@ -4293,7 +4290,7 @@ impl Renderer {
                         depth_stencil_attachment: None,
                     });
 
-                    wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
+                    wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
                         render_pass.set_pipeline(&self.bloom_blur_pipeline);
                         render_pass.set_bind_group(0, src_texture, &[]);
                         render_pass.set_bind_group(
@@ -4331,7 +4328,7 @@ impl Renderer {
                 })],
                 depth_stencil_attachment: None,
             });
-            wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {});
+            wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {});
             private_data.bloom_threshold_cleared = true;
         }
 
@@ -4357,7 +4354,7 @@ impl Renderer {
                 }),
             });
 
-            wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
+            wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
                 render_pass.set_pipeline(&self.skybox_pipeline);
                 render_pass.set_bind_group(0, &private_data.environment_textures_bind_group, &[]);
                 render_pass.set_bind_group(
@@ -4394,7 +4391,7 @@ impl Renderer {
                 })],
                 depth_stencil_attachment: None,
             });
-            wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
+            wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
                 render_pass.set_pipeline(&self.tone_mapping_pipeline);
                 render_pass.set_bind_group(
                     0,
@@ -4428,7 +4425,7 @@ impl Renderer {
                 }),
             });
 
-            wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
+            wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
                 render_pass.set_pipeline(&self.transparent_mesh_pipeline);
 
                 render_pass.set_bind_group(
@@ -4484,7 +4481,7 @@ impl Renderer {
                     depth_stencil_attachment: None,
                 });
 
-                wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
+                wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
                     {
                         render_pass.set_pipeline(&self.pre_gamma_surface_blit_pipeline);
                         render_pass.set_bind_group(
@@ -4498,8 +4495,8 @@ impl Renderer {
             }
 
             // TODO: pass a separate encoder to the ui overlay so it can be profiled
-            data.ui_overlay
-                .render(&base.device, &mut encoder, &pre_gamma_fb.view);
+            self.ui_overlay
+                .render(&self.base.device, &mut encoder, &pre_gamma_fb.view);
         }
 
         {
@@ -4517,7 +4514,7 @@ impl Renderer {
                 depth_stencil_attachment: None,
             });
 
-            wgpu_profiler!(label, profiler, &mut render_pass, &base.device, {
+            wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
                 {
                     render_pass.set_pipeline(&self.surface_blit_pipeline);
                     render_pass.set_bind_group(
@@ -4540,13 +4537,13 @@ impl Renderer {
 
         if private_data.pre_gamma_fb.is_none() {
             // TODO: pass a separate encoder to the ui overlay so it can be profiled
-            data.ui_overlay
-                .render(&base.device, &mut encoder, &surface_texture_view);
+            self.ui_overlay
+                .render(&self.base.device, &mut encoder, &surface_texture_view);
         }
 
         profiler.resolve_queries(&mut encoder);
 
-        base.queue.submit(std::iter::once(encoder.finish()));
+        self.base.queue.submit(std::iter::once(encoder.finish()));
 
         surface_texture.present();
 

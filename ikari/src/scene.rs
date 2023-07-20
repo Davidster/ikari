@@ -323,7 +323,7 @@ impl Scene {
                 node.id = convert_node_id(node.id);
             }
         }
-        for mut skin in &mut other_scene.skins {
+        for skin in &mut other_scene.skins {
             skin.bone_node_ids = skin
                 .bone_node_ids
                 .iter()

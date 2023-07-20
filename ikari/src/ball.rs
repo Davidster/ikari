@@ -75,7 +75,7 @@ impl BallComponent {
 
         // do collision
         let pos_2d = Vec2::new(new_position.x, new_position.z);
-        let ball_edges: Vec<_> = vec![
+        let ball_edges: Vec<_> = [
             Vec2::new(self.radius, 0.0),
             Vec2::new(0.0, self.radius),
             Vec2::new(-self.radius, 0.0),

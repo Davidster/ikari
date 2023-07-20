@@ -53,9 +53,7 @@ pub fn run() {
         pool.execute(move || {
             ikari::block_on(async {
                 let (path, is_srgb, is_normal_map) = &texture_paths[texture_index];
-                println!(
-                    "start {path:?} (srgb={is_srgb:?}, is_normal_map={is_normal_map:?})"
-                );
+                println!("start {path:?} (srgb={is_srgb:?}, is_normal_map={is_normal_map:?})");
                 compress_file(path.as_path(), *is_srgb, *is_normal_map)
                     .await
                     .unwrap();
@@ -91,7 +89,7 @@ fn find_gltf_texture_paths() -> anyhow::Result<Vec<(PathBuf, bool, bool)>> {
 
         for texture in gltf.textures() {
             let is_srgb = gltf.materials().any(|material| {
-                vec![
+                [
                     material.emissive_texture(),
                     material.pbr_metallic_roughness().base_color_texture(),
                 ]

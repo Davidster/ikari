@@ -333,7 +333,7 @@ async fn get_textures(
         let source_image_index = texture.source().index();
 
         let is_srgb = materials.iter().any(|material| {
-            vec![
+            [
                 material.emissive_texture(),
                 material.pbr_metallic_roughness().base_color_texture(),
             ]
@@ -686,11 +686,7 @@ fn get_full_node_list_impl<'a>(
     node: gltf::scene::Node<'a>,
     acc: Vec<gltf::scene::Node<'a>>,
 ) -> Vec<gltf::scene::Node<'a>> {
-    let acc_with_self: Vec<_> = acc
-        .iter()
-        .chain(vec![node.clone()].iter())
-        .cloned()
-        .collect();
+    let acc_with_self: Vec<_> = acc.iter().chain([node.clone()].iter()).cloned().collect();
     if node.children().count() == 0 {
         acc_with_self
     } else {
@@ -1121,15 +1117,13 @@ fn get_vertex_normals(
                     let a_to_b = Vec3::new(b[0], b[1], b[2]) - Vec3::new(a[0], a[1], a[2]);
                     let a_to_c = Vec3::new(c[0], c[1], c[2]) - Vec3::new(a[0], a[1], a[2]);
                     let normal = a_to_b.cross(a_to_c).normalize();
-                    vec![index_a, index_b, index_c]
-                        .iter()
-                        .for_each(|vertex_index| {
-                            let (accumulated_normal, count) = vertex_normal_accumulators
-                                .entry(*vertex_index)
-                                .or_insert((Vec3::new(0.0, 0.0, 0.0), 0));
-                            *accumulated_normal += normal;
-                            *count += 1;
-                        });
+                    [index_a, index_b, index_c].iter().for_each(|vertex_index| {
+                        let (accumulated_normal, count) = vertex_normal_accumulators
+                            .entry(*vertex_index)
+                            .or_insert((Vec3::new(0.0, 0.0, 0.0), 0));
+                        *accumulated_normal += normal;
+                        *count += 1;
+                    });
                 });
             (0..vertex_position_count)
                 .map(|vertex_index| {
