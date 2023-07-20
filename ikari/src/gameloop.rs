@@ -14,10 +14,10 @@ use winit::{
 };
 
 pub fn run(
-    mut window: Window,
+    window: Window,
     event_loop: EventLoop<()>,
     mut game_state: GameState,
-    renderer: Renderer,
+    mut renderer: Renderer,
 ) {
     let mut last_frame_start_time: Option<Instant> = None;
 
@@ -56,11 +56,11 @@ pub fn run(
                     let mut renderer_data_guard = renderer.data.lock().unwrap();
 
                     if let Some(frame_duration) = frame_duration {
-                        renderer_data_guard.ui_overlay.send_message(
+                        renderer.ui_overlay.send_message(
                             crate::ui_overlay::Message::FrameCompleted(frame_duration),
                         );
                         if let Some(gpu_timing_info) = renderer.process_profiler_frame() {
-                            renderer_data_guard.ui_overlay.send_message(
+                            renderer.ui_overlay.send_message(
                                 crate::ui_overlay::Message::GpuFrameCompleted(gpu_timing_info),
                             );
                         }
@@ -70,7 +70,7 @@ pub fn run(
                         .player_controller
                         .position(&game_state.physics_state);
                     let camera_view_direction = game_state.player_controller.view_direction;
-                    renderer_data_guard.ui_overlay.send_message(
+                    renderer.ui_overlay.send_message(
                         crate::ui_overlay::Message::CameraPoseChanged((
                             camera_position,
                             camera_view_direction,
@@ -93,7 +93,7 @@ pub fn run(
                                 .get_sound_buffered_to_pos_seconds(sound_index)
                                 .unwrap();
 
-                            renderer_data_guard.ui_overlay.send_message(
+                            renderer.ui_overlay.send_message(
                                 crate::ui_overlay::Message::AudioSoundStatsChanged((
                                     file_path.clone(),
                                     AudioSoundStats {
@@ -106,7 +106,7 @@ pub fn run(
                         }
                     }
 
-                    let ui_state = renderer_data_guard.ui_overlay.get_state().clone();
+                    let ui_state = renderer.ui_overlay.get_state().clone();
 
                     renderer_data_guard.enable_soft_shadows = ui_state.enable_soft_shadows;
                     renderer_data_guard.soft_shadow_factor = ui_state.soft_shadow_factor;
@@ -184,14 +184,9 @@ pub fn run(
                     _ => {}
                 };
 
-                renderer
-                    .data
-                    .lock()
-                    .unwrap()
-                    .ui_overlay
-                    .handle_window_event(&window, &event);
+                renderer.ui_overlay.handle_window_event(&window, &event);
 
-                process_window_input(&mut game_state, &renderer, &event, &mut window);
+                process_window_input(&mut game_state, &mut renderer, &event, &window);
             }
             _ => {}
         }

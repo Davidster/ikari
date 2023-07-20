@@ -200,7 +200,7 @@ impl BasicMesh {
             .collect();
         let mut composite_index_map: HashMap<(usize, usize, usize), Vertex> = HashMap::new();
         triangles.iter().for_each(|(vti1, vti2, vti3)| {
-            let points = vec![vti1, vti2, vti3];
+            let points = [vti1, vti2, vti3];
             let points_with_attribs: Vec<_> = points
                 .iter()
                 .map(|vti| {
@@ -275,7 +275,7 @@ impl BasicMesh {
         let indices: Vec<_> = triangles
             .iter()
             .flat_map(|(vti1, vti2, vti3)| {
-                vec![vti1, vti2, vti3]
+                [vti1, vti2, vti3]
                     .iter()
                     .flat_map(|vti| {
                         let pos_index = vti.0;

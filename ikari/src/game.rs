@@ -867,7 +867,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
         },
     )?;
     let crosshair_quad = BasicMesh {
-        vertices: vec![[1.0, 1.0], [1.0, -1.0], [-1.0, -1.0], [-1.0, 1.0]]
+        vertices: [[1.0, 1.0], [1.0, -1.0], [-1.0, -1.0], [-1.0, 1.0]]
             .iter()
             .map(|position| Vertex {
                 position: [0.0, position[1], position[0]],
@@ -976,14 +976,14 @@ pub fn process_device_input(
 ) {
     game_state
         .player_controller
-        .process_device_events(event, &mut renderer.data.lock().unwrap().ui_overlay);
+        .process_device_events(event, &renderer.ui_overlay);
 }
 
 pub fn process_window_input(
     game_state: &mut GameState,
-    renderer: &Renderer,
+    renderer: &mut Renderer,
     event: &winit::event::WindowEvent,
-    window: &mut winit::window::Window,
+    window: &winit::window::Window,
 ) {
     if let WindowEvent::KeyboardInput {
         input:
@@ -1001,11 +1001,11 @@ pub fn process_window_input(
             match keycode {
                 VirtualKeyCode::Z => {
                     drop(render_data_guard);
-                    increment_render_scale(renderer, &renderer.base, false, window);
+                    increment_render_scale(renderer, false, window);
                 }
                 VirtualKeyCode::X => {
                     drop(render_data_guard);
-                    increment_render_scale(renderer, &renderer.base, true, window);
+                    increment_render_scale(renderer, true, window);
                 }
                 VirtualKeyCode::E => {
                     increment_exposure(&mut render_data_guard, false);
@@ -1045,25 +1045,22 @@ pub fn process_window_input(
             }
         }
     }
-    game_state.player_controller.process_window_events(
-        event,
-        window,
-        &mut renderer.data.lock().unwrap().ui_overlay,
-    );
+    game_state
+        .player_controller
+        .process_window_events(event, window, &mut renderer.ui_overlay);
 }
 
 pub fn increment_render_scale(
-    renderer: &Renderer,
-    renderer_base: &BaseRenderer,
+    renderer: &mut Renderer,
     increase: bool,
-    window: &mut winit::window::Window,
+    window: &winit::window::Window,
 ) {
     let delta = 0.1;
     let change = if increase { delta } else { -delta };
 
     {
         let mut renderer_data_guard = renderer.data.lock().unwrap();
-        let surface_config_guard = renderer_base.surface_config.lock().unwrap();
+        let surface_config_guard = renderer.base.surface_config.lock().unwrap();
         renderer_data_guard.render_scale =
             (renderer_data_guard.render_scale + change).clamp(0.1, 4.0);
         log::info!(

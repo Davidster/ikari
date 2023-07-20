@@ -644,7 +644,7 @@ impl Texture {
     ) -> Self {
         // order of the images for a cubemap is documented here:
         // https://www.khronos.org/opengl/wiki/Cubemap_Texture
-        let images_as_rgba = vec![
+        let images_as_rgba = [
             images.pos_x,
             images.neg_x,
             images.pos_y,

@@ -122,7 +122,7 @@ impl PlayerController {
         self.speed = (self.speed + (direction * amount)).clamp(0.5, 300.0);
     }
 
-    pub fn process_device_events(&mut self, event: &DeviceEvent, ui_overlay: &mut IkariUiOverlay) {
+    pub fn process_device_events(&mut self, event: &DeviceEvent, ui_overlay: &IkariUiOverlay) {
         if !self.is_controlling_game(ui_overlay) {
             return;
         }
@@ -144,7 +144,7 @@ impl PlayerController {
         };
     }
 
-    fn update_cursor_grab(&mut self, is_showing_options_menu: bool, window: &mut Window) {
+    fn update_cursor_grab(&mut self, is_showing_options_menu: bool, window: &Window) {
         let grab = self.is_window_focused_and_clicked && !is_showing_options_menu;
 
         let new_grab_mode = if !grab {
@@ -169,7 +169,7 @@ impl PlayerController {
     pub fn process_window_events(
         &mut self,
         event: &WindowEvent,
-        window: &mut Window,
+        window: &Window,
         ui_overlay: &mut IkariUiOverlay,
     ) {
         let is_showing_options_menu = ui_overlay.get_state().is_showing_options_menu;
