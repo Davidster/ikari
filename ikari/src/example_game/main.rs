@@ -7,6 +7,8 @@ use wasm_bindgen::prelude::*;
 
 async fn start() {
     let run_result = async {
+        let application_start_time = ikari::time::Instant::now();
+
         let event_loop = winit::event_loop::EventLoop::new();
 
         let window = {
@@ -47,6 +49,8 @@ async fn start() {
             canvas_container.append_child(&canvas).unwrap();
         }
 
+        log::debug!("window: {:?}", application_start_time.elapsed());
+
         let base_render_state = {
             let backends = if cfg!(target_os = "windows") {
                 wgpu::Backends::from(wgpu::Backend::Dx12)
@@ -56,13 +60,28 @@ async fn start() {
             };
             BaseRenderer::new(&window, backends, wgpu::PresentMode::AutoNoVsync).await
         };
+
+        log::debug!("base render: {:?}", application_start_time.elapsed());
+
         let game_scene = Scene::default();
+
+        log::debug!("game scene: {:?}", application_start_time.elapsed());
 
         let mut renderer = Renderer::new(base_render_state, &window).await?;
 
+        log::debug!("renderer: {:?}", application_start_time.elapsed());
+
         let game_state = init_game_state(game_scene, &mut renderer).await?;
 
-        ikari::gameloop::run(window, event_loop, game_state, renderer); // this will block while the game is running
+        log::debug!("game state: {:?}", application_start_time.elapsed());
+
+        ikari::gameloop::run(
+            window,
+            event_loop,
+            game_state,
+            renderer,
+            application_start_time,
+        ); // this will block while the game is running
         anyhow::Ok(())
     }
     .await;

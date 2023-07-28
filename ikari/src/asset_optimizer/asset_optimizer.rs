@@ -9,7 +9,7 @@ use walkdir::WalkDir;
 
 use ikari::texture_compression::{texture_path_to_compressed_path, TextureCompressionArgs};
 
-const DATA_FOLDER: &str = "./src";
+const DATA_FOLDER: &str = "./ikari/src";
 const COMPRESSION_THREAD_COUNT: usize = 4;
 
 pub fn run() {
@@ -41,7 +41,7 @@ pub fn run() {
 
     let texture_paths = Arc::new(texture_paths);
 
-    let worker_count = num_cpus::get() / COMPRESSION_THREAD_COUNT;
+    let worker_count = (num_cpus::get() / COMPRESSION_THREAD_COUNT).max(1);
     let texture_count = texture_paths.len();
 
     let pool = ThreadPool::new(worker_count);

@@ -35,6 +35,14 @@ Hopefully one day it will be used in a real game 😃
 - Mipmapping
 - Reverse-Z for better depth accuracy / less z-fighting
 
+## TODO
+
+- pre-process skyboxes
+- support time-sliced skybox binder?
+- allow to blend between two skyboxes to allow transition
+- find all occurences of dynamic image and try to remove them, should be faster?
+- take as much stuff out of baserenderer as possible
+
 ## Try it out
 
 ```sh

@@ -18,7 +18,9 @@ pub fn run(
     event_loop: EventLoop<()>,
     mut game_state: GameState,
     mut renderer: Renderer,
+    application_start_time: Instant,
 ) {
+    let mut logged_start_time = false;
     let mut last_frame_start_time: Option<Instant> = None;
 
     #[cfg(target_arch = "wasm32")]
@@ -43,11 +45,7 @@ pub fn run(
                 let frame_duration = last_frame_start_time.map(|time| time.elapsed());
                 last_frame_start_time = Some(Instant::now());
 
-                update_game_state(
-                    &mut game_state,
-                    renderer.base.clone(),
-                    renderer.data.clone(),
-                );
+                update_game_state(&mut game_state, &mut renderer);
 
                 {
                     // sync UI
@@ -56,6 +54,14 @@ pub fn run(
                     let mut renderer_data_guard = renderer.data.lock().unwrap();
 
                     if let Some(frame_duration) = frame_duration {
+                        if !logged_start_time {
+                            log::debug!(
+                                "Took {:?} from process startup till first frame",
+                                application_start_time.elapsed()
+                            );
+                            logged_start_time = true;
+                        }
+
                         renderer.ui_overlay.send_message(
                             crate::ui_overlay::Message::FrameCompleted(frame_duration),
                         );

@@ -3,12 +3,15 @@ use crate::buffer::*;
 use crate::gltf_loader::*;
 use crate::mesh::*;
 use crate::renderer::*;
+use crate::sampler_cache::*;
 use crate::scene::*;
 use crate::texture::*;
 use crate::time::*;
 
 use anyhow::bail;
 use anyhow::Result;
+use image::GenericImageView;
+use image::Pixel;
 use std::collections::{hash_map::Entry, HashMap};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -23,6 +26,17 @@ pub struct AssetLoader {
     audio_manager: Arc<Mutex<AudioManager>>,
     pending_scenes: Arc<Mutex<Vec<String>>>,
     scene_binder: Arc<Mutex<Box<dyn BindScene + Send + Sync>>>,
+
+    pending_skyboxes: Arc<
+        Mutex<
+            Vec<(
+                String,
+                SkyboxBackgroundPath<'static>,
+                Option<SkyboxHDREnvironmentPath<'static>>,
+            )>,
+        >,
+    >,
+    skybox_binder: Arc<Mutex<Box<dyn BindSkybox + Send + Sync>>>,
 }
 
 /// loading must be split into two phases:
@@ -55,6 +69,21 @@ struct TimeSlicedSceneBinder {
     loaded_scenes: Arc<Mutex<HashMap<String, (Scene, BindedSceneData)>>>,
 }
 
+trait BindSkybox {
+    fn update(
+        &mut self,
+        base_renderer: Arc<BaseRenderer>,
+        renderer_constant_data: Arc<RendererConstantData>,
+    );
+    fn bindable_skyboxes(&self) -> Arc<Mutex<HashMap<String, BindableSkybox>>>;
+    fn loaded_skyboxes(&self) -> Arc<Mutex<HashMap<String, BindedSkybox>>>;
+}
+
+struct ThreadedSkyboxBinder {
+    bindable_skyboxes: Arc<Mutex<HashMap<String, BindableSkybox>>>,
+    loaded_skyboxes: Arc<Mutex<HashMap<String, BindedSkybox>>>,
+}
+
 impl AssetLoader {
     pub fn new(audio_manager: Arc<Mutex<AudioManager>>) -> Self {
         let bindable_scenes = Arc::new(Mutex::new(HashMap::new()));
@@ -64,12 +93,23 @@ impl AssetLoader {
         } else {
             Box::new(ThreadedSceneBinder::new(bindable_scenes, loaded_scenes))
         };
+
+        let bindable_skyboxes = Arc::new(Mutex::new(HashMap::new()));
+        let loaded_skyboxes = Arc::new(Mutex::new(HashMap::new()));
+        let skybox_binder: Box<dyn BindSkybox + Send + Sync> = Box::new(ThreadedSkyboxBinder {
+            bindable_skyboxes,
+            loaded_skyboxes,
+        });
+
         Self {
             scene_binder: Arc::new(Mutex::new(scene_binder)),
+            skybox_binder: Arc::new(Mutex::new(skybox_binder)),
             pending_scenes: Arc::new(Mutex::new(Vec::new())),
             audio_manager,
             pending_audio: Arc::new(Mutex::new(Vec::new())),
             loaded_audio: Arc::new(Mutex::new(HashMap::new())),
+
+            pending_skyboxes: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -150,8 +190,23 @@ impl AssetLoader {
         self.scene_binder.lock().unwrap().loaded_scenes()
     }
 
-    pub fn update(&self, base_renderer: Arc<BaseRenderer>) {
-        self.scene_binder.lock().unwrap().update(base_renderer);
+    pub fn loaded_skyboxes(&self) -> Arc<Mutex<HashMap<String, BindedSkybox>>> {
+        self.skybox_binder.lock().unwrap().loaded_skyboxes()
+    }
+
+    pub fn update(
+        &self,
+        base_renderer: Arc<BaseRenderer>,
+        renderer_constant_data: Arc<RendererConstantData>,
+    ) {
+        self.scene_binder
+            .lock()
+            .unwrap()
+            .update(base_renderer.clone());
+        self.skybox_binder
+            .lock()
+            .unwrap()
+            .update(base_renderer, renderer_constant_data);
     }
 
     pub fn load_audio(&self, path: &str, format: AudioFileFormat, params: SoundParams) {
@@ -314,6 +369,123 @@ impl AssetLoader {
                 }
             }
         });
+    }
+
+    pub fn load_skybox(
+        &self,
+        id: String,
+        background: SkyboxBackgroundPath<'static>,
+        environment_hdr: Option<SkyboxHDREnvironmentPath<'static>>,
+    ) {
+        let pending_skybox_count = {
+            let mut pending_skyboxes = self.pending_skyboxes.lock().unwrap();
+            pending_skyboxes.push((id, background, environment_hdr));
+            pending_skyboxes.len()
+        };
+
+        if pending_skybox_count == 1 {
+            let pending_skyboxes = self.pending_skyboxes.clone();
+            let bindable_skyboxes = self.skybox_binder.lock().unwrap().bindable_skyboxes();
+
+            crate::thread::spawn(move || {
+                profiling::register_thread!("Skybox loader");
+                crate::block_on(async move {
+                    while pending_skyboxes.lock().unwrap().len() > 0 {
+                        let (next_skybox_id, next_skybox_background, next_skybox_env_hdr) =
+                            pending_skyboxes.lock().unwrap().remove(0);
+
+                        let do_load = || async {
+                            profiling::scope!("Load skybox", &next_skybox_id);
+
+                            let background = match next_skybox_background {
+                                SkyboxBackgroundPath::Equirectangular { image_path } => {
+                                    BindableSkyboxBackground::Equirectangular {
+                                        image: image::load_from_memory(
+                                            &crate::file_loader::read(image_path).await?,
+                                        )?
+                                        .to_rgba8()
+                                        .into(),
+                                    }
+                                }
+                                SkyboxBackgroundPath::Cube { face_image_paths } => {
+                                    async fn to_img(img_path: &str) -> Result<image::DynamicImage> {
+                                        Ok(image::load_from_memory(
+                                            &crate::file_loader::read(img_path).await?,
+                                        )?
+                                        .to_rgba8()
+                                        .into())
+                                    }
+
+                                    BindableSkyboxBackground::Cube {
+                                        images: CubemapImages {
+                                            pos_x: to_img(face_image_paths[0]).await?,
+                                            neg_x: to_img(face_image_paths[1]).await?,
+                                            pos_y: to_img(face_image_paths[2]).await?,
+                                            neg_y: to_img(face_image_paths[3]).await?,
+                                            pos_z: to_img(face_image_paths[4]).await?,
+                                            neg_z: to_img(face_image_paths[5]).await?,
+                                        },
+                                    }
+                                }
+                            };
+
+                            let mut environment_hdr = None;
+                            if let Some(SkyboxHDREnvironmentPath::Equirectangular { image_path }) =
+                                next_skybox_env_hdr
+                            {
+                                let image_bytes = crate::file_loader::read(image_path).await?;
+                                let skybox_rad_texture_decoder =
+                                    image::codecs::hdr::HdrDecoder::new(image_bytes.as_slice())?;
+                                let skybox_rad_texture_dimensions = {
+                                    let md = skybox_rad_texture_decoder.metadata();
+                                    (md.width, md.height)
+                                };
+                                let skybox_rad_texture_decoded: Vec<Float16> = {
+                                    let rgb_values = skybox_rad_texture_decoder.read_image_hdr()?;
+                                    rgb_values
+                                        .iter()
+                                        .copied()
+                                        .flat_map(|rbg| {
+                                            rbg.to_rgba()
+                                                .0
+                                                .into_iter()
+                                                .map(|c| Float16(half::f16::from_f32(c)))
+                                        })
+                                        .collect()
+                                };
+
+                                environment_hdr =
+                                    Some(BindableSkyboxHDREnvironment::Equirectangular {
+                                        image: skybox_rad_texture_decoded,
+                                        dimensions: skybox_rad_texture_dimensions,
+                                    });
+                            }
+
+                            anyhow::Ok(BindableSkybox {
+                                background,
+                                environment_hdr,
+                            })
+                        };
+                        match do_load().await {
+                            Ok(result) => {
+                                let _replaced_ignored = bindable_skyboxes
+                                    .lock()
+                                    .unwrap()
+                                    .insert(next_skybox_id, result);
+                            }
+                            Err(err) => {
+                                log::error!(
+                                    "Error loading skybox asset {}: {}\n{}",
+                                    next_skybox_id,
+                                    err,
+                                    err.backtrace()
+                                );
+                            }
+                        }
+                    }
+                });
+            });
+        }
     }
 }
 
@@ -561,6 +733,179 @@ impl BindScene for TimeSlicedSceneBinder {
 
     fn loaded_scenes(&self) -> Arc<Mutex<HashMap<String, (Scene, BindedSceneData)>>> {
         self.loaded_scenes.clone()
+    }
+}
+
+impl ThreadedSkyboxBinder {
+    pub fn new(
+        bindable_skyboxes: Arc<Mutex<HashMap<String, BindableSkybox>>>,
+        loaded_skyboxes: Arc<Mutex<HashMap<String, BindedSkybox>>>,
+    ) -> Self {
+        Self {
+            bindable_skyboxes,
+            loaded_skyboxes,
+        }
+    }
+
+    #[profiling::function]
+    fn bind_whole_skybox(
+        base_renderer: &BaseRenderer,
+        renderer_constant_data: &RendererConstantData,
+        bindable_skybox: BindableSkybox,
+    ) -> Result<BindedSkybox> {
+        let start = crate::time::Instant::now();
+
+        let background = match bindable_skybox.background {
+            BindableSkyboxBackground::Equirectangular { image } => {
+                let er_background_texture = Texture::from_decoded_image(
+                    base_renderer,
+                    image.as_bytes(),
+                    image.dimensions(),
+                    1,
+                    None,
+                    Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+                    false,
+                    &SamplerDescriptor {
+                        address_mode_u: wgpu::AddressMode::ClampToEdge,
+                        address_mode_v: wgpu::AddressMode::ClampToEdge,
+                        address_mode_w: wgpu::AddressMode::ClampToEdge,
+                        mag_filter: wgpu::FilterMode::Linear,
+                        min_filter: wgpu::FilterMode::Linear,
+                        mipmap_filter: wgpu::FilterMode::Nearest,
+                        ..Default::default()
+                    },
+                )?;
+
+                Texture::create_cubemap_from_equirectangular(
+                    base_renderer,
+                    renderer_constant_data,
+                    None,
+                    &er_background_texture,
+                    false, // an artifact occurs between the edges of the texture with mipmaps enabled
+                )
+            }
+            BindableSkyboxBackground::Cube { images } => Texture::create_cubemap(
+                base_renderer,
+                images,
+                Some("cubemap_skybox_texture"),
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+                false,
+            ),
+        };
+
+        let er_to_cube_texture;
+        let hdr_env_texture = match bindable_skybox.environment_hdr {
+            Some(BindableSkyboxHDREnvironment::Equirectangular { image, dimensions }) => {
+                let er_hdr_env_texture = Texture::from_decoded_image(
+                    base_renderer,
+                    bytemuck::cast_slice(&image),
+                    dimensions,
+                    1,
+                    None,
+                    Some(wgpu::TextureFormat::Rgba16Float),
+                    false,
+                    &SamplerDescriptor {
+                        address_mode_u: wgpu::AddressMode::ClampToEdge,
+                        address_mode_v: wgpu::AddressMode::ClampToEdge,
+                        address_mode_w: wgpu::AddressMode::ClampToEdge,
+                        mag_filter: wgpu::FilterMode::Linear,
+                        min_filter: wgpu::FilterMode::Linear,
+                        mipmap_filter: wgpu::FilterMode::Nearest,
+                        ..Default::default()
+                    },
+                )?;
+
+                er_to_cube_texture = Texture::create_cubemap_from_equirectangular(
+                    base_renderer,
+                    renderer_constant_data,
+                    None,
+                    &er_hdr_env_texture,
+                    false,
+                );
+
+                &er_to_cube_texture
+            }
+            None => &background,
+        };
+
+        let diffuse_environment_map = Texture::create_diffuse_env_map(
+            base_renderer,
+            renderer_constant_data,
+            Some("diffuse env map"),
+            hdr_env_texture,
+            false,
+        );
+
+        let specular_environment_map = Texture::create_specular_env_map(
+            base_renderer,
+            renderer_constant_data,
+            Some("specular env map"),
+            hdr_env_texture,
+        );
+
+        log::debug!("skybox bind time: {:?}", start.elapsed());
+
+        Ok(BindedSkybox {
+            background,
+            diffuse_environment_map,
+            specular_environment_map,
+        })
+    }
+}
+
+impl BindSkybox for ThreadedSkyboxBinder {
+    fn update(
+        &mut self,
+        base_renderer: Arc<BaseRenderer>,
+        renderer_constant_data: Arc<RendererConstantData>,
+    ) {
+        let loaded_skyboxes_clone = self.loaded_skyboxes.clone();
+
+        let mut bindable_skyboxes: Vec<_> = vec![];
+        {
+            let mut bindable_skyboxes_guard = self.bindable_skyboxes.lock().unwrap();
+            for item in bindable_skyboxes_guard.drain() {
+                bindable_skyboxes.push(item);
+            }
+        }
+
+        if bindable_skyboxes.is_empty() {
+            return;
+        }
+
+        crate::thread::spawn(move || {
+            for (skybox_id, bindable_skybox) in bindable_skyboxes {
+                let binded_skybox_result = Self::bind_whole_skybox(
+                    &base_renderer.clone(),
+                    &renderer_constant_data,
+                    bindable_skybox,
+                );
+                match binded_skybox_result {
+                    Ok(result) => {
+                        let _replaced_ignored = loaded_skyboxes_clone
+                            .lock()
+                            .unwrap()
+                            .insert(skybox_id, result);
+                    }
+                    Err(err) => {
+                        log::error!(
+                            "Error loading skybox asset {}: {}\n{}",
+                            skybox_id,
+                            err,
+                            err.backtrace()
+                        );
+                    }
+                }
+            }
+        });
+    }
+
+    fn bindable_skyboxes(&self) -> Arc<Mutex<HashMap<String, BindableSkybox>>> {
+        self.bindable_skyboxes.clone()
+    }
+
+    fn loaded_skyboxes(&self) -> Arc<Mutex<HashMap<String, BindedSkybox>>> {
+        self.loaded_skyboxes.clone()
     }
 }
 

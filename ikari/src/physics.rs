@@ -74,7 +74,7 @@ impl PhysicsState {
     pub fn add_static_box(
         &mut self,
         scene: &Scene,
-        renderer_data: &RendererPublicData,
+        renderer_data: &RendererData,
         node_id: GameNodeId,
     ) {
         #[allow(clippy::or_fun_call)]

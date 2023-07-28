@@ -59,12 +59,12 @@ pub const POINT_LIGHT_COLOR: Vec3 = Vec3::new(0.93126976, 0.7402633, 0.49407062)
 pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: Group = Group::GROUP_1;
 
 pub fn get_skybox_path() -> (
-    SkyboxBackground<'static>,
-    Option<SkyboxHDREnvironment<'static>>,
+    SkyboxBackgroundPath<'static>,
+    Option<SkyboxHDREnvironmentPath<'static>>,
 ) {
     // Mountains
     // src: https://github.com/JoeyDeVries/LearnOpenGL/tree/master/resources/textures/skybox
-    let _skybox_background = SkyboxBackground::Cube {
+    let _skybox_background = SkyboxBackgroundPath::Cube {
         face_image_paths: [
             "src/textures/skybox/right.jpg",
             "src/textures/skybox/left.jpg",
@@ -74,34 +74,34 @@ pub fn get_skybox_path() -> (
             "src/textures/skybox/back.jpg",
         ],
     };
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> = None;
 
     // Newport Loft
     // src: http://www.hdrlabs.com/sibl/archive/
-    let _skybox_background = SkyboxBackground::Equirectangular {
+    let _skybox_background = SkyboxBackgroundPath::Equirectangular {
         image_path: "src/textures/newport_loft/background.jpg",
     };
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-        Some(SkyboxHDREnvironment::Equirectangular {
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> =
+        Some(SkyboxHDREnvironmentPath::Equirectangular {
             image_path: "src/textures/newport_loft/radiance.hdr",
         });
 
     // Milkyway
     // src: http://www.hdrlabs.com/sibl/archive/
-    let skybox_background = SkyboxBackground::Equirectangular {
+    let skybox_background = SkyboxBackgroundPath::Equirectangular {
         image_path: "src/textures/milkyway/background.jpg",
     };
-    let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-        Some(SkyboxHDREnvironment::Equirectangular {
+    let skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> =
+        Some(SkyboxHDREnvironmentPath::Equirectangular {
             image_path: "src/textures/milkyway/radiance.hdr",
         });
 
     // My photosphere pic
     // src: me
-    let _skybox_background = SkyboxBackground::Equirectangular {
+    let _skybox_background = SkyboxBackgroundPath::Equirectangular {
         image_path: "src/textures/photosphere_skybox_small.jpg",
     };
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> = None;
 
     (skybox_background, skybox_hdr_environment)
 }
@@ -232,6 +232,10 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
                     stream: false,
                 },
             );
+
+            crate::thread::sleep_async(crate::time::Duration::from_secs_f32(10.0)).await;
+            let (background, environment_hdr) = get_skybox_path();
+            asset_loader.load_skybox("skybox".to_string(), background, environment_hdr);
         })
     });
 
@@ -325,7 +329,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
     let brick_normal_map = Texture::from_encoded_image(
         &renderer.base,
         &brick_normal_map_bytes,
-        brick_normal_map_path,
+        Some(brick_normal_map_path),
         wgpu::TextureFormat::Rgba8Unorm.into(),
         false,
         &Default::default(),
@@ -1075,7 +1079,7 @@ pub fn increment_render_scale(
     renderer.resize(window.inner_size(), window.scale_factor());
 }
 
-pub fn increment_exposure(renderer_data: &mut RendererPublicData, increase: bool) {
+pub fn increment_exposure(renderer_data: &mut RendererData, increase: bool) {
     let delta = 0.05;
     let change = if increase { delta } else { -delta };
     renderer_data.tone_mapping_exposure =
@@ -1083,7 +1087,7 @@ pub fn increment_exposure(renderer_data: &mut RendererPublicData, increase: bool
     log::info!("Exposure: {:?}", renderer_data.tone_mapping_exposure);
 }
 
-pub fn increment_bloom_threshold(renderer_data: &mut RendererPublicData, increase: bool) {
+pub fn increment_bloom_threshold(renderer_data: &mut RendererData, increase: bool) {
     let delta = 0.05;
     let change = if increase { delta } else { -delta };
     renderer_data.bloom_threshold = (renderer_data.bloom_threshold + change).clamp(0.0, 20.0);
@@ -1091,12 +1095,25 @@ pub fn increment_bloom_threshold(renderer_data: &mut RendererPublicData, increas
 }
 
 #[profiling::function]
-pub fn update_game_state(
-    game_state: &mut GameState,
-    base_renderer: Arc<BaseRenderer>,
-    renderer_data: Arc<Mutex<RendererPublicData>>,
-) {
-    game_state.asset_loader.update(base_renderer.clone());
+pub fn update_game_state(game_state: &mut GameState, renderer: &mut Renderer) {
+    let base_renderer = renderer.base.clone();
+    let renderer_data = renderer.data.clone();
+    let renderer_constant_data = renderer.constant_data.clone();
+
+    game_state
+        .asset_loader
+        .update(base_renderer.clone(), renderer_constant_data.clone());
+
+    {
+        let loaded_skyboxes = game_state.asset_loader.loaded_skyboxes();
+        let mut loaded_skyboxes_guard = loaded_skyboxes.lock().unwrap();
+
+        if let Entry::Occupied(entry) = loaded_skyboxes_guard.entry("skybox".to_string()) {
+            let (_, skybox) = entry.remove_entry();
+            renderer.set_skybox(skybox);
+        }
+    }
+
     {
         let loaded_scenes = game_state.asset_loader.loaded_scenes();
         let mut loaded_assets_guard = loaded_scenes.lock().unwrap();
@@ -1203,14 +1220,14 @@ pub fn update_game_state(
                 .map(|node| node.id())
                 .collect();
             for node_id in test_level_node_ids {
-                if let Some(_mesh) = game_state
+                if let Some(mesh) = game_state
                     .scene
                     .get_node_mut(node_id)
                     .unwrap()
                     .mesh
                     .as_mut()
                 {
-                    // _mesh.wireframe = true;
+                    mesh.wireframe = true;
                 }
                 game_state.physics_state.add_static_box(
                     &game_state.scene,
