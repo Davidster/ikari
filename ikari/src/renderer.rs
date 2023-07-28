@@ -884,7 +884,8 @@ pub struct Renderer {
 impl Renderer {
     pub async fn new(base: BaseRenderer, window: &Window) -> Result<Self> {
         log::info!("Controls:");
-        ["Look Around:             Mouse",
+        [
+            "Look Around:             Mouse",
             "Move Around:             WASD, Space Bar, Ctrl",
             "Adjust Speed:            Scroll or Up/Down Arrow Keys",
             "Adjust Render Scale:     Z / X",
@@ -896,7 +897,8 @@ impl Renderer {
             "Toggle Wireframe:        F",
             "Toggle Collision Boxes:  C",
             "Draw Bounding Spheres:   J",
-            "Open Options Menu:       Tab"]
+            "Open Options Menu:       Tab",
+        ]
         .iter()
         .for_each(|line| {
             log::info!("  {line}");

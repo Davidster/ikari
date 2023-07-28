@@ -38,6 +38,16 @@ Hopefully one day it will be used in a real game 😃
 ## Try it out
 
 ```sh
+# windows
+cargo install -f cargo-binutils
+rustup component add llvm-tools-preview
+
+# ubuntu
+sudo apt-get install mold
+
+# arch
+sudo pacman -S mold
+
 # native
 cargo run --release --features="tracy" --bin example_game
 # web
