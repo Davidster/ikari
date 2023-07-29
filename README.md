@@ -37,12 +37,12 @@ Hopefully one day it will be used in a real game 😃
 
 ## TODO
 
+- remove vscode settings.json
 - pre-process skyboxes
 - support time-sliced skybox binder?
 - allow to blend between two skyboxes to allow transition
 - find all occurences of dynamic image and try to remove them, should be faster?
 - take as much stuff out of baserenderer as possible
-
 
 ## Try it out
 
