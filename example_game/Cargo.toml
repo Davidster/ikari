@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [features]
 tracy = ["ikari/tracy"]
+tracy-n-alloc = ["ikari/tracy-n-alloc"]
 
 [dependencies]
 winit.workspace = true
