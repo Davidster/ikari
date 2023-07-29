@@ -1,9 +1,13 @@
 [package]
-name = "build-web"
+name = "build_web"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[[bin]]
+name = "build_web"
+path = "src/main.rs"
 
 [dependencies]
 arboard = "3.2.0"

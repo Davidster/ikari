@@ -53,7 +53,7 @@ pub fn run() {
         pool.execute(move || {
             ikari::block_on(async {
                 let (path, is_srgb, is_normal_map) = &texture_paths[texture_index];
-                println!("start {path:?} (srgb={is_srgb:?}, is_normal_map={is_normal_map:?})");
+                log::info!("start {path:?} (srgb={is_srgb:?}, is_normal_map={is_normal_map:?})");
                 compress_file(path.as_path(), *is_srgb, *is_normal_map)
                     .await
                     .unwrap();
@@ -65,9 +65,11 @@ pub fn run() {
     for _ in 0..texture_count {
         let texture_index = rx.recv().unwrap();
         done_count += 1;
-        println!(
+        log::info!(
             "done {:?} ({:?}/{:?})",
-            texture_paths[texture_index].0, done_count, texture_count
+            texture_paths[texture_index].0,
+            done_count,
+            texture_count
         );
     }
 }
@@ -105,7 +107,7 @@ fn find_gltf_texture_paths() -> anyhow::Result<Vec<(PathBuf, bool, bool)>> {
 
             match texture.source().source() {
                 gltf::image::Source::View { .. } => {
-                    println!("Warning: found inline texture in gltf file {:?}, texture index {:?}. This texture wont be compressed", path, texture.index());
+                    log::warn!("Warning: found inline texture in gltf file {:?}, texture index {:?}. This texture wont be compressed", path, texture.index());
                 }
                 gltf::image::Source::Uri { uri, .. } => {
                     let path = path.parent().unwrap().join(PathBuf::from(uri));
@@ -149,13 +151,13 @@ async fn compress_file(img_path: &Path, is_srgb: bool, is_normal_map: bool) -> a
         thread_count: COMPRESSION_THREAD_COUNT as u32,
     })?;
 
-    // println!(
-    //     "path: {:?} jpg: {:?}, decoded: {:?}, compressed: {:?}",
-    //     img_path,
-    //     img_bytes.len(),
-    //     img_decoded.len(),
-    //     compressed_img_bytes.len()
-    // );
+    log::debug!(
+        "path: {:?} jpg: {:?}, decoded: {:?}, compressed: {:?}",
+        img_path,
+        img_bytes.len(),
+        img_decoded.len(),
+        compressed_img_bytes.len()
+    );
 
     std::fs::write(
         texture_path_to_compressed_path(img_path),

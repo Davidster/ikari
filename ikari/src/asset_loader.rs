@@ -19,6 +19,12 @@ use std::sync::{Arc, Mutex};
 // TODO: replace with log::debug and use RUST_LOG module filter to view logs?
 const DEBUG_AUDIO_STREAMING: bool = false;
 
+type PendingSkybox = (
+    String,
+    SkyboxBackgroundPath<'static>,
+    Option<SkyboxHDREnvironmentPath<'static>>,
+);
+
 pub struct AssetLoader {
     pending_audio: Arc<Mutex<Vec<(String, AudioFileFormat, SoundParams)>>>,
     pub loaded_audio: Arc<Mutex<HashMap<String, usize>>>,
@@ -27,15 +33,7 @@ pub struct AssetLoader {
     pending_scenes: Arc<Mutex<Vec<String>>>,
     scene_binder: Arc<Mutex<Box<dyn BindScene + Send + Sync>>>,
 
-    pending_skyboxes: Arc<
-        Mutex<
-            Vec<(
-                String,
-                SkyboxBackgroundPath<'static>,
-                Option<SkyboxHDREnvironmentPath<'static>>,
-            )>,
-        >,
-    >,
+    pending_skyboxes: Arc<Mutex<Vec<PendingSkybox>>>,
     skybox_binder: Arc<Mutex<Box<dyn BindSkybox + Send + Sync>>>,
 }
 
@@ -737,16 +735,6 @@ impl BindScene for TimeSlicedSceneBinder {
 }
 
 impl ThreadedSkyboxBinder {
-    pub fn new(
-        bindable_skyboxes: Arc<Mutex<HashMap<String, BindableSkybox>>>,
-        loaded_skyboxes: Arc<Mutex<HashMap<String, BindedSkybox>>>,
-    ) -> Self {
-        Self {
-            bindable_skyboxes,
-            loaded_skyboxes,
-        }
-    }
-
     #[profiling::function]
     fn bind_whole_skybox(
         base_renderer: &BaseRenderer,

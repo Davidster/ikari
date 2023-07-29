@@ -1,0 +1,29 @@
+[package]
+name = "example_game"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "example_game"
+path = "src/main.rs"
+
+[features]
+tracy = ["ikari/tracy"]
+
+[dependencies]
+winit.workspace = true
+ikari.workspace = true
+log.workspace = true
+wgpu.workspace = true
+anyhow.workspace = true
+env_logger.workspace = true
+profiling.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+console_error_panic_hook = "0.1.7"
+console_log = "1.0.0"

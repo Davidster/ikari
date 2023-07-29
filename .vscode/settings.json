@@ -1,0 +1,6 @@
+{
+  "rust-analyzer.linkedProjects": [
+    "./ikari_cli/Cargo.toml",
+    "./ikari_cli/Cargo.toml"
+  ]
+}

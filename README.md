@@ -43,13 +43,14 @@ Hopefully one day it will be used in a real game 😃
 - find all occurences of dynamic image and try to remove them, should be faster?
 - take as much stuff out of baserenderer as possible
 
+
 ## Try it out
 
 ```sh
 # native
 cargo run --release --features="tracy" --bin example_game
 # web
-cargo build-web --release --bin example_game
+cargo build_web --release --bin example_game
 ```
 
 See console logs for list of available controls
@@ -116,3 +117,10 @@ Based on instructions from here: https://github.com/wolfpld/tracy/issues/484
     Exec=/home/david/Programming/tracy/profiler/build/unix/Tracy-release
     Type=Application
     ```
+
+## Running clippy for wasm target
+
+```sh
+# this will run clippy on the example game as well as ikari by dependency
+RUSTFLAGS=--cfg=web_sys_unstable_apis cargo clippy --package example_game --target wasm32-unknown-unknown
+```

@@ -162,7 +162,7 @@ async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
     Texture::from_encoded_image(
         renderer_base,
         &rainbow_texture_bytes,
-        rainbow_texture_path,
+        Some(rainbow_texture_path),
         wgpu::TextureFormat::Rgba8Unorm.into(),
         false,
         &Default::default(),
