@@ -37,7 +37,7 @@ Hopefully one day it will be used in a real game 😃
 
 ## TODO
 
-- remove vscode settings.json
+- implement --force CLI option for texture compressor
 - pre-process skyboxes
 - support time-sliced skybox binder?
 - allow to blend between two skyboxes to allow transition
