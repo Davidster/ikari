@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["ikari", "build_web", "example_game", "ikari_cli"]
+members = ["ikari", "build_web", "example_game", "clikari"]
 
 [workspace.package]
 version = "0.0.1"
@@ -32,6 +32,7 @@ image = { version = "0.24", default-features = false, features = [
   "jpeg",
 ] }
 gltf = "1.2"
+pico-args = "0.5.0"
 
 # wasm32 depdendencies
 web-sys = { version = "0.3.64", features = [

@@ -8,10 +8,9 @@ cargo build_web
 
 Hosts a binary or example of the local package as wasm in a local web server.
 
-USAGE:
-  cargo build_web [OPTIONS]
+Usage: cargo build_web [OPTIONS]
 
-OPTIONS:
+Options:
   cargo build_web custom options:
     --build-only                 Only build the WASM artifacts, do not run the dev server
     --port <PORT>                Makes the dev server listen on port (default '8000')

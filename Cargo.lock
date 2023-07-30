@@ -522,6 +522,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "clikari"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "env_logger",
+ "gltf",
+ "ikari",
+ "image",
+ "log",
+ "num_cpus",
+ "pico-args",
+ "threadpool",
+ "walkdir",
+]
+
+[[package]]
 name = "clipboard-win"
 version = "4.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2006,21 +2022,6 @@ dependencies = [
  "wgpu-profiler",
  "winit",
  "zstd",
-]
-
-[[package]]
-name = "ikari_cli"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "env_logger",
- "gltf",
- "ikari",
- "image",
- "log",
- "num_cpus",
- "threadpool",
- "walkdir",
 ]
 
 [[package]]

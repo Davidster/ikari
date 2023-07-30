@@ -9,11 +9,24 @@ use walkdir::WalkDir;
 
 use ikari::texture_compression::{texture_path_to_compressed_path, TextureCompressionArgs};
 
-const DATA_FOLDER: &str = "./ikari/src";
-const COMPRESSION_THREAD_COUNT: usize = 4;
+const DEFAULT_THREADS_PER_TEXTURE: u32 = 4;
 
-pub fn run() {
-    let mut texture_paths = find_gltf_texture_paths().unwrap();
+pub struct TextureCompressorArgs {
+    pub search_folder: PathBuf,
+    pub threads_per_texture: Option<u32>,
+    pub force: bool,
+}
+
+pub fn run(args: TextureCompressorArgs) {
+    if !args.search_folder.exists() {
+        log::error!(
+            "Error: search folder {:?} does not exist",
+            args.search_folder
+        );
+        return;
+    }
+
+    let mut texture_paths = find_gltf_texture_paths(&args.search_folder).unwrap();
 
     let gltf_exlusion_map: HashSet<PathBuf> = texture_paths
         .iter()
@@ -23,25 +36,43 @@ pub fn run() {
 
     // interpret all dangling textures as srgb color maps
     texture_paths.extend(
-        find_dangling_texture_paths(gltf_exlusion_map)
+        find_dangling_texture_paths(&args.search_folder, gltf_exlusion_map)
             .unwrap()
             .iter()
             .cloned()
             .map(|path| (path, true, false)),
     );
 
+    let mut filtered_texture_paths = vec![];
+
+    for item in &texture_paths {
+        let (path, _, _) = item;
+        let compressed_path = texture_path_to_compressed_path(path);
+        if !args.force && compressed_path.exists() {
+            log::info!("{compressed_path:?} already exists. skipping");
+            continue;
+        }
+
+        filtered_texture_paths.push(item);
+    }
+
     // remove all paths that have already been processed
     texture_paths = texture_paths
         .iter()
         .cloned()
-        .filter(|(path, _is_srgb, _is_normal_map)| {
-            !texture_path_to_compressed_path(path).try_exists().unwrap()
-        })
+        .filter(|(path, _is_srgb, _is_normal_map)| !texture_path_to_compressed_path(path).exists())
         .collect();
 
     let texture_paths = Arc::new(texture_paths);
 
-    let worker_count = (num_cpus::get() / COMPRESSION_THREAD_COUNT).max(1);
+    let threads_per_texture = args
+        .threads_per_texture
+        .unwrap_or(DEFAULT_THREADS_PER_TEXTURE);
+
+    let worker_count = (num_cpus::get() as f32 / threads_per_texture as f32).ceil() as usize;
+
+    log::info!("worker_count={worker_count}");
+
     let texture_count = texture_paths.len();
 
     let pool = ThreadPool::new(worker_count);
@@ -51,14 +82,16 @@ pub fn run() {
         let tx = tx.clone();
         let texture_paths = texture_paths.clone();
         pool.execute(move || {
-            ikari::block_on(async {
-                let (path, is_srgb, is_normal_map) = &texture_paths[texture_index];
-                log::info!("start {path:?} (srgb={is_srgb:?}, is_normal_map={is_normal_map:?})");
-                compress_file(path.as_path(), *is_srgb, *is_normal_map)
-                    .await
-                    .unwrap();
-                tx.send(texture_index).unwrap();
-            });
+            let (path, is_srgb, is_normal_map) = &texture_paths[texture_index];
+            log::info!("start {path:?} (srgb={is_srgb:?}, is_normal_map={is_normal_map:?})");
+            compress_file(
+                path.as_path(),
+                *is_srgb,
+                *is_normal_map,
+                threads_per_texture as u32,
+            )
+            .unwrap();
+            tx.send(texture_index).unwrap();
         });
     }
     let mut done_count = 0;
@@ -74,9 +107,9 @@ pub fn run() {
     }
 }
 
-fn find_gltf_texture_paths() -> anyhow::Result<Vec<(PathBuf, bool, bool)>> {
+fn find_gltf_texture_paths(search_folder: &Path) -> anyhow::Result<Vec<(PathBuf, bool, bool)>> {
     let mut result = Vec::new();
-    let gltf_paths: Vec<_> = WalkDir::new(DATA_FOLDER)
+    let gltf_paths: Vec<_> = WalkDir::new(search_folder)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| !e.file_type().is_dir())
@@ -120,8 +153,11 @@ fn find_gltf_texture_paths() -> anyhow::Result<Vec<(PathBuf, bool, bool)>> {
 }
 
 // TODO: exclude list doesn't work because the relative path is different between the gltf file and the CWD of this binary
-fn find_dangling_texture_paths(exclude_list: HashSet<PathBuf>) -> anyhow::Result<Vec<PathBuf>> {
-    Ok(WalkDir::new(DATA_FOLDER)
+fn find_dangling_texture_paths(
+    search_folder: &Path,
+    exclude_list: HashSet<PathBuf>,
+) -> anyhow::Result<Vec<PathBuf>> {
+    Ok(WalkDir::new(search_folder)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| !e.file_type().is_dir())
@@ -134,8 +170,13 @@ fn find_dangling_texture_paths(exclude_list: HashSet<PathBuf>) -> anyhow::Result
         .collect())
 }
 
-async fn compress_file(img_path: &Path, is_srgb: bool, is_normal_map: bool) -> anyhow::Result<()> {
-    let img_bytes = ikari::file_loader::read(img_path.as_os_str().to_str().unwrap()).await?;
+fn compress_file(
+    img_path: &Path,
+    is_srgb: bool,
+    is_normal_map: bool,
+    threads: u32,
+) -> anyhow::Result<()> {
+    let img_bytes = std::fs::read(img_path.as_os_str().to_str().unwrap())?;
     let img_decoded = image::load_from_memory(&img_bytes)?.to_rgba8();
     let (img_width, img_height) = img_decoded.dimensions();
     let img_channel_count = 4;
@@ -148,7 +189,7 @@ async fn compress_file(img_path: &Path, is_srgb: bool, is_normal_map: bool) -> a
         img_channel_count,
         is_srgb,
         is_normal_map,
-        thread_count: COMPRESSION_THREAD_COUNT as u32,
+        thread_count: threads,
     })?;
 
     log::debug!(
