@@ -20,13 +20,15 @@ Compress all textures found in a given folder by recursive search
 Usage: clikari compress_textures --search_folder /path/to/folder [OPTIONS]
 
 Options:
-  --search_folder        Required  The folder to search in to find textures to compress
-  --threads_per_texture  Optional  The number of threads that will be used per texture.
-                                   Textures will also be processed in parallel if possible,
-                                   according to the formula: (cpu_count / threads_per_texture).ceil().
-                                   This is done because individual texture processing is not fully parallel
-                                   Defaults to 4 threads per texture
-  --help                 Optional  Display this help message
+  --search_folder FOLDERNAME  Required  The folder to search in to find textures to compress
+  --threads_per_texture VAL   Optional  The number of threads that will be used per texture.
+                                        Textures will also be processed in parallel if possible,
+                                        according to the formula: (cpu_count / threads_per_texture).ceil().
+                                        This is done because individual texture processing is not fully parallel
+                                        Defaults to 4 threads per texture
+  --force                     Optional  Force re-compress all textures regardless of whether their
+                                        _compressed.bin counterpart already exists
+  --help                      Optional  Display this help message
 ";
 
 enum Command {
@@ -56,7 +58,7 @@ impl Command {
                 threads_per_texture: args
                     .opt_value_from_str("--threads_per_texture")
                     .map_err(|err| ArgParseError::CompressTextures(format!("{err}")))?,
-                force: false,
+                force: args.contains("--force"),
             }));
         }
 

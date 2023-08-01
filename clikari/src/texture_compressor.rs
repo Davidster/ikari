@@ -26,52 +26,50 @@ pub fn run(args: TextureCompressorArgs) {
         return;
     }
 
-    let mut texture_paths = find_gltf_texture_paths(&args.search_folder).unwrap();
-
-    let gltf_exlusion_map: HashSet<PathBuf> = texture_paths
-        .iter()
-        .cloned()
-        .map(|(path, _, _)| path.canonicalize().unwrap())
-        .collect();
-
-    // interpret all dangling textures as srgb color maps
-    texture_paths.extend(
-        find_dangling_texture_paths(&args.search_folder, gltf_exlusion_map)
-            .unwrap()
-            .iter()
-            .cloned()
-            .map(|path| (path, true, false)),
-    );
-
-    let mut filtered_texture_paths = vec![];
-
-    for item in &texture_paths {
-        let (path, _, _) = item;
-        let compressed_path = texture_path_to_compressed_path(path);
-        if !args.force && compressed_path.exists() {
-            log::info!("{compressed_path:?} already exists. skipping");
-            continue;
-        }
-
-        filtered_texture_paths.push(item);
-    }
-
-    // remove all paths that have already been processed
-    texture_paths = texture_paths
-        .iter()
-        .cloned()
-        .filter(|(path, _is_srgb, _is_normal_map)| !texture_path_to_compressed_path(path).exists())
-        .collect();
-
-    let texture_paths = Arc::new(texture_paths);
-
     let threads_per_texture = args
         .threads_per_texture
         .unwrap_or(DEFAULT_THREADS_PER_TEXTURE);
 
     let worker_count = (num_cpus::get() as f32 / threads_per_texture as f32).ceil() as usize;
-
     log::info!("worker_count={worker_count}");
+
+    let texture_paths = {
+        let mut texture_paths = find_gltf_texture_paths(&args.search_folder).unwrap();
+
+        let gltf_exlusion_map: HashSet<PathBuf> = texture_paths
+            .iter()
+            .cloned()
+            .map(|(path, _, _)| path.canonicalize().unwrap())
+            .collect();
+
+        // interpret all dangling textures as srgb color maps
+        texture_paths.extend(
+            find_dangling_texture_paths(&args.search_folder, gltf_exlusion_map)
+                .unwrap()
+                .iter()
+                .cloned()
+                .map(|path| (path, true, false)),
+        );
+
+        let mut filtered_texture_paths = vec![];
+
+        for item in &texture_paths {
+            let (path, _, _) = item;
+            let compressed_path = texture_path_to_compressed_path(path);
+
+            // remove all paths that have already been processed
+            if !args.force && compressed_path.exists() {
+                log::info!("{compressed_path:?} already exists. skipping");
+                continue;
+            }
+
+            filtered_texture_paths.push(item.clone());
+        }
+
+        filtered_texture_paths
+    };
+
+    let texture_paths = Arc::new(texture_paths);
 
     let texture_count = texture_paths.len();
 
@@ -88,7 +86,7 @@ pub fn run(args: TextureCompressorArgs) {
                 path.as_path(),
                 *is_srgb,
                 *is_normal_map,
-                threads_per_texture as u32,
+                threads_per_texture,
             )
             .unwrap();
             tx.send(texture_index).unwrap();
@@ -152,7 +150,6 @@ fn find_gltf_texture_paths(search_folder: &Path) -> anyhow::Result<Vec<(PathBuf,
     Ok(result)
 }
 
-// TODO: exclude list doesn't work because the relative path is different between the gltf file and the CWD of this binary
 fn find_dangling_texture_paths(
     search_folder: &Path,
     exclude_list: HashSet<PathBuf>,
