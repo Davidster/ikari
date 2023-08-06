@@ -17,7 +17,7 @@ use winit::{
 pub fn resize_window(
     renderer: &mut Renderer,
     ui_overlay: &mut IkariUiOverlay,
-    surface_data: &SurfaceData,
+    surface_data: &mut SurfaceData,
     window: &winit::window::Window,
     new_size: (u32, u32),
 ) {
@@ -31,7 +31,7 @@ pub fn run(
     event_loop: EventLoop<()>,
     mut game_state: GameState,
     mut renderer: Renderer,
-    surface_data: SurfaceData,
+    mut surface_data: SurfaceData,
     application_start_time: Instant,
 ) {
     let mut logged_start_time = false;
@@ -136,16 +136,14 @@ pub fn run(
                     renderer_data_guard.draw_culling_frustum = ui_state.draw_culling_frustum;
                     renderer_data_guard.draw_point_light_culling_frusta =
                         ui_state.draw_point_light_culling_frusta;
-                    renderer.set_vsync(ui_state.enable_vsync, &surface_data);
+                    renderer.set_vsync(ui_state.enable_vsync, &mut surface_data);
 
-                    let framebuffer_size = {
-                        let surface_config_guard = surface_data.surface_config.lock().unwrap();
-
-                        (surface_config_guard.width, surface_config_guard.height)
-                    };
                     renderer.set_culling_frustum_lock(
                         &game_state,
-                        framebuffer_size,
+                        (
+                            surface_data.surface_config.width,
+                            surface_data.surface_config.height,
+                        ),
                         ui_state.culling_frustum_lock_mode,
                     );
                 }
@@ -171,7 +169,7 @@ pub fn run(
                             resize_window(
                                 &mut renderer,
                                 &mut game_state.ui_overlay,
-                                &surface_data,
+                                &mut surface_data,
                                 &window,
                                 window.inner_size().into(),
                             );
@@ -212,7 +210,7 @@ pub fn run(
                             resize_window(
                                 &mut renderer,
                                 &mut game_state.ui_overlay,
-                                &surface_data,
+                                &mut surface_data,
                                 &window,
                                 (*size).into(),
                             );
@@ -223,7 +221,7 @@ pub fn run(
                             resize_window(
                                 &mut renderer,
                                 &mut game_state.ui_overlay,
-                                &surface_data,
+                                &mut surface_data,
                                 &window,
                                 (**new_inner_size).into(),
                             );
@@ -238,7 +236,7 @@ pub fn run(
                 process_window_input(
                     &mut game_state,
                     &mut renderer,
-                    &surface_data,
+                    &mut surface_data,
                     &event,
                     &window,
                 );

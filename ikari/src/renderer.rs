@@ -336,8 +336,7 @@ pub struct BaseRenderer {
 
 pub struct SurfaceData {
     pub surface: wgpu::Surface,
-    // TODO: does this need to be a mutex still?
-    pub surface_config: Mutex<wgpu::SurfaceConfiguration>,
+    pub surface_config: wgpu::SurfaceConfiguration,
 }
 
 impl BaseRenderer {
@@ -370,7 +369,7 @@ impl BaseRenderer {
 
         let surface_data = SurfaceData {
             surface,
-            surface_config: Mutex::new(surface_config),
+            surface_config,
         };
 
         Ok((base, surface_data))
@@ -2788,38 +2787,33 @@ impl Renderer {
         index_buffer
     }
 
-    pub fn set_vsync(&self, vsync: bool, surface_data: &SurfaceData) {
-        let surface_config = {
-            let mut surface_config_guard = surface_data.surface_config.lock().unwrap();
-            let new_present_mode = if vsync {
-                wgpu::PresentMode::AutoVsync
-            } else {
-                wgpu::PresentMode::AutoNoVsync
-            };
-            if surface_config_guard.present_mode == new_present_mode {
-                return;
-            }
-            surface_config_guard.present_mode = new_present_mode;
-            surface_config_guard.clone()
+    pub fn set_vsync(&self, vsync: bool, surface_data: &mut SurfaceData) {
+        let new_present_mode = if vsync {
+            wgpu::PresentMode::AutoVsync
+        } else {
+            wgpu::PresentMode::AutoNoVsync
         };
+
+        if surface_data.surface_config.present_mode == new_present_mode {
+            return;
+        }
+
+        surface_data.surface_config.present_mode = new_present_mode;
 
         surface_data
             .surface
-            .configure(&self.base.device, &surface_config);
+            .configure(&self.base.device, &surface_data.surface_config);
     }
 
-    pub fn resize_surface(&mut self, new_size: (u32, u32), surface_data: &SurfaceData) {
+    pub fn resize_surface(&mut self, new_size: (u32, u32), surface_data: &mut SurfaceData) {
         let (new_width, new_height) = new_size;
-        let surface_config = {
-            let mut surface_config_guard = surface_data.surface_config.lock().unwrap();
-            surface_config_guard.width = new_width;
-            surface_config_guard.height = new_height;
-            surface_config_guard.clone()
-        };
+
+        surface_data.surface_config.width = new_width;
+        surface_data.surface_config.height = new_height;
 
         surface_data
             .surface
-            .configure(&self.base.device, &surface_config);
+            .configure(&self.base.device, &surface_data.surface_config);
     }
 
     pub fn resize(&mut self, new_framebuffer_size: (u32, u32)) {
@@ -3253,15 +3247,14 @@ impl Renderer {
         game_state: &mut GameState,
         surface_data: &SurfaceData,
     ) -> anyhow::Result<()> {
-        let (surface_format, surface_size) = {
-            let surface_config_guard = surface_data.surface_config.lock().unwrap();
-
+        self.update_internal(
+            game_state,
+            surface_data.surface_config.format,
             (
-                surface_config_guard.format,
-                (surface_config_guard.width, surface_config_guard.height),
-            )
-        };
-        self.update_internal(game_state, surface_format, surface_size);
+                surface_data.surface_config.width,
+                surface_data.surface_config.height,
+            ),
+        );
         self.render_internal(game_state, surface_data.surface.get_current_texture()?)
     }
 

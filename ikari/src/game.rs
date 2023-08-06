@@ -932,7 +932,7 @@ pub async fn init_game_state(
     );
 
     let ui_overlay = {
-        let surface_format = surface_data.surface_config.lock().unwrap().format;
+        let surface_format = surface_data.surface_config.format;
         IkariUiOverlay::new(
             window,
             &renderer.base.device,
@@ -1006,7 +1006,7 @@ pub fn process_device_input(game_state: &mut GameState, event: &winit::event::De
 pub fn process_window_input(
     game_state: &mut GameState,
     renderer: &mut Renderer,
-    surface_data: &SurfaceData,
+    surface_data: &mut SurfaceData,
     event: &winit::event::WindowEvent,
     window: &winit::window::Window,
 ) {
@@ -1089,7 +1089,7 @@ pub fn process_window_input(
 
 pub fn increment_render_scale(
     renderer: &mut Renderer,
-    surface_data: &SurfaceData,
+    surface_data: &mut SurfaceData,
     increase: bool,
     window: &winit::window::Window,
     ui_overlay: &mut IkariUiOverlay,
@@ -1097,25 +1097,31 @@ pub fn increment_render_scale(
     let delta = 0.1;
     let change = if increase { delta } else { -delta };
 
-    let framebuffer_size = {
+    {
         let mut renderer_data_guard = renderer.data.lock().unwrap();
-        let surface_config_guard = surface_data.surface_config.lock().unwrap();
 
         renderer_data_guard.render_scale =
             (renderer_data_guard.render_scale + change).clamp(0.1, 4.0);
         log::info!(
             "Render scale: {:?} ({:?}x{:?})",
             renderer_data_guard.render_scale,
-            (surface_config_guard.width as f32 * renderer_data_guard.render_scale.sqrt()).round()
-                as u32,
-            (surface_config_guard.height as f32 * renderer_data_guard.render_scale.sqrt()).round()
-                as u32,
+            (surface_data.surface_config.width as f32 * renderer_data_guard.render_scale.sqrt())
+                .round() as u32,
+            (surface_data.surface_config.height as f32 * renderer_data_guard.render_scale.sqrt())
+                .round() as u32,
         );
+    }
 
-        (surface_config_guard.width, surface_config_guard.height)
-    };
-
-    resize_window(renderer, ui_overlay, surface_data, window, framebuffer_size);
+    resize_window(
+        renderer,
+        ui_overlay,
+        surface_data,
+        window,
+        (
+            surface_data.surface_config.width,
+            surface_data.surface_config.height,
+        ),
+    );
 }
 
 pub fn increment_exposure(renderer_data: &mut RendererData, increase: bool) {
@@ -1571,7 +1577,7 @@ pub fn update_game_state(
                     deg_to_rad(90.0),
                 ))
                 .scale(
-                    (1080.0 / surface_data.surface_config.lock().unwrap().height as f32)
+                    (1080.0 / surface_data.surface_config.height as f32)
                         * 0.06
                         * Vec3::new(1.0, 1.0, 1.0),
                 )

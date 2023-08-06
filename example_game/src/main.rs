@@ -69,15 +69,15 @@ async fn start() {
 
         log::debug!("game scene: {:?}", application_start_time.elapsed());
 
-        let (surface_format, surface_size) = {
-            let surface_config_guard = surface_data.surface_config.lock().unwrap();
-
+        let mut renderer = Renderer::new(
+            base_renderer,
+            surface_data.surface_config.format,
             (
-                surface_config_guard.format,
-                (surface_config_guard.width, surface_config_guard.height),
-            )
-        };
-        let mut renderer = Renderer::new(base_renderer, surface_format, surface_size).await?;
+                surface_data.surface_config.width,
+                surface_data.surface_config.height,
+            ),
+        )
+        .await?;
 
         log::debug!("renderer: {:?}", application_start_time.elapsed());
 
