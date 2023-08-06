@@ -18,6 +18,7 @@ pub fn run(
     event_loop: EventLoop<()>,
     mut game_state: GameState,
     mut renderer: Renderer,
+    surface_data: SurfaceData,
     application_start_time: Instant,
 ) {
     let mut logged_start_time = false;
@@ -45,7 +46,7 @@ pub fn run(
                 let frame_duration = last_frame_start_time.map(|time| time.elapsed());
                 last_frame_start_time = Some(Instant::now());
 
-                update_game_state(&mut game_state, &mut renderer);
+                update_game_state(&mut game_state, &mut renderer, &surface_data);
 
                 {
                     // sync UI
@@ -122,9 +123,18 @@ pub fn run(
                     renderer_data_guard.draw_culling_frustum = ui_state.draw_culling_frustum;
                     renderer_data_guard.draw_point_light_culling_frusta =
                         ui_state.draw_point_light_culling_frusta;
-                    renderer.set_vsync(ui_state.enable_vsync);
-                    renderer
-                        .set_culling_frustum_lock(&game_state, ui_state.culling_frustum_lock_mode);
+                    renderer.set_vsync(ui_state.enable_vsync, &surface_data);
+
+                    let framebuffer_size = {
+                        let surface_config_guard = surface_data.surface_config.lock().unwrap();
+
+                        (surface_config_guard.width, surface_config_guard.height)
+                    };
+                    renderer.set_culling_frustum_lock(
+                        &game_state,
+                        framebuffer_size,
+                        ui_state.culling_frustum_lock_mode,
+                    );
                 }
 
                 #[cfg(target_arch = "wasm32")]
@@ -140,12 +150,13 @@ pub fn run(
 
                 game_state.ui_overlay.update(&window, control_flow);
 
-                match renderer.render(&mut game_state) {
+                match renderer.render(&mut game_state, &surface_data) {
                     Ok(_) => {}
                     Err(err) => match err.downcast_ref::<wgpu::SurfaceError>() {
                         // Reconfigure the surface if lost
                         Some(wgpu::SurfaceError::Lost) => {
-                            renderer.resize(window.inner_size());
+                            renderer.resize_surface(window.inner_size().into(), &surface_data);
+                            renderer.resize(window.inner_size().into());
                             game_state
                                 .ui_overlay
                                 .resize(window.inner_size(), window.scale_factor());
@@ -183,13 +194,15 @@ pub fn run(
                 match &event {
                     WindowEvent::Resized(size) => {
                         if size.width > 0 && size.height > 0 {
-                            renderer.resize(*size);
+                            renderer.resize_surface((*size).into(), &surface_data);
+                            renderer.resize((*size).into());
                             game_state.ui_overlay.resize(*size, window.scale_factor());
                         }
                     }
                     WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                         if new_inner_size.width > 0 && new_inner_size.height > 0 {
-                            renderer.resize(**new_inner_size);
+                            renderer.resize_surface((**new_inner_size).into(), &surface_data);
+                            renderer.resize((**new_inner_size).into());
                             game_state
                                 .ui_overlay
                                 .resize(**new_inner_size, window.scale_factor());
@@ -201,7 +214,13 @@ pub fn run(
 
                 game_state.ui_overlay.handle_window_event(&window, &event);
 
-                process_window_input(&mut game_state, &mut renderer, &event, &window);
+                process_window_input(
+                    &mut game_state,
+                    &mut renderer,
+                    &surface_data,
+                    &event,
+                    &window,
+                );
             }
             _ => {}
         }

@@ -173,6 +173,7 @@ async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
 pub async fn init_game_state(
     mut scene: Scene,
     renderer: &mut Renderer,
+    surface_data: &SurfaceData,
     window: &winit::window::Window,
 ) -> Result<GameState> {
     let mut physics_state = PhysicsState::new();
@@ -930,15 +931,7 @@ pub async fn init_game_state(
     );
 
     let ui_overlay = {
-        let surface_format = renderer
-            .base
-            .surface_data
-            .as_ref()
-            .expect("surface is required to create a ui overlay")
-            .surface_config
-            .lock()
-            .unwrap()
-            .format;
+        let surface_format = surface_data.surface_config.lock().unwrap().format;
         IkariUiOverlay::new(
             window,
             &renderer.base.device,
@@ -1012,6 +1005,7 @@ pub fn process_device_input(game_state: &mut GameState, event: &winit::event::De
 pub fn process_window_input(
     game_state: &mut GameState,
     renderer: &mut Renderer,
+    surface_data: &SurfaceData,
     event: &winit::event::WindowEvent,
     window: &winit::window::Window,
 ) {
@@ -1031,11 +1025,23 @@ pub fn process_window_input(
             match keycode {
                 VirtualKeyCode::Z => {
                     drop(render_data_guard);
-                    increment_render_scale(renderer, false, window, &mut game_state.ui_overlay);
+                    increment_render_scale(
+                        renderer,
+                        surface_data,
+                        false,
+                        window,
+                        &mut game_state.ui_overlay,
+                    );
                 }
                 VirtualKeyCode::X => {
                     drop(render_data_guard);
-                    increment_render_scale(renderer, true, window, &mut game_state.ui_overlay);
+                    increment_render_scale(
+                        renderer,
+                        surface_data,
+                        true,
+                        window,
+                        &mut game_state.ui_overlay,
+                    );
                 }
                 VirtualKeyCode::E => {
                     increment_exposure(&mut render_data_guard, false);
@@ -1082,6 +1088,7 @@ pub fn process_window_input(
 
 pub fn increment_render_scale(
     renderer: &mut Renderer,
+    surface_data: &SurfaceData,
     increase: bool,
     window: &winit::window::Window,
     ui_overlay: &mut IkariUiOverlay,
@@ -1089,7 +1096,7 @@ pub fn increment_render_scale(
     let delta = 0.1;
     let change = if increase { delta } else { -delta };
 
-    if let Some(surface_data) = renderer.base.surface_data.as_ref() {
+    {
         let mut renderer_data_guard = renderer.data.lock().unwrap();
         let surface_config_guard = surface_data.surface_config.lock().unwrap();
         renderer_data_guard.render_scale =
@@ -1101,9 +1108,11 @@ pub fn increment_render_scale(
                 as u32,
             (surface_config_guard.height as f32 * renderer_data_guard.render_scale.sqrt()).round()
                 as u32,
-        )
+        );
     }
-    renderer.resize(window.inner_size());
+
+    renderer.resize_surface(window.inner_size().into(), surface_data);
+    renderer.resize(window.inner_size().into());
     ui_overlay.resize(window.inner_size(), window.scale_factor());
 }
 
@@ -1123,7 +1132,11 @@ pub fn increment_bloom_threshold(renderer_data: &mut RendererData, increase: boo
 }
 
 #[profiling::function]
-pub fn update_game_state(game_state: &mut GameState, renderer: &mut Renderer) {
+pub fn update_game_state(
+    game_state: &mut GameState,
+    renderer: &mut Renderer,
+    surface_data: &SurfaceData,
+) {
     let base_renderer = renderer.base.clone();
     let renderer_data = renderer.data.clone();
     let renderer_constant_data = renderer.constant_data.clone();
@@ -1556,15 +1569,7 @@ pub fn update_game_state(game_state: &mut GameState, renderer: &mut Renderer) {
                     deg_to_rad(90.0),
                 ))
                 .scale(
-                    (1080.0
-                        / base_renderer
-                            .surface_data
-                            .as_ref()
-                            .expect("surface is needed to run the game!")
-                            .window_size
-                            .lock()
-                            .unwrap()
-                            .height as f32)
+                    (1080.0 / surface_data.window_size.lock().unwrap().height as f32)
                         * 0.06
                         * Vec3::new(1.0, 1.0, 1.0),
                 )

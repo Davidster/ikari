@@ -229,25 +229,14 @@ impl Texture {
 
     pub fn create_scaled_surface_texture(
         base_renderer: &BaseRenderer,
+        (width, height): (u32, u32),
         render_scale: f32,
         label: &str,
     ) -> Self {
-        let size = {
-            let surface_config_guard = base_renderer
-                .surface_data
-                .as_ref()
-                .expect("surface data is needed to create a surface texture")
-                .surface_config
-                .lock()
-                .unwrap();
-            wgpu::Extent3d {
-                width: (((surface_config_guard.width as f32) * render_scale.sqrt()).round() as u32)
-                    .max(1),
-                height: (((surface_config_guard.height as f32) * render_scale.sqrt()).round()
-                    as u32)
-                    .max(1),
-                depth_or_array_layers: 1,
-            }
+        let size = wgpu::Extent3d {
+            width: ((width as f32 * render_scale.sqrt()).round() as u32).max(1),
+            height: ((height as f32 * render_scale.sqrt()).round() as u32).max(1),
+            depth_or_array_layers: 1,
         };
         let texture = base_renderer
             .device
@@ -292,25 +281,14 @@ impl Texture {
 
     pub fn create_depth_texture(
         base_renderer: &BaseRenderer,
+        (width, height): (u32, u32),
         render_scale: f32,
         label: &str,
     ) -> Self {
-        let size = {
-            let surface_config_guard = base_renderer
-                .surface_data
-                .as_ref()
-                .expect("surface data is needed to create a surface texture")
-                .surface_config
-                .lock()
-                .unwrap();
-            wgpu::Extent3d {
-                width: (((surface_config_guard.width as f32) * render_scale.sqrt()).round() as u32)
-                    .max(1),
-                height: (((surface_config_guard.height as f32) * render_scale.sqrt()).round()
-                    as u32)
-                    .max(1),
-                depth_or_array_layers: 1,
-            }
+        let size = wgpu::Extent3d {
+            width: ((width as f32 * render_scale.sqrt()).round() as u32).max(1),
+            height: ((height as f32 * render_scale.sqrt()).round() as u32).max(1),
+            depth_or_array_layers: 1,
         };
         let texture = base_renderer
             .device

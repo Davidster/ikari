@@ -5,6 +5,8 @@ use ikari::scene::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+const DXC_PATH: &str = "ikari/dxc/";
+
 async fn start() {
     let run_result = async {
         let application_start_time = ikari::time::Instant::now();
@@ -51,15 +53,14 @@ async fn start() {
 
         log::debug!("window: {:?}", application_start_time.elapsed());
 
-        let base_render_state = {
+        let (base_renderer, surface_data) = {
             let backends = if cfg!(target_os = "windows") {
                 wgpu::Backends::from(wgpu::Backend::Dx12)
                 // wgpu::Backends::PRIMARY
             } else {
                 wgpu::Backends::PRIMARY
             };
-
-            BaseRenderer::new(backends, Some(&window)).await
+            BaseRenderer::with_window(backends, Some(DXC_PATH.into()), &window).await?
         };
 
         log::debug!("base render: {:?}", application_start_time.elapsed());
@@ -68,11 +69,19 @@ async fn start() {
 
         log::debug!("game scene: {:?}", application_start_time.elapsed());
 
-        let mut renderer = Renderer::new(base_render_state).await?;
+        let (surface_format, surface_size) = {
+            let surface_config_guard = surface_data.surface_config.lock().unwrap();
+
+            (
+                surface_config_guard.format,
+                (surface_config_guard.width, surface_config_guard.height),
+            )
+        };
+        let mut renderer = Renderer::new(base_renderer, surface_format, surface_size).await?;
 
         log::debug!("renderer: {:?}", application_start_time.elapsed());
 
-        let game_state = init_game_state(game_scene, &mut renderer, &window).await?;
+        let game_state = init_game_state(game_scene, &mut renderer, &surface_data, &window).await?;
 
         log::debug!("game state: {:?}", application_start_time.elapsed());
 
@@ -81,6 +90,7 @@ async fn start() {
             event_loop,
             game_state,
             renderer,
+            surface_data,
             application_start_time,
         ); // this will block while the game is running
         anyhow::Ok(())

@@ -319,9 +319,9 @@ pub enum DefaultTextureType {
 pub struct BaseRenderer {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
-    pub surface_data: Option<SurfaceData>,
     pub adapter: wgpu::Adapter,
     pub limits: wgpu::Limits,
+    // TODO: move all these bind group layouts into ConstantData?
     pub single_texture_bind_group_layout: wgpu::BindGroupLayout,
     pub two_texture_bind_group_layout: wgpu::BindGroupLayout,
     pub single_cube_texture_bind_group_layout: wgpu::BindGroupLayout,
@@ -336,28 +336,73 @@ pub struct BaseRenderer {
 
 pub struct SurfaceData {
     pub surface: wgpu::Surface,
+    // TODO: does this need to be a mutex still?
     pub surface_config: Mutex<wgpu::SurfaceConfiguration>,
+    // TODO: remove this? we can get the size from the surface_config 🤔
     pub window_size: Mutex<winit::dpi::PhysicalSize<u32>>,
 }
 
 impl BaseRenderer {
-    pub async fn new(backends: wgpu::Backends, window: Option<&winit::window::Window>) -> Self {
-        let instance = wgpu::Instance::new(InstanceDescriptor {
+    pub async fn offscreen(backends: wgpu::Backends, dxc_path: Option<PathBuf>) -> Result<Self> {
+        let instance = Self::make_instance(backends, dxc_path);
+        Self::new(instance, None).await
+    }
+
+    pub async fn with_window(
+        backends: wgpu::Backends,
+        dxc_path: Option<PathBuf>,
+        window: &winit::window::Window,
+    ) -> Result<(Self, SurfaceData)> {
+        let instance = Self::make_instance(backends, dxc_path);
+        let surface = unsafe { instance.create_surface(&window).unwrap() };
+        let base = Self::new(instance, Some(&surface)).await?;
+
+        let window_size = window.inner_size();
+
+        let mut surface_config = surface
+            .get_default_config(&base.adapter, window_size.width, window_size.height)
+            .ok_or_else(|| {
+                anyhow::anyhow!("Window surface is incompatible with the graphics adapter")
+            })?;
+        surface_config.usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
+        // surface_config.format = wgpu::TextureFormat::Bgra8UnormSrgb;
+        surface_config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
+        surface_config.present_mode = wgpu::PresentMode::AutoNoVsync;
+        surface.configure(&base.device, &surface_config);
+
+        let surface_data = SurfaceData {
+            surface,
+            surface_config: Mutex::new(surface_config),
+            window_size: Mutex::new(window_size),
+        };
+
+        Ok((base, surface_data))
+    }
+
+    fn make_instance(backends: wgpu::Backends, dxc_path: Option<PathBuf>) -> wgpu::Instance {
+        wgpu::Instance::new(InstanceDescriptor {
             backends,
             dx12_shader_compiler: wgpu::Dx12Compiler::Dxc {
-                dxil_path: Some(PathBuf::from("ikari/dxc/")),
-                dxc_path: Some(PathBuf::from("ikari/dxc/")),
+                dxil_path: dxc_path.clone(),
+                dxc_path,
             },
-        });
-        let surface = window.map(|window| unsafe { instance.create_surface(&window).unwrap() });
+        })
+    }
+
+    async fn new(instance: wgpu::Instance, surface: Option<&wgpu::Surface>) -> Result<Self> {
+        let request_adapter_options = wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: surface,
+            force_fallback_adapter: false,
+        };
         let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: surface.as_ref(),
-                force_fallback_adapter: false,
-            })
+            .request_adapter(&request_adapter_options)
             .await
-            .expect("Failed to find an appropriate adapter");
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Failed to find a wgpu adapter with options: {request_adapter_options:?}"
+                )
+            })?;
 
         let mut features = adapter.features();
 
@@ -377,29 +422,7 @@ impl BaseRenderer {
                 None,
             )
             .await
-            .expect("Failed to create device");
-
-        let surface_data = match (window, surface) {
-            (Some(window), Some(surface)) => {
-                let window_size = window.inner_size();
-
-                let mut surface_config = surface
-                    .get_default_config(&adapter, window_size.width, window_size.height)
-                    .expect("Window surface is incompatible with the graphics adapter");
-                surface_config.usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
-                // surface_config.format = wgpu::TextureFormat::Bgra8UnormSrgb;
-                surface_config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
-                surface_config.present_mode = wgpu::PresentMode::AutoNoVsync;
-                surface.configure(&device, &surface_config);
-
-                Some(SurfaceData {
-                    surface,
-                    surface_config: Mutex::new(surface_config),
-                    window_size: Mutex::new(window_size),
-                })
-            }
-            _ => None,
-        };
+            .map_err(|err| anyhow::anyhow!("Failed to create wgpu device: {err}"))?;
 
         let single_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -747,11 +770,10 @@ impl BaseRenderer {
 
         let limits = device.limits();
 
-        Self {
+        Ok(Self {
             device,
             adapter,
             queue,
-            surface_data,
             limits,
             single_texture_bind_group_layout,
             two_texture_bind_group_layout,
@@ -763,7 +785,7 @@ impl BaseRenderer {
             environment_textures_bind_group_layout,
             default_texture_cache: Mutex::new(HashMap::new()),
             sampler_cache: Mutex::new(SamplerCache::new()),
-        }
+        })
     }
 
     #[profiling::function]
@@ -1078,6 +1100,7 @@ pub struct RendererConstantData {
     pub specular_env_map_gen_pipeline: wgpu::RenderPipeline,
 }
 
+// TODO: store the framebuffer texture format and size, then remove it from a bunch of the function arguments
 pub struct Renderer {
     pub base: Arc<BaseRenderer>,
     pub data: Arc<Mutex<RendererData>>,
@@ -1101,7 +1124,11 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub async fn new(base: BaseRenderer) -> Result<Self> {
+    pub async fn new(
+        base: BaseRenderer,
+        framebuffer_format: wgpu::TextureFormat,
+        framebuffer_size: (u32, u32),
+    ) -> Result<Self> {
         log::info!("Controls:");
         [
             "Look Around:             Mouse",
@@ -1122,11 +1149,6 @@ impl Renderer {
         .for_each(|line| {
             log::info!("  {line}");
         });
-
-        let surface_format = base
-            .surface_data
-            .as_ref()
-            .map(|surface_data| surface_data.surface_config.lock().unwrap().format);
 
         let unlit_mesh_shader = base
             .device
@@ -1427,9 +1449,9 @@ impl Renderer {
             .device
             .create_render_pipeline(&bloom_blur_pipeline_descriptor);
 
-        let surface_pipelines = surface_format.map(|surface_format| {
+        let surface_pipelines = {
             let surface_blit_color_targets = &[Some(wgpu::ColorTargetState {
-                format: surface_format,
+                format: framebuffer_format,
                 blend: Some(wgpu::BlendState::REPLACE),
                 write_mask: wgpu::ColorWrites::ALL,
             })];
@@ -1488,8 +1510,8 @@ impl Renderer {
                 .device
                 .create_render_pipeline(&pre_gamma_surface_blit_pipeline_descriptor);
 
-            (surface_blit_pipeline, pre_gamma_surface_blit_pipeline)
-        });
+            Some((surface_blit_pipeline, pre_gamma_surface_blit_pipeline))
+        };
 
         let (surface_blit_pipeline, pre_gamma_surface_blit_pipeline) = match surface_pipelines {
             Some((surface_blit_pipeline, pre_gamma_surface_blit_pipeline)) => (
@@ -1855,21 +1877,33 @@ impl Renderer {
             specular_env_map_gen_pipeline,
         };
 
-        let pre_gamma_fb = match surface_format {
-            Some(surface_format) if !surface_format.is_srgb() => Some(
-                Texture::create_scaled_surface_texture(&base, 1.0, "pre_gamma_fb"),
-            ),
-            _ => None,
-        };
+        let pre_gamma_fb = (!framebuffer_format.is_srgb()).then(|| {
+            Texture::create_scaled_surface_texture(&base, framebuffer_size, 1.0, "pre_gamma_fb")
+        });
 
-        let shading_texture =
-            Texture::create_scaled_surface_texture(&base, initial_render_scale, "shading_texture");
+        let shading_texture = Texture::create_scaled_surface_texture(
+            &base,
+            framebuffer_size,
+            initial_render_scale,
+            "shading_texture",
+        );
         let bloom_pingpong_textures = [
-            Texture::create_scaled_surface_texture(&base, initial_render_scale, "bloom_texture_1"),
-            Texture::create_scaled_surface_texture(&base, initial_render_scale, "bloom_texture_2"),
+            Texture::create_scaled_surface_texture(
+                &base,
+                framebuffer_size,
+                initial_render_scale,
+                "bloom_texture_1",
+            ),
+            Texture::create_scaled_surface_texture(
+                &base,
+                framebuffer_size,
+                initial_render_scale,
+                "bloom_texture_2",
+            ),
         ];
         let tone_mapping_texture = Texture::create_scaled_surface_texture(
             &base,
+            framebuffer_size,
             initial_render_scale,
             "tone_mapping_texture",
         );
@@ -2063,8 +2097,12 @@ impl Renderer {
                 label: USE_LABELS.then_some("tone_mapping_config_bind_group"),
             });
 
-        let depth_texture =
-            Texture::create_depth_texture(&base, initial_render_scale, "depth_texture");
+        let depth_texture = Texture::create_depth_texture(
+            &base,
+            framebuffer_size,
+            initial_render_scale,
+            "depth_texture",
+        );
 
         let start = crate::time::Instant::now();
 
@@ -2753,13 +2791,7 @@ impl Renderer {
         index_buffer
     }
 
-    pub fn set_vsync(&self, vsync: bool) {
-        let surface_data = self
-            .base
-            .surface_data
-            .as_ref()
-            .expect("set_vsync can only be called with if we have a surface");
-
+    pub fn set_vsync(&self, vsync: bool, surface_data: &SurfaceData) {
         let surface_config = {
             let mut surface_config_guard = surface_data.surface_config.lock().unwrap();
             let new_present_mode = if vsync {
@@ -2779,53 +2811,76 @@ impl Renderer {
             .configure(&self.base.device, &surface_config);
     }
 
-    pub fn resize(&mut self, new_window_size: winit::dpi::PhysicalSize<u32>) {
-        let surface_data = self
-            .base
-            .surface_data
-            .as_ref()
-            .expect("resize can only be called with if we have a surface");
-
-        // let mut base_guard = self.base.lock().unwrap();
-        let data_guard = self.data.lock().unwrap();
-        let mut private_data_guard = self.private_data.lock().unwrap();
-        let render_scale = data_guard.render_scale;
-
-        *surface_data.window_size.lock().unwrap() = new_window_size;
+    pub fn resize_surface(&mut self, new_size: (u32, u32), surface_data: &SurfaceData) {
+        *surface_data.window_size.lock().unwrap() = new_size.into();
+        let (new_width, new_height) = new_size;
         let surface_config = {
             let mut surface_config_guard = surface_data.surface_config.lock().unwrap();
-            surface_config_guard.width = new_window_size.width;
-            surface_config_guard.height = new_window_size.height;
+            surface_config_guard.width = new_width;
+            surface_config_guard.height = new_height;
             surface_config_guard.clone()
         };
 
         surface_data
             .surface
             .configure(&self.base.device, &surface_config);
+    }
 
-        private_data_guard.pre_gamma_fb = (!surface_config.format.is_srgb())
-            .then(|| Texture::create_scaled_surface_texture(&self.base, 1.0, "pre_gamma_fb"));
-        private_data_guard.shading_texture =
-            Texture::create_scaled_surface_texture(&self.base, render_scale, "shading_texture");
+    pub fn resize(&mut self, new_framebuffer_size: (u32, u32)) {
+        let data_guard = self.data.lock().unwrap();
+        let mut private_data_guard = self.private_data.lock().unwrap();
+        let render_scale = data_guard.render_scale;
+
+        private_data_guard.pre_gamma_fb = private_data_guard.pre_gamma_fb.is_some().then(|| {
+            Texture::create_scaled_surface_texture(
+                &self.base,
+                new_framebuffer_size,
+                1.0,
+                "pre_gamma_fb",
+            )
+        });
+        private_data_guard.shading_texture = Texture::create_scaled_surface_texture(
+            &self.base,
+            new_framebuffer_size,
+            render_scale,
+            "shading_texture",
+        );
         private_data_guard.bloom_pingpong_textures = [
-            Texture::create_scaled_surface_texture(&self.base, render_scale, "bloom_texture_1"),
-            Texture::create_scaled_surface_texture(&self.base, render_scale, "bloom_texture_2"),
+            Texture::create_scaled_surface_texture(
+                &self.base,
+                new_framebuffer_size,
+                render_scale,
+                "bloom_texture_1",
+            ),
+            Texture::create_scaled_surface_texture(
+                &self.base,
+                new_framebuffer_size,
+                render_scale,
+                "bloom_texture_2",
+            ),
         ];
         private_data_guard.tone_mapping_texture = Texture::create_scaled_surface_texture(
             &self.base,
+            new_framebuffer_size,
             render_scale,
             "tone_mapping_texture",
         );
-        private_data_guard.depth_texture =
-            Texture::create_depth_texture(&self.base, render_scale, "depth_texture");
+        private_data_guard.depth_texture = Texture::create_depth_texture(
+            &self.base,
+            new_framebuffer_size,
+            render_scale,
+            "depth_texture",
+        );
 
         let device = &self.base.device;
         let single_texture_bind_group_layout = &self.base.single_texture_bind_group_layout;
         let two_texture_bind_group_layout = &self.base.two_texture_bind_group_layout;
 
         let sampler_cache_guard = self.base.sampler_cache.lock().unwrap();
-        private_data_guard.pre_gamma_fb_bind_group =
-            (!surface_config.format.is_srgb()).then(|| {
+        private_data_guard.pre_gamma_fb_bind_group = private_data_guard
+            .pre_gamma_fb_bind_group
+            .is_some()
+            .then(|| {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: single_texture_bind_group_layout,
                     entries: &[
@@ -2980,15 +3035,10 @@ impl Renderer {
         data: &mut RendererData,
         private_data: &mut RendererPrivateData,
         game_state: &mut GameState,
+        framebuffer_size: (u32, u32),
         culling_frustum_focal_point: Vec3,
         culling_frustum_forward_vector: Vec3,
     ) {
-        let surface_data = self
-            .base
-            .surface_data
-            .as_ref()
-            .expect("add_debug_nodes can only be called with if we have a surface");
-
         let scene = &mut game_state.scene;
 
         for node_id in private_data
@@ -3050,8 +3100,8 @@ impl Renderer {
             let near_plane_distance = 3.0;
             let far_plane_distance = 500.0;
 
-            let window_size = *surface_data.window_size.lock().unwrap();
-            let aspect_ratio = window_size.width as f32 / window_size.height as f32;
+            let (framebuffer_width, framebuffer_height) = framebuffer_size;
+            let aspect_ratio = framebuffer_width as f32 / framebuffer_height as f32;
 
             let culling_frustum_basic_mesh = Frustum::make_frustum_mesh(
                 culling_frustum_focal_point,
@@ -3167,14 +3217,9 @@ impl Renderer {
     pub fn set_culling_frustum_lock(
         &self,
         game_state: &GameState,
+        framebuffer_size: (u32, u32),
         lock_mode: CullingFrustumLockMode,
     ) {
-        let surface_data = self
-            .base
-            .surface_data
-            .as_ref()
-            .expect("add_debug_nodes can only be called with if we have a surface");
-
         let mut private_data_guard = self.private_data.lock().unwrap();
 
         if CullingFrustumLockMode::from(private_data_guard.frustum_culling_lock.clone())
@@ -3183,8 +3228,8 @@ impl Renderer {
             return;
         }
 
-        let window_size = *surface_data.window_size.lock().unwrap();
-        let aspect_ratio = window_size.width as f32 / window_size.height as f32;
+        let (framebuffer_width, framebuffer_height) = framebuffer_size;
+        let aspect_ratio = framebuffer_width as f32 / framebuffer_height as f32;
 
         let position = match private_data_guard.frustum_culling_lock {
             CullingFrustumLock::Full((_, locked_position, _)) => locked_position,
@@ -3207,9 +3252,21 @@ impl Renderer {
         };
     }
 
-    pub fn render(&mut self, game_state: &mut GameState) -> anyhow::Result<()> {
-        self.update_internal(game_state);
-        self.render_internal(game_state)
+    pub fn render(
+        &mut self,
+        game_state: &mut GameState,
+        surface_data: &SurfaceData,
+    ) -> anyhow::Result<()> {
+        let (surface_format, surface_size) = {
+            let surface_config_guard = surface_data.surface_config.lock().unwrap();
+
+            (
+                surface_config_guard.format,
+                (surface_config_guard.width, surface_config_guard.height),
+            )
+        };
+        self.update_internal(game_state, surface_format, surface_size);
+        self.render_internal(game_state, surface_data.surface.get_current_texture()?)
     }
 
     // culling mask is a bitmask where each bit corresponds to a frustum
@@ -3392,22 +3449,20 @@ impl Renderer {
 
     /// Prepare and send all data to gpu so it's ready to render
     #[profiling::function]
-    fn update_internal(&mut self, game_state: &mut GameState) {
-        let surface_data = self
-            .base
-            .surface_data
-            .as_ref()
-            .expect("update_internal can only be called with if we have a surface");
-
+    fn update_internal(
+        &mut self,
+        game_state: &mut GameState,
+        framebuffer_format: wgpu::TextureFormat,
+        framebuffer_size: (u32, u32),
+    ) {
         let mut data_guard = self.data.lock().unwrap();
         let data: &mut RendererData = &mut data_guard;
 
         let mut private_data_guard = self.private_data.lock().unwrap();
         let private_data: &mut RendererPrivateData = &mut private_data_guard;
 
-        let surface_format = surface_data.surface_config.lock().unwrap().format;
-        let window_size = *surface_data.window_size.lock().unwrap();
-        let aspect_ratio = window_size.width as f32 / window_size.height as f32;
+        let (framebuffer_width, framebuffer_height) = framebuffer_size;
+        let aspect_ratio = framebuffer_width as f32 / framebuffer_height as f32;
         let camera_position = game_state
             .player_controller
             .position(&game_state.physics_state);
@@ -3435,6 +3490,7 @@ impl Renderer {
             data,
             private_data,
             game_state,
+            framebuffer_size,
             culling_frustum_focal_point,
             culling_frustum_forward_vector,
         );
@@ -3920,7 +3976,7 @@ impl Renderer {
             .get_global_transform_for_node(game_state.player_node_id);
         all_camera_data.push(ShaderCameraData::from_mat4(
             player_transform.into(),
-            window_size.width as f32 / window_size.height as f32,
+            aspect_ratio,
             NEAR_PLANE_DISTANCE,
             FAR_PLANE_DISTANCE,
             deg_to_rad(FOV_Y_DEG),
@@ -4068,7 +4124,11 @@ impl Renderer {
             0,
             bytemuck::cast_slice(&[
                 data.tone_mapping_exposure,
-                if surface_format.is_srgb() { 0f32 } else { 1f32 },
+                if framebuffer_format.is_srgb() {
+                    0f32
+                } else {
+                    1f32
+                },
                 0f32,
                 0f32,
             ]),
@@ -4097,13 +4157,11 @@ impl Renderer {
     }
 
     #[profiling::function]
-    pub fn render_internal(&mut self, game_state: &mut GameState) -> anyhow::Result<()> {
-        let surface_data = self
-            .base
-            .surface_data
-            .as_ref()
-            .expect("update_internal can only be called with if we have a surface");
-
+    pub fn render_internal(
+        &mut self,
+        game_state: &mut GameState,
+        surface_texture: wgpu::SurfaceTexture,
+    ) -> anyhow::Result<()> {
         let mut data_guard = self.data.lock().unwrap();
         let data: &mut RendererData = &mut data_guard;
 
@@ -4113,7 +4171,6 @@ impl Renderer {
         let mut profiler_guard = self.profiler.lock().unwrap();
         let profiler: &mut GpuProfiler = &mut profiler_guard;
 
-        let surface_texture = surface_data.surface.get_current_texture()?;
         let surface_texture_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
