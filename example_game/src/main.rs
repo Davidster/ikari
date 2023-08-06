@@ -126,6 +126,7 @@ fn main() {
         env_logger::builder()
             .filter(Some(env!("CARGO_PKG_NAME")), log::LevelFilter::Info)
             .filter(Some(env!("CARGO_BIN_NAME")), log::LevelFilter::Info)
+            .filter(Some("ikari"), log::LevelFilter::Info)
             .filter(Some("wgpu"), log::LevelFilter::Warn)
             .init();
     }
