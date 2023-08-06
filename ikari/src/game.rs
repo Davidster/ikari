@@ -4,6 +4,7 @@ use crate::audio::*;
 use crate::ball::*;
 use crate::character::*;
 use crate::game_state::*;
+use crate::gameloop::resize_window;
 use crate::light::*;
 use crate::math::*;
 use crate::mesh::*;
@@ -1096,9 +1097,10 @@ pub fn increment_render_scale(
     let delta = 0.1;
     let change = if increase { delta } else { -delta };
 
-    {
+    let framebuffer_size = {
         let mut renderer_data_guard = renderer.data.lock().unwrap();
         let surface_config_guard = surface_data.surface_config.lock().unwrap();
+
         renderer_data_guard.render_scale =
             (renderer_data_guard.render_scale + change).clamp(0.1, 4.0);
         log::info!(
@@ -1109,11 +1111,11 @@ pub fn increment_render_scale(
             (surface_config_guard.height as f32 * renderer_data_guard.render_scale.sqrt()).round()
                 as u32,
         );
-    }
 
-    renderer.resize_surface(window.inner_size().into(), surface_data);
-    renderer.resize(window.inner_size().into());
-    ui_overlay.resize(window.inner_size(), window.scale_factor());
+        (surface_config_guard.width, surface_config_guard.height)
+    };
+
+    resize_window(renderer, ui_overlay, surface_data, window, framebuffer_size);
 }
 
 pub fn increment_exposure(renderer_data: &mut RendererData, increase: bool) {
@@ -1569,7 +1571,7 @@ pub fn update_game_state(
                     deg_to_rad(90.0),
                 ))
                 .scale(
-                    (1080.0 / surface_data.window_size.lock().unwrap().height as f32)
+                    (1080.0 / surface_data.surface_config.lock().unwrap().height as f32)
                         * 0.06
                         * Vec3::new(1.0, 1.0, 1.0),
                 )

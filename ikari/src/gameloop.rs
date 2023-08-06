@@ -3,6 +3,7 @@ use crate::game_state::*;
 use crate::renderer::*;
 use crate::time::*;
 use crate::ui_overlay::AudioSoundStats;
+use crate::ui_overlay::IkariUiOverlay;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -12,6 +13,18 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
+
+pub fn resize_window(
+    renderer: &mut Renderer,
+    ui_overlay: &mut IkariUiOverlay,
+    surface_data: &SurfaceData,
+    window: &winit::window::Window,
+    new_size: (u32, u32),
+) {
+    renderer.resize_surface(new_size, surface_data);
+    renderer.resize(new_size);
+    ui_overlay.resize(new_size, window.scale_factor());
+}
 
 pub fn run(
     window: Window,
@@ -155,11 +168,13 @@ pub fn run(
                     Err(err) => match err.downcast_ref::<wgpu::SurfaceError>() {
                         // Reconfigure the surface if lost
                         Some(wgpu::SurfaceError::Lost) => {
-                            renderer.resize_surface(window.inner_size().into(), &surface_data);
-                            renderer.resize(window.inner_size().into());
-                            game_state
-                                .ui_overlay
-                                .resize(window.inner_size(), window.scale_factor());
+                            resize_window(
+                                &mut renderer,
+                                &mut game_state.ui_overlay,
+                                &surface_data,
+                                &window,
+                                window.inner_size().into(),
+                            );
                         }
                         // The system is out of memory, we should probably quit
                         Some(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
@@ -194,18 +209,24 @@ pub fn run(
                 match &event {
                     WindowEvent::Resized(size) => {
                         if size.width > 0 && size.height > 0 {
-                            renderer.resize_surface((*size).into(), &surface_data);
-                            renderer.resize((*size).into());
-                            game_state.ui_overlay.resize(*size, window.scale_factor());
+                            resize_window(
+                                &mut renderer,
+                                &mut game_state.ui_overlay,
+                                &surface_data,
+                                &window,
+                                (*size).into(),
+                            );
                         }
                     }
                     WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                         if new_inner_size.width > 0 && new_inner_size.height > 0 {
-                            renderer.resize_surface((**new_inner_size).into(), &surface_data);
-                            renderer.resize((**new_inner_size).into());
-                            game_state
-                                .ui_overlay
-                                .resize(**new_inner_size, window.scale_factor());
+                            resize_window(
+                                &mut renderer,
+                                &mut game_state.ui_overlay,
+                                &surface_data,
+                                &window,
+                                (**new_inner_size).into(),
+                            );
                         }
                     }
                     WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,

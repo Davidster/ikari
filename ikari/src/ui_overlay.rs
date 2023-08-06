@@ -859,9 +859,13 @@ impl IkariUiOverlay {
         }
     }
 
-    pub fn resize(&mut self, window_size: winit::dpi::PhysicalSize<u32>, scale_factor: f64) {
+    pub fn resize(
+        &mut self,
+        (framebuffer_width, framebuffer_height): (u32, u32),
+        scale_factor: f64,
+    ) {
         self.viewport = iced_winit::Viewport::with_physical_size(
-            iced::Size::new(window_size.width, window_size.height),
+            iced::Size::new(framebuffer_width, framebuffer_height),
             scale_factor,
         );
     }

@@ -338,8 +338,6 @@ pub struct SurfaceData {
     pub surface: wgpu::Surface,
     // TODO: does this need to be a mutex still?
     pub surface_config: Mutex<wgpu::SurfaceConfiguration>,
-    // TODO: remove this? we can get the size from the surface_config 🤔
-    pub window_size: Mutex<winit::dpi::PhysicalSize<u32>>,
 }
 
 impl BaseRenderer {
@@ -373,7 +371,6 @@ impl BaseRenderer {
         let surface_data = SurfaceData {
             surface,
             surface_config: Mutex::new(surface_config),
-            window_size: Mutex::new(window_size),
         };
 
         Ok((base, surface_data))
@@ -2812,7 +2809,6 @@ impl Renderer {
     }
 
     pub fn resize_surface(&mut self, new_size: (u32, u32), surface_data: &SurfaceData) {
-        *surface_data.window_size.lock().unwrap() = new_size.into();
         let (new_width, new_height) = new_size;
         let surface_config = {
             let mut surface_config_guard = surface_data.surface_config.lock().unwrap();
