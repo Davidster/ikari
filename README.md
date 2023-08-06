@@ -37,6 +37,9 @@ Hopefully one day it will be used in a real game 😃
 
 ## TODO
 
+- renderer should not need to know about the game state!
+- lift state from the ui overlay into the game state to not need to pass state around
+- convert all paths to be relative to the bin
 - pre-process skyboxes
 - support time-sliced skybox binder?
 - allow to blend between two skyboxes to allow transition

@@ -58,7 +58,8 @@ async fn start() {
             } else {
                 wgpu::Backends::PRIMARY
             };
-            BaseRenderer::new(&window, backends, wgpu::PresentMode::AutoNoVsync).await
+
+            BaseRenderer::new(backends, Some(&window)).await
         };
 
         log::debug!("base render: {:?}", application_start_time.elapsed());
@@ -67,11 +68,11 @@ async fn start() {
 
         log::debug!("game scene: {:?}", application_start_time.elapsed());
 
-        let mut renderer = Renderer::new(base_render_state, &window).await?;
+        let mut renderer = Renderer::new(base_render_state).await?;
 
         log::debug!("renderer: {:?}", application_start_time.elapsed());
 
-        let game_state = init_game_state(game_scene, &mut renderer).await?;
+        let game_state = init_game_state(game_scene, &mut renderer, &window).await?;
 
         log::debug!("game state: {:?}", application_start_time.elapsed());
 

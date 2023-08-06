@@ -1,5 +1,9 @@
 use crate::camera::*;
-use crate::renderer::*;
+use crate::renderer::BaseRenderer;
+use crate::renderer::RendererConstantData;
+use crate::renderer::FAR_PLANE_DISTANCE;
+use crate::renderer::NEAR_PLANE_DISTANCE;
+use crate::renderer::USE_LABELS;
 use crate::sampler_cache::*;
 
 use anyhow::*;
@@ -229,7 +233,13 @@ impl Texture {
         label: &str,
     ) -> Self {
         let size = {
-            let surface_config_guard = base_renderer.surface_config.lock().unwrap();
+            let surface_config_guard = base_renderer
+                .surface_data
+                .as_ref()
+                .expect("surface data is needed to create a surface texture")
+                .surface_config
+                .lock()
+                .unwrap();
             wgpu::Extent3d {
                 width: (((surface_config_guard.width as f32) * render_scale.sqrt()).round() as u32)
                     .max(1),
@@ -286,7 +296,13 @@ impl Texture {
         label: &str,
     ) -> Self {
         let size = {
-            let surface_config_guard = base_renderer.surface_config.lock().unwrap();
+            let surface_config_guard = base_renderer
+                .surface_data
+                .as_ref()
+                .expect("surface data is needed to create a surface texture")
+                .surface_config
+                .lock()
+                .unwrap();
             wgpu::Extent3d {
                 width: (((surface_config_guard.width as f32) * render_scale.sqrt()).round() as u32)
                     .max(1),

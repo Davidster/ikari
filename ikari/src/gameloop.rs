@@ -62,11 +62,11 @@ pub fn run(
                             logged_start_time = true;
                         }
 
-                        renderer.ui_overlay.send_message(
+                        game_state.ui_overlay.send_message(
                             crate::ui_overlay::Message::FrameCompleted(frame_duration),
                         );
                         if let Some(gpu_timing_info) = renderer.process_profiler_frame() {
-                            renderer.ui_overlay.send_message(
+                            game_state.ui_overlay.send_message(
                                 crate::ui_overlay::Message::GpuFrameCompleted(gpu_timing_info),
                             );
                         }
@@ -76,7 +76,7 @@ pub fn run(
                         .player_controller
                         .position(&game_state.physics_state);
                     let camera_view_direction = game_state.player_controller.view_direction;
-                    renderer.ui_overlay.send_message(
+                    game_state.ui_overlay.send_message(
                         crate::ui_overlay::Message::CameraPoseChanged((
                             camera_position,
                             camera_view_direction,
@@ -99,7 +99,7 @@ pub fn run(
                                 .get_sound_buffered_to_pos_seconds(sound_index)
                                 .unwrap();
 
-                            renderer.ui_overlay.send_message(
+                            game_state.ui_overlay.send_message(
                                 crate::ui_overlay::Message::AudioSoundStatsChanged((
                                     file_path.clone(),
                                     AudioSoundStats {
@@ -112,7 +112,7 @@ pub fn run(
                         }
                     }
 
-                    let ui_state = renderer.ui_overlay.get_state().clone();
+                    let ui_state = game_state.ui_overlay.get_state().clone();
 
                     renderer_data_guard.enable_soft_shadows = ui_state.enable_soft_shadows;
                     renderer_data_guard.soft_shadow_factor = ui_state.soft_shadow_factor;
@@ -138,12 +138,17 @@ pub fn run(
                     }
                 }
 
-                match renderer.render(&mut game_state, &window, control_flow) {
+                game_state.ui_overlay.update(&window, control_flow);
+
+                match renderer.render(&mut game_state) {
                     Ok(_) => {}
                     Err(err) => match err.downcast_ref::<wgpu::SurfaceError>() {
                         // Reconfigure the surface if lost
                         Some(wgpu::SurfaceError::Lost) => {
-                            renderer.resize(window.inner_size(), window.scale_factor())
+                            renderer.resize(window.inner_size());
+                            game_state
+                                .ui_overlay
+                                .resize(window.inner_size(), window.scale_factor());
                         }
                         // The system is out of memory, we should probably quit
                         Some(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
@@ -170,7 +175,7 @@ pub fn run(
                 window.request_redraw();
             }
             Event::DeviceEvent { event, .. } => {
-                process_device_input(&mut game_state, &renderer, &event);
+                process_device_input(&mut game_state, &event);
             }
             Event::WindowEvent {
                 event, window_id, ..
@@ -178,19 +183,23 @@ pub fn run(
                 match &event {
                     WindowEvent::Resized(size) => {
                         if size.width > 0 && size.height > 0 {
-                            renderer.resize(*size, window.scale_factor());
+                            renderer.resize(*size);
+                            game_state.ui_overlay.resize(*size, window.scale_factor());
                         }
                     }
                     WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                         if new_inner_size.width > 0 && new_inner_size.height > 0 {
-                            renderer.resize(**new_inner_size, window.scale_factor());
+                            renderer.resize(**new_inner_size);
+                            game_state
+                                .ui_overlay
+                                .resize(**new_inner_size, window.scale_factor());
                         }
                     }
                     WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                     _ => {}
                 };
 
-                renderer.ui_overlay.handle_window_event(&window, &event);
+                game_state.ui_overlay.handle_window_event(&window, &event);
 
                 process_window_input(&mut game_state, &mut renderer, &event, &window);
             }

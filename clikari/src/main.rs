@@ -1,5 +1,7 @@
+mod skybox_processor;
 mod texture_compressor;
 
+use skybox_processor::SkyboxProcessorArgs;
 use texture_compressor::TextureCompressorArgs;
 
 const HELP: &str = "\
@@ -9,6 +11,7 @@ Usage: clikari [COMMAND] [OPTIONS]
 
 Commands:
   compress_textures
+  process_skybox
 
 Options:
   --help  Optional  Display this help message
@@ -31,15 +34,30 @@ Options:
   --help                      Optional  Display this help message
 ";
 
+const SKYBOX_PROCESSOR_HELP: &str = "\
+Pre-process skybox file(s) for use in ikari
+
+Usage: clikari process_skybox --background_path /path/to/background.jpg [OPTIONS]
+
+Options:
+  --background_path FILEPATH        Required  The background image of the skybox (this will be the background of your scene)
+  --environment_hdr_path FILEPATH   Optional  The hdr environment map (used for ambient lighting and reflections)
+                                              Background image is used if not defined
+  --help                            Optional  Display this help message
+";
+
 enum Command {
     Help,
     CompressTextures(TextureCompressorArgs),
     CompressTexturesHelp,
+    ProcessSkybox(SkyboxProcessorArgs),
+    ProcessSkyboxHelp,
 }
 
 enum ArgParseError {
     Root(String),
     CompressTextures(String),
+    ProcessSkybox(String),
 }
 
 impl Command {
@@ -59,6 +77,21 @@ impl Command {
                     .opt_value_from_str("--threads_per_texture")
                     .map_err(|err| ArgParseError::CompressTextures(format!("{err}")))?,
                 force: args.contains("--force"),
+            }));
+        }
+
+        if args.contains("process_skybox") {
+            if args.contains("--help") {
+                return Ok(Self::ProcessSkyboxHelp);
+            }
+
+            return Ok(Self::ProcessSkybox(SkyboxProcessorArgs {
+                background_path: args
+                    .value_from_str("--background_path")
+                    .map_err(|err| ArgParseError::ProcessSkybox(format!("{err}")))?,
+                environment_hdr_path: args
+                    .opt_value_from_str("--environment_hdr_path")
+                    .map_err(|err| ArgParseError::ProcessSkybox(format!("{err}")))?,
             }));
         }
 
@@ -89,16 +122,23 @@ fn main() {
         Ok(Command::CompressTextures(args)) => {
             texture_compressor::run(args);
         }
+        Ok(Command::ProcessSkybox(args)) => {
+            skybox_processor::run(args);
+        }
         Ok(Command::Help) => {
             println!("{HELP}");
         }
         Ok(Command::CompressTexturesHelp) => {
             println!("{TEXTURE_COMPRESSOR_HELP}");
         }
+        Ok(Command::ProcessSkyboxHelp) => {
+            println!("{SKYBOX_PROCESSOR_HELP}");
+        }
         Err(err) => {
             let (err, helpmsg) = match err {
                 ArgParseError::Root(err) => (err, HELP),
                 ArgParseError::CompressTextures(err) => (err, TEXTURE_COMPRESSOR_HELP),
+                ArgParseError::ProcessSkybox(err) => (err, SKYBOX_PROCESSOR_HELP),
             };
             println!("Error: {err}\n\n{helpmsg}");
         }

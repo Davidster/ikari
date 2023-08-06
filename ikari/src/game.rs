@@ -18,6 +18,7 @@ use crate::texture::*;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::texture_compression::*;
 use crate::transform::*;
+use crate::ui_overlay::IkariUiOverlay;
 
 use std::{
     collections::hash_map::Entry,
@@ -169,7 +170,11 @@ async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
     )
 }
 
-pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<GameState> {
+pub async fn init_game_state(
+    mut scene: Scene,
+    renderer: &mut Renderer,
+    window: &winit::window::Window,
+) -> Result<GameState> {
     let mut physics_state = PhysicsState::new();
 
     // create player
@@ -924,6 +929,29 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
             .id(),
     );
 
+    let ui_overlay = {
+        let surface_format = renderer
+            .base
+            .surface_data
+            .as_ref()
+            .expect("surface is required to create a ui overlay")
+            .surface_config
+            .lock()
+            .unwrap()
+            .format;
+        IkariUiOverlay::new(
+            window,
+            &renderer.base.device,
+            // TODO: can I just pass surface_format here? seems it should be ok even if the surface is not srgb,
+            // the renderer will take care of that contingency..? this code would be really bad for the user.
+            if surface_format.is_srgb() {
+                surface_format
+            } else {
+                wgpu::TextureFormat::Rgba16Float
+            },
+        )
+    };
+
     // logger_log(&format!("{:?}", &revolver));
 
     // anyhow::bail!("suhh dude");
@@ -970,17 +998,15 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
         cube_mesh,
 
         asset_loader: asset_loader_clone,
+
+        ui_overlay,
     })
 }
 
-pub fn process_device_input(
-    game_state: &mut GameState,
-    renderer: &Renderer,
-    event: &winit::event::DeviceEvent,
-) {
+pub fn process_device_input(game_state: &mut GameState, event: &winit::event::DeviceEvent) {
     game_state
         .player_controller
-        .process_device_events(event, &renderer.ui_overlay);
+        .process_device_events(event, &game_state.ui_overlay);
 }
 
 pub fn process_window_input(
@@ -1005,11 +1031,11 @@ pub fn process_window_input(
             match keycode {
                 VirtualKeyCode::Z => {
                     drop(render_data_guard);
-                    increment_render_scale(renderer, false, window);
+                    increment_render_scale(renderer, false, window, &mut game_state.ui_overlay);
                 }
                 VirtualKeyCode::X => {
                     drop(render_data_guard);
-                    increment_render_scale(renderer, true, window);
+                    increment_render_scale(renderer, true, window, &mut game_state.ui_overlay);
                 }
                 VirtualKeyCode::E => {
                     increment_exposure(&mut render_data_guard, false);
@@ -1051,20 +1077,21 @@ pub fn process_window_input(
     }
     game_state
         .player_controller
-        .process_window_events(event, window, &mut renderer.ui_overlay);
+        .process_window_events(event, window, &mut game_state.ui_overlay);
 }
 
 pub fn increment_render_scale(
     renderer: &mut Renderer,
     increase: bool,
     window: &winit::window::Window,
+    ui_overlay: &mut IkariUiOverlay,
 ) {
     let delta = 0.1;
     let change = if increase { delta } else { -delta };
 
-    {
+    if let Some(surface_data) = renderer.base.surface_data.as_ref() {
         let mut renderer_data_guard = renderer.data.lock().unwrap();
-        let surface_config_guard = renderer.base.surface_config.lock().unwrap();
+        let surface_config_guard = surface_data.surface_config.lock().unwrap();
         renderer_data_guard.render_scale =
             (renderer_data_guard.render_scale + change).clamp(0.1, 4.0);
         log::info!(
@@ -1076,7 +1103,8 @@ pub fn increment_render_scale(
                 as u32,
         )
     }
-    renderer.resize(window.inner_size(), window.scale_factor());
+    renderer.resize(window.inner_size());
+    ui_overlay.resize(window.inner_size(), window.scale_factor());
 }
 
 pub fn increment_exposure(renderer_data: &mut RendererData, increase: bool) {
@@ -1528,7 +1556,15 @@ pub fn update_game_state(game_state: &mut GameState, renderer: &mut Renderer) {
                     deg_to_rad(90.0),
                 ))
                 .scale(
-                    (1080.0 / base_renderer.window_size.lock().unwrap().height as f32)
+                    (1080.0
+                        / base_renderer
+                            .surface_data
+                            .as_ref()
+                            .expect("surface is needed to run the game!")
+                            .window_size
+                            .lock()
+                            .unwrap()
+                            .height as f32)
                         * 0.06
                         * Vec3::new(1.0, 1.0, 1.0),
                 )

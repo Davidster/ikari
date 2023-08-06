@@ -26,7 +26,6 @@ use wgpu::InstanceDescriptor;
 
 use wgpu_profiler::wgpu_profiler;
 use wgpu_profiler::GpuProfiler;
-use winit::window::Window;
 
 pub const USE_LABELS: bool = true;
 
@@ -320,11 +319,9 @@ pub enum DefaultTextureType {
 pub struct BaseRenderer {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+    pub surface_data: Option<SurfaceData>,
     pub adapter: wgpu::Adapter,
-    pub surface: wgpu::Surface,
-    pub surface_config: Mutex<wgpu::SurfaceConfiguration>,
     pub limits: wgpu::Limits,
-    pub window_size: Mutex<winit::dpi::PhysicalSize<u32>>,
     pub single_texture_bind_group_layout: wgpu::BindGroupLayout,
     pub two_texture_bind_group_layout: wgpu::BindGroupLayout,
     pub single_cube_texture_bind_group_layout: wgpu::BindGroupLayout,
@@ -337,14 +334,14 @@ pub struct BaseRenderer {
     pub sampler_cache: Mutex<SamplerCache>,
 }
 
-impl BaseRenderer {
-    pub async fn new(
-        window: &winit::window::Window,
-        backends: wgpu::Backends,
-        present_mode: wgpu::PresentMode,
-    ) -> Self {
-        let window_size = window.inner_size();
+pub struct SurfaceData {
+    pub surface: wgpu::Surface,
+    pub surface_config: Mutex<wgpu::SurfaceConfiguration>,
+    pub window_size: Mutex<winit::dpi::PhysicalSize<u32>>,
+}
 
+impl BaseRenderer {
+    pub async fn new(backends: wgpu::Backends, window: Option<&winit::window::Window>) -> Self {
         let instance = wgpu::Instance::new(InstanceDescriptor {
             backends,
             dx12_shader_compiler: wgpu::Dx12Compiler::Dxc {
@@ -352,11 +349,11 @@ impl BaseRenderer {
                 dxc_path: Some(PathBuf::from("ikari/dxc/")),
             },
         });
-        let surface = unsafe { instance.create_surface(&window).unwrap() };
+        let surface = window.map(|window| unsafe { instance.create_surface(&window).unwrap() });
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface),
+                compatible_surface: surface.as_ref(),
                 force_fallback_adapter: false,
             })
             .await
@@ -382,15 +379,27 @@ impl BaseRenderer {
             .await
             .expect("Failed to create device");
 
-        let mut surface_config = surface
-            .get_default_config(&adapter, window_size.width, window_size.height)
-            .expect("Window surface is incompatible with the graphics adapter");
-        surface_config.usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
-        // surface_config.format = wgpu::TextureFormat::Bgra8UnormSrgb;
-        surface_config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
-        surface_config.present_mode = present_mode;
+        let surface_data = match (window, surface) {
+            (Some(window), Some(surface)) => {
+                let window_size = window.inner_size();
 
-        surface.configure(&device, &surface_config);
+                let mut surface_config = surface
+                    .get_default_config(&adapter, window_size.width, window_size.height)
+                    .expect("Window surface is incompatible with the graphics adapter");
+                surface_config.usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
+                // surface_config.format = wgpu::TextureFormat::Bgra8UnormSrgb;
+                surface_config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
+                surface_config.present_mode = wgpu::PresentMode::AutoNoVsync;
+                surface.configure(&device, &surface_config);
+
+                Some(SurfaceData {
+                    surface,
+                    surface_config: Mutex::new(surface_config),
+                    window_size: Mutex::new(window_size),
+                })
+            }
+            _ => None,
+        };
 
         let single_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -742,10 +751,8 @@ impl BaseRenderer {
             device,
             adapter,
             queue,
-            surface,
-            surface_config: Mutex::new(surface_config),
+            surface_data,
             limits,
-            window_size: Mutex::new(window_size),
             single_texture_bind_group_layout,
             two_texture_bind_group_layout,
             single_cube_texture_bind_group_layout,
@@ -1060,8 +1067,8 @@ pub struct RendererConstantData {
     pub wireframe_pipeline: wgpu::RenderPipeline,
     pub skybox_pipeline: wgpu::RenderPipeline,
     pub tone_mapping_pipeline: wgpu::RenderPipeline,
-    pub surface_blit_pipeline: wgpu::RenderPipeline,
-    pub pre_gamma_surface_blit_pipeline: wgpu::RenderPipeline,
+    pub surface_blit_pipeline: Option<wgpu::RenderPipeline>,
+    pub pre_gamma_surface_blit_pipeline: Option<wgpu::RenderPipeline>,
     pub point_shadow_map_pipeline: wgpu::RenderPipeline,
     pub directional_shadow_map_pipeline: wgpu::RenderPipeline,
     pub bloom_threshold_pipeline: wgpu::RenderPipeline,
@@ -1075,7 +1082,6 @@ pub struct Renderer {
     pub base: Arc<BaseRenderer>,
     pub data: Arc<Mutex<RendererData>>,
     pub constant_data: Arc<RendererConstantData>,
-    pub ui_overlay: IkariUiOverlay,
 
     private_data: Mutex<RendererPrivateData>,
 
@@ -1095,7 +1101,7 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub async fn new(base: BaseRenderer, window: &Window) -> Result<Self> {
+    pub async fn new(base: BaseRenderer) -> Result<Self> {
         log::info!("Controls:");
         [
             "Look Around:             Mouse",
@@ -1117,7 +1123,10 @@ impl Renderer {
             log::info!("  {line}");
         });
 
-        let surface_format = base.surface_config.lock().unwrap().format;
+        let surface_format = base
+            .surface_data
+            .as_ref()
+            .map(|surface_data| surface_data.surface_config.lock().unwrap().format);
 
         let unlit_mesh_shader = base
             .device
@@ -1418,65 +1427,77 @@ impl Renderer {
             .device
             .create_render_pipeline(&bloom_blur_pipeline_descriptor);
 
-        let surface_blit_color_targets = &[Some(wgpu::ColorTargetState {
-            format: surface_format,
-            blend: Some(wgpu::BlendState::REPLACE),
-            write_mask: wgpu::ColorWrites::ALL,
-        })];
-        let surface_blit_pipeline_layout =
-            base.device
-                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: None,
-                    bind_group_layouts: &[
-                        &base.single_texture_bind_group_layout,
-                        &base.single_uniform_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
-                });
-        let surface_blit_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: USE_LABELS.then_some("Surface Blit Render Pipeline"),
-            layout: Some(&surface_blit_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &blit_shader,
-                entry_point: "vs_main",
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &blit_shader,
-                entry_point: "surface_blit_fs_main",
-                targets: surface_blit_color_targets,
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        };
-        let surface_blit_pipeline = base
-            .device
-            .create_render_pipeline(&surface_blit_pipeline_descriptor);
+        let surface_pipelines = surface_format.map(|surface_format| {
+            let surface_blit_color_targets = &[Some(wgpu::ColorTargetState {
+                format: surface_format,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })];
+            let surface_blit_pipeline_layout =
+                base.device
+                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: None,
+                        bind_group_layouts: &[
+                            &base.single_texture_bind_group_layout,
+                            &base.single_uniform_bind_group_layout,
+                        ],
+                        push_constant_ranges: &[],
+                    });
+            let surface_blit_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+                label: USE_LABELS.then_some("Surface Blit Render Pipeline"),
+                layout: Some(&surface_blit_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &blit_shader,
+                    entry_point: "vs_main",
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &blit_shader,
+                    entry_point: "surface_blit_fs_main",
+                    targets: surface_blit_color_targets,
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+            };
+            let surface_blit_pipeline = base
+                .device
+                .create_render_pipeline(&surface_blit_pipeline_descriptor);
 
-        let mut pre_gamma_surface_blit_pipeline_descriptor =
-            surface_blit_pipeline_descriptor.clone();
-        let pre_gamma_surface_blit_pipeline_layout =
-            base.device
-                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: None,
-                    bind_group_layouts: &[&base.single_texture_bind_group_layout],
-                    push_constant_ranges: &[],
-                });
-        pre_gamma_surface_blit_pipeline_descriptor.layout =
-            Some(&pre_gamma_surface_blit_pipeline_layout);
-        pre_gamma_surface_blit_pipeline_descriptor.fragment = Some(wgpu::FragmentState {
-            module: &blit_shader,
-            entry_point: "fs_main",
-            targets: fragment_shader_color_targets,
+            let mut pre_gamma_surface_blit_pipeline_descriptor =
+                surface_blit_pipeline_descriptor.clone();
+            let pre_gamma_surface_blit_pipeline_layout =
+                base.device
+                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: None,
+                        bind_group_layouts: &[&base.single_texture_bind_group_layout],
+                        push_constant_ranges: &[],
+                    });
+            pre_gamma_surface_blit_pipeline_descriptor.layout =
+                Some(&pre_gamma_surface_blit_pipeline_layout);
+            pre_gamma_surface_blit_pipeline_descriptor.fragment = Some(wgpu::FragmentState {
+                module: &blit_shader,
+                entry_point: "fs_main",
+                targets: fragment_shader_color_targets,
+            });
+            let pre_gamma_surface_blit_pipeline = base
+                .device
+                .create_render_pipeline(&pre_gamma_surface_blit_pipeline_descriptor);
+
+            (surface_blit_pipeline, pre_gamma_surface_blit_pipeline)
         });
-        let pre_gamma_surface_blit_pipeline = base
-            .device
-            .create_render_pipeline(&pre_gamma_surface_blit_pipeline_descriptor);
+
+        let (surface_blit_pipeline, pre_gamma_surface_blit_pipeline) = match surface_pipelines {
+            Some((surface_blit_pipeline, pre_gamma_surface_blit_pipeline)) => (
+                Some(surface_blit_pipeline),
+                Some(pre_gamma_surface_blit_pipeline),
+            ),
+            None => (None, None),
+        };
 
         let tone_mapping_colors_targets = &[Some(wgpu::ColorTargetState {
             format: wgpu::TextureFormat::Rgba16Float,
@@ -1834,8 +1855,13 @@ impl Renderer {
             specular_env_map_gen_pipeline,
         };
 
-        let pre_gamma_fb = (!surface_format.is_srgb())
-            .then(|| Texture::create_scaled_surface_texture(&base, 1.0, "pre_gamma_fb"));
+        let pre_gamma_fb = match surface_format {
+            Some(surface_format) if !surface_format.is_srgb() => Some(
+                Texture::create_scaled_surface_texture(&base, 1.0, "pre_gamma_fb"),
+            ),
+            _ => None,
+        };
+
         let shading_texture =
             Texture::create_scaled_surface_texture(&base, initial_render_scale, "shading_texture");
         let bloom_pingpong_textures = [
@@ -1854,22 +1880,19 @@ impl Renderer {
         let bloom_pingpong_texture_bind_groups;
         {
             let sampler_cache_guard = base.sampler_cache.lock().unwrap();
-            pre_gamma_fb_bind_group = (!surface_format.is_srgb()).then(|| {
+            pre_gamma_fb_bind_group = pre_gamma_fb.as_ref().map(|pre_gamma_fb| {
                 base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: &base.single_texture_bind_group_layout,
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: wgpu::BindingResource::TextureView(
-                                &pre_gamma_fb.as_ref().unwrap().view,
-                            ),
+                            resource: wgpu::BindingResource::TextureView(&pre_gamma_fb.view),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard.get_sampler_by_index(
-                                    pre_gamma_fb.as_ref().unwrap().sampler_index,
-                                ),
+                                sampler_cache_guard
+                                    .get_sampler_by_index(pre_gamma_fb.sampler_index),
                             ),
                         },
                     ],
@@ -2410,16 +2433,6 @@ impl Renderer {
             })
         };
 
-        let ui_overlay = IkariUiOverlay::new(
-            window,
-            &base.device,
-            if surface_format.is_srgb() {
-                surface_format
-            } else {
-                wgpu::TextureFormat::Rgba16Float
-            },
-        );
-
         let mut data = RendererData {
             binded_pbr_meshes: vec![],
             binded_unlit_meshes: vec![],
@@ -2478,7 +2491,6 @@ impl Renderer {
             base: Arc::new(base),
             data: Arc::new(Mutex::new(data)),
             constant_data: Arc::new(constant_data),
-            ui_overlay,
 
             private_data: Mutex::new(RendererPrivateData {
                 all_bone_transforms: AllBoneTransforms {
@@ -2742,8 +2754,14 @@ impl Renderer {
     }
 
     pub fn set_vsync(&self, vsync: bool) {
+        let surface_data = self
+            .base
+            .surface_data
+            .as_ref()
+            .expect("set_vsync can only be called with if we have a surface");
+
         let surface_config = {
-            let mut surface_config_guard = self.base.surface_config.lock().unwrap();
+            let mut surface_config_guard = surface_data.surface_config.lock().unwrap();
             let new_present_mode = if vsync {
                 wgpu::PresentMode::AutoVsync
             } else {
@@ -2756,28 +2774,32 @@ impl Renderer {
             surface_config_guard.clone()
         };
 
-        self.base
+        surface_data
             .surface
             .configure(&self.base.device, &surface_config);
     }
 
-    pub fn resize(&mut self, new_window_size: winit::dpi::PhysicalSize<u32>, scale_factor: f64) {
+    pub fn resize(&mut self, new_window_size: winit::dpi::PhysicalSize<u32>) {
+        let surface_data = self
+            .base
+            .surface_data
+            .as_ref()
+            .expect("resize can only be called with if we have a surface");
+
         // let mut base_guard = self.base.lock().unwrap();
         let data_guard = self.data.lock().unwrap();
         let mut private_data_guard = self.private_data.lock().unwrap();
         let render_scale = data_guard.render_scale;
 
-        self.ui_overlay.resize(new_window_size, scale_factor);
-
-        *self.base.window_size.lock().unwrap() = new_window_size;
+        *surface_data.window_size.lock().unwrap() = new_window_size;
         let surface_config = {
-            let mut surface_config_guard = self.base.surface_config.lock().unwrap();
+            let mut surface_config_guard = surface_data.surface_config.lock().unwrap();
             surface_config_guard.width = new_window_size.width;
             surface_config_guard.height = new_window_size.height;
             surface_config_guard.clone()
         };
 
-        self.base
+        surface_data
             .surface
             .configure(&self.base.device, &surface_config);
 
@@ -2961,6 +2983,12 @@ impl Renderer {
         culling_frustum_focal_point: Vec3,
         culling_frustum_forward_vector: Vec3,
     ) {
+        let surface_data = self
+            .base
+            .surface_data
+            .as_ref()
+            .expect("add_debug_nodes can only be called with if we have a surface");
+
         let scene = &mut game_state.scene;
 
         for node_id in private_data
@@ -3022,7 +3050,7 @@ impl Renderer {
             let near_plane_distance = 3.0;
             let far_plane_distance = 500.0;
 
-            let window_size = *self.base.window_size.lock().unwrap();
+            let window_size = *surface_data.window_size.lock().unwrap();
             let aspect_ratio = window_size.width as f32 / window_size.height as f32;
 
             let culling_frustum_basic_mesh = Frustum::make_frustum_mesh(
@@ -3141,6 +3169,12 @@ impl Renderer {
         game_state: &GameState,
         lock_mode: CullingFrustumLockMode,
     ) {
+        let surface_data = self
+            .base
+            .surface_data
+            .as_ref()
+            .expect("add_debug_nodes can only be called with if we have a surface");
+
         let mut private_data_guard = self.private_data.lock().unwrap();
 
         if CullingFrustumLockMode::from(private_data_guard.frustum_culling_lock.clone())
@@ -3149,7 +3183,7 @@ impl Renderer {
             return;
         }
 
-        let window_size = *self.base.window_size.lock().unwrap();
+        let window_size = *surface_data.window_size.lock().unwrap();
         let aspect_ratio = window_size.width as f32 / window_size.height as f32;
 
         let position = match private_data_guard.frustum_culling_lock {
@@ -3173,13 +3207,8 @@ impl Renderer {
         };
     }
 
-    pub fn render(
-        &mut self,
-        game_state: &mut GameState,
-        window: &winit::window::Window,
-        control_flow: &mut winit::event_loop::ControlFlow,
-    ) -> anyhow::Result<()> {
-        self.update_internal(game_state, window, control_flow);
+    pub fn render(&mut self, game_state: &mut GameState) -> anyhow::Result<()> {
+        self.update_internal(game_state);
         self.render_internal(game_state)
     }
 
@@ -3363,22 +3392,21 @@ impl Renderer {
 
     /// Prepare and send all data to gpu so it's ready to render
     #[profiling::function]
-    fn update_internal(
-        &mut self,
-        game_state: &mut GameState,
-        window: &winit::window::Window,
-        control_flow: &mut winit::event_loop::ControlFlow,
-    ) {
+    fn update_internal(&mut self, game_state: &mut GameState) {
+        let surface_data = self
+            .base
+            .surface_data
+            .as_ref()
+            .expect("update_internal can only be called with if we have a surface");
+
         let mut data_guard = self.data.lock().unwrap();
         let data: &mut RendererData = &mut data_guard;
 
         let mut private_data_guard = self.private_data.lock().unwrap();
         let private_data: &mut RendererPrivateData = &mut private_data_guard;
 
-        self.ui_overlay.update(window, control_flow);
-
-        let surface_format = self.base.surface_config.lock().unwrap().format;
-        let window_size = *self.base.window_size.lock().unwrap();
+        let surface_format = surface_data.surface_config.lock().unwrap().format;
+        let window_size = *surface_data.window_size.lock().unwrap();
         let aspect_ratio = window_size.width as f32 / window_size.height as f32;
         let camera_position = game_state
             .player_controller
@@ -4070,6 +4098,12 @@ impl Renderer {
 
     #[profiling::function]
     pub fn render_internal(&mut self, game_state: &mut GameState) -> anyhow::Result<()> {
+        let surface_data = self
+            .base
+            .surface_data
+            .as_ref()
+            .expect("update_internal can only be called with if we have a surface");
+
         let mut data_guard = self.data.lock().unwrap();
         let data: &mut RendererData = &mut data_guard;
 
@@ -4079,7 +4113,7 @@ impl Renderer {
         let mut profiler_guard = self.profiler.lock().unwrap();
         let profiler: &mut GpuProfiler = &mut profiler_guard;
 
-        let surface_texture = self.base.surface.get_current_texture()?;
+        let surface_texture = surface_data.surface.get_current_texture()?;
         let surface_texture_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -4594,7 +4628,10 @@ impl Renderer {
             });
         }
 
-        if let Some(pre_gamma_fb) = &private_data.pre_gamma_fb {
+        if let (Some(pre_gamma_fb), Some(pre_gamma_surface_blit_pipeline)) = (
+            &private_data.pre_gamma_fb,
+            &self.constant_data.pre_gamma_surface_blit_pipeline,
+        ) {
             {
                 let label = "Pre-gamma Surface blit";
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -4612,8 +4649,7 @@ impl Renderer {
 
                 wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
                     {
-                        render_pass
-                            .set_pipeline(&self.constant_data.pre_gamma_surface_blit_pipeline);
+                        render_pass.set_pipeline(pre_gamma_surface_blit_pipeline);
                         render_pass.set_bind_group(
                             0,
                             &private_data.tone_mapping_texture_bind_group,
@@ -4625,11 +4661,12 @@ impl Renderer {
             }
 
             // TODO: pass a separate encoder to the ui overlay so it can be profiled
-            self.ui_overlay
+            game_state
+                .ui_overlay
                 .render(&self.base.device, &mut encoder, &pre_gamma_fb.view);
         }
 
-        {
+        if let Some(surface_blit_pipeline) = self.constant_data.surface_blit_pipeline.as_ref() {
             let label = "Surface blit";
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: USE_LABELS.then_some(label),
@@ -4646,7 +4683,7 @@ impl Renderer {
 
             wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
                 {
-                    render_pass.set_pipeline(&self.constant_data.surface_blit_pipeline);
+                    render_pass.set_pipeline(surface_blit_pipeline);
                     render_pass.set_bind_group(
                         0,
                         private_data
@@ -4667,8 +4704,9 @@ impl Renderer {
 
         if private_data.pre_gamma_fb.is_none() {
             // TODO: pass a separate encoder to the ui overlay so it can be profiled
-            self.ui_overlay
-                .render(&self.base.device, &mut encoder, &surface_texture_view);
+            game_state
+                .ui_overlay
+                .render(&self.base.device, &mut encoder, &surface_texture_view)
         }
 
         profiler.resolve_queries(&mut encoder);
