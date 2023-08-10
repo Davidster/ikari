@@ -5,7 +5,7 @@ use ikari::scene::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-const DXC_PATH: &str = "ikari/dxc/";
+const DXC_PATH: &str = "dxc/";
 
 async fn start() {
     let run_result = async {
@@ -55,7 +55,7 @@ async fn start() {
 
         let (base_renderer, surface_data) = {
             let backends = if cfg!(target_os = "windows") {
-                wgpu::Backends::from(wgpu::Backend::Dx12)
+                wgpu::Backends::from(wgpu::Backend::Vulkan)
                 // wgpu::Backends::PRIMARY
             } else {
                 wgpu::Backends::PRIMARY

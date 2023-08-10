@@ -1092,6 +1092,7 @@ pub struct RendererConstantData {
     pub bloom_threshold_pipeline: wgpu::RenderPipeline,
     pub bloom_blur_pipeline: wgpu::RenderPipeline,
     pub equirectangular_to_cubemap_pipeline: wgpu::RenderPipeline,
+    pub equirectangular_to_cubemap_hdr_pipeline: wgpu::RenderPipeline,
     pub diffuse_env_map_gen_pipeline: wgpu::RenderPipeline,
     pub specular_env_map_gen_pipeline: wgpu::RenderPipeline,
 }
@@ -1125,27 +1126,6 @@ impl Renderer {
         framebuffer_format: wgpu::TextureFormat,
         framebuffer_size: (u32, u32),
     ) -> Result<Self> {
-        log::info!("Controls:");
-        [
-            "Look Around:             Mouse",
-            "Move Around:             WASD, Space Bar, Ctrl",
-            "Adjust Speed:            Scroll or Up/Down Arrow Keys",
-            "Adjust Render Scale:     Z / X",
-            "Adjust Exposure:         E / R",
-            "Adjust Bloom Threshold:  T / Y",
-            "Pause/Resume Animations: P",
-            "Toggle Bloom Effect:     B",
-            "Toggle Shadows:          M",
-            "Toggle Wireframe:        F",
-            "Toggle Collision Boxes:  C",
-            "Draw Bounding Spheres:   J",
-            "Open Options Menu:       Tab",
-        ]
-        .iter()
-        .for_each(|line| {
-            log::info!("  {line}");
-        });
-
         let unlit_mesh_shader = base
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -1609,7 +1589,7 @@ impl Renderer {
             .create_render_pipeline(&skybox_pipeline_descriptor);
 
         let equirectangular_to_cubemap_color_targets = &[Some(wgpu::ColorTargetState {
-            format: wgpu::TextureFormat::Rgba16Float,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
         })];
@@ -1646,6 +1626,21 @@ impl Renderer {
         let equirectangular_to_cubemap_pipeline = base
             .device
             .create_render_pipeline(&equirectangular_to_cubemap_pipeline_descriptor);
+
+        let mut equirectangular_to_cubemap_hdr_pipeline_descriptor =
+            equirectangular_to_cubemap_pipeline_descriptor.clone();
+        equirectangular_to_cubemap_hdr_pipeline_descriptor
+            .fragment
+            .as_mut()
+            .unwrap()
+            .targets = &[Some(wgpu::ColorTargetState {
+            format: wgpu::TextureFormat::Rgba16Float,
+            blend: Some(wgpu::BlendState::REPLACE),
+            write_mask: wgpu::ColorWrites::ALL,
+        })];
+        let equirectangular_to_cubemap_hdr_pipeline = base
+            .device
+            .create_render_pipeline(&equirectangular_to_cubemap_hdr_pipeline_descriptor);
 
         let diffuse_env_map_color_targets = &[Some(wgpu::ColorTargetState {
             format: wgpu::TextureFormat::Rgba16Float,
@@ -1869,6 +1864,7 @@ impl Renderer {
             bloom_threshold_pipeline,
             bloom_blur_pipeline,
             equirectangular_to_cubemap_pipeline,
+            equirectangular_to_cubemap_hdr_pipeline,
             diffuse_env_map_gen_pipeline,
             specular_env_map_gen_pipeline,
         };
@@ -2125,10 +2121,11 @@ impl Renderer {
         let skybox_texture = Texture::create_cubemap_from_equirectangular(
             &base,
             &constant_data,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
             None,
             &skybox_image,
             false, // an artifact occurs between the edges of the texture with mipmaps enabled
-        );
+        )?;
 
         let skybox_rad_texture = {
             let pixel_count = skybox_dim * skybox_dim;
@@ -2158,10 +2155,11 @@ impl Renderer {
             Texture::create_cubemap_from_equirectangular(
                 &base,
                 &constant_data,
+                wgpu::TextureFormat::Rgba16Float,
                 None,
                 &texture_er,
                 false,
-            )
+            )?
         };
         let skybox_rad_texture = &skybox_rad_texture;
 

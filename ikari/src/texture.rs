@@ -8,6 +8,7 @@ use crate::sampler_cache::*;
 
 use anyhow::*;
 use glam::f32::Vec3;
+use image::EncodableLayout;
 use wgpu::util::DeviceExt;
 
 #[derive(Debug)]
@@ -31,6 +32,17 @@ pub struct CubemapImages {
 // TODO: maybe implement some functions on the BaseRendererState so we have the device and queue for free?
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
+    pub fn unpadded_bytes_per_row(&self) -> u32 {
+        self.size.width * self.texture.format().block_size(None).unwrap()
+    }
+
+    pub fn padded_bytes_per_row(&self) -> u32 {
+        let unpadded_bytes_per_row = self.unpadded_bytes_per_row();
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row_padding = (align - unpadded_bytes_per_row % align) % align;
+        unpadded_bytes_per_row + padded_bytes_per_row_padding
+    }
 
     // supports jpg and png
     pub fn from_encoded_image(
@@ -89,6 +101,7 @@ impl Texture {
                     dimension: wgpu::TextureDimension::D2,
                     format,
                     usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_SRC
                         | wgpu::TextureUsages::COPY_DST
                         | wgpu::TextureUsages::RENDER_ATTACHMENT,
                     view_formats: &[],
@@ -100,9 +113,10 @@ impl Texture {
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                 },
-                std::hint::black_box(img_bytes),
+                img_bytes,
                 wgpu::ImageDataLayout {
                     offset: 0,
+                    // queue.write_texture is exempt from COPY_BYTES_PER_ROW_ALIGNMENT requirement
                     bytes_per_row: Some(format.block_size(None).unwrap() * dimensions.0),
                     rows_per_image: Some(dimensions.1),
                 },
@@ -225,6 +239,83 @@ impl Texture {
 
     pub fn _flat_normal_map(base_renderer: &BaseRenderer) -> Result<Self> {
         Self::from_color(base_renderer, [127, 127, 255, 255])
+    }
+
+    /// only works if the texture had the COPY_SRC usage set at creation
+    /// returns one byte array per image in case of arrays and cubemaps
+    pub async fn to_bytes(&self, base_renderer: &BaseRenderer) -> Result<Vec<Vec<u8>>> {
+        let mut result = vec![];
+        for depth in 0..self.size.depth_or_array_layers {
+            let mut encoder =
+                base_renderer
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: USE_LABELS.then_some("to_bytes encoder"),
+                    });
+
+            let output_buffer = base_renderer.device.create_buffer(&wgpu::BufferDescriptor {
+                size: (self.padded_bytes_per_row() * self.size.height) as u64,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                label: USE_LABELS.then_some("to_bytes output buffer"),
+                mapped_at_creation: false,
+            });
+
+            encoder.copy_texture_to_buffer(
+                wgpu::ImageCopyTexture {
+                    aspect: wgpu::TextureAspect::All,
+                    texture: &self.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        z: depth,
+                        ..wgpu::Origin3d::ZERO
+                    },
+                },
+                wgpu::ImageCopyBuffer {
+                    buffer: &output_buffer,
+                    layout: wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: dbg!(Some(self.padded_bytes_per_row())),
+                        rows_per_image: None,
+                    },
+                },
+                wgpu::Extent3d {
+                    width: self.size.width,
+                    height: self.size.height,
+                    depth_or_array_layers: 1,
+                },
+            );
+
+            base_renderer.queue.submit(Some(encoder.finish()));
+
+            // let result;
+            {
+                let buffer_slice = output_buffer.slice(..);
+
+                // TODO: make sure this works on the web
+                let (tx, rx) = futures_intrusive::channel::shared::oneshot_channel();
+                buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                    tx.send(result).unwrap();
+                });
+                base_renderer.device.poll(wgpu::Maintain::Wait);
+                rx.receive().await.unwrap()?;
+
+                let data = &buffer_slice.get_mapped_range();
+                let mut unpadded_data =
+                    Vec::with_capacity((self.unpadded_bytes_per_row() * self.size.height) as usize);
+                for i in 0..(self.size.height) {
+                    let start_index = (i * self.padded_bytes_per_row()) as usize;
+                    let end_index = start_index + self.unpadded_bytes_per_row() as usize;
+                    if data[start_index..end_index].iter().all(|val| *val == 0) {
+                        log::debug!("row {i} of depth {depth} was all zeros");
+                    }
+                    unpadded_data.extend_from_slice(&data[start_index..end_index]);
+                }
+                result.push(unpadded_data.to_vec());
+            }
+            output_buffer.unmap();
+        }
+
+        Ok(result)
     }
 
     pub fn create_scaled_surface_texture(
@@ -445,14 +536,24 @@ impl Texture {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn create_cubemap_from_equirectangular(
         base_renderer: &BaseRenderer,
         renderer_constant_data: &RendererConstantData,
+        format: wgpu::TextureFormat,
         label: Option<&str>,
         er_texture: &Texture,
         generate_mipmaps: bool,
-    ) -> Self {
+    ) -> Result<Self> {
+        let equirectangular_to_cubemap_pipeline = match format {
+            wgpu::TextureFormat::Rgba8UnormSrgb => {
+                &renderer_constant_data.equirectangular_to_cubemap_pipeline
+            },
+            wgpu::TextureFormat::Rgba16Float => {
+                &renderer_constant_data.equirectangular_to_cubemap_hdr_pipeline
+            }
+            _ => anyhow::bail!("create_cubemap_from_equirectangular called with unsupported texture format: {format:?}"),
+        };
+
         let size = wgpu::Extent3d {
             width: (er_texture.size.width / 3).max(1),
             height: (er_texture.size.width / 3).max(1),
@@ -473,8 +574,9 @@ impl Texture {
                 mip_level_count,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba16Float,
+                format,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC
                     | wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             });
@@ -581,7 +683,7 @@ impl Texture {
                     })],
                     depth_stencil_attachment: None,
                 });
-                rpass.set_pipeline(&renderer_constant_data.equirectangular_to_cubemap_pipeline);
+                rpass.set_pipeline(&equirectangular_to_cubemap_pipeline);
                 rpass.set_bind_group(0, &er_texture_bind_group, &[]);
                 rpass.set_bind_group(1, &camera_bind_group, &[]);
                 rpass.set_vertex_buffer(
@@ -640,12 +742,12 @@ impl Texture {
                 },
             );
 
-        Self {
+        Ok(Self {
             texture: cubemap_texture,
             view,
             sampler_index,
             size,
-        }
+        })
     }
 
     /// Each image should have the same dimensions!
@@ -692,7 +794,9 @@ impl Texture {
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             },
             // pack images into one big byte array
@@ -736,7 +840,6 @@ impl Texture {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn create_diffuse_env_map(
         base_renderer: &BaseRenderer,
         renderer_constant_data: &RendererConstantData,
@@ -766,6 +869,7 @@ impl Texture {
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba16Float,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC
                     | wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             });
@@ -954,6 +1058,7 @@ impl Texture {
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba16Float,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC
                     | wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             });

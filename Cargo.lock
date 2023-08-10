@@ -535,6 +535,7 @@ dependencies = [
  "pico-args",
  "threadpool",
  "walkdir",
+ "wgpu",
 ]
 
 [[package]]
@@ -1341,6 +1342,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures-intrusive"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d930c203dd0b6ff06e0201a4a2fe9149b43c684fd4420555b26d21b1a02956f"
+dependencies = [
+ "futures-core",
+ "lock_api",
+ "parking_lot 0.12.1",
+]
+
+[[package]]
 name = "futures-io"
 version = "0.3.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1986,6 +1998,7 @@ dependencies = [
  "console",
  "cpal",
  "env_logger",
+ "futures-intrusive",
  "getrandom",
  "glam 0.24.1",
  "gltf",

@@ -177,6 +177,27 @@ pub async fn init_game_state(
     surface_data: &SurfaceData,
     window: &winit::window::Window,
 ) -> Result<GameState> {
+    log::info!("Controls:");
+    [
+        "Look Around:             Mouse",
+        "Move Around:             WASD, Space Bar, Ctrl",
+        "Adjust Speed:            Scroll or Up/Down Arrow Keys",
+        "Adjust Render Scale:     Z / X",
+        "Adjust Exposure:         E / R",
+        "Adjust Bloom Threshold:  T / Y",
+        "Pause/Resume Animations: P",
+        "Toggle Bloom Effect:     B",
+        "Toggle Shadows:          M",
+        "Toggle Wireframe:        F",
+        "Toggle Collision Boxes:  C",
+        "Draw Bounding Spheres:   J",
+        "Open Options Menu:       Tab",
+    ]
+    .iter()
+    .for_each(|line| {
+        log::info!("  {line}");
+    });
+
     let mut physics_state = PhysicsState::new();
 
     // create player

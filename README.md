@@ -37,6 +37,9 @@ Hopefully one day it will be used in a real game 😃
 
 ## TODO
 
+- stop using release build, switch to dev but with optimizations enabled, but leave debug=true for release builds.
+- fix resolve_path function in file_loader so it can be used outside the context of the engine!
+- path in error messages in file loader module (see TODO: there)
 - renderer should not need to know about the game state!
 - lift state from the ui overlay into the game state to not need to pass state around
 - convert all paths to be relative to the bin
