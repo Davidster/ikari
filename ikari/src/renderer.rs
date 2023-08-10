@@ -420,6 +420,9 @@ impl BaseRenderer {
             .await
             .map_err(|err| anyhow::anyhow!("Failed to create wgpu device: {err}"))?;
 
+        device.start_capture();
+        device.stop_capture();
+
         let single_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[

@@ -37,7 +37,6 @@ Hopefully one day it will be used in a real game 😃
 
 ## TODO
 
-- stop using release build, switch to dev but with optimizations enabled, but leave debug=true for release builds.
 - fix resolve_path function in file_loader so it can be used outside the context of the engine!
 - path in error messages in file loader module (see TODO: there)
 - renderer should not need to know about the game state!
@@ -53,9 +52,9 @@ Hopefully one day it will be used in a real game 😃
 
 ```sh
 # native
-cargo run --release --features="tracy" --bin example_game
+cargo run --features="tracy" --bin example_game
 # web
-cargo build_web --release --bin example_game
+cargo build_web --bin example_game
 ```
 
 See console logs for list of available controls
