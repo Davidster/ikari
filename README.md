@@ -37,8 +37,8 @@ Hopefully one day it will be used in a real game 😃
 
 ## TODO
 
-- test web
 - basisu supports cubemap format, so SkyboxBackgroundPath::CompressedCube can be made into a single path, no need for join at runtime.
+- support web by saving uncompressed versions of textures.. or maybe try out https://github.com/expenses/basis-universal-rs which supports the web?
 - sometimes pos_x/neg_x format of cubemap is used, sometimes it's array... FIX THIS
 - fix resolve_path function in file_loader so it can be used outside the context of the engine!
 - path in error messages in file loader module (see TODO: there)
