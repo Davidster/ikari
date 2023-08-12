@@ -1,8 +1,8 @@
-use rmp_serde::{Deserializer, Serializer};
-use serde::{Deserialize, Serialize};
+use rmp_serde::Serializer;
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 
-use crate::{renderer::Float16, texture::RawImage};
+use crate::texture::RawImage;
 
 const BASISU_COMPRESSION_FORMAT: basis_universal::BasisTextureFormat =
     basis_universal::BasisTextureFormat::UASTC4x4;

@@ -12,7 +12,6 @@ use crate::time::*;
 
 use anyhow::bail;
 use anyhow::Result;
-use image::GenericImageView;
 use image::Pixel;
 use std::collections::{hash_map::Entry, HashMap};
 use std::path::Path;
@@ -460,8 +459,7 @@ pub async fn make_bindable_skybox<'a>(
         }
         SkyboxBackgroundPath::CompressedCube(face_image_paths) => {
             async fn to_img(img_path: &str) -> Result<CompressedTexture> {
-                Ok(TextureCompressor
-                    .transcode_image(&crate::file_loader::read(img_path).await?, false)?)
+                TextureCompressor.transcode_image(&crate::file_loader::read(img_path).await?, false)
             }
 
             let first_img = to_img(face_image_paths[0]).await?;

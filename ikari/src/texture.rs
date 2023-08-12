@@ -5,11 +5,10 @@ use crate::renderer::FAR_PLANE_DISTANCE;
 use crate::renderer::NEAR_PLANE_DISTANCE;
 use crate::renderer::USE_LABELS;
 use crate::sampler_cache::*;
-use crate::texture_compression::CompressedTexture;
 
 use anyhow::*;
 use glam::f32::Vec3;
-use image::EncodableLayout;
+
 use image::RgbaImage;
 use serde::Deserialize;
 use serde::Serialize;
@@ -728,7 +727,7 @@ impl Texture {
                     })],
                     depth_stencil_attachment: None,
                 });
-                rpass.set_pipeline(&equirectangular_to_cubemap_pipeline);
+                rpass.set_pipeline(equirectangular_to_cubemap_pipeline);
                 rpass.set_bind_group(0, &er_texture_bind_group, &[]);
                 rpass.set_bind_group(1, &camera_bind_group, &[]);
                 rpass.set_vertex_buffer(
@@ -822,7 +821,7 @@ impl Texture {
                     | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             },
-            &image.raw,
+            image.raw,
         );
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor {

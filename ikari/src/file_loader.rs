@@ -68,7 +68,7 @@ pub fn map_js_err<T>(result: std::result::Result<T, JsValue>) -> anyhow::Result<
 pub async fn read(path: &str) -> anyhow::Result<Vec<u8>> {
     let resolved_path = resolve_path(path);
     // TODO: add the same path in error message everywhere here
-    Ok(std::fs::read(&resolved_path).map_err(|err| anyhow::anyhow!("{err} ({resolved_path})"))?)
+    std::fs::read(&resolved_path).map_err(|err| anyhow::anyhow!("{err} ({resolved_path})"))
 }
 
 #[cfg(target_arch = "wasm32")]

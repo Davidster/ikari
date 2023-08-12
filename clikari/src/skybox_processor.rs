@@ -4,12 +4,9 @@ use ikari::{
     renderer::{
         BaseRenderer, BindedSkybox, Renderer, SkyboxBackgroundPath, SkyboxHDREnvironmentPath,
     },
-    texture::{RawImage, Texture},
+    texture::RawImage,
     texture_compression::TextureCompressionArgs,
 };
-use image::{ImageBuffer, Rgba};
-
-use crate::texture_compressor::TextureCompressorArgs;
 
 const DXC_PATH: &str = "dxc/";
 
@@ -34,8 +31,7 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
     };
 
     let base_renderer = BaseRenderer::offscreen(backends, Some(DXC_PATH.into())).await?;
-    let mut renderer =
-        Renderer::new(base_renderer, wgpu::TextureFormat::Bgra8Unorm, (1, 1)).await?;
+    let renderer = Renderer::new(base_renderer, wgpu::TextureFormat::Bgra8Unorm, (1, 1)).await?;
 
     let bindable_skybox = ikari::asset_loader::make_bindable_skybox(
         SkyboxBackgroundPath::Equirectangular(
@@ -87,7 +83,7 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
 
         for (texture_bytes, file_name) in all_texture_bytes.iter().zip(cube_texture_names.iter()) {
             let compressed_img_bytes = compressor.compress_raw_image(TextureCompressionArgs {
-                img_bytes: &texture_bytes,
+                img_bytes: texture_bytes,
                 img_width: texture.size.width,
                 img_height: texture.size.height,
                 img_channel_count: 4,

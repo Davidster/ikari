@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use glam::f32::{Mat4, Vec3};
 use glam::Vec4;
-use serde::Serialize;
+
 use wgpu::util::DeviceExt;
 use wgpu::InstanceDescriptor;
 
