@@ -64,8 +64,6 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
 
     let compressor = ikari::texture_compression::TextureCompressor;
 
-    let cube_texture_names = ["pos_x", "neg_x", "pos_y", "neg_y", "pos_z", "neg_z"];
-
     std::fs::create_dir_all(&args.out_folder)?;
 
     {
@@ -81,6 +79,7 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
 
         let all_texture_bytes = texture.to_bytes(&renderer.base).await?;
 
+        let cube_texture_names = ["pos_x", "neg_x", "pos_y", "neg_y", "pos_z", "neg_z"];
         for (texture_bytes, file_name) in all_texture_bytes.iter().zip(cube_texture_names.iter()) {
             // also save a PNG for use on the web
             let png_compressed_img_bytes = image::RgbaImage::from_raw(
