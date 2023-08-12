@@ -30,7 +30,6 @@ pub mod scene;
 pub mod scene_tree;
 pub mod skinning;
 pub mod texture;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod texture_compression;
 pub mod thread;
 pub mod time;

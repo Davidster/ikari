@@ -95,13 +95,13 @@ pub fn get_skybox_path() -> (
     );
 
     // Milkyway pre-processed
-    let skybox_background = SkyboxBackgroundPath::CompressedCube([
-        "src/skyboxes/milkyway/background/pos_x_compressed.bin",
-        "src/skyboxes/milkyway/background/neg_x_compressed.bin",
-        "src/skyboxes/milkyway/background/pos_y_compressed.bin",
-        "src/skyboxes/milkyway/background/neg_y_compressed.bin",
-        "src/skyboxes/milkyway/background/pos_z_compressed.bin",
-        "src/skyboxes/milkyway/background/neg_z_compressed.bin",
+    let skybox_background = SkyboxBackgroundPath::ProcessedCube([
+        "src/skyboxes/milkyway/background/pos_x.png",
+        "src/skyboxes/milkyway/background/neg_x.png",
+        "src/skyboxes/milkyway/background/pos_y.png",
+        "src/skyboxes/milkyway/background/neg_y.png",
+        "src/skyboxes/milkyway/background/pos_z.png",
+        "src/skyboxes/milkyway/background/neg_z.png",
     ]);
     let skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> =
         Some(SkyboxHDREnvironmentPath::ProcessedCube {
@@ -271,7 +271,7 @@ pub async fn init_game_state(
                 },
             );
 
-            crate::thread::sleep_async(crate::time::Duration::from_secs_f32(5.0)).await;
+            crate::thread::sleep_async(crate::time::Duration::from_secs_f32(10.0)).await;
             let (background, environment_hdr) = get_skybox_path();
             asset_loader.load_skybox("skybox".to_string(), background, environment_hdr);
         })

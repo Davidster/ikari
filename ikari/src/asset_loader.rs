@@ -6,7 +6,6 @@ use crate::renderer::*;
 use crate::sampler_cache::*;
 use crate::scene::*;
 use crate::texture::*;
-use crate::texture_compression::CompressedTexture;
 use crate::texture_compression::TextureCompressor;
 use crate::time::*;
 
@@ -457,9 +456,23 @@ pub async fn make_bindable_skybox<'a>(
                 raw,
             })
         }
-        SkyboxBackgroundPath::CompressedCube(face_image_paths) => {
-            async fn to_img(img_path: &str) -> Result<CompressedTexture> {
-                TextureCompressor.transcode_image(&crate::file_loader::read(img_path).await?, false)
+        #[cfg(not(target_arch = "wasm32"))]
+        SkyboxBackgroundPath::ProcessedCube(face_image_paths) => {
+            async fn to_img(
+                img_path: &str,
+            ) -> Result<crate::texture_compression::CompressedTexture> {
+                TextureCompressor.transcode_image(
+                    &crate::file_loader::read(
+                        crate::texture_compression::texture_path_to_compressed_path(Path::new(
+                            img_path,
+                        ))
+                        .as_os_str()
+                        .to_str()
+                        .unwrap(),
+                    )
+                    .await?,
+                    false,
+                )
             }
 
             let first_img = to_img(face_image_paths[0]).await?;
@@ -472,6 +485,27 @@ pub async fn make_bindable_skybox<'a>(
             BindableSkyboxBackground::CompressedCube(RawImage {
                 width: first_img.width,
                 height: first_img.height,
+                depth: 6,
+                mip_count: 1,
+                raw,
+            })
+        }
+        #[cfg(target_arch = "wasm32")]
+        SkyboxBackgroundPath::ProcessedCube(face_image_paths) => {
+            async fn to_img(img_path: &str) -> Result<image::RgbaImage> {
+                Ok(image::load_from_memory(&crate::file_loader::read(img_path).await?)?.to_rgba8())
+            }
+
+            let first_img = to_img(face_image_paths[0]).await?;
+            let mut raw = vec![];
+            raw.extend_from_slice(first_img.as_raw());
+            for path in &face_image_paths[1..] {
+                raw.extend_from_slice(to_img(path).await?.as_raw());
+            }
+
+            BindableSkyboxBackground::Cube(RawImage {
+                width: first_img.width(),
+                height: first_img.height(),
                 depth: 6,
                 mip_count: 1,
                 raw,

@@ -1018,7 +1018,7 @@ pub struct BindedSceneData {
 #[derive(Debug)]
 pub enum SkyboxBackgroundPath<'a> {
     Cube([&'a str; 6]),
-    CompressedCube([&'a str; 6]),
+    ProcessedCube([&'a str; 6]),
     Equirectangular(&'a str),
 }
 

@@ -82,22 +82,35 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
         let all_texture_bytes = texture.to_bytes(&renderer.base).await?;
 
         for (texture_bytes, file_name) in all_texture_bytes.iter().zip(cube_texture_names.iter()) {
-            let compressed_img_bytes = compressor.compress_raw_image(TextureCompressionArgs {
-                img_bytes: texture_bytes,
-                img_width: texture.size.width,
-                img_height: texture.size.height,
-                img_channel_count: 4,
-                generate_mipmaps: false,
-                is_normal_map: false,
-                is_srgb: true,
-                thread_count: num_cpus::get() as u32,
-            })?;
+            // also save a PNG for use on the web
+            let png_compressed_img_bytes = image::RgbaImage::from_raw(
+                texture.size.width,
+                texture.size.height,
+                texture_bytes.clone(),
+            )
+            .ok_or_else(|| anyhow::anyhow!("Failed to decode raw background image"))?;
 
-            let full_file_path =
+            let png_file_path = std::path::Path::join(&folder, format!("{file_name}.png"));
+
+            png_compressed_img_bytes.save(png_file_path.clone())?;
+
+            let gpu_compressed_img_bytes =
+                compressor.compress_raw_image(TextureCompressionArgs {
+                    img_bytes: texture_bytes,
+                    img_width: texture.size.width,
+                    img_height: texture.size.height,
+                    img_channel_count: 4,
+                    generate_mipmaps: false,
+                    is_normal_map: false,
+                    is_srgb: true,
+                    thread_count: num_cpus::get() as u32,
+                })?;
+
+            let gpu_compressed_file_path =
                 std::path::Path::join(&folder, format!("{file_name}_compressed.bin"));
 
-            std::fs::write(&full_file_path, compressed_img_bytes)?;
-            log::info!("Done compressing: {:?}", full_file_path.canonicalize()?);
+            std::fs::write(&gpu_compressed_file_path, gpu_compressed_img_bytes)?;
+            log::info!("Done compressing: {:?}", png_file_path.canonicalize()?);
         }
     }
 

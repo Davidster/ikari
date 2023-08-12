@@ -4,12 +4,14 @@ use std::path::{Path, PathBuf};
 
 use crate::texture::RawImage;
 
+#[cfg(not(target_arch = "wasm32"))]
 const BASISU_COMPRESSION_FORMAT: basis_universal::BasisTextureFormat =
     basis_universal::BasisTextureFormat::UASTC4x4;
 
 #[derive(Debug)]
 pub struct TextureCompressor;
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug)]
 pub struct TextureCompressionArgs<'a> {
     pub img_bytes: &'a [u8],
@@ -22,6 +24,7 @@ pub struct TextureCompressionArgs<'a> {
     pub thread_count: u32,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug)]
 pub struct CompressedTexture {
     pub format: basis_universal::transcoding::TranscoderTextureFormat,
@@ -35,8 +38,6 @@ impl TextureCompressor {
     // floating point texture format isn't yet supported by basisu. see
     // https://github.com/BinomialLLC/basis_universal/issues/310
     pub fn compress_raw_float_image(&self, image: RawImage) -> anyhow::Result<Vec<u8>> {
-        basis_universal::encoder_init();
-
         let mut image_serialized = vec![];
         image.serialize(&mut Serializer::new(&mut image_serialized))?;
 
@@ -46,6 +47,7 @@ impl TextureCompressor {
         Ok(zstd_encoded_data)
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn compress_raw_image(&self, args: TextureCompressionArgs) -> anyhow::Result<Vec<u8>> {
         basis_universal::encoder_init();
 
@@ -118,6 +120,7 @@ impl TextureCompressor {
         Ok(rmp_serde::from_slice(&zstd_decoded_data)?)
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[profiling::function]
     pub fn transcode_image(
         &self,
