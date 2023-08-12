@@ -4,16 +4,19 @@ use ikari::{
     renderer::{
         BaseRenderer, BindedSkybox, Renderer, SkyboxBackgroundPath, SkyboxHDREnvironmentPath,
     },
-    texture::Texture,
+    texture::{RawImage, Texture},
+    texture_compression::TextureCompressionArgs,
 };
 use image::{ImageBuffer, Rgba};
+
+use crate::texture_compressor::TextureCompressorArgs;
 
 const DXC_PATH: &str = "dxc/";
 
 pub struct SkyboxProcessorArgs {
     pub background_path: PathBuf,
     pub environment_hdr_path: Option<PathBuf>,
-    pub out_path: PathBuf,
+    pub out_folder: PathBuf,
 }
 
 pub fn run(args: SkyboxProcessorArgs) {
@@ -34,29 +37,28 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
     let mut renderer =
         Renderer::new(base_renderer, wgpu::TextureFormat::Bgra8Unorm, (1, 1)).await?;
 
-    renderer.base.device.start_capture();
-
     let bindable_skybox = ikari::asset_loader::make_bindable_skybox(
-        SkyboxBackgroundPath::Equirectangular {
-            image_path: args
-                .background_path
+        SkyboxBackgroundPath::Equirectangular(
+            args.background_path
                 .to_str()
                 .expect("background_path was not valid unicode"),
-        },
+        ),
         args.environment_hdr_path
             .as_ref()
-            .map(
-                |environment_hdr_path| SkyboxHDREnvironmentPath::Equirectangular {
-                    image_path: environment_hdr_path
+            .map(|environment_hdr_path| {
+                SkyboxHDREnvironmentPath::Equirectangular(
+                    environment_hdr_path
                         .to_str()
                         .expect("environment_hdr_path was not valid unicode"),
-                },
-            ),
+                )
+            }),
     )
     .await?;
 
     let binded_skybox =
         ikari::asset_loader::bind_skybox(&renderer.base, &renderer.constant_data, bindable_skybox)?;
+
+    log::info!("Done processing skybox");
 
     let BindedSkybox {
         background,
@@ -64,67 +66,82 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
         specular_environment_map,
     } = binded_skybox;
 
+    let compressor = ikari::texture_compression::TextureCompressor;
+
+    let cube_texture_names = ["pos_x", "neg_x", "pos_y", "neg_y", "pos_z", "neg_z"];
+
+    std::fs::create_dir_all(&args.out_folder)?;
+
     {
+        // TODO: join into a single file like with diffuse/spec env maps
+        let folder = std::path::Path::join(&args.out_folder, "background");
+        std::fs::create_dir_all(&folder)?;
+
         let texture = background;
-        let path = "background.png";
 
-        let texture_bytes = texture.to_bytes(&renderer.base).await?;
+        if texture.texture.mip_level_count() != 1 {
+            log::error!("Skybox background texture contained mipmaps which will be ignored");
+        }
 
-        // TODO: use ikari:: texture compression module to compress it as srgb
-        // basis_universal doesn't support BC6 at the moment
+        let all_texture_bytes = texture.to_bytes(&renderer.base).await?;
 
-        // let buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(
-        //     texture.size.width,
-        //     texture.size.height * texture.size.depth_or_array_layers,
-        //     texture
-        //         .to_bytes(&renderer.base)
-        //         .await?
-        //         .iter()
-        //         .flatten()
-        //         .copied()
-        //         .collect::<Vec<_>>(),
-        // )
-        // .unwrap();
-        // buffer.save(path).unwrap();
+        for (texture_bytes, file_name) in all_texture_bytes.iter().zip(cube_texture_names.iter()) {
+            let compressed_img_bytes = compressor.compress_raw_image(TextureCompressionArgs {
+                img_bytes: &texture_bytes,
+                img_width: texture.size.width,
+                img_height: texture.size.height,
+                img_channel_count: 4,
+                generate_mipmaps: false,
+                is_normal_map: false,
+                is_srgb: true,
+                thread_count: num_cpus::get() as u32,
+            })?;
+
+            let full_file_path =
+                std::path::Path::join(&folder, format!("{file_name}_compressed.bin"));
+
+            std::fs::write(&full_file_path, compressed_img_bytes)?;
+            log::info!("Done compressing: {:?}", full_file_path.canonicalize()?);
+        }
     }
 
-    renderer.base.device.stop_capture();
-
-    /* {
+    {
         let texture = diffuse_environment_map;
-        let path = "diffuse_environment_map.png";
-        let buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(
-            texture.size.width * texture.size.depth_or_array_layers,
-            texture.size.height,
-            texture
-                .to_bytes(&renderer.base)
-                .await?
-                .iter()
-                .flatten()
-                .copied()
-                .collect::<Vec<_>>(),
-        )
-        .unwrap();
-        buffer.save(path).unwrap();
+        let all_texture_bytes = texture.to_bytes(&renderer.base).await?;
+
+        let compressed_img_bytes = compressor.compress_raw_float_image(RawImage {
+            width: texture.size.width,
+            height: texture.size.height,
+            depth: all_texture_bytes.len() as u32,
+            mip_count: texture.texture.mip_level_count(),
+            raw: all_texture_bytes.iter().flatten().copied().collect(),
+        })?;
+
+        let full_file_path =
+            std::path::Path::join(&args.out_folder, "diffuse_environment_map_compressed.bin");
+
+        std::fs::write(&full_file_path, compressed_img_bytes)?;
+        log::info!("Done compressing: {:?}", full_file_path.canonicalize()?);
     }
 
     {
         let texture = specular_environment_map;
-        let path = "specular_environment_map.png";
-        let buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(
-            texture.size.width * texture.size.depth_or_array_layers,
-            texture.size.height,
-            texture
-                .to_bytes(&renderer.base)
-                .await?
-                .iter()
-                .flatten()
-                .copied()
-                .collect::<Vec<_>>(),
-        )
-        .unwrap();
-        buffer.save(path).unwrap();
-    } */
+        let all_texture_bytes = texture.to_bytes(&renderer.base).await?;
+
+        let compressed_img_bytes = compressor.compress_raw_float_image(RawImage {
+            width: texture.size.width,
+            height: texture.size.height,
+            depth: all_texture_bytes.len() as u32,
+            mip_count: texture.texture.mip_level_count(),
+            raw: all_texture_bytes.iter().flatten().copied().collect(),
+        })?;
+
+        let full_file_path =
+            std::path::Path::join(&args.out_folder, "specular_environment_map_compressed.bin");
+
+        std::fs::write(&full_file_path, compressed_img_bytes)?;
+        log::info!("Done compressing: {:?}", full_file_path.canonicalize()?);
+    }
 
     Ok(())
 }

@@ -5,10 +5,14 @@ use crate::renderer::FAR_PLANE_DISTANCE;
 use crate::renderer::NEAR_PLANE_DISTANCE;
 use crate::renderer::USE_LABELS;
 use crate::sampler_cache::*;
+use crate::texture_compression::CompressedTexture;
 
 use anyhow::*;
 use glam::f32::Vec3;
 use image::EncodableLayout;
+use image::RgbaImage;
+use serde::Deserialize;
+use serde::Serialize;
 use wgpu::util::DeviceExt;
 
 #[derive(Debug)]
@@ -19,26 +23,60 @@ pub struct Texture {
     pub size: wgpu::Extent3d,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RawImage {
+    pub width: u32,
+    pub height: u32,
+    pub depth: u32,
+    pub mip_count: u32,
+    pub raw: Vec<u8>,
+}
+
+impl From<image::RgbaImage> for RawImage {
+    fn from(image: RgbaImage) -> Self {
+        Self {
+            width: image.width(),
+            height: image.height(),
+            depth: 1,
+            mip_count: 1,
+            raw: image.into_raw(),
+        }
+    }
+}
+
+impl RawImage {
+    pub fn slice(&self) -> RawImageSlice {
+        RawImageSlice {
+            width: self.width,
+            height: self.height,
+            depth: self.depth,
+            mip_count: self.mip_count,
+            raw: &self.raw,
+        }
+    }
+}
+
 #[derive(Debug)]
-pub struct CubemapImages {
-    pub pos_x: image::DynamicImage,
-    pub neg_x: image::DynamicImage,
-    pub pos_y: image::DynamicImage,
-    pub neg_y: image::DynamicImage,
-    pub pos_z: image::DynamicImage,
-    pub neg_z: image::DynamicImage,
+pub struct RawImageSlice<'a> {
+    pub width: u32,
+    pub height: u32,
+    pub depth: u32,
+    pub mip_count: u32,
+    pub raw: &'a [u8],
 }
 
 // TODO: maybe implement some functions on the BaseRendererState so we have the device and queue for free?
+//       or maybe store an Arc<Device> and Arc<Queue>
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
-    pub fn unpadded_bytes_per_row(&self) -> u32 {
-        self.size.width * self.texture.format().block_size(None).unwrap()
+    pub fn unpadded_bytes_per_row(&self, mip_level: Option<u32>) -> u32 {
+        (self.size.width >> mip_level.unwrap_or(0))
+            * self.texture.format().block_size(None).unwrap()
     }
 
-    pub fn padded_bytes_per_row(&self) -> u32 {
-        let unpadded_bytes_per_row = self.unpadded_bytes_per_row();
+    pub fn padded_bytes_per_row(&self, mip_level: Option<u32>) -> u32 {
+        let unpadded_bytes_per_row = self.unpadded_bytes_per_row(mip_level);
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
         let padded_bytes_per_row_padding = (align - unpadded_bytes_per_row % align) % align;
         unpadded_bytes_per_row + padded_bytes_per_row_padding
@@ -67,6 +105,7 @@ impl Texture {
         )
     }
 
+    // TODO: take RawImage as argument instead
     #[allow(clippy::too_many_arguments)]
     pub fn from_decoded_image(
         base_renderer: &BaseRenderer,
@@ -242,77 +281,80 @@ impl Texture {
     }
 
     /// only works if the texture had the COPY_SRC usage set at creation
-    /// returns one byte array per image in case of arrays and cubemaps
+    /// returns one byte array per image (to account for arrays/cubemaps) including mips if any
     pub async fn to_bytes(&self, base_renderer: &BaseRenderer) -> Result<Vec<Vec<u8>>> {
         let mut result = vec![];
         for depth in 0..self.size.depth_or_array_layers {
-            let mut encoder =
-                base_renderer
-                    .device
-                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: USE_LABELS.then_some("to_bytes encoder"),
-                    });
+            let mut depth_level_bytes = vec![];
+            for mip_level in 0..self.texture.mip_level_count() {
+                let width = self.size.width >> mip_level;
+                let height = self.size.height >> mip_level;
+                let unpadded_bytes_per_row = self.unpadded_bytes_per_row(Some(mip_level));
+                let padded_bytes_per_row = self.padded_bytes_per_row(Some(mip_level));
 
-            let output_buffer = base_renderer.device.create_buffer(&wgpu::BufferDescriptor {
-                size: (self.padded_bytes_per_row() * self.size.height) as u64,
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                label: USE_LABELS.then_some("to_bytes output buffer"),
-                mapped_at_creation: false,
-            });
+                let mut encoder =
+                    base_renderer
+                        .device
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                            label: USE_LABELS.then_some("to_bytes encoder"),
+                        });
 
-            encoder.copy_texture_to_buffer(
-                wgpu::ImageCopyTexture {
-                    aspect: wgpu::TextureAspect::All,
-                    texture: &self.texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d {
-                        z: depth,
-                        ..wgpu::Origin3d::ZERO
-                    },
-                },
-                wgpu::ImageCopyBuffer {
-                    buffer: &output_buffer,
-                    layout: wgpu::ImageDataLayout {
-                        offset: 0,
-                        bytes_per_row: dbg!(Some(self.padded_bytes_per_row())),
-                        rows_per_image: None,
-                    },
-                },
-                wgpu::Extent3d {
-                    width: self.size.width,
-                    height: self.size.height,
-                    depth_or_array_layers: 1,
-                },
-            );
-
-            base_renderer.queue.submit(Some(encoder.finish()));
-
-            // let result;
-            {
-                let buffer_slice = output_buffer.slice(..);
-
-                // TODO: make sure this works on the web
-                let (tx, rx) = futures_intrusive::channel::shared::oneshot_channel();
-                buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-                    tx.send(result).unwrap();
+                let output_buffer = base_renderer.device.create_buffer(&wgpu::BufferDescriptor {
+                    size: (padded_bytes_per_row * height) as u64,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    label: USE_LABELS.then_some("to_bytes output buffer"),
+                    mapped_at_creation: false,
                 });
-                base_renderer.device.poll(wgpu::Maintain::Wait);
-                rx.receive().await.unwrap()?;
 
-                let data = &buffer_slice.get_mapped_range();
-                let mut unpadded_data =
-                    Vec::with_capacity((self.unpadded_bytes_per_row() * self.size.height) as usize);
-                for i in 0..(self.size.height) {
-                    let start_index = (i * self.padded_bytes_per_row()) as usize;
-                    let end_index = start_index + self.unpadded_bytes_per_row() as usize;
-                    if data[start_index..end_index].iter().all(|val| *val == 0) {
-                        log::debug!("row {i} of depth {depth} was all zeros");
+                encoder.copy_texture_to_buffer(
+                    wgpu::ImageCopyTexture {
+                        aspect: wgpu::TextureAspect::All,
+                        texture: &self.texture,
+                        mip_level,
+                        origin: wgpu::Origin3d {
+                            z: depth,
+                            ..wgpu::Origin3d::ZERO
+                        },
+                    },
+                    wgpu::ImageCopyBuffer {
+                        buffer: &output_buffer,
+                        layout: wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(padded_bytes_per_row),
+                            rows_per_image: None,
+                        },
+                    },
+                    wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                );
+
+                base_renderer.queue.submit(Some(encoder.finish()));
+
+                {
+                    let buffer_slice = output_buffer.slice(..);
+
+                    // TODO: make sure this works on the web
+                    let (tx, rx) = futures_intrusive::channel::shared::oneshot_channel();
+                    buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                        tx.send(result).unwrap();
+                    });
+                    base_renderer.device.poll(wgpu::Maintain::Wait);
+                    rx.receive().await.unwrap()?;
+
+                    let data = &buffer_slice.get_mapped_range();
+                    depth_level_bytes.reserve((unpadded_bytes_per_row * height) as usize);
+                    for i in 0..height {
+                        let start_index = (i * padded_bytes_per_row) as usize;
+                        let end_index = start_index + unpadded_bytes_per_row as usize;
+                        depth_level_bytes.extend_from_slice(&data[start_index..end_index]);
                     }
-                    unpadded_data.extend_from_slice(&data[start_index..end_index]);
                 }
-                result.push(unpadded_data.to_vec());
+                output_buffer.unmap();
             }
-            output_buffer.unmap();
+            result.push(depth_level_bytes);
         }
 
         Ok(result)
@@ -554,9 +596,12 @@ impl Texture {
             _ => anyhow::bail!("create_cubemap_from_equirectangular called with unsupported texture format: {format:?}"),
         };
 
+        // make sure it's a multiple of 4 (cheap trick to support Bc7 compression)
+        let size = ((((er_texture.size.width as f32 / 3.0) / 4.0).ceil() * 4.0) as u32).max(4);
+
         let size = wgpu::Extent3d {
-            width: (er_texture.size.width / 3).max(1),
-            height: (er_texture.size.width / 3).max(1),
+            width: size,
+            height: size,
             depth_or_array_layers: 6,
         };
 
@@ -753,36 +798,14 @@ impl Texture {
     /// Each image should have the same dimensions!
     pub fn create_cubemap(
         base_renderer: &BaseRenderer,
-        images: CubemapImages,
+        image: RawImageSlice,
         label: Option<&str>,
         format: wgpu::TextureFormat,
-        generate_mipmaps: bool,
     ) -> Self {
-        // order of the images for a cubemap is documented here:
-        // https://www.khronos.org/opengl/wiki/Cubemap_Texture
-        let images_as_rgba = [
-            images.pos_x,
-            images.neg_x,
-            images.pos_y,
-            images.neg_y,
-            images.pos_z,
-            images.neg_z,
-        ]
-        .iter()
-        .map(|img| img.to_rgba8())
-        .collect::<Vec<_>>();
-        let dimensions = images_as_rgba[0].dimensions();
-
         let size = wgpu::Extent3d {
-            width: dimensions.0,
-            height: dimensions.1,
+            width: image.width,
+            height: image.height,
             depth_or_array_layers: 6,
-        };
-
-        let mip_level_count = if generate_mipmaps {
-            size.max_mips(wgpu::TextureDimension::D2)
-        } else {
-            1
         };
 
         let texture = base_renderer.device.create_texture_with_data(
@@ -790,7 +813,7 @@ impl Texture {
             &wgpu::TextureDescriptor {
                 label,
                 size,
-                mip_level_count,
+                mip_level_count: image.mip_count,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format,
@@ -799,16 +822,8 @@ impl Texture {
                     | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             },
-            // pack images into one big byte array
-            &images_as_rgba
-                .iter()
-                .flat_map(|image| image.to_vec())
-                .collect::<Vec<_>>(),
+            &image.raw,
         );
-
-        if generate_mipmaps {
-            todo!("Call generate_mipmaps_for_texture for each side of the cubemap");
-        }
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::Cube),
@@ -845,7 +860,6 @@ impl Texture {
         renderer_constant_data: &RendererConstantData,
         label: Option<&str>,
         skybox_rad_texture: &Texture,
-        generate_mipmaps: bool,
     ) -> Self {
         let size = wgpu::Extent3d {
             width: 128,
@@ -853,18 +867,12 @@ impl Texture {
             depth_or_array_layers: 6,
         };
 
-        let mip_level_count = if generate_mipmaps {
-            size.max_mips(wgpu::TextureDimension::D2)
-        } else {
-            1
-        };
-
         let env_map = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
                 label,
                 size,
-                mip_level_count,
+                mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba16Float,
@@ -998,10 +1006,6 @@ impl Texture {
                 );
             }
             base_renderer.queue.submit(Some(encoder.finish()));
-        }
-
-        if generate_mipmaps {
-            todo!("Call generate_mipmaps_for_texture for each side of the cubemap");
         }
 
         let view = env_map.create_view(&wgpu::TextureViewDescriptor {

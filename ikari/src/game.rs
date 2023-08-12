@@ -60,49 +60,59 @@ pub const POINT_LIGHT_COLOR: Vec3 = Vec3::new(0.93126976, 0.7402633, 0.49407062)
 
 pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: Group = Group::GROUP_1;
 
+// order of the images for a cubemap is documented here:
+// https://www.khronos.org/opengl/wiki/Cubemap_Texture
 pub fn get_skybox_path() -> (
     SkyboxBackgroundPath<'static>,
     Option<SkyboxHDREnvironmentPath<'static>>,
 ) {
     // Mountains
     // src: https://github.com/JoeyDeVries/LearnOpenGL/tree/master/resources/textures/skybox
-    let _skybox_background = SkyboxBackgroundPath::Cube {
-        face_image_paths: [
-            "src/textures/skybox/right.jpg",
-            "src/textures/skybox/left.jpg",
-            "src/textures/skybox/top.jpg",
-            "src/textures/skybox/bottom.jpg",
-            "src/textures/skybox/front.jpg",
-            "src/textures/skybox/back.jpg",
-        ],
-    };
+    let _skybox_background = SkyboxBackgroundPath::Cube([
+        "src/textures/skybox/right.jpg",
+        "src/textures/skybox/left.jpg",
+        "src/textures/skybox/top.jpg",
+        "src/textures/skybox/bottom.jpg",
+        "src/textures/skybox/front.jpg",
+        "src/textures/skybox/back.jpg",
+    ]);
     let _skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> = None;
 
     // Newport Loft
     // src: http://www.hdrlabs.com/sibl/archive/
-    let _skybox_background = SkyboxBackgroundPath::Equirectangular {
-        image_path: "src/textures/newport_loft/background.jpg",
-    };
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> =
-        Some(SkyboxHDREnvironmentPath::Equirectangular {
-            image_path: "src/textures/newport_loft/radiance.hdr",
-        });
+    let _skybox_background =
+        SkyboxBackgroundPath::Equirectangular("src/textures/newport_loft/background.jpg");
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> = Some(
+        SkyboxHDREnvironmentPath::Equirectangular("src/textures/newport_loft/radiance.hdr"),
+    );
 
     // Milkyway
     // src: http://www.hdrlabs.com/sibl/archive/
-    let skybox_background = SkyboxBackgroundPath::Equirectangular {
-        image_path: "src/textures/milkyway/background.jpg",
-    };
+    let _skybox_background =
+        SkyboxBackgroundPath::Equirectangular("src/textures/milkyway/background.jpg");
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> = Some(
+        SkyboxHDREnvironmentPath::Equirectangular("src/textures/milkyway/radiance.hdr"),
+    );
+
+    // Milkyway pre-processed
+    let skybox_background = SkyboxBackgroundPath::CompressedCube([
+        "src/skyboxes/milkyway/background/pos_x_compressed.bin",
+        "src/skyboxes/milkyway/background/neg_x_compressed.bin",
+        "src/skyboxes/milkyway/background/pos_y_compressed.bin",
+        "src/skyboxes/milkyway/background/neg_y_compressed.bin",
+        "src/skyboxes/milkyway/background/pos_z_compressed.bin",
+        "src/skyboxes/milkyway/background/neg_z_compressed.bin",
+    ]);
     let skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> =
-        Some(SkyboxHDREnvironmentPath::Equirectangular {
-            image_path: "src/textures/milkyway/radiance.hdr",
+        Some(SkyboxHDREnvironmentPath::ProcessedCube {
+            diffuse: "src/skyboxes/milkyway/diffuse_environment_map_compressed.bin",
+            specular: "src/skyboxes/milkyway/specular_environment_map_compressed.bin",
         });
 
     // My photosphere pic
     // src: me
-    let _skybox_background = SkyboxBackgroundPath::Equirectangular {
-        image_path: "src/textures/photosphere_skybox_small.jpg",
-    };
+    let _skybox_background =
+        SkyboxBackgroundPath::Equirectangular("src/textures/photosphere_skybox_small.jpg");
     let _skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> = None;
 
     (skybox_background, skybox_hdr_environment)
@@ -137,7 +147,7 @@ fn get_misc_gltf_path() -> &'static str {
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
-    let texture_compressor = TextureCompressor::new();
+    let texture_compressor = TextureCompressor;
     let rainbow_texture_path = "src/textures/rainbow_gradient_vertical_compressed.bin";
     let rainbow_texture_bytes = crate::file_loader::read(rainbow_texture_path).await?;
     let rainbow_texture_decompressed =
@@ -261,7 +271,7 @@ pub async fn init_game_state(
                 },
             );
 
-            crate::thread::sleep_async(crate::time::Duration::from_secs_f32(10.0)).await;
+            crate::thread::sleep_async(crate::time::Duration::from_secs_f32(5.0)).await;
             let (background, environment_hdr) = get_skybox_path();
             asset_loader.load_skybox("skybox".to_string(), background, environment_hdr);
         })

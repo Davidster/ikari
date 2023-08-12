@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use glam::f32::{Mat4, Vec3};
 use glam::Vec4;
+use serde::Serialize;
 use wgpu::util::DeviceExt;
 use wgpu::InstanceDescriptor;
 
@@ -419,9 +420,6 @@ impl BaseRenderer {
             )
             .await
             .map_err(|err| anyhow::anyhow!("Failed to create wgpu device: {err}"))?;
-
-        device.start_capture();
-        device.stop_capture();
 
         let single_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1019,26 +1017,30 @@ pub struct BindedSceneData {
 
 #[derive(Debug)]
 pub enum SkyboxBackgroundPath<'a> {
-    Cube { face_image_paths: [&'a str; 6] },
-    Equirectangular { image_path: &'a str },
+    Cube([&'a str; 6]),
+    CompressedCube([&'a str; 6]),
+    Equirectangular(&'a str),
 }
 
 #[derive(Debug)]
 pub enum SkyboxHDREnvironmentPath<'a> {
-    Equirectangular { image_path: &'a str },
+    Equirectangular(&'a str),
+    ProcessedCube { diffuse: &'a str, specular: &'a str },
 }
 
 #[derive(Debug)]
 pub enum BindableSkyboxBackground {
-    Cube { images: CubemapImages },
-    Equirectangular { image: image::DynamicImage },
+    Cube(RawImage),
+    CompressedCube(RawImage),
+    Equirectangular(RawImage),
 }
 
 #[derive(Debug)]
 pub enum BindableSkyboxHDREnvironment {
-    Equirectangular {
-        image: Vec<Float16>,
-        dimensions: (u32, u32),
+    Equirectangular(RawImage),
+    ProcessedCube {
+        diffuse: RawImage,
+        specular: RawImage,
     },
 }
 
@@ -2171,7 +2173,6 @@ impl Renderer {
             &constant_data,
             Some("diffuse env map"),
             skybox_rad_texture,
-            false,
         );
 
         let specular_env_map = Texture::create_specular_env_map(

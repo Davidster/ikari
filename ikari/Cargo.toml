@@ -20,7 +20,7 @@ tracy-n-alloc = []
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
-half = "2.3.1"
+half = { version = "2.3.1" }
 pollster = "0.3"
 twox-hash = "1.6"
 lazy_static = "1.4"
@@ -87,6 +87,8 @@ iced_aw = { git = "https://github.com/iced-rs/iced_aw.git", branch = "main", def
 ] }
 wasm_thread = { version = "0.2.0", features = ["es_modules"] }
 futures-intrusive = "0.5.0"
+rmp-serde = "1.1.2"
+serde = "1.0.173"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 basis-universal = "0.3.0"
 zstd = "0.12.4"

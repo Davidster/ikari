@@ -178,12 +178,13 @@ fn compress_file(
     let (img_width, img_height) = img_decoded.dimensions();
     let img_channel_count = 4;
 
-    let compressor = ikari::texture_compression::TextureCompressor::new();
+    let compressor = ikari::texture_compression::TextureCompressor;
     let compressed_img_bytes = compressor.compress_raw_image(TextureCompressionArgs {
         img_bytes: &img_decoded,
         img_width,
         img_height,
         img_channel_count,
+        generate_mipmaps: true,
         is_srgb,
         is_normal_map,
         thread_count: threads,

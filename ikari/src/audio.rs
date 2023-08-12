@@ -235,7 +235,6 @@ impl AudioFileStreamer {
                     if err.kind() == std::io::ErrorKind::UnexpectedEof
                         && err.to_string() == "end of stream"
                     {
-                        dbg!(err);
                         break true;
                     }
                     anyhow::bail!(err);

@@ -41,13 +41,13 @@ Options:
 const SKYBOX_PROCESSOR_HELP: &str = "\
 Pre-process skybox file(s) for use in ikari
 
-Usage: clikari process_skybox --background_path /path/to/background.jpg [OPTIONS]
+Usage: clikari process_skybox --background_path /path/to/background.jpg --out_folder /path/to/folder [OPTIONS]
 
 Options:
   --background_path FILE        Required  The background image of the skybox (this will be the background of your scene)
   --environment_hdr_path FILE   Optional  The hdr environment map (used for ambient lighting and reflections)
                                           Background image is used if option is not supplied
-  --out_path                    Required  Output file path
+  --out_folder FOLDER           Required  Output folder
   --help                        Optional  Display this help message
 ";
 
@@ -120,7 +120,7 @@ impl Command {
                     environment_hdr_path: args
                         .opt_value_from_str("--environment_hdr_path")
                         .map_err(error_mapper)?,
-                    out_path: args.value_from_str("--out_path").map_err(error_mapper)?,
+                    out_folder: args.value_from_str("--out_folder").map_err(error_mapper)?,
                 }));
             }
             _ => {}

@@ -555,7 +555,7 @@ async fn get_image_pixels(
                 &gltf_path.parent().unwrap().join(PathBuf::from(uri)),
             );
             if USE_TEXTURE_COMPRESSION && compressed_texture_path.try_exists()? {
-                let texture_compressor = TextureCompressor::new();
+                let texture_compressor = TextureCompressor;
                 let texture_bytes =
                     crate::file_loader::read(compressed_texture_path.as_os_str().to_str().unwrap())
                         .await?;

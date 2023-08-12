@@ -37,6 +37,9 @@ Hopefully one day it will be used in a real game 😃
 
 ## TODO
 
+- test web
+- basisu supports cubemap format, so SkyboxBackgroundPath::CompressedCube can be made into a single path, no need for join at runtime.
+- sometimes pos_x/neg_x format of cubemap is used, sometimes it's array... FIX THIS
 - fix resolve_path function in file_loader so it can be used outside the context of the engine!
 - path in error messages in file loader module (see TODO: there)
 - renderer should not need to know about the game state!
@@ -47,6 +50,10 @@ Hopefully one day it will be used in a real game 😃
 - allow to blend between two skyboxes to allow transition
 - find all occurences of dynamic image and try to remove them, should be faster?
 - take as much stuff out of baserenderer as possible
+- document clikari
+```
+cargo run --bin clikari -- --command process_skybox --background_path src/textures/milkyway/background.jpg --environment_hdr_path src/textures/milkyway/radiance.hdr --out_folder ikari/src/skyboxes/milkyway
+```
 
 ## Try it out
 
