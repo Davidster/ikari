@@ -33,6 +33,7 @@ image = { version = "0.24", default-features = false, features = [
 ] }
 gltf = "1.2"
 pico-args = "0.5.0"
+lazy_static = "1.4"
 
 # wasm32 depdendencies
 web-sys = { version = "0.3.64", features = [

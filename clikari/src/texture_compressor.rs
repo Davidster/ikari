@@ -9,6 +9,8 @@ use walkdir::WalkDir;
 
 use ikari::texture_compression::{texture_path_to_compressed_path, TextureCompressionArgs};
 
+use crate::PATH_MAKER;
+
 const DEFAULT_THREADS_PER_TEXTURE: u32 = 4;
 
 pub struct TextureCompressorArgs {
@@ -55,10 +57,10 @@ pub fn run(args: TextureCompressorArgs) {
 
         for item in &texture_paths {
             let (path, _, _) = item;
-            let compressed_path = texture_path_to_compressed_path(path);
+            let compressed_path = texture_path_to_compressed_path(&PATH_MAKER.make(path));
 
             // remove all paths that have already been processed
-            if !args.force && compressed_path.exists() {
+            if !args.force && compressed_path.resolve().exists() {
                 log::info!("{compressed_path:?} already exists. skipping");
                 continue;
             }
@@ -173,7 +175,7 @@ fn compress_file(
     is_normal_map: bool,
     threads: u32,
 ) -> anyhow::Result<()> {
-    let img_bytes = std::fs::read(img_path.as_os_str().to_str().unwrap())?;
+    let img_bytes = std::fs::read(img_path)?;
     let img_decoded = image::load_from_memory(&img_bytes)?.to_rgba8();
     let (img_width, img_height) = img_decoded.dimensions();
     let img_channel_count = 4;
@@ -198,8 +200,9 @@ fn compress_file(
         compressed_img_bytes.len()
     );
 
+    // TODO: wrap fs::write in FileLoader?
     std::fs::write(
-        texture_path_to_compressed_path(img_path),
+        texture_path_to_compressed_path(&PATH_MAKER.make(img_path)).resolve(),
         compressed_img_bytes,
     )?;
 

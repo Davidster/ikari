@@ -1,4 +1,7 @@
-use crate::texture::*;
+use crate::{
+    file_loader::{FileLoader, GameFilePath, LoadFiles},
+    texture::*,
+};
 
 use std::collections::{hash_map, HashMap};
 
@@ -162,8 +165,8 @@ pub struct BasicMesh {
 }
 
 impl BasicMesh {
-    pub async fn new(obj_file_path: &str) -> Result<Self> {
-        let obj_file_string = crate::file_loader::read_to_string(obj_file_path).await?;
+    pub async fn new(obj_file_path: &GameFilePath) -> Result<Self> {
+        let obj_file_string = FileLoader::read_to_string(obj_file_path).await?;
 
         let obj = wavefront_obj::obj::parse(obj_file_string)?
             .objects

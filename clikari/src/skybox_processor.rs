@@ -8,6 +8,8 @@ use ikari::{
     texture_compression::TextureCompressionArgs,
 };
 
+use crate::PATH_MAKER;
+
 const DXC_PATH: &str = "dxc/";
 
 pub struct SkyboxProcessorArgs {
@@ -34,20 +36,13 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
     let renderer = Renderer::new(base_renderer, wgpu::TextureFormat::Bgra8Unorm, (1, 1)).await?;
 
     let bindable_skybox = ikari::asset_loader::make_bindable_skybox(
-        SkyboxBackgroundPath::Equirectangular(
-            args.background_path
-                .to_str()
-                .expect("background_path was not valid unicode"),
-        ),
+        &SkyboxBackgroundPath::Equirectangular(PATH_MAKER.make(args.background_path)),
         args.environment_hdr_path
             .as_ref()
             .map(|environment_hdr_path| {
-                SkyboxHDREnvironmentPath::Equirectangular(
-                    environment_hdr_path
-                        .to_str()
-                        .expect("environment_hdr_path was not valid unicode"),
-                )
-            }),
+                SkyboxHDREnvironmentPath::Equirectangular(PATH_MAKER.make(environment_hdr_path))
+            })
+            .as_ref(),
     )
     .await?;
 

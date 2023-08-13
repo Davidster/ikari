@@ -1,8 +1,7 @@
 use rmp_serde::Serializer;
 use serde::Serialize;
-use std::path::{Path, PathBuf};
 
-use crate::texture::RawImage;
+use crate::{file_loader::GameFilePath, texture::RawImage};
 
 #[cfg(not(target_arch = "wasm32"))]
 const BASISU_COMPRESSION_FORMAT: basis_universal::BasisTextureFormat =
@@ -192,11 +191,16 @@ impl TextureCompressor {
     }
 }
 
-pub fn texture_path_to_compressed_path(path: &Path) -> PathBuf {
-    let mut out_path = path.to_path_buf();
-    out_path.set_file_name(format!(
+pub fn texture_path_to_compressed_path(path: &GameFilePath) -> GameFilePath {
+    let mut new_path = path.clone();
+    new_path.relative_path.set_file_name(format!(
         "{:}_compressed.bin",
-        out_path.file_stem().unwrap().to_str().unwrap()
+        new_path
+            .relative_path
+            .file_stem()
+            .unwrap()
+            .to_string_lossy()
     ));
-    out_path
+
+    new_path
 }

@@ -37,8 +37,7 @@ Hopefully one day it will be used in a real game 😃
 
 ## TODO
 
-- fix resolve_path function in file_loader so it can be used outside the context of the engine!
-- path in error messages in file loader module (see TODO: there)
+- FileLoader / async trait thing is kinda dumb. how about making a file_loader.rs, file_loader_native.rs and file_loader_wasm.rs and just conditionally include those two second modules? should be cleaner and may not require traits at all
 - renderer should not need to know about the game state!
 - lift state from the ui overlay into the game state to not need to pass state around
 - convert all paths to be relative to the bin
@@ -59,7 +58,7 @@ cargo run --bin clikari -- --command process_skybox --background_path src/textur
 # native
 cargo run --features="tracy" --bin example_game
 # web
-cargo build_web --bin example_game
+cargo build_web --release --bin example_game
 ```
 
 See console logs for list of available controls

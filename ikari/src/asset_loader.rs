@@ -1,5 +1,8 @@
 use crate::audio::*;
 use crate::buffer::*;
+use crate::file_loader::FileLoader;
+use crate::file_loader::GameFilePath;
+use crate::file_loader::LoadFiles;
 use crate::gltf_loader::*;
 use crate::mesh::*;
 use crate::renderer::*;
@@ -13,7 +16,7 @@ use anyhow::bail;
 use anyhow::Result;
 use image::Pixel;
 use std::collections::{hash_map::Entry, HashMap};
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 // TODO: replace with log::debug and use RUST_LOG module filter to view logs?
@@ -21,16 +24,16 @@ const DEBUG_AUDIO_STREAMING: bool = false;
 
 type PendingSkybox = (
     String,
-    SkyboxBackgroundPath<'static>,
-    Option<SkyboxHDREnvironmentPath<'static>>,
+    SkyboxBackgroundPath,
+    Option<SkyboxHDREnvironmentPath>,
 );
 
 pub struct AssetLoader {
-    pending_audio: Arc<Mutex<Vec<(String, AudioFileFormat, SoundParams)>>>,
-    pub loaded_audio: Arc<Mutex<HashMap<String, usize>>>,
+    pending_audio: Arc<Mutex<Vec<(GameFilePath, AudioFileFormat, SoundParams)>>>,
+    pub loaded_audio: Arc<Mutex<HashMap<PathBuf, usize>>>,
 
     audio_manager: Arc<Mutex<AudioManager>>,
-    pending_scenes: Arc<Mutex<Vec<String>>>,
+    pending_scenes: Arc<Mutex<Vec<GameFilePath>>>,
     scene_binder: Arc<Mutex<Box<dyn BindScene + Send + Sync>>>,
 
     pending_skyboxes: Arc<Mutex<Vec<PendingSkybox>>>,
@@ -43,28 +46,29 @@ pub struct AssetLoader {
 ///
 /// This is because step 2) can only be done on the main thread on the web due to the fact that the webgpu device
 /// can't be used on a thread other than the one where it was created
+/// TODO: instead of using a PathBuf of the relative path of the scene, make user pass an ID in load_scene function and use that instead.
 trait BindScene {
     fn update(&mut self, base_renderer: Arc<BaseRenderer>);
-    fn bindable_scenes(&self) -> Arc<Mutex<HashMap<String, (Scene, BindableSceneData)>>>;
-    fn loaded_scenes(&self) -> Arc<Mutex<HashMap<String, (Scene, BindedSceneData)>>>;
+    fn bindable_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindableSceneData)>>>;
+    fn loaded_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>;
 }
 
 struct ThreadedSceneBinder {
-    bindable_scenes: Arc<Mutex<HashMap<String, (Scene, BindableSceneData)>>>,
-    loaded_scenes: Arc<Mutex<HashMap<String, (Scene, BindedSceneData)>>>,
+    bindable_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindableSceneData)>>>,
+    loaded_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>,
 }
 
 struct TimeSlicedSceneBinder {
-    bindable_scenes: Arc<Mutex<HashMap<String, (Scene, BindableSceneData)>>>,
+    bindable_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindableSceneData)>>>,
     staged_scenes: HashMap<
-        String,
+        PathBuf,
         (
             BindedSceneData,
             // texture bind group cache
             HashMap<IndexedPbrMaterial, Arc<wgpu::BindGroup>>,
         ),
     >,
-    loaded_scenes: Arc<Mutex<HashMap<String, (Scene, BindedSceneData)>>>,
+    loaded_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>,
 }
 
 trait BindSkybox {
@@ -111,10 +115,10 @@ impl AssetLoader {
         }
     }
 
-    pub fn load_gltf_scene(&self, path: &str) {
+    pub fn load_gltf_scene(&self, path: GameFilePath) {
         let pending_scene_count = {
             let mut pending_scenes = self.pending_scenes.lock().unwrap();
-            pending_scenes.push(path.to_string());
+            pending_scenes.push(path);
             pending_scenes.len()
         };
 
@@ -133,7 +137,7 @@ impl AssetLoader {
                             let gltf_slice;
                             {
                                 profiling::scope!("Read root file");
-                                gltf_slice = crate::file_loader::read(&next_scene_path).await?;
+                                gltf_slice = FileLoader::read(&next_scene_path).await?;
                             }
 
                             let (document, buffers, images);
@@ -141,11 +145,9 @@ impl AssetLoader {
                                 profiling::scope!("Parse root & children");
                                 (document, buffers, images) = gltf::import_slice(&gltf_slice)?;
                             }
-                            let (other_scene, other_scene_bindable_data) = build_scene(
-                                (&document, &buffers, &images),
-                                Path::new(&next_scene_path),
-                            )
-                            .await?;
+                            let (other_scene, other_scene_bindable_data) =
+                                build_scene((&document, &buffers, &images), &next_scene_path)
+                                    .await?;
 
                             if !other_scene_bindable_data.bindable_unlit_meshes.is_empty() {
                                 log::warn!("Warning: loading unlit meshes is not yet supported in the asset loader");
@@ -167,11 +169,11 @@ impl AssetLoader {
                                 let _replaced_ignored = bindable_scenes
                                     .lock()
                                     .unwrap()
-                                    .insert(next_scene_path, result);
+                                    .insert(next_scene_path.relative_path, result);
                             }
                             Err(err) => {
                                 log::error!(
-                                    "Error loading scene asset {}: {}\n{}",
+                                    "Error loading scene asset {:?}: {}\n{}",
                                     next_scene_path,
                                     err,
                                     err.backtrace()
@@ -184,7 +186,7 @@ impl AssetLoader {
         }
     }
 
-    pub fn loaded_scenes(&self) -> Arc<Mutex<HashMap<String, (Scene, BindedSceneData)>>> {
+    pub fn loaded_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>> {
         self.scene_binder.lock().unwrap().loaded_scenes()
     }
 
@@ -207,10 +209,10 @@ impl AssetLoader {
             .update(base_renderer, renderer_constant_data);
     }
 
-    pub fn load_audio(&self, path: &str, format: AudioFileFormat, params: SoundParams) {
+    pub fn load_audio(&self, path: GameFilePath, format: AudioFileFormat, params: SoundParams) {
         let pending_audio_clone = self.pending_audio.clone();
         let mut pending_audio_clone_guard = pending_audio_clone.lock().unwrap();
-        pending_audio_clone_guard.push((path.to_string(), format, params));
+        pending_audio_clone_guard.push((path, format, params));
 
         if pending_audio_clone_guard.len() == 1 {
             let pending_audio = self.pending_audio.clone();
@@ -229,7 +231,7 @@ impl AssetLoader {
                                 audio_manager.lock().unwrap().device_sample_rate();
                             let mut audio_file_streamer = AudioFileStreamer::new(
                                 device_sample_rate,
-                                &next_audio_path,
+                                next_audio_path.clone(),
                                 Some(next_audio_format),
                             )
                             .await?;
@@ -244,7 +246,7 @@ impl AssetLoader {
                                 device_sample_rate,
                             );
                             let sound_index = audio_manager.lock().unwrap().add_sound(
-                                &next_audio_path,
+                                next_audio_path.clone(),
                                 sound_data,
                                 audio_file_streamer.track_length_seconds(),
                                 next_audio_params.clone(),
@@ -263,12 +265,14 @@ impl AssetLoader {
                         };
                         match do_load().await {
                             Ok(result) => {
-                                let _replaced_ignored =
-                                    loaded_audio.lock().unwrap().insert(next_audio_path, result);
+                                let _replaced_ignored = loaded_audio
+                                    .lock()
+                                    .unwrap()
+                                    .insert(next_audio_path.relative_path, result);
                             }
                             Err(err) => {
                                 log::error!(
-                                    "Error loading audio asset {}: {}\n{}",
+                                    "Error loading audio asset {:?}: {}\n{}",
                                     next_audio_path,
                                     err,
                                     err.backtrace()
@@ -324,7 +328,7 @@ impl AssetLoader {
 
                     if DEBUG_AUDIO_STREAMING {
                         log::info!(
-                            "Streamed in {:?} samples ({:?} seconds) from file: {}",
+                            "Streamed in {:?} samples ({:?} seconds) from file: {:?}",
                             sample_count,
                             sample_count as f32 / device_sample_rate as f32,
                             audio_file_streamer.file_path(),
@@ -348,7 +352,7 @@ impl AssetLoader {
 
                     if reached_end_of_stream {
                         log::info!(
-                            "Reached end of stream for file: {}",
+                            "Reached end of stream for file: {:?}",
                             audio_file_streamer.file_path(),
                         );
                         break;
@@ -359,7 +363,7 @@ impl AssetLoader {
                 }
                 Err(err) => {
                     log::error!(
-                        "Error loading audio asset {}: {}\n{}",
+                        "Error loading audio asset {:?}: {}\n{}",
                         audio_file_streamer.file_path(),
                         err,
                         err.backtrace()
@@ -372,8 +376,8 @@ impl AssetLoader {
     pub fn load_skybox(
         &self,
         id: String,
-        background: SkyboxBackgroundPath<'static>,
-        environment_hdr: Option<SkyboxHDREnvironmentPath<'static>>,
+        background: SkyboxBackgroundPath,
+        environment_hdr: Option<SkyboxHDREnvironmentPath>,
     ) {
         let pending_skybox_count = {
             let mut pending_skyboxes = self.pending_skyboxes.lock().unwrap();
@@ -394,8 +398,11 @@ impl AssetLoader {
 
                         profiling::scope!("Load skybox", &next_skybox_id);
 
-                        match make_bindable_skybox(next_skybox_background, next_skybox_env_hdr)
-                            .await
+                        match make_bindable_skybox(
+                            &next_skybox_background,
+                            next_skybox_env_hdr.as_ref(),
+                        )
+                        .await
                         {
                             Ok(result) => {
                                 let _replaced_ignored = bindable_skyboxes
@@ -419,28 +426,26 @@ impl AssetLoader {
     }
 }
 
-pub async fn make_bindable_skybox<'a>(
-    background: SkyboxBackgroundPath<'a>,
-    environment_hdr: Option<SkyboxHDREnvironmentPath<'a>>,
+pub async fn make_bindable_skybox(
+    background: &SkyboxBackgroundPath,
+    environment_hdr: Option<&SkyboxHDREnvironmentPath>,
 ) -> Result<BindableSkybox> {
     let background = match background {
         SkyboxBackgroundPath::Equirectangular(image_path) => {
             BindableSkyboxBackground::Equirectangular(
-                image::load_from_memory(&crate::file_loader::read(image_path).await?)?
+                image::load_from_memory(&FileLoader::read(image_path).await?)?
                     .to_rgba8()
                     .into(),
             )
         }
         SkyboxBackgroundPath::Cube(face_image_paths) => {
-            async fn to_img(img_path: &str) -> Result<image::DynamicImage> {
-                Ok(
-                    image::load_from_memory(&crate::file_loader::read(img_path).await?)?
-                        .to_rgba8()
-                        .into(),
-                )
+            async fn to_img(img_path: &GameFilePath) -> Result<image::DynamicImage> {
+                Ok(image::load_from_memory(&FileLoader::read(img_path).await?)?
+                    .to_rgba8()
+                    .into())
             }
 
-            let first_img = to_img(face_image_paths[0]).await?;
+            let first_img = to_img(&face_image_paths[0]).await?;
             let mut raw =
                 Vec::with_capacity((first_img.width() * first_img.height() * 4 * 6) as usize);
             raw.extend_from_slice(first_img.as_bytes());
@@ -459,23 +464,18 @@ pub async fn make_bindable_skybox<'a>(
         #[cfg(not(target_arch = "wasm32"))]
         SkyboxBackgroundPath::ProcessedCube(face_image_paths) => {
             async fn to_img(
-                img_path: &str,
+                img_path: &GameFilePath,
             ) -> Result<crate::texture_compression::CompressedTexture> {
                 TextureCompressor.transcode_image(
-                    &crate::file_loader::read(
-                        crate::texture_compression::texture_path_to_compressed_path(Path::new(
-                            img_path,
-                        ))
-                        .as_os_str()
-                        .to_str()
-                        .unwrap(),
+                    &FileLoader::read(
+                        &crate::texture_compression::texture_path_to_compressed_path(img_path),
                     )
                     .await?,
                     false,
                 )
             }
 
-            let first_img = to_img(face_image_paths[0]).await?;
+            let first_img = to_img(&face_image_paths[0]).await?;
             let mut raw = vec![];
             raw.extend_from_slice(&first_img.raw);
             for path in &face_image_paths[1..] {
@@ -492,11 +492,11 @@ pub async fn make_bindable_skybox<'a>(
         }
         #[cfg(target_arch = "wasm32")]
         SkyboxBackgroundPath::ProcessedCube(face_image_paths) => {
-            async fn to_img(img_path: &str) -> Result<image::RgbaImage> {
-                Ok(image::load_from_memory(&crate::file_loader::read(img_path).await?)?.to_rgba8())
+            async fn to_img(img_path: &GameFilePath) -> Result<image::RgbaImage> {
+                Ok(image::load_from_memory(&FileLoader::read(img_path).await?)?.to_rgba8())
             }
 
-            let first_img = to_img(face_image_paths[0]).await?;
+            let first_img = to_img(&face_image_paths[0]).await?;
             let mut raw = vec![];
             raw.extend_from_slice(first_img.as_raw());
             for path in &face_image_paths[1..] {
@@ -516,7 +516,7 @@ pub async fn make_bindable_skybox<'a>(
     let mut bindable_environment_hdr = None;
     match environment_hdr {
         Some(SkyboxHDREnvironmentPath::Equirectangular(image_path)) => {
-            let image_bytes = crate::file_loader::read(image_path).await?;
+            let image_bytes = FileLoader::read(image_path).await?;
             let skybox_rad_texture_decoder =
                 image::codecs::hdr::HdrDecoder::new(image_bytes.as_slice())?;
             let (width, height) = {
@@ -549,9 +549,9 @@ pub async fn make_bindable_skybox<'a>(
         Some(SkyboxHDREnvironmentPath::ProcessedCube { diffuse, specular }) => {
             bindable_environment_hdr = Some(BindableSkyboxHDREnvironment::ProcessedCube {
                 diffuse: TextureCompressor
-                    .transcode_float_image(&crate::file_loader::read(diffuse).await?)?,
+                    .transcode_float_image(&FileLoader::read(diffuse).await?)?,
                 specular: TextureCompressor
-                    .transcode_float_image(&crate::file_loader::read(specular).await?)?,
+                    .transcode_float_image(&FileLoader::read(specular).await?)?,
             });
         }
         None => {}
@@ -565,8 +565,8 @@ pub async fn make_bindable_skybox<'a>(
 
 impl ThreadedSceneBinder {
     pub fn new(
-        bindable_scenes: Arc<Mutex<HashMap<String, (Scene, BindableSceneData)>>>,
-        loaded_scenes: Arc<Mutex<HashMap<String, (Scene, BindedSceneData)>>>,
+        bindable_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindableSceneData)>>>,
+        loaded_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>,
     ) -> Self {
         Self {
             bindable_scenes,
@@ -640,7 +640,7 @@ impl BindScene for ThreadedSceneBinder {
                     }
                     Err(err) => {
                         log::error!(
-                            "Error loading scene asset {}: {}\n{}",
+                            "Error loading scene asset {:?}: {}\n{}",
                             scene_id,
                             err,
                             err.backtrace()
@@ -651,19 +651,19 @@ impl BindScene for ThreadedSceneBinder {
         });
     }
 
-    fn bindable_scenes(&self) -> Arc<Mutex<HashMap<String, (Scene, BindableSceneData)>>> {
+    fn bindable_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindableSceneData)>>> {
         self.bindable_scenes.clone()
     }
 
-    fn loaded_scenes(&self) -> Arc<Mutex<HashMap<String, (Scene, BindedSceneData)>>> {
+    fn loaded_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>> {
         self.loaded_scenes.clone()
     }
 }
 
 impl TimeSlicedSceneBinder {
     pub fn new(
-        bindable_scenes: Arc<Mutex<HashMap<String, (Scene, BindableSceneData)>>>,
-        loaded_scenes: Arc<Mutex<HashMap<String, (Scene, BindedSceneData)>>>,
+        bindable_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindableSceneData)>>>,
+        loaded_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>,
     ) -> Self {
         Self {
             bindable_scenes,
@@ -676,14 +676,14 @@ impl TimeSlicedSceneBinder {
     fn bind_scene_slice(
         base_renderer: &BaseRenderer,
         staged_scenes: &mut HashMap<
-            String,
+            PathBuf,
             (
                 BindedSceneData,
                 // texture bind group cache
                 HashMap<IndexedPbrMaterial, Arc<wgpu::BindGroup>>,
             ),
         >,
-        scene_id: String,
+        scene_id: PathBuf,
         bindable_scene: &BindableSceneData,
     ) -> Result<Option<BindedSceneData>> {
         {
@@ -784,7 +784,7 @@ impl BindScene for TimeSlicedSceneBinder {
                     }
                     Err(err) => {
                         log::error!(
-                            "Error loading asset {}: {}\n{}",
+                            "Error loading asset {:?}: {}\n{}",
                             scene_id,
                             err,
                             err.backtrace()
@@ -801,11 +801,11 @@ impl BindScene for TimeSlicedSceneBinder {
         }
     }
 
-    fn bindable_scenes(&self) -> Arc<Mutex<HashMap<String, (Scene, BindableSceneData)>>> {
+    fn bindable_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindableSceneData)>>> {
         self.bindable_scenes.clone()
     }
 
-    fn loaded_scenes(&self) -> Arc<Mutex<HashMap<String, (Scene, BindedSceneData)>>> {
+    fn loaded_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>> {
         self.loaded_scenes.clone()
     }
 }

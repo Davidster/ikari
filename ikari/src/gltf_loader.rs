@@ -1,3 +1,4 @@
+use crate::file_loader::GameFilePath;
 use crate::mesh::*;
 use crate::renderer::*;
 use crate::sampler_cache::*;
@@ -7,16 +8,12 @@ use crate::texture_compression::*;
 use crate::transform::*;
 
 use std::collections::{hash_map::Entry, HashMap};
-use std::path::Path;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
 use anyhow::{bail, Result};
 use approx::abs_diff_eq;
 use glam::f32::{Mat4, Vec2, Vec3, Vec4};
-
-#[cfg(not(target_arch = "wasm32"))]
-const USE_TEXTURE_COMPRESSION: bool = true;
 
 // TODO: replace with log::debug and use RUST_LOG module filter to view logs?
 const SCENE_LOAD_DEBUG: bool = false;
@@ -42,7 +39,7 @@ pub async fn build_scene(
         &Vec<gltf::buffer::Data>,
         &Vec<gltf::image::Data>,
     ),
-    gltf_path: &Path,
+    gltf_path: &GameFilePath,
 ) -> Result<(Scene, BindableSceneData)> {
     let scene_index = document
         .default_scene()
@@ -326,7 +323,7 @@ async fn get_textures(
     document: &gltf::Document,
     images: &[gltf::image::Data],
     materials: Vec<gltf::Material<'_>>,
-    gltf_path: &Path,
+    gltf_path: &GameFilePath,
 ) -> Result<Vec<BindableTexture>> {
     let mut textures: Vec<BindableTexture> = vec![];
     for texture in document.textures() {
@@ -543,22 +540,29 @@ fn get_compressed_image_pixels(
 #[cfg(not(target_arch = "wasm32"))]
 #[profiling::function]
 async fn get_image_pixels(
-    gltf_path: &Path,
+    gltf_path: &GameFilePath,
     texture: &gltf::Texture<'_>,
     image_data: &gltf::image::Data,
     is_srgb: bool,
     is_normal_map: bool,
 ) -> Result<(Vec<u8>, wgpu::TextureFormat, u32, (u32, u32), bool)> {
+    use crate::file_loader::FileLoader;
+    use crate::file_loader::LoadFiles;
+
     let compressed_image_data = match texture.source().source() {
         gltf::image::Source::Uri { uri, .. } => {
-            let compressed_texture_path = texture_path_to_compressed_path(
-                &gltf_path.parent().unwrap().join(PathBuf::from(uri)),
-            );
-            if USE_TEXTURE_COMPRESSION && compressed_texture_path.try_exists()? {
+            let compressed_texture_path = texture_path_to_compressed_path(&{
+                let mut texture_path = gltf_path.clone();
+                texture_path.relative_path = gltf_path
+                    .relative_path
+                    .parent()
+                    .unwrap()
+                    .join(PathBuf::from(uri));
+                texture_path
+            });
+            if compressed_texture_path.resolve().try_exists()? {
                 let texture_compressor = TextureCompressor;
-                let texture_bytes =
-                    crate::file_loader::read(compressed_texture_path.as_os_str().to_str().unwrap())
-                        .await?;
+                let texture_bytes = FileLoader::read(&compressed_texture_path).await?;
                 Some(texture_compressor.transcode_image(&texture_bytes, is_normal_map)?)
             } else {
                 None
@@ -593,7 +597,7 @@ async fn get_image_pixels(
 
 #[cfg(target_arch = "wasm32")]
 async fn get_image_pixels(
-    _gltf_path: &Path,
+    _gltf_path: &GameFilePath,
     _texture: &gltf::Texture<'_>,
     image_data: &gltf::image::Data,
     is_srgb: bool,

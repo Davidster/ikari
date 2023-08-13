@@ -17,6 +17,7 @@ use plotters::style::RED;
 use plotters_iced::{Chart, ChartWidget, DrawingBackend};
 use winit::{event::WindowEvent, window::Window};
 
+use crate::file_loader::GameFilePath;
 use crate::game::*;
 use crate::math::*;
 use crate::player_controller::*;
@@ -67,7 +68,7 @@ pub enum Message {
     FrameCompleted(Duration),
     GpuFrameCompleted(Vec<GpuTimerScopeResultWrapper>),
     CameraPoseChanged((Vec3, ControlledViewDirection)),
-    AudioSoundStatsChanged((String, AudioSoundStats)),
+    AudioSoundStatsChanged((GameFilePath, AudioSoundStats)),
     ToggleVSync(bool),
     ToggleCameraPose(bool),
     ToggleFpsChart(bool),
@@ -325,7 +326,10 @@ impl Program for UiOverlay {
                 }
             }
             Message::AudioSoundStatsChanged((track_path, stats)) => {
-                self.audio_sound_stats.insert(track_path, stats);
+                self.audio_sound_stats.insert(
+                    track_path.relative_path.to_string_lossy().to_string(),
+                    stats,
+                );
             }
             Message::CameraPoseChanged(new_state) => {
                 self.camera_pose = Some(new_state);

@@ -1,6 +1,10 @@
 use crate::buffer::*;
 use crate::camera::*;
 use crate::collisions::*;
+use crate::file_loader::FileLoader;
+use crate::file_loader::GameFilePath;
+use crate::file_loader::LoadFiles;
+use crate::file_loader::IKARI_PATH_MAKER;
 use crate::game::*;
 use crate::game_state::*;
 use crate::light::*;
@@ -1016,16 +1020,19 @@ pub struct BindedSceneData {
 }
 
 #[derive(Debug)]
-pub enum SkyboxBackgroundPath<'a> {
-    Cube([&'a str; 6]),
-    ProcessedCube([&'a str; 6]),
-    Equirectangular(&'a str),
+pub enum SkyboxBackgroundPath {
+    Cube([GameFilePath; 6]),
+    ProcessedCube([GameFilePath; 6]),
+    Equirectangular(GameFilePath),
 }
 
 #[derive(Debug)]
-pub enum SkyboxHDREnvironmentPath<'a> {
-    Equirectangular(&'a str),
-    ProcessedCube { diffuse: &'a str, specular: &'a str },
+pub enum SkyboxHDREnvironmentPath {
+    Equirectangular(GameFilePath),
+    ProcessedCube {
+        diffuse: GameFilePath,
+        specular: GameFilePath,
+    },
 }
 
 #[derive(Debug)]
@@ -1136,9 +1143,11 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: USE_LABELS.then_some("Unlit Mesh Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    crate::file_loader::read_to_string("src/shaders/unlit_mesh.wgsl")
-                        .await?
-                        .into(),
+                    FileLoader::read_to_string(
+                        &IKARI_PATH_MAKER.make("src/shaders/unlit_mesh.wgsl"),
+                    )
+                    .await?
+                    .into(),
                 ),
             });
 
@@ -1147,7 +1156,7 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: USE_LABELS.then_some("Blit Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    crate::file_loader::read_to_string("src/shaders/blit.wgsl")
+                    FileLoader::read_to_string(&IKARI_PATH_MAKER.make("src/shaders/blit.wgsl"))
                         .await?
                         .into(),
                 ),
@@ -1158,9 +1167,11 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: USE_LABELS.then_some("Textured Mesh Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    crate::file_loader::read_to_string("src/shaders/textured_mesh.wgsl")
-                        .await?
-                        .into(),
+                    FileLoader::read_to_string(
+                        &IKARI_PATH_MAKER.make("src/shaders/textured_mesh.wgsl"),
+                    )
+                    .await?
+                    .into(),
                 ),
             });
 
@@ -1169,7 +1180,7 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: USE_LABELS.then_some("Skybox Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    crate::file_loader::read_to_string("src/shaders/skybox.wgsl")
+                    FileLoader::read_to_string(&IKARI_PATH_MAKER.make("src/shaders/skybox.wgsl"))
                         .await?
                         .into(),
                 ),
@@ -1849,7 +1860,7 @@ impl Renderer {
 
         let initial_render_scale = INITIAL_RENDER_SCALE;
 
-        let cube_mesh = BasicMesh::new("src/models/cube.obj").await?;
+        let cube_mesh = BasicMesh::new(&IKARI_PATH_MAKER.make("src/models/cube.obj")).await?;
 
         let skybox_mesh = Self::bind_geometry_buffers_for_basic_mesh_impl(&base.device, &cube_mesh);
 
@@ -2502,7 +2513,7 @@ impl Renderer {
                 .try_into()
                 .unwrap();
 
-        let sphere_mesh = BasicMesh::new("src/models/sphere.obj").await?;
+        let sphere_mesh = BasicMesh::new(&IKARI_PATH_MAKER.make("src/models/sphere.obj")).await?;
         let sphere_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &sphere_mesh)
             .try_into()
             .unwrap();
@@ -2511,7 +2522,7 @@ impl Renderer {
                 .try_into()
                 .unwrap();
 
-        let plane_mesh = BasicMesh::new("src/models/plane.obj").await?;
+        let plane_mesh = BasicMesh::new(&IKARI_PATH_MAKER.make("src/models/plane.obj")).await?;
         let plane_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &plane_mesh)
             .try_into()
             .unwrap();

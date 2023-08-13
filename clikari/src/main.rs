@@ -3,8 +3,13 @@ mod texture_compressor;
 
 use std::str::FromStr;
 
+use ikari::file_loader::GamePathMaker;
 use skybox_processor::SkyboxProcessorArgs;
 use texture_compressor::TextureCompressorArgs;
+
+lazy_static::lazy_static! {
+    pub static ref PATH_MAKER: GamePathMaker = GamePathMaker::new(None);
+}
 
 const HELP: &str = "\
 ikari cli
