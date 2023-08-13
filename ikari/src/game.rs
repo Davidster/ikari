@@ -5,7 +5,6 @@ use crate::ball::*;
 use crate::character::*;
 use crate::file_loader::FileLoader;
 use crate::file_loader::GamePathMaker;
-use crate::file_loader::LoadFiles;
 use crate::game_state::*;
 use crate::gameloop::resize_window;
 use crate::light::*;

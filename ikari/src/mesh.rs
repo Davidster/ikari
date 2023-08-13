@@ -1,5 +1,5 @@
 use crate::{
-    file_loader::{FileLoader, GameFilePath, LoadFiles},
+    file_loader::{FileLoader, GameFilePath},
     texture::*,
 };
 

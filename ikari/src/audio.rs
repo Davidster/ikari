@@ -99,8 +99,6 @@ pub struct AudioFileStreamer {
 
 #[cfg(target_arch = "wasm32")]
 async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSource>> {
-    use crate::file_loader::LoadFiles;
-
     // TODO: implement proper streaming over http
     let file_bytes = FileLoader::read(file_path).await?;
     Ok(Box::new(std::io::Cursor::new(file_bytes)))

@@ -37,7 +37,6 @@ Hopefully one day it will be used in a real game 😃
 
 ## TODO
 
-- FileLoader / async trait thing is kinda dumb. how about making a file_loader.rs, file_loader_native.rs and file_loader_wasm.rs and just conditionally include those two second modules? should be cleaner and may not require traits at all
 - renderer should not need to know about the game state!
 - lift state from the ui overlay into the game state to not need to pass state around
 - convert all paths to be relative to the bin

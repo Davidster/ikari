@@ -3,7 +3,6 @@ use crate::camera::*;
 use crate::collisions::*;
 use crate::file_loader::FileLoader;
 use crate::file_loader::GameFilePath;
-use crate::file_loader::LoadFiles;
 use crate::file_loader::IKARI_PATH_MAKER;
 use crate::game::*;
 use crate::game_state::*;

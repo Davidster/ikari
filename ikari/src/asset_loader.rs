@@ -2,7 +2,6 @@ use crate::audio::*;
 use crate::buffer::*;
 use crate::file_loader::FileLoader;
 use crate::file_loader::GameFilePath;
-use crate::file_loader::LoadFiles;
 use crate::gltf_loader::*;
 use crate::mesh::*;
 use crate::renderer::*;

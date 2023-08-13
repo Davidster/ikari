@@ -547,7 +547,6 @@ async fn get_image_pixels(
     is_normal_map: bool,
 ) -> Result<(Vec<u8>, wgpu::TextureFormat, u32, (u32, u32), bool)> {
     use crate::file_loader::FileLoader;
-    use crate::file_loader::LoadFiles;
 
     let compressed_image_data = match texture.source().source() {
         gltf::image::Source::Uri { uri, .. } => {
