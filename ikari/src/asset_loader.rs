@@ -133,7 +133,10 @@ impl AssetLoader {
                         let next_scene_path = pending_scenes.lock().unwrap().remove(0);
 
                         let do_load = || async {
-                            profiling::scope!("Load scene", &next_scene_path);
+                            profiling::scope!(
+                                "Load scene",
+                                &next_scene_path.relative_path.to_string_lossy()
+                            );
                             let gltf_slice;
                             {
                                 profiling::scope!("Read root file");

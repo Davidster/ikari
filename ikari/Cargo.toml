@@ -16,7 +16,7 @@ path = "src/lib.rs"
 [features]
 default = []
 tracy = ["profiling/profile-with-tracy", "dep:tracing-tracy"]
-tracy-n-alloc = []
+tracy-n-alloc = ["tracy"]
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
