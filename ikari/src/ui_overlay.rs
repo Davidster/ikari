@@ -913,8 +913,8 @@ impl IkariUiOverlay {
 
         self.program_container
             .queue_message(Message::ViewportDimsChanged((
-                window.inner_size().width,
-                window.inner_size().height,
+                (window.inner_size().width as f64 / window.scale_factor()) as u32,
+                (window.inner_size().height as f64 / window.scale_factor()) as u32,
             )));
 
         let cursor_icon =

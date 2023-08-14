@@ -149,7 +149,7 @@ impl PlayerController {
 
         let new_grab_mode = if !grab {
             CursorGrabMode::None
-        } else if cfg!(target_arch = "wasm32") {
+        } else if cfg!(target_arch = "wasm32") || cfg!(target_os = "macos") {
             CursorGrabMode::Locked
         } else {
             CursorGrabMode::Confined
