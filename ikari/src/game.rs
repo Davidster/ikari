@@ -290,7 +290,7 @@ pub async fn init_game_state(
                 },
             );
 
-            crate::thread::sleep_async(crate::time::Duration::from_secs_f32(10.0)).await;
+            crate::thread::sleep_async(crate::time::Duration::from_secs_f32(4.0)).await;
             let (background, environment_hdr) = get_skybox_path();
             asset_loader.load_skybox("skybox".to_string(), background, environment_hdr);
         })
@@ -1320,14 +1320,14 @@ pub fn update_game_state(
                 .map(|node| node.id())
                 .collect();
             for node_id in test_level_node_ids {
-                if let Some(mesh) = game_state
+                if let Some(_mesh) = game_state
                     .scene
                     .get_node_mut(node_id)
                     .unwrap()
                     .mesh
                     .as_mut()
                 {
-                    mesh.wireframe = true;
+                    // mesh.wireframe = true;
                 }
                 game_state.physics_state.add_static_box(
                     &game_state.scene,

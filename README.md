@@ -21,35 +21,23 @@ Hopefully one day it will be used in a real game 😃
 - [Rapier](https://rapier.rs/) integration for physics
 - [Oddio](https://github.com/Ralith/oddio) integration for audio
 - [Iced](https://github.com/iced-rs/iced) integration for UI
+- [Tracy profiler](https://github.com/wolfpld/tracy)
+  - on-demand profile data dumps
 - [wgpu-profiler](https://github.com/Wumpf/wgpu-profiler)
 - Dynamic render scale
   - Can be used to do supersampling anti-aliasing
 - glTF asset import
   - Supports scene graph, meshes, materials, animations, and skinning
 - Linux, Windows & MacOS support
+- Web support via WASM/WebGPU
 - Wireframe mode
-- Unlit materials
-- Equirectangular and cubemap skybox support
+- Unlit & transparent materials
+- Skyboxes and HDR environment maps
+- BCN texture compression
 - Scene graph
 - CPU-side frustum culling
 - Mipmapping
 - Reverse-Z for better depth accuracy / less z-fighting
-
-## TODO
-
-- renderer should not need to know about the game state!
-- lift state from the ui overlay into the game state to not need to pass state around
-- convert all paths to be relative to the bin
-- pre-process skyboxes
-- support time-sliced skybox binder?
-- allow to blend between two skyboxes to allow transition
-- find all occurences of dynamic image and try to remove them, should be faster?
-- take as much stuff out of baserenderer as possible
-- document clikari
-```
-cargo run --bin clikari -- --command process_skybox --background_path src/textures/milkyway/background.jpg --environment_hdr_path src/textures/milkyway/radiance.hdr --out_folder ikari/src/skyboxes/milkyway
-```
-- basisu supports cubemap format, so SkyboxBackgroundPath::CompressedCube can be made into a single path, no need for join at runtime.
 
 ## Try it out
 
@@ -58,6 +46,18 @@ cargo run --bin clikari -- --command process_skybox --background_path src/textur
 cargo run --features="tracy" --bin example_game
 # web
 cargo build_web --release --bin example_game
+```
+
+## clikari
+
+The ikari CLI has the following capabilities:
+ 
+- compress jpg/png textures into GPU-compressed BCN format with baked mips
+- pre-process skybox + HDR env maps to be loaded much more efficiently into the game at runtime (500ms vs 10ms)
+
+For example:
+```sh
+cargo run --bin clikari -- --command process_skybox --background_path ikari/src/textures/milkyway/background.jpg --environment_hdr_path ikari/src/textures/milkyway/radiance.hdr --out_folder ikari/src/skyboxes/milkyway
 ```
 
 See console logs for list of available controls
