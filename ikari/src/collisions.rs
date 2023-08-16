@@ -269,19 +269,26 @@ impl Frustum {
     pub fn sphere_intersection_test(&self, sphere: Sphere) -> IntersectionResult {
         let mut f_distance;
 
-        for i in 0..6 {
-            f_distance = self.planes()[i].normal.dot(sphere.center) + self.planes()[i].d;
+        let mut partial = false;
+        let planes = self.planes();
+
+        for plane in planes {
+            f_distance = plane.normal.dot(sphere.center) + plane.d;
 
             if f_distance < -sphere.radius {
                 return IntersectionResult::NotIntersecting;
             }
 
-            if f_distance.abs() < sphere.radius {
-                return IntersectionResult::PartiallyIntersecting;
+            if !partial && f_distance.abs() < sphere.radius {
+                partial = true;
             }
         }
 
-        IntersectionResult::FullyContained
+        if partial {
+            IntersectionResult::PartiallyIntersecting
+        } else {
+            IntersectionResult::FullyContained
+        }
     }
 
     #[allow(dead_code)]
