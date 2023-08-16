@@ -210,6 +210,8 @@ impl Scene {
         }
     }
 
+    // TODO: compute this for the required nodes in the ancestry tree whenever a node's position is updated?
+    //       but expose API for updating node transform cheaply and then calling this function at the end.
     #[profiling::function]
     pub fn recompute_global_node_transforms(&mut self) {
         if self.nodes.len() <= self.global_node_transforms.len() {
