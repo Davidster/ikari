@@ -3,7 +3,10 @@ use crate::asset_loader::*;
 use crate::audio::*;
 use crate::ball::*;
 use crate::character::*;
+use crate::file_loader::FileLoader;
+use crate::file_loader::GamePathMaker;
 use crate::game_state::*;
+use crate::gameloop::resize_window;
 use crate::light::*;
 use crate::math::*;
 use crate::mesh::*;
@@ -18,6 +21,7 @@ use crate::texture::*;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::texture_compression::*;
 use crate::transform::*;
+use crate::ui_overlay::IkariUiOverlay;
 
 use std::{
     collections::hash_map::Entry,
@@ -58,50 +62,68 @@ pub const POINT_LIGHT_COLOR: Vec3 = Vec3::new(0.93126976, 0.7402633, 0.49407062)
 
 pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: Group = Group::GROUP_1;
 
-pub fn get_skybox_path() -> (
-    SkyboxBackground<'static>,
-    Option<SkyboxHDREnvironment<'static>>,
-) {
+lazy_static::lazy_static! {
+    pub static ref GAME_PATH_MAKER: GamePathMaker = GamePathMaker::new(Some("ikari".into()));
+}
+
+// order of the images for a cubemap is documented here:
+// https://www.khronos.org/opengl/wiki/Cubemap_Texture
+pub fn get_skybox_path() -> (SkyboxBackgroundPath, Option<SkyboxHDREnvironmentPath>) {
     // Mountains
     // src: https://github.com/JoeyDeVries/LearnOpenGL/tree/master/resources/textures/skybox
-    let _skybox_background = SkyboxBackground::Cube {
-        face_image_paths: [
-            "src/textures/skybox/right.jpg",
-            "src/textures/skybox/left.jpg",
-            "src/textures/skybox/top.jpg",
-            "src/textures/skybox/bottom.jpg",
-            "src/textures/skybox/front.jpg",
-            "src/textures/skybox/back.jpg",
-        ],
-    };
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
+    let _skybox_background = SkyboxBackgroundPath::Cube([
+        GAME_PATH_MAKER.make("src/textures/skybox/right.jpg"),
+        GAME_PATH_MAKER.make("src/textures/skybox/left.jpg"),
+        GAME_PATH_MAKER.make("src/textures/skybox/top.jpg"),
+        GAME_PATH_MAKER.make("src/textures/skybox/bottom.jpg"),
+        GAME_PATH_MAKER.make("src/textures/skybox/front.jpg"),
+        GAME_PATH_MAKER.make("src/textures/skybox/back.jpg"),
+    ]);
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> = None;
 
     // Newport Loft
     // src: http://www.hdrlabs.com/sibl/archive/
-    let _skybox_background = SkyboxBackground::Equirectangular {
-        image_path: "src/textures/newport_loft/background.jpg",
-    };
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-        Some(SkyboxHDREnvironment::Equirectangular {
-            image_path: "src/textures/newport_loft/radiance.hdr",
-        });
+    let _skybox_background = SkyboxBackgroundPath::Equirectangular(
+        GAME_PATH_MAKER.make("src/textures/newport_loft/background.jpg"),
+    );
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> =
+        Some(SkyboxHDREnvironmentPath::Equirectangular(
+            GAME_PATH_MAKER.make("src/textures/newport_loft/radiance.hdr"),
+        ));
 
     // Milkyway
     // src: http://www.hdrlabs.com/sibl/archive/
-    let skybox_background = SkyboxBackground::Equirectangular {
-        image_path: "src/textures/milkyway/background.jpg",
-    };
-    let skybox_hdr_environment: Option<SkyboxHDREnvironment> =
-        Some(SkyboxHDREnvironment::Equirectangular {
-            image_path: "src/textures/milkyway/radiance.hdr",
+    let _skybox_background = SkyboxBackgroundPath::Equirectangular(
+        GAME_PATH_MAKER.make("src/textures/milkyway/background.jpg"),
+    );
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> =
+        Some(SkyboxHDREnvironmentPath::Equirectangular(
+            GAME_PATH_MAKER.make("src/textures/milkyway/radiance.hdr"),
+        ));
+
+    // Milkyway pre-processed
+    let skybox_background = SkyboxBackgroundPath::ProcessedCube([
+        GAME_PATH_MAKER.make("src/skyboxes/milkyway/background/pos_x.png"),
+        GAME_PATH_MAKER.make("src/skyboxes/milkyway/background/neg_x.png"),
+        GAME_PATH_MAKER.make("src/skyboxes/milkyway/background/pos_y.png"),
+        GAME_PATH_MAKER.make("src/skyboxes/milkyway/background/neg_y.png"),
+        GAME_PATH_MAKER.make("src/skyboxes/milkyway/background/pos_z.png"),
+        GAME_PATH_MAKER.make("src/skyboxes/milkyway/background/neg_z.png"),
+    ]);
+    let skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> =
+        Some(SkyboxHDREnvironmentPath::ProcessedCube {
+            diffuse: GAME_PATH_MAKER
+                .make("src/skyboxes/milkyway/diffuse_environment_map_compressed.bin"),
+            specular: GAME_PATH_MAKER
+                .make("src/skyboxes/milkyway/specular_environment_map_compressed.bin"),
         });
 
     // My photosphere pic
     // src: me
-    let _skybox_background = SkyboxBackground::Equirectangular {
-        image_path: "src/textures/photosphere_skybox_small.jpg",
-    };
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironment> = None;
+    let _skybox_background = SkyboxBackgroundPath::Equirectangular(
+        GAME_PATH_MAKER.make("src/textures/photosphere_skybox_small.jpg"),
+    );
+    let _skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> = None;
 
     (skybox_background, skybox_hdr_environment)
 }
@@ -135,9 +157,10 @@ fn get_misc_gltf_path() -> &'static str {
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
-    let texture_compressor = TextureCompressor::new();
+    let texture_compressor = TextureCompressor;
     let rainbow_texture_path = "src/textures/rainbow_gradient_vertical_compressed.bin";
-    let rainbow_texture_bytes = crate::file_loader::read(rainbow_texture_path).await?;
+    let rainbow_texture_bytes =
+        FileLoader::read(&GAME_PATH_MAKER.make(rainbow_texture_path)).await?;
     let rainbow_texture_decompressed =
         texture_compressor.transcode_image(&rainbow_texture_bytes, false)?;
     Texture::from_decoded_image(
@@ -158,18 +181,45 @@ async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
 #[cfg(target_arch = "wasm32")]
 async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
     let rainbow_texture_path = "src/textures/rainbow_gradient_vertical.jpg";
-    let rainbow_texture_bytes = crate::file_loader::read(rainbow_texture_path).await?;
+    let rainbow_texture_bytes =
+        FileLoader::read(&GAME_PATH_MAKER.make(rainbow_texture_path)).await?;
     Texture::from_encoded_image(
         renderer_base,
         &rainbow_texture_bytes,
-        rainbow_texture_path,
+        Some(rainbow_texture_path),
         wgpu::TextureFormat::Rgba8Unorm.into(),
         false,
         &Default::default(),
     )
 }
 
-pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Result<GameState> {
+pub async fn init_game_state(
+    mut scene: Scene,
+    renderer: &mut Renderer,
+    surface_data: &SurfaceData,
+    window: &winit::window::Window,
+) -> Result<GameState> {
+    log::info!("Controls:");
+    [
+        "Look Around:             Mouse",
+        "Move Around:             WASD, Space Bar, Ctrl",
+        "Adjust Speed:            Scroll or Up/Down Arrow Keys",
+        "Adjust Render Scale:     Z / X",
+        "Adjust Exposure:         E / R",
+        "Adjust Bloom Threshold:  T / Y",
+        "Pause/Resume Animations: P",
+        "Toggle Bloom Effect:     B",
+        "Toggle Shadows:          M",
+        "Toggle Wireframe:        F",
+        "Toggle Collision Boxes:  C",
+        "Draw Bounding Spheres:   J",
+        "Open Options Menu:       Tab",
+    ]
+    .iter()
+    .for_each(|line| {
+        log::info!("  {line}");
+    });
+
     let mut physics_state = PhysicsState::new();
 
     // create player
@@ -200,20 +250,27 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
 
             // player's revolver
             // https://done3d.com/colt-python-8-inch/
-            asset_loader.load_gltf_scene("src/models/gltf/ColtPython/colt_python.glb");
+            asset_loader.load_gltf_scene(
+                GAME_PATH_MAKER.make("src/models/gltf/ColtPython/colt_python.glb"),
+            );
             // forest
             // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
-            asset_loader.load_gltf_scene("src/models/gltf/free_low_poly_forest/scene.glb");
+            asset_loader.load_gltf_scene(
+                GAME_PATH_MAKER.make("src/models/gltf/free_low_poly_forest/scene.glb"),
+            );
             // legendary robot
             // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-            asset_loader.load_gltf_scene("src/models/gltf/LegendaryRobot/Legendary_Robot.glb");
+            asset_loader.load_gltf_scene(
+                GAME_PATH_MAKER.make("src/models/gltf/LegendaryRobot/Legendary_Robot.glb"),
+            );
             // maze
-            asset_loader.load_gltf_scene("src/models/gltf/TestLevel/test_level.glb");
+            asset_loader
+                .load_gltf_scene(GAME_PATH_MAKER.make("src/models/gltf/TestLevel/test_level.glb"));
             // other
             // asset_loader.load_gltf_scene(get_misc_gltf_path());
 
             asset_loader.load_audio(
-                "src/sounds/bgm.mp3",
+                GAME_PATH_MAKER.make("src/sounds/bgm.mp3"),
                 AudioFileFormat::Mp3,
                 SoundParams {
                     initial_volume: 0.3,
@@ -223,7 +280,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
                 },
             );
             asset_loader.load_audio(
-                "src/sounds/gunshot.wav",
+                GAME_PATH_MAKER.make("src/sounds/gunshot.wav"),
                 AudioFileFormat::Wav,
                 SoundParams {
                     initial_volume: 0.4,
@@ -232,12 +289,16 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
                     stream: false,
                 },
             );
+
+            crate::thread::sleep_async(crate::time::Duration::from_secs_f32(4.0)).await;
+            let (background, environment_hdr) = get_skybox_path();
+            asset_loader.load_skybox("skybox".to_string(), background, environment_hdr);
         })
     });
 
-    let sphere_mesh = BasicMesh::new("src/models/sphere.obj").await?;
-    let plane_mesh = BasicMesh::new("src/models/plane.obj").await?;
-    let cube_mesh = BasicMesh::new("src/models/cube.obj").await?;
+    let sphere_mesh = BasicMesh::new(&GAME_PATH_MAKER.make("src/models/sphere.obj")).await?;
+    let plane_mesh = BasicMesh::new(&GAME_PATH_MAKER.make("src/models/plane.obj")).await?;
+    let cube_mesh = BasicMesh::new(&GAME_PATH_MAKER.make("src/models/cube.obj")).await?;
 
     // add lights to the scene
     let directional_lights = vec![
@@ -307,7 +368,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
     }
 
     // let simple_normal_map_path = "src/textures/simple_normal_map.jpg";
-    // let simple_normal_map_bytes = crate::file_loader::read(simple_normal_map_path).await?;
+    // let simple_normal_map_bytes = FileLoader::read(simple_normal_map_path).await?;
     // let simple_normal_map = Texture::from_encoded_image(
     //     &renderer.base.device,
     //     &renderer.base.queue,
@@ -321,11 +382,12 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
     let rainbow_texture = get_rainbow_texture(&renderer.base).await?;
 
     let brick_normal_map_path = "src/textures/brick_normal_map.jpg";
-    let brick_normal_map_bytes = crate::file_loader::read(brick_normal_map_path).await?;
+    let brick_normal_map_bytes =
+        FileLoader::read(&GAME_PATH_MAKER.make(brick_normal_map_path)).await?;
     let brick_normal_map = Texture::from_encoded_image(
         &renderer.base,
         &brick_normal_map_bytes,
-        brick_normal_map_path,
+        Some(brick_normal_map_path),
         wgpu::TextureFormat::Rgba8Unorm.into(),
         false,
         &Default::default(),
@@ -333,7 +395,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
 
     // add test object to scene
     /* let earth_texture_path = "src/textures/8k_earth.jpg";
-    let earth_texture_bytes = crate::file_loader::read(earth_texture_path).await?;
+    let earth_texture_bytes = FileLoader::read(earth_texture_path).await?;
     let earth_texture = Texture::from_encoded_image(
         &renderer.base,
         &earth_texture_bytes,
@@ -352,7 +414,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
     )?; */
 
     /* let earth_normal_map_path = "src/textures/8k_earth_normal_map.jpg";
-    let earth_normal_map_bytes = crate::file_loader::read(earth_normal_map_path).await?;
+    let earth_normal_map_bytes = FileLoader::read(earth_normal_map_path).await?;
     let earth_normal_map = Texture::from_encoded_image(
         &renderer.base,
         &earth_normal_map_bytes,
@@ -413,7 +475,7 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
 
     // source: https://www.solarsystemscope.com/textures/
     /* let mars_texture_path = "src/textures/8k_mars.jpg";
-    let mars_texture_bytes = crate::file_loader::read(mars_texture_path).await?;
+    let mars_texture_bytes = FileLoader::read(mars_texture_path).await?;
     let mars_texture = Texture::from_encoded_image(
         &renderer.base,
         &mars_texture_bytes,
@@ -920,6 +982,21 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
             .id(),
     );
 
+    let ui_overlay = {
+        let surface_format = surface_data.surface_config.format;
+        IkariUiOverlay::new(
+            window,
+            &renderer.base.device,
+            // TODO: can I just pass surface_format here? seems it should be ok even if the surface is not srgb,
+            // the renderer will take care of that contingency..? this code would be really bad for the user.
+            if surface_format.is_srgb() {
+                surface_format
+            } else {
+                wgpu::TextureFormat::Rgba16Float
+            },
+        )
+    };
+
     // logger_log(&format!("{:?}", &revolver));
 
     // anyhow::bail!("suhh dude");
@@ -966,22 +1043,21 @@ pub async fn init_game_state(mut scene: Scene, renderer: &mut Renderer) -> Resul
         cube_mesh,
 
         asset_loader: asset_loader_clone,
+
+        ui_overlay,
     })
 }
 
-pub fn process_device_input(
-    game_state: &mut GameState,
-    renderer: &Renderer,
-    event: &winit::event::DeviceEvent,
-) {
+pub fn process_device_input(game_state: &mut GameState, event: &winit::event::DeviceEvent) {
     game_state
         .player_controller
-        .process_device_events(event, &renderer.ui_overlay);
+        .process_device_events(event, &game_state.ui_overlay);
 }
 
 pub fn process_window_input(
     game_state: &mut GameState,
     renderer: &mut Renderer,
+    surface_data: &mut SurfaceData,
     event: &winit::event::WindowEvent,
     window: &winit::window::Window,
 ) {
@@ -1001,11 +1077,23 @@ pub fn process_window_input(
             match keycode {
                 VirtualKeyCode::Z => {
                     drop(render_data_guard);
-                    increment_render_scale(renderer, false, window);
+                    increment_render_scale(
+                        renderer,
+                        surface_data,
+                        false,
+                        window,
+                        &mut game_state.ui_overlay,
+                    );
                 }
                 VirtualKeyCode::X => {
                     drop(render_data_guard);
-                    increment_render_scale(renderer, true, window);
+                    increment_render_scale(
+                        renderer,
+                        surface_data,
+                        true,
+                        window,
+                        &mut game_state.ui_overlay,
+                    );
                 }
                 VirtualKeyCode::E => {
                     increment_exposure(&mut render_data_guard, false);
@@ -1047,35 +1135,47 @@ pub fn process_window_input(
     }
     game_state
         .player_controller
-        .process_window_events(event, window, &mut renderer.ui_overlay);
+        .process_window_events(event, window, &mut game_state.ui_overlay);
 }
 
 pub fn increment_render_scale(
     renderer: &mut Renderer,
+    surface_data: &mut SurfaceData,
     increase: bool,
     window: &winit::window::Window,
+    ui_overlay: &mut IkariUiOverlay,
 ) {
     let delta = 0.1;
     let change = if increase { delta } else { -delta };
 
     {
         let mut renderer_data_guard = renderer.data.lock().unwrap();
-        let surface_config_guard = renderer.base.surface_config.lock().unwrap();
+
         renderer_data_guard.render_scale =
             (renderer_data_guard.render_scale + change).clamp(0.1, 4.0);
         log::info!(
             "Render scale: {:?} ({:?}x{:?})",
             renderer_data_guard.render_scale,
-            (surface_config_guard.width as f32 * renderer_data_guard.render_scale.sqrt()).round()
-                as u32,
-            (surface_config_guard.height as f32 * renderer_data_guard.render_scale.sqrt()).round()
-                as u32,
-        )
+            (surface_data.surface_config.width as f32 * renderer_data_guard.render_scale.sqrt())
+                .round() as u32,
+            (surface_data.surface_config.height as f32 * renderer_data_guard.render_scale.sqrt())
+                .round() as u32,
+        );
     }
-    renderer.resize(window.inner_size(), window.scale_factor());
+
+    resize_window(
+        renderer,
+        ui_overlay,
+        surface_data,
+        window,
+        (
+            surface_data.surface_config.width,
+            surface_data.surface_config.height,
+        ),
+    );
 }
 
-pub fn increment_exposure(renderer_data: &mut RendererPublicData, increase: bool) {
+pub fn increment_exposure(renderer_data: &mut RendererData, increase: bool) {
     let delta = 0.05;
     let change = if increase { delta } else { -delta };
     renderer_data.tone_mapping_exposure =
@@ -1083,7 +1183,7 @@ pub fn increment_exposure(renderer_data: &mut RendererPublicData, increase: bool
     log::info!("Exposure: {:?}", renderer_data.tone_mapping_exposure);
 }
 
-pub fn increment_bloom_threshold(renderer_data: &mut RendererPublicData, increase: bool) {
+pub fn increment_bloom_threshold(renderer_data: &mut RendererData, increase: bool) {
     let delta = 0.05;
     let change = if increase { delta } else { -delta };
     renderer_data.bloom_threshold = (renderer_data.bloom_threshold + change).clamp(0.0, 20.0);
@@ -1093,17 +1193,34 @@ pub fn increment_bloom_threshold(renderer_data: &mut RendererPublicData, increas
 #[profiling::function]
 pub fn update_game_state(
     game_state: &mut GameState,
-    base_renderer: Arc<BaseRenderer>,
-    renderer_data: Arc<Mutex<RendererPublicData>>,
+    renderer: &mut Renderer,
+    surface_data: &SurfaceData,
 ) {
-    game_state.asset_loader.update(base_renderer.clone());
+    let base_renderer = renderer.base.clone();
+    let renderer_data = renderer.data.clone();
+    let renderer_constant_data = renderer.constant_data.clone();
+
+    game_state
+        .asset_loader
+        .update(base_renderer.clone(), renderer_constant_data.clone());
+
+    {
+        let loaded_skyboxes = game_state.asset_loader.loaded_skyboxes();
+        let mut loaded_skyboxes_guard = loaded_skyboxes.lock().unwrap();
+
+        if let Entry::Occupied(entry) = loaded_skyboxes_guard.entry("skybox".to_string()) {
+            let (_, skybox) = entry.remove_entry();
+            renderer.set_skybox(skybox);
+        }
+    }
+
     {
         let loaded_scenes = game_state.asset_loader.loaded_scenes();
         let mut loaded_assets_guard = loaded_scenes.lock().unwrap();
         let mut renderer_data_guard = renderer_data.lock().unwrap();
         if game_state.gunshot_sound_index.is_some() {
             if let Entry::Occupied(entry) =
-                loaded_assets_guard.entry("src/models/gltf/ColtPython/colt_python.glb".to_string())
+                loaded_assets_guard.entry("src/models/gltf/ColtPython/colt_python.glb".into())
             {
                 let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
                 game_state.scene.merge_scene(
@@ -1143,7 +1260,7 @@ pub fn update_game_state(
         }
 
         if let Entry::Occupied(entry) =
-            loaded_assets_guard.entry("src/models/gltf/free_low_poly_forest/scene.glb".to_string())
+            loaded_assets_guard.entry("src/models/gltf/free_low_poly_forest/scene.glb".into())
         {
             let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
             // hack to get the terrain to be at the same height as the ground.
@@ -1165,8 +1282,8 @@ pub fn update_game_state(
             );
         }
 
-        if let Entry::Occupied(entry) = loaded_assets_guard
-            .entry("src/models/gltf/LegendaryRobot/Legendary_Robot.glb".to_string())
+        if let Entry::Occupied(entry) =
+            loaded_assets_guard.entry("src/models/gltf/LegendaryRobot/Legendary_Robot.glb".into())
         {
             let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
             if let Some(jump_up_animation) = other_scene
@@ -1186,7 +1303,7 @@ pub fn update_game_state(
         }
 
         if let Entry::Occupied(entry) =
-            loaded_assets_guard.entry("src/models/gltf/TestLevel/test_level.glb".to_string())
+            loaded_assets_guard.entry("src/models/gltf/TestLevel/test_level.glb".into())
         {
             let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
             let skip_nodes = game_state.scene.node_count();
@@ -1210,7 +1327,7 @@ pub fn update_game_state(
                     .mesh
                     .as_mut()
                 {
-                    // _mesh.wireframe = true;
+                    // mesh.wireframe = true;
                 }
                 game_state.physics_state.add_static_box(
                     &game_state.scene,
@@ -1220,8 +1337,7 @@ pub fn update_game_state(
             }
         }
 
-        if let Entry::Occupied(entry) = loaded_assets_guard.entry(get_misc_gltf_path().to_string())
-        {
+        if let Entry::Occupied(entry) = loaded_assets_guard.entry(get_misc_gltf_path().into()) {
             let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
             for animation in other_scene.animations.iter_mut() {
                 animation.state.is_playing = true;
@@ -1245,7 +1361,7 @@ pub fn update_game_state(
         let mut loaded_audio_guard = game_state.asset_loader.loaded_audio.lock().unwrap();
         // let mut audio_manager_guard = game_state.audio_manager.lock().unwrap();
 
-        if let Entry::Occupied(entry) = loaded_audio_guard.entry("src/sounds/bgm.mp3".to_string()) {
+        if let Entry::Occupied(entry) = loaded_audio_guard.entry("src/sounds/bgm.mp3".into()) {
             let (_, bgm_sound_index) = entry.remove_entry();
             game_state.bgm_sound_index = Some(bgm_sound_index);
 
@@ -1261,9 +1377,7 @@ pub fn update_game_state(
             // logger_log("loaded bgm sound");
         }
 
-        if let Entry::Occupied(entry) =
-            loaded_audio_guard.entry("src/sounds/gunshot.wav".to_string())
-        {
+        if let Entry::Occupied(entry) = loaded_audio_guard.entry("src/sounds/gunshot.wav".into()) {
             let (_, gunshot_sound_index) = entry.remove_entry();
             game_state.gunshot_sound_index = Some(gunshot_sound_index);
             // logger_log("loaded gunshot sound");
@@ -1511,7 +1625,7 @@ pub fn update_game_state(
                     deg_to_rad(90.0),
                 ))
                 .scale(
-                    (1080.0 / base_renderer.window_size.lock().unwrap().height as f32)
+                    (1080.0 / surface_data.surface_config.height as f32)
                         * 0.06
                         * Vec3::new(1.0, 1.0, 1.0),
                 )

@@ -1,2 +1,2 @@
 [alias]
-build-web = "run --release --package build-web --"
+build_web = "run --release --package build_web --"

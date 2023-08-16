@@ -20,7 +20,7 @@ impl Character {
         scene: &mut Scene,
         physics_state: &mut PhysicsState,
         renderer_base: &BaseRenderer,
-        renderer_data: &mut RendererPublicData,
+        renderer_data: &mut RendererData,
         root_node_id: GameNodeId,
         skin_index: usize,
         cube_mesh: &BasicMesh,

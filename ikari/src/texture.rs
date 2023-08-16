@@ -1,9 +1,17 @@
 use crate::camera::*;
-use crate::renderer::*;
+use crate::renderer::BaseRenderer;
+use crate::renderer::RendererConstantData;
+use crate::renderer::FAR_PLANE_DISTANCE;
+use crate::renderer::NEAR_PLANE_DISTANCE;
+use crate::renderer::USE_LABELS;
 use crate::sampler_cache::*;
 
 use anyhow::*;
 use glam::f32::Vec3;
+
+use image::RgbaImage;
+use serde::Deserialize;
+use serde::Serialize;
 use wgpu::util::DeviceExt;
 
 #[derive(Debug)]
@@ -14,24 +22,70 @@ pub struct Texture {
     pub size: wgpu::Extent3d,
 }
 
-pub struct CreateCubeMapImagesParam<'a> {
-    pub pos_x: &'a image::DynamicImage,
-    pub neg_x: &'a image::DynamicImage,
-    pub pos_y: &'a image::DynamicImage,
-    pub neg_y: &'a image::DynamicImage,
-    pub pos_z: &'a image::DynamicImage,
-    pub neg_z: &'a image::DynamicImage,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RawImage {
+    pub width: u32,
+    pub height: u32,
+    pub depth: u32,
+    pub mip_count: u32,
+    pub raw: Vec<u8>,
+}
+
+impl From<image::RgbaImage> for RawImage {
+    fn from(image: RgbaImage) -> Self {
+        Self {
+            width: image.width(),
+            height: image.height(),
+            depth: 1,
+            mip_count: 1,
+            raw: image.into_raw(),
+        }
+    }
+}
+
+impl RawImage {
+    pub fn slice(&self) -> RawImageSlice {
+        RawImageSlice {
+            width: self.width,
+            height: self.height,
+            depth: self.depth,
+            mip_count: self.mip_count,
+            raw: &self.raw,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct RawImageSlice<'a> {
+    pub width: u32,
+    pub height: u32,
+    pub depth: u32,
+    pub mip_count: u32,
+    pub raw: &'a [u8],
 }
 
 // TODO: maybe implement some functions on the BaseRendererState so we have the device and queue for free?
+//       or maybe store an Arc<Device> and Arc<Queue>
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
+    pub fn unpadded_bytes_per_row(&self, mip_level: Option<u32>) -> u32 {
+        (self.size.width >> mip_level.unwrap_or(0))
+            * self.texture.format().block_size(None).unwrap()
+    }
+
+    pub fn padded_bytes_per_row(&self, mip_level: Option<u32>) -> u32 {
+        let unpadded_bytes_per_row = self.unpadded_bytes_per_row(mip_level);
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row_padding = (align - unpadded_bytes_per_row % align) % align;
+        unpadded_bytes_per_row + padded_bytes_per_row_padding
+    }
 
     // supports jpg and png
     pub fn from_encoded_image(
         base_renderer: &BaseRenderer,
         img_bytes: &[u8],
-        label: &str,
+        label: Option<&str>,
         format: Option<wgpu::TextureFormat>,
         generate_mipmaps: bool,
         sampler_descriptor: &SamplerDescriptor,
@@ -43,13 +97,14 @@ impl Texture {
             &img_as_rgba,
             img_as_rgba.dimensions(),
             1,
-            Some(label),
+            label,
             format,
             generate_mipmaps,
             sampler_descriptor,
         )
     }
 
+    // TODO: take RawImage as argument instead
     #[allow(clippy::too_many_arguments)]
     pub fn from_decoded_image(
         base_renderer: &BaseRenderer,
@@ -84,6 +139,7 @@ impl Texture {
                     dimension: wgpu::TextureDimension::D2,
                     format,
                     usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_SRC
                         | wgpu::TextureUsages::COPY_DST
                         | wgpu::TextureUsages::RENDER_ATTACHMENT,
                     view_formats: &[],
@@ -98,6 +154,7 @@ impl Texture {
                 img_bytes,
                 wgpu::ImageDataLayout {
                     offset: 0,
+                    // queue.write_texture is exempt from COPY_BYTES_PER_ROW_ALIGNMENT requirement
                     bytes_per_row: Some(format.block_size(None).unwrap() * dimensions.0),
                     rows_per_image: Some(dimensions.1),
                 },
@@ -222,18 +279,96 @@ impl Texture {
         Self::from_color(base_renderer, [127, 127, 255, 255])
     }
 
+    /// only works if the texture had the COPY_SRC usage set at creation
+    /// returns one byte array per image (to account for arrays/cubemaps) including mips if any
+    pub async fn to_bytes(&self, base_renderer: &BaseRenderer) -> Result<Vec<Vec<u8>>> {
+        let mut result = vec![];
+        for depth in 0..self.size.depth_or_array_layers {
+            let mut depth_level_bytes = vec![];
+            for mip_level in 0..self.texture.mip_level_count() {
+                let width = self.size.width >> mip_level;
+                let height = self.size.height >> mip_level;
+                let unpadded_bytes_per_row = self.unpadded_bytes_per_row(Some(mip_level));
+                let padded_bytes_per_row = self.padded_bytes_per_row(Some(mip_level));
+
+                let mut encoder =
+                    base_renderer
+                        .device
+                        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                            label: USE_LABELS.then_some("to_bytes encoder"),
+                        });
+
+                let output_buffer = base_renderer.device.create_buffer(&wgpu::BufferDescriptor {
+                    size: (padded_bytes_per_row * height) as u64,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    label: USE_LABELS.then_some("to_bytes output buffer"),
+                    mapped_at_creation: false,
+                });
+
+                encoder.copy_texture_to_buffer(
+                    wgpu::ImageCopyTexture {
+                        aspect: wgpu::TextureAspect::All,
+                        texture: &self.texture,
+                        mip_level,
+                        origin: wgpu::Origin3d {
+                            z: depth,
+                            ..wgpu::Origin3d::ZERO
+                        },
+                    },
+                    wgpu::ImageCopyBuffer {
+                        buffer: &output_buffer,
+                        layout: wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(padded_bytes_per_row),
+                            rows_per_image: None,
+                        },
+                    },
+                    wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                );
+
+                base_renderer.queue.submit(Some(encoder.finish()));
+
+                {
+                    let buffer_slice = output_buffer.slice(..);
+
+                    // TODO: make sure this works on the web
+                    let (tx, rx) = futures_intrusive::channel::shared::oneshot_channel();
+                    buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                        tx.send(result).unwrap();
+                    });
+                    base_renderer.device.poll(wgpu::Maintain::Wait);
+                    rx.receive().await.unwrap()?;
+
+                    let data = &buffer_slice.get_mapped_range();
+                    depth_level_bytes.reserve((unpadded_bytes_per_row * height) as usize);
+                    for i in 0..height {
+                        let start_index = (i * padded_bytes_per_row) as usize;
+                        let end_index = start_index + unpadded_bytes_per_row as usize;
+                        depth_level_bytes.extend_from_slice(&data[start_index..end_index]);
+                    }
+                }
+                output_buffer.unmap();
+            }
+            result.push(depth_level_bytes);
+        }
+
+        Ok(result)
+    }
+
     pub fn create_scaled_surface_texture(
         base_renderer: &BaseRenderer,
+        (width, height): (u32, u32),
         render_scale: f32,
         label: &str,
     ) -> Self {
-        let size = {
-            let surface_config_guard = base_renderer.surface_config.lock().unwrap();
-            wgpu::Extent3d {
-                width: ((surface_config_guard.width as f32) * render_scale.sqrt()).round() as u32,
-                height: ((surface_config_guard.height as f32) * render_scale.sqrt()).round() as u32,
-                depth_or_array_layers: 1,
-            }
+        let size = wgpu::Extent3d {
+            width: ((width as f32 * render_scale.sqrt()).round() as u32).max(1),
+            height: ((height as f32 * render_scale.sqrt()).round() as u32).max(1),
+            depth_or_array_layers: 1,
         };
         let texture = base_renderer
             .device
@@ -278,16 +413,14 @@ impl Texture {
 
     pub fn create_depth_texture(
         base_renderer: &BaseRenderer,
+        (width, height): (u32, u32),
         render_scale: f32,
         label: &str,
     ) -> Self {
-        let size = {
-            let surface_config_guard = base_renderer.surface_config.lock().unwrap();
-            wgpu::Extent3d {
-                width: ((surface_config_guard.width as f32) * render_scale.sqrt()).round() as u32,
-                height: ((surface_config_guard.height as f32) * render_scale.sqrt()).round() as u32,
-                depth_or_array_layers: 1,
-            }
+        let size = wgpu::Extent3d {
+            width: ((width as f32 * render_scale.sqrt()).round() as u32).max(1),
+            height: ((height as f32 * render_scale.sqrt()).round() as u32).max(1),
+            depth_or_array_layers: 1,
         };
         let texture = base_renderer
             .device
@@ -444,20 +577,30 @@ impl Texture {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn create_cubemap_from_equirectangular(
         base_renderer: &BaseRenderer,
+        renderer_constant_data: &RendererConstantData,
+        format: wgpu::TextureFormat,
         label: Option<&str>,
-        skybox_buffers: &BindedGeometryBuffers,
-        er_to_cubemap_pipeline: &wgpu::RenderPipeline,
-        single_texture_bind_group_layout: &wgpu::BindGroupLayout,
-        single_uniform_bind_group_layout: &wgpu::BindGroupLayout,
         er_texture: &Texture,
         generate_mipmaps: bool,
-    ) -> Self {
+    ) -> Result<Self> {
+        let equirectangular_to_cubemap_pipeline = match format {
+            wgpu::TextureFormat::Rgba8UnormSrgb => {
+                &renderer_constant_data.equirectangular_to_cubemap_pipeline
+            },
+            wgpu::TextureFormat::Rgba16Float => {
+                &renderer_constant_data.equirectangular_to_cubemap_hdr_pipeline
+            }
+            _ => anyhow::bail!("create_cubemap_from_equirectangular called with unsupported texture format: {format:?}"),
+        };
+
+        // make sure it's a multiple of 4 (cheap trick to support Bc7 compression)
+        let size = ((((er_texture.size.width as f32 / 3.0) / 4.0).ceil() * 4.0) as u32).max(4);
+
         let size = wgpu::Extent3d {
-            width: er_texture.size.width / 3,
-            height: er_texture.size.width / 3,
+            width: size,
+            height: size,
             depth_or_array_layers: 6,
         };
 
@@ -475,8 +618,9 @@ impl Texture {
                 mip_level_count,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba16Float,
+                format,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC
                     | wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             });
@@ -493,7 +637,7 @@ impl Texture {
             base_renderer
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: single_uniform_bind_group_layout,
+                    layout: &base_renderer.single_uniform_bind_group_layout,
                     entries: &[wgpu::BindGroupEntry {
                         binding: 0,
                         resource: camera_buffer.as_entire_binding(),
@@ -550,7 +694,7 @@ impl Texture {
                     base_renderer
                         .device
                         .create_bind_group(&wgpu::BindGroupDescriptor {
-                            layout: single_texture_bind_group_layout,
+                            layout: &base_renderer.single_texture_bind_group_layout,
                             entries: &[
                                 wgpu::BindGroupEntry {
                                     binding: 0,
@@ -583,16 +727,32 @@ impl Texture {
                     })],
                     depth_stencil_attachment: None,
                 });
-                rpass.set_pipeline(er_to_cubemap_pipeline);
+                rpass.set_pipeline(equirectangular_to_cubemap_pipeline);
                 rpass.set_bind_group(0, &er_texture_bind_group, &[]);
                 rpass.set_bind_group(1, &camera_bind_group, &[]);
-                rpass.set_vertex_buffer(0, skybox_buffers.vertex_buffer.src().slice(..));
+                rpass.set_vertex_buffer(
+                    0,
+                    renderer_constant_data
+                        .skybox_mesh
+                        .vertex_buffer
+                        .src()
+                        .slice(..),
+                );
                 rpass.set_index_buffer(
-                    skybox_buffers.index_buffer.buffer.src().slice(..),
-                    skybox_buffers.index_buffer.format,
+                    renderer_constant_data
+                        .skybox_mesh
+                        .index_buffer
+                        .buffer
+                        .src()
+                        .slice(..),
+                    renderer_constant_data.skybox_mesh.index_buffer.format,
                 );
                 rpass.draw_indexed(
-                    0..(skybox_buffers.index_buffer.buffer.length() as u32),
+                    0..(renderer_constant_data
+                        .skybox_mesh
+                        .index_buffer
+                        .buffer
+                        .length() as u32),
                     0,
                     0..1,
                 );
@@ -626,47 +786,25 @@ impl Texture {
                 },
             );
 
-        Self {
+        Ok(Self {
             texture: cubemap_texture,
             view,
             sampler_index,
             size,
-        }
+        })
     }
 
     /// Each image should have the same dimensions!
     pub fn create_cubemap(
         base_renderer: &BaseRenderer,
-        images: CreateCubeMapImagesParam,
+        image: RawImageSlice,
         label: Option<&str>,
         format: wgpu::TextureFormat,
-        generate_mipmaps: bool,
     ) -> Self {
-        // order of the images for a cubemap is documented here:
-        // https://www.khronos.org/opengl/wiki/Cubemap_Texture
-        let images_as_rgba = [
-            images.pos_x,
-            images.neg_x,
-            images.pos_y,
-            images.neg_y,
-            images.pos_z,
-            images.neg_z,
-        ]
-        .iter()
-        .map(|img| img.to_rgba8())
-        .collect::<Vec<_>>();
-        let dimensions = images_as_rgba[0].dimensions();
-
         let size = wgpu::Extent3d {
-            width: dimensions.0,
-            height: dimensions.1,
+            width: image.width,
+            height: image.height,
             depth_or_array_layers: 6,
-        };
-
-        let mip_level_count = if generate_mipmaps {
-            size.max_mips(wgpu::TextureDimension::D2)
-        } else {
-            1
         };
 
         let texture = base_renderer.device.create_texture_with_data(
@@ -674,23 +812,17 @@ impl Texture {
             &wgpu::TextureDescriptor {
                 label,
                 size,
-                mip_level_count,
+                mip_level_count: image.mip_count,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             },
-            // pack images into one big byte array
-            &images_as_rgba
-                .iter()
-                .flat_map(|image| image.to_vec())
-                .collect::<Vec<_>>(),
+            image.raw,
         );
-
-        if generate_mipmaps {
-            todo!("Call generate_mipmaps_for_texture for each side of the cubemap");
-        }
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::Cube),
@@ -722,16 +854,11 @@ impl Texture {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn create_diffuse_env_map(
         base_renderer: &BaseRenderer,
+        renderer_constant_data: &RendererConstantData,
         label: Option<&str>,
-        skybox_buffers: &BindedGeometryBuffers,
-        env_map_gen_pipeline: &wgpu::RenderPipeline,
-        single_cube_texture_bind_group_layout: &wgpu::BindGroupLayout,
-        single_uniform_bind_group_layout: &wgpu::BindGroupLayout,
         skybox_rad_texture: &Texture,
-        generate_mipmaps: bool,
     ) -> Self {
         let size = wgpu::Extent3d {
             width: 128,
@@ -739,22 +866,17 @@ impl Texture {
             depth_or_array_layers: 6,
         };
 
-        let mip_level_count = if generate_mipmaps {
-            size.max_mips(wgpu::TextureDimension::D2)
-        } else {
-            1
-        };
-
         let env_map = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
                 label,
                 size,
-                mip_level_count,
+                mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba16Float,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC
                     | wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             });
@@ -771,7 +893,7 @@ impl Texture {
             base_renderer
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: single_uniform_bind_group_layout,
+                    layout: &base_renderer.single_uniform_bind_group_layout,
                     entries: &[wgpu::BindGroupEntry {
                         binding: 0,
                         resource: camera_buffer.as_entire_binding(),
@@ -812,7 +934,7 @@ impl Texture {
                 base_renderer
                     .device
                     .create_bind_group(&wgpu::BindGroupDescriptor {
-                        layout: single_cube_texture_bind_group_layout,
+                        layout: &base_renderer.single_cube_texture_bind_group_layout,
                         entries: &[
                             wgpu::BindGroupEntry {
                                 binding: 0,
@@ -852,25 +974,37 @@ impl Texture {
                     })],
                     depth_stencil_attachment: None,
                 });
-                rpass.set_pipeline(env_map_gen_pipeline);
+                rpass.set_pipeline(&renderer_constant_data.diffuse_env_map_gen_pipeline);
                 rpass.set_bind_group(0, &skybox_ir_texture_bind_group, &[]);
                 rpass.set_bind_group(1, &camera_bind_group, &[]);
-                rpass.set_vertex_buffer(0, skybox_buffers.vertex_buffer.src().slice(..));
+                rpass.set_vertex_buffer(
+                    0,
+                    renderer_constant_data
+                        .skybox_mesh
+                        .vertex_buffer
+                        .src()
+                        .slice(..),
+                );
                 rpass.set_index_buffer(
-                    skybox_buffers.index_buffer.buffer.src().slice(..),
-                    skybox_buffers.index_buffer.format,
+                    renderer_constant_data
+                        .skybox_mesh
+                        .index_buffer
+                        .buffer
+                        .src()
+                        .slice(..),
+                    renderer_constant_data.skybox_mesh.index_buffer.format,
                 );
                 rpass.draw_indexed(
-                    0..(skybox_buffers.index_buffer.buffer.length() as u32),
+                    0..(renderer_constant_data
+                        .skybox_mesh
+                        .index_buffer
+                        .buffer
+                        .length() as u32),
                     0,
                     0..1,
                 );
             }
             base_renderer.queue.submit(Some(encoder.finish()));
-        }
-
-        if generate_mipmaps {
-            todo!("Call generate_mipmaps_for_texture for each side of the cubemap");
         }
 
         let view = env_map.create_view(&wgpu::TextureViewDescriptor {
@@ -905,11 +1039,8 @@ impl Texture {
 
     pub fn create_specular_env_map(
         base_renderer: &BaseRenderer,
+        renderer_constant_data: &RendererConstantData,
         label: Option<&str>,
-        skybox_buffers: &BindedGeometryBuffers,
-        env_map_gen_pipeline: &wgpu::RenderPipeline,
-        single_cube_texture_bind_group_layout: &wgpu::BindGroupLayout,
-        two_uniform_bind_group_layout: &wgpu::BindGroupLayout,
         skybox_rad_texture: &Texture,
     ) -> Self {
         let size = wgpu::Extent3d {
@@ -918,7 +1049,7 @@ impl Texture {
             depth_or_array_layers: 6,
         };
 
-        let mip_level_count = 5;
+        let mip_level_count = 5.min(size.max_mips(wgpu::TextureDimension::D2));
 
         let env_map = base_renderer
             .device
@@ -930,6 +1061,7 @@ impl Texture {
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba16Float,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC
                     | wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             });
@@ -955,7 +1087,7 @@ impl Texture {
             base_renderer
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: two_uniform_bind_group_layout,
+                    layout: &base_renderer.two_uniform_bind_group_layout,
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
@@ -1008,7 +1140,7 @@ impl Texture {
                             base_renderer
                                 .device
                                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                                    layout: single_cube_texture_bind_group_layout,
+                                    layout: &base_renderer.single_cube_texture_bind_group_layout,
                                     entries: &[
                                         wgpu::BindGroupEntry {
                                             binding: 0,
@@ -1057,17 +1189,34 @@ impl Texture {
                                     })],
                                     depth_stencil_attachment: None,
                                 });
-                            rpass.set_pipeline(env_map_gen_pipeline);
+                            rpass.set_pipeline(
+                                &renderer_constant_data.specular_env_map_gen_pipeline,
+                            );
                             rpass.set_bind_group(0, &skybox_ir_texture_bind_group, &[]);
                             rpass.set_bind_group(1, &camera_roughness_bind_group, &[]);
-                            rpass
-                                .set_vertex_buffer(0, skybox_buffers.vertex_buffer.src().slice(..));
+                            rpass.set_vertex_buffer(
+                                0,
+                                renderer_constant_data
+                                    .skybox_mesh
+                                    .vertex_buffer
+                                    .src()
+                                    .slice(..),
+                            );
                             rpass.set_index_buffer(
-                                skybox_buffers.index_buffer.buffer.src().slice(..),
-                                skybox_buffers.index_buffer.format,
+                                renderer_constant_data
+                                    .skybox_mesh
+                                    .index_buffer
+                                    .buffer
+                                    .src()
+                                    .slice(..),
+                                renderer_constant_data.skybox_mesh.index_buffer.format,
                             );
                             rpass.draw_indexed(
-                                0..(skybox_buffers.index_buffer.buffer.length() as u32),
+                                0..(renderer_constant_data
+                                    .skybox_mesh
+                                    .index_buffer
+                                    .buffer
+                                    .length() as u32),
                                 0,
                                 0..1,
                             );

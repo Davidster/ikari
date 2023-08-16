@@ -12,32 +12,20 @@ publish = false
 [lib]
 name = "ikari"
 path = "src/lib.rs"
-# crate-type = ["cdylib", "rlib"]
-
-[[bin]]
-name = "example_game"
-path = "src/example_game/main.rs"
-
-[[bin]]
-name = "asset_optimizer"
-path = "src/asset_optimizer/main.rs"
 
 [features]
 default = []
 tracy = ["profiling/profile-with-tracy", "dep:tracing-tracy"]
-tracy-n-alloc = []
+tracy-n-alloc = ["tracy"]
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
-half = "2.3.1"
+half = { version = "2.3.1" }
 pollster = "0.3"
 twox-hash = "1.6"
-lazy_static = "1.4"
+lazy_static.workspace = true
 smallvec = { version = "1.11", features = ["union", "const_generics"] }
-anyhow = { version = "1.0", features = ["backtrace"] }
-threadpool = "1.8.1"
-walkdir = "2.3.3"
-num_cpus = "1.16.0"
+anyhow.workspace = true
 chrono = { version = "0.4.26", default-features = false, features = [
     "std",
     "wasmbind",
@@ -48,32 +36,26 @@ async-std = "1.12.0"
 
 # log
 console = "0.15"
-env_logger = { version = "0.10", default-features = false, features = [
-    "auto-color",
-    "humantime",
-] }
-log = "0.4"
+env_logger.workspace = true
+log.workspace = true
 
 # profiling
 # The version should be the one used by wgpu-core/hal TODO: does this version number need updating?
-profiling = "1.0.8"
+profiling.workspace = true
 wgpu-profiler = "0.12"
 # wgpu-profiler = { path = "../../wgpu-profiler-fork" }
 tracing-tracy = { version = "0.10.2", features = ["ondemand"], optional = true }
 
 # assets
-gltf = "1.2"
-image = { version = "0.24", default-features = false, features = [
-    "hdr",
-    "jpeg",
-] }
+gltf.workspace = true
+image.workspace = true
 obj-rs = "0.7"
 wavefront_obj = "10.0"
 
 # rendering
-wgpu = "0.16"
+wgpu.workspace = true
 # wgpu = { path = "../../wgpu/wgpu" }
-winit = { version = "0.27", git = "https://github.com/iced-rs/winit.git", rev = "940457522e9fb9f5dac228b0ecfafe0138b4048c" }
+winit.workspace = true
 
 # math
 rand = { version = "0.8", features = ["small_rng"] }
@@ -104,31 +86,23 @@ iced_aw = { git = "https://github.com/iced-rs/iced_aw.git", branch = "main", def
     "card",
 ] }
 wasm_thread = { version = "0.2.0", features = ["es_modules"] }
+futures-intrusive = "0.5.0"
+rmp-serde = "1.1.2"
+serde = "1.0.173"
+zstd = { version = "0.12.4", default-features = false }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 basis-universal = "0.3.0"
-zstd = "0.12.4"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3.64"
-wasm-bindgen-futures = "0.4.37"
-web-sys = { version = "0.3.64", features = [
-    "Document",
-    "Window",
-    "Element",
-    "Headers",
-    "Request",
-    "RequestInit",
-    "RequestMode",
-    "Response",
-    "Blob",
-    "WorkerGlobalScope",
-] }
+wasm-bindgen-futures.workspace = true
+web-sys.workspace = true
 getrandom = { version = "0.2.10", features = ["js"] }
 serde = "1.0.173"
 serde_derive = "1.0.173"
-console_error_panic_hook = "0.1.7"
-console_log = "1.0.0"
-wasm-bindgen = { version = "0.2.87", features = ["serde-serialize"] }
+wasm-bindgen.workspace = true
 cpal = { git = "https://github.com/DouglasDwyer/cpal.git", rev = "91aeb4d", features = [
     "wasm-bindgen",
 ] }
+zstd = { version = "0.12.4", default-features = false, features = ["wasm"] }

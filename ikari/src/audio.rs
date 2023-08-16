@@ -1,4 +1,7 @@
+use crate::file_loader::FileLoader;
+use crate::file_loader::GameFilePath;
 use crate::time::Instant;
+
 use anyhow::Result;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use glam::f32::Vec3;
@@ -37,7 +40,7 @@ pub struct Sound {
     signal_handle: SoundSignalHandle,
     data: SoundData,
     length_seconds: Option<f32>,
-    file_path: String,
+    file_path: GameFilePath,
     /// position within the track in milliseconds,
     last_pause_pos_seconds: f32,
     last_resume_time: Option<Instant>,
@@ -91,28 +94,28 @@ pub struct AudioFileStreamer {
     track_id: u32,
     track_sample_rate: Option<u32>,
     track_length_seconds: Option<f32>,
-    file_path: String,
+    file_path: GameFilePath,
 }
 
 #[cfg(target_arch = "wasm32")]
-async fn get_media_source(file_path: &str) -> Result<Box<dyn MediaSource>> {
+async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSource>> {
     // TODO: implement proper streaming over http
-    let file_bytes = crate::file_loader::read(file_path).await?;
+    let file_bytes = FileLoader::read(file_path).await?;
     Ok(Box::new(std::io::Cursor::new(file_bytes)))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn get_media_source(file_path: &str) -> Result<Box<dyn MediaSource>> {
-    Ok(Box::new(crate::file_loader::open_file(file_path)?))
+async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSource>> {
+    Ok(Box::new(FileLoader::open_file(file_path)?))
 }
 
 impl AudioFileStreamer {
     pub async fn new(
         device_sample_rate: u32,
-        file_path: &str,
+        file_path: GameFilePath,
         file_format: Option<AudioFileFormat>,
     ) -> anyhow::Result<Self> {
-        let mss = MediaSourceStream::new(get_media_source(file_path).await?, Default::default());
+        let mss = MediaSourceStream::new(get_media_source(&file_path).await?, Default::default());
 
         let mut hint = Hint::new();
         if let Some(file_format) = &file_format {
@@ -159,7 +162,7 @@ impl AudioFileStreamer {
             track_id,
             track_length_seconds,
             track_sample_rate,
-            file_path: file_path.to_string(),
+            file_path,
         })
     }
 
@@ -235,7 +238,6 @@ impl AudioFileStreamer {
                     if err.kind() == std::io::ErrorKind::UnexpectedEof
                         && err.to_string() == "end of stream"
                     {
-                        dbg!(err);
                         break true;
                     }
                     anyhow::bail!(err);
@@ -267,7 +269,7 @@ impl AudioFileStreamer {
         self.track_length_seconds
     }
 
-    pub fn file_path(&self) -> &str {
+    pub fn file_path(&self) -> &GameFilePath {
         &self.file_path
     }
 }
@@ -372,7 +374,7 @@ impl AudioManager {
 
     pub fn add_sound(
         &mut self,
-        file_path: &str,
+        file_path: GameFilePath,
         sound_data: SoundData,
         length_seconds: Option<f32>,
         params: SoundParams,
@@ -401,7 +403,7 @@ impl AudioManager {
             let signal = Self::get_signal(&sound.data, params.clone(), self.device_sample_rate);
             self.sounds[sound_index] = Some(Sound::new(
                 self,
-                &sound.file_path,
+                sound.file_path,
                 sound.data,
                 sound.length_seconds,
                 params,
@@ -435,7 +437,7 @@ impl AudioManager {
             .map(|sound| sound.buffered_to_pos_seconds)
     }
 
-    pub fn get_sound_file_path(&self, sound_index: usize) -> Option<&String> {
+    pub fn get_sound_file_path(&self, sound_index: usize) -> Option<&GameFilePath> {
         self.sounds[sound_index]
             .as_ref()
             .map(|sound| &sound.file_path)
@@ -498,7 +500,7 @@ fn resample_linear(
 impl Sound {
     fn new(
         audio_manager: &mut AudioManager,
-        file_path: &str,
+        file_path: GameFilePath,
         sound_data: SoundData,
         length_seconds: Option<f32>,
         params: SoundParams,
@@ -587,7 +589,7 @@ impl Sound {
             is_playing: false,
             volume: initial_volume,
             signal_handle,
-            file_path: String::from(file_path),
+            file_path,
             data: sound_data,
             length_seconds,
             last_pause_pos_seconds,

@@ -17,6 +17,7 @@ use plotters::style::RED;
 use plotters_iced::{Chart, ChartWidget, DrawingBackend};
 use winit::{event::WindowEvent, window::Window};
 
+use crate::file_loader::GameFilePath;
 use crate::game::*;
 use crate::math::*;
 use crate::player_controller::*;
@@ -67,7 +68,7 @@ pub enum Message {
     FrameCompleted(Duration),
     GpuFrameCompleted(Vec<GpuTimerScopeResultWrapper>),
     CameraPoseChanged((Vec3, ControlledViewDirection)),
-    AudioSoundStatsChanged((String, AudioSoundStats)),
+    AudioSoundStatsChanged((GameFilePath, AudioSoundStats)),
     ToggleVSync(bool),
     ToggleCameraPose(bool),
     ToggleFpsChart(bool),
@@ -325,7 +326,10 @@ impl Program for UiOverlay {
                 }
             }
             Message::AudioSoundStatsChanged((track_path, stats)) => {
-                self.audio_sound_stats.insert(track_path, stats);
+                self.audio_sound_stats.insert(
+                    track_path.relative_path.to_string_lossy().to_string(),
+                    stats,
+                );
             }
             Message::CameraPoseChanged(new_state) => {
                 self.camera_pose = Some(new_state);
@@ -859,9 +863,13 @@ impl IkariUiOverlay {
         }
     }
 
-    pub fn resize(&mut self, window_size: winit::dpi::PhysicalSize<u32>, scale_factor: f64) {
+    pub fn resize(
+        &mut self,
+        (framebuffer_width, framebuffer_height): (u32, u32),
+        scale_factor: f64,
+    ) {
         self.viewport = iced_winit::Viewport::with_physical_size(
-            iced::Size::new(window_size.width, window_size.height),
+            iced::Size::new(framebuffer_width, framebuffer_height),
             scale_factor,
         );
     }
@@ -905,8 +913,8 @@ impl IkariUiOverlay {
 
         self.program_container
             .queue_message(Message::ViewportDimsChanged((
-                window.inner_size().width,
-                window.inner_size().height,
+                (window.inner_size().width as f64 / window.scale_factor()) as u32,
+                (window.inner_size().height as f64 / window.scale_factor()) as u32,
             )));
 
         let cursor_icon =

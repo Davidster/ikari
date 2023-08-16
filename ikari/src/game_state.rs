@@ -10,6 +10,7 @@ use crate::player_controller::*;
 use crate::revolver::*;
 use crate::scene::*;
 use crate::time_tracker::*;
+use crate::ui_overlay::IkariUiOverlay;
 
 use std::sync::{Arc, Mutex};
 
@@ -56,6 +57,8 @@ pub struct GameState {
     pub cube_mesh: BasicMesh,
 
     pub asset_loader: Arc<AssetLoader>,
+
+    pub ui_overlay: IkariUiOverlay,
 }
 
 impl GameState {

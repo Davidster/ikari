@@ -1,33 +1,52 @@
-use std::path::{Path, PathBuf};
+use rmp_serde::Serializer;
+use serde::Serialize;
 
+use crate::{file_loader::GameFilePath, texture::RawImage};
+
+#[cfg(not(target_arch = "wasm32"))]
 const BASISU_COMPRESSION_FORMAT: basis_universal::BasisTextureFormat =
     basis_universal::BasisTextureFormat::UASTC4x4;
 
-pub struct TextureCompressor(());
+#[derive(Debug)]
+pub struct TextureCompressor;
 
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug)]
 pub struct TextureCompressionArgs<'a> {
     pub img_bytes: &'a [u8],
     pub img_width: u32,
     pub img_height: u32,
     pub img_channel_count: u8,
+    pub generate_mipmaps: bool,
     pub is_normal_map: bool,
     pub is_srgb: bool,
     pub thread_count: u32,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug)]
 pub struct CompressedTexture {
     pub format: basis_universal::transcoding::TranscoderTextureFormat,
     pub width: u32,
     pub height: u32,
-    pub raw: Vec<u8>,
     pub mip_count: u32,
+    pub raw: Vec<u8>,
 }
 
 impl TextureCompressor {
-    pub fn new() -> Self {
-        Self(())
+    // floating point texture format isn't yet supported by basisu. see
+    // https://github.com/BinomialLLC/basis_universal/issues/310
+    pub fn compress_raw_float_image(&self, image: RawImage) -> anyhow::Result<Vec<u8>> {
+        let mut image_serialized = vec![];
+        image.serialize(&mut Serializer::new(&mut image_serialized))?;
+
+        // 0 = default compression level
+        let zstd_encoded_data = zstd::stream::encode_all(image_serialized.as_slice(), 0)?;
+
+        Ok(zstd_encoded_data)
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn compress_raw_image(&self, args: TextureCompressionArgs) -> anyhow::Result<Vec<u8>> {
         basis_universal::encoder_init();
 
@@ -36,16 +55,19 @@ impl TextureCompressor {
             img_width,
             img_height,
             img_channel_count,
+            generate_mipmaps,
             is_normal_map,
             is_srgb,
             thread_count,
         } = args;
 
+        let mut basisu_compressor = basis_universal::Compressor::new(thread_count);
+
         let mut params = basis_universal::CompressorParams::new();
         params.set_basis_format(BASISU_COMPRESSION_FORMAT);
         params.set_uastc_quality_level(3); // level 3 takes longer to compress but is higher quality
         params.set_rdo_uastc(Some(1.0)); // default
-        params.set_generate_mipmaps(true);
+        params.set_generate_mipmaps(generate_mipmaps);
         params.set_mipmap_smallest_dimension(1); // default
         params.set_color_space(if is_srgb {
             basis_universal::ColorSpace::Srgb
@@ -71,12 +93,10 @@ impl TextureCompressor {
             }
         }
 
-        let mut basisu_compressor = basis_universal::Compressor::new(thread_count);
-
         // Safety
         //
-        // Compressing with invalid parameters may cause undefined behavior. (The underlying C++
-        // library does not thoroughly validate parameters)
+        // Compressing with invalid parameters may cause undefined behavior.
+        // (The underlying C++ library does not thoroughly validate parameters)
         // see https://docs.rs/basis-universal/0.2.0/basis_universal/encoding/struct.Compressor.html#method.process
         unsafe {
             basisu_compressor.init(&params);
@@ -92,6 +112,14 @@ impl TextureCompressor {
         Ok(zstd_encoded_data)
     }
 
+    // floating point texture format isn't yet supported by basisu. see
+    // https://github.com/BinomialLLC/basis_universal/issues/310
+    pub fn transcode_float_image(&self, img_bytes: &[u8]) -> anyhow::Result<RawImage> {
+        let zstd_decoded_data = zstd::stream::decode_all(img_bytes)?;
+        Ok(rmp_serde::from_slice(&zstd_decoded_data)?)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     #[profiling::function]
     pub fn transcode_image(
         &self,
@@ -163,17 +191,16 @@ impl TextureCompressor {
     }
 }
 
-impl Default for TextureCompressor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-pub fn texture_path_to_compressed_path(path: &Path) -> PathBuf {
-    let mut out_path = path.to_path_buf();
-    out_path.set_file_name(format!(
+pub fn texture_path_to_compressed_path(path: &GameFilePath) -> GameFilePath {
+    let mut new_path = path.clone();
+    new_path.relative_path.set_file_name(format!(
         "{:}_compressed.bin",
-        out_path.file_stem().unwrap().to_str().unwrap()
+        new_path
+            .relative_path
+            .file_stem()
+            .unwrap()
+            .to_string_lossy()
     ));
-    out_path
+
+    new_path
 }

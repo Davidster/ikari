@@ -21,15 +21,19 @@ Hopefully one day it will be used in a real game 😃
 - [Rapier](https://rapier.rs/) integration for physics
 - [Oddio](https://github.com/Ralith/oddio) integration for audio
 - [Iced](https://github.com/iced-rs/iced) integration for UI
+- [Tracy profiler](https://github.com/wolfpld/tracy)
+  - on-demand profile data dumps
 - [wgpu-profiler](https://github.com/Wumpf/wgpu-profiler)
 - Dynamic render scale
   - Can be used to do supersampling anti-aliasing
 - glTF asset import
   - Supports scene graph, meshes, materials, animations, and skinning
 - Linux, Windows & MacOS support
+- Web support via WASM/WebGPU
 - Wireframe mode
-- Unlit materials
-- Equirectangular and cubemap skybox support
+- Unlit & transparent materials
+- Skyboxes and HDR environment maps
+- BCN texture compression
 - Scene graph
 - CPU-side frustum culling
 - Mipmapping
@@ -39,12 +43,24 @@ Hopefully one day it will be used in a real game 😃
 
 ```sh
 # native
-cargo run --release --features="tracy" --bin example_game
+cargo run --features="tracy" --bin example_game
 # web
-cargo build-web --release --bin example_game
+cargo build_web --release --bin example_game
 ```
 
 See console logs for list of available controls
+
+## clikari
+
+The ikari CLI has the following capabilities:
+ 
+- compress jpg/png textures into GPU-compressed BCN format with baked mips
+- pre-process skybox + HDR env maps to be loaded much more efficiently into the game at runtime (500ms vs 10ms)
+
+For example:
+```sh
+cargo run --bin clikari -- --command process_skybox --background_path ikari/src/textures/milkyway/background.jpg --environment_hdr_path ikari/src/textures/milkyway/radiance.hdr --out_folder ikari/src/skyboxes/milkyway
+```
 
 ## Screenshots / Videos:
 
@@ -108,3 +124,10 @@ Based on instructions from here: https://github.com/wolfpld/tracy/issues/484
     Exec=/home/david/Programming/tracy/profiler/build/unix/Tracy-release
     Type=Application
     ```
+
+## Running clippy for wasm target
+
+```sh
+# this will run clippy on the example game as well as ikari by dependency
+RUSTFLAGS=--cfg=web_sys_unstable_apis cargo clippy --package example_game --target wasm32-unknown-unknown
+```

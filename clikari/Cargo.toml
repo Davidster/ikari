@@ -1,0 +1,26 @@
+[package]
+name = "clikari"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "clikari"
+path = "src/main.rs"
+
+[dependencies]
+# winit.workspace = true
+ikari.workspace = true
+log.workspace = true
+wgpu.workspace = true
+anyhow.workspace = true
+env_logger.workspace = true
+# profiling.workspace = true
+image.workspace = true
+gltf.workspace = true
+pico-args.workspace = true
+lazy_static.workspace = true
+threadpool = "1.8.1"
+num_cpus = "1.16.0"
+walkdir = "2.3.3"

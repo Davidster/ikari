@@ -3,6 +3,7 @@ use crate::game_state::*;
 use crate::renderer::*;
 use crate::time::*;
 use crate::ui_overlay::AudioSoundStats;
+use crate::ui_overlay::IkariUiOverlay;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -13,12 +14,27 @@ use winit::{
     window::Window,
 };
 
+pub fn resize_window(
+    renderer: &mut Renderer,
+    ui_overlay: &mut IkariUiOverlay,
+    surface_data: &mut SurfaceData,
+    window: &winit::window::Window,
+    new_size: (u32, u32),
+) {
+    renderer.resize_surface(new_size, surface_data);
+    renderer.resize(new_size);
+    ui_overlay.resize(new_size, window.scale_factor());
+}
+
 pub fn run(
     window: Window,
     event_loop: EventLoop<()>,
     mut game_state: GameState,
     mut renderer: Renderer,
+    mut surface_data: SurfaceData,
+    application_start_time: Instant,
 ) {
+    let mut logged_start_time = false;
     let mut last_frame_start_time: Option<Instant> = None;
 
     #[cfg(target_arch = "wasm32")]
@@ -43,11 +59,7 @@ pub fn run(
                 let frame_duration = last_frame_start_time.map(|time| time.elapsed());
                 last_frame_start_time = Some(Instant::now());
 
-                update_game_state(
-                    &mut game_state,
-                    renderer.base.clone(),
-                    renderer.data.clone(),
-                );
+                update_game_state(&mut game_state, &mut renderer, &surface_data);
 
                 {
                     // sync UI
@@ -56,11 +68,19 @@ pub fn run(
                     let mut renderer_data_guard = renderer.data.lock().unwrap();
 
                     if let Some(frame_duration) = frame_duration {
-                        renderer.ui_overlay.send_message(
+                        if !logged_start_time {
+                            log::debug!(
+                                "Took {:?} from process startup till first frame",
+                                application_start_time.elapsed()
+                            );
+                            logged_start_time = true;
+                        }
+
+                        game_state.ui_overlay.send_message(
                             crate::ui_overlay::Message::FrameCompleted(frame_duration),
                         );
                         if let Some(gpu_timing_info) = renderer.process_profiler_frame() {
-                            renderer.ui_overlay.send_message(
+                            game_state.ui_overlay.send_message(
                                 crate::ui_overlay::Message::GpuFrameCompleted(gpu_timing_info),
                             );
                         }
@@ -70,7 +90,7 @@ pub fn run(
                         .player_controller
                         .position(&game_state.physics_state);
                     let camera_view_direction = game_state.player_controller.view_direction;
-                    renderer.ui_overlay.send_message(
+                    game_state.ui_overlay.send_message(
                         crate::ui_overlay::Message::CameraPoseChanged((
                             camera_position,
                             camera_view_direction,
@@ -93,7 +113,7 @@ pub fn run(
                                 .get_sound_buffered_to_pos_seconds(sound_index)
                                 .unwrap();
 
-                            renderer.ui_overlay.send_message(
+                            game_state.ui_overlay.send_message(
                                 crate::ui_overlay::Message::AudioSoundStatsChanged((
                                     file_path.clone(),
                                     AudioSoundStats {
@@ -106,7 +126,7 @@ pub fn run(
                         }
                     }
 
-                    let ui_state = renderer.ui_overlay.get_state().clone();
+                    let ui_state = game_state.ui_overlay.get_state().clone();
 
                     renderer_data_guard.enable_soft_shadows = ui_state.enable_soft_shadows;
                     renderer_data_guard.soft_shadow_factor = ui_state.soft_shadow_factor;
@@ -116,9 +136,16 @@ pub fn run(
                     renderer_data_guard.draw_culling_frustum = ui_state.draw_culling_frustum;
                     renderer_data_guard.draw_point_light_culling_frusta =
                         ui_state.draw_point_light_culling_frusta;
-                    renderer.set_vsync(ui_state.enable_vsync);
-                    renderer
-                        .set_culling_frustum_lock(&game_state, ui_state.culling_frustum_lock_mode);
+                    renderer.set_vsync(ui_state.enable_vsync, &mut surface_data);
+
+                    renderer.set_culling_frustum_lock(
+                        &game_state,
+                        (
+                            surface_data.surface_config.width,
+                            surface_data.surface_config.height,
+                        ),
+                        ui_state.culling_frustum_lock_mode,
+                    );
                 }
 
                 #[cfg(target_arch = "wasm32")]
@@ -132,12 +159,20 @@ pub fn run(
                     }
                 }
 
-                match renderer.render(&mut game_state, &window, control_flow) {
+                game_state.ui_overlay.update(&window, control_flow);
+
+                match renderer.render(&mut game_state, &surface_data) {
                     Ok(_) => {}
                     Err(err) => match err.downcast_ref::<wgpu::SurfaceError>() {
                         // Reconfigure the surface if lost
                         Some(wgpu::SurfaceError::Lost) => {
-                            renderer.resize(window.inner_size(), window.scale_factor())
+                            resize_window(
+                                &mut renderer,
+                                &mut game_state.ui_overlay,
+                                &mut surface_data,
+                                &window,
+                                window.inner_size().into(),
+                            );
                         }
                         // The system is out of memory, we should probably quit
                         Some(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
@@ -164,7 +199,7 @@ pub fn run(
                 window.request_redraw();
             }
             Event::DeviceEvent { event, .. } => {
-                process_device_input(&mut game_state, &renderer, &event);
+                process_device_input(&mut game_state, &event);
             }
             Event::WindowEvent {
                 event, window_id, ..
@@ -172,21 +207,39 @@ pub fn run(
                 match &event {
                     WindowEvent::Resized(size) => {
                         if size.width > 0 && size.height > 0 {
-                            renderer.resize(*size, window.scale_factor());
+                            resize_window(
+                                &mut renderer,
+                                &mut game_state.ui_overlay,
+                                &mut surface_data,
+                                &window,
+                                (*size).into(),
+                            );
                         }
                     }
                     WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                         if new_inner_size.width > 0 && new_inner_size.height > 0 {
-                            renderer.resize(**new_inner_size, window.scale_factor());
+                            resize_window(
+                                &mut renderer,
+                                &mut game_state.ui_overlay,
+                                &mut surface_data,
+                                &window,
+                                (**new_inner_size).into(),
+                            );
                         }
                     }
                     WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                     _ => {}
                 };
 
-                renderer.ui_overlay.handle_window_event(&window, &event);
+                game_state.ui_overlay.handle_window_event(&window, &event);
 
-                process_window_input(&mut game_state, &mut renderer, &event, &window);
+                process_window_input(
+                    &mut game_state,
+                    &mut renderer,
+                    &mut surface_data,
+                    &event,
+                    &window,
+                );
             }
             _ => {}
         }

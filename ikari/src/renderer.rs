@@ -1,6 +1,9 @@
 use crate::buffer::*;
 use crate::camera::*;
 use crate::collisions::*;
+use crate::file_loader::FileLoader;
+use crate::file_loader::GameFilePath;
+use crate::file_loader::IKARI_PATH_MAKER;
 use crate::game::*;
 use crate::game_state::*;
 use crate::light::*;
@@ -21,13 +24,12 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use glam::f32::{Mat4, Vec3};
 use glam::Vec4;
-use image::Pixel;
+
 use wgpu::util::DeviceExt;
 use wgpu::InstanceDescriptor;
 
 use wgpu_profiler::wgpu_profiler;
 use wgpu_profiler::GpuProfiler;
-use winit::window::Window;
 
 pub const USE_LABELS: bool = true;
 
@@ -43,7 +45,7 @@ pub const DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 2048;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
-pub struct Float16(half::f16);
+pub struct Float16(pub half::f16);
 
 unsafe impl bytemuck::Pod for Float16 {}
 unsafe impl bytemuck::Zeroable for Float16 {}
@@ -191,15 +193,6 @@ fn make_pbr_shader_options_uniform_buffer(
     }
 }
 
-pub enum SkyboxBackground<'a> {
-    Cube { face_image_paths: [&'a str; 6] },
-    Equirectangular { image_path: &'a str },
-}
-
-pub enum SkyboxHDREnvironment<'a> {
-    Equirectangular { image_path: &'a str },
-}
-
 #[derive(Debug)]
 pub struct BindableTexture {
     pub image_pixels: Vec<u8>,
@@ -331,42 +324,85 @@ pub struct BaseRenderer {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub adapter: wgpu::Adapter,
-    pub surface: wgpu::Surface,
-    pub surface_config: Mutex<wgpu::SurfaceConfiguration>,
     pub limits: wgpu::Limits,
-    pub window_size: Mutex<winit::dpi::PhysicalSize<u32>>,
+    // TODO: move all these bind group layouts into ConstantData?
     pub single_texture_bind_group_layout: wgpu::BindGroupLayout,
     pub two_texture_bind_group_layout: wgpu::BindGroupLayout,
+    pub single_cube_texture_bind_group_layout: wgpu::BindGroupLayout,
+    pub single_uniform_bind_group_layout: wgpu::BindGroupLayout,
+    pub two_uniform_bind_group_layout: wgpu::BindGroupLayout,
     pub bones_and_instances_bind_group_layout: wgpu::BindGroupLayout,
     pub pbr_textures_bind_group_layout: wgpu::BindGroupLayout,
+    pub environment_textures_bind_group_layout: wgpu::BindGroupLayout,
     default_texture_cache: Mutex<HashMap<DefaultTextureType, Arc<Texture>>>,
     pub sampler_cache: Mutex<SamplerCache>,
 }
 
+pub struct SurfaceData {
+    pub surface: wgpu::Surface,
+    pub surface_config: wgpu::SurfaceConfiguration,
+}
+
 impl BaseRenderer {
-    pub async fn new(
-        window: &winit::window::Window,
+    pub async fn offscreen(backends: wgpu::Backends, dxc_path: Option<PathBuf>) -> Result<Self> {
+        let instance = Self::make_instance(backends, dxc_path);
+        Self::new(instance, None).await
+    }
+
+    pub async fn with_window(
         backends: wgpu::Backends,
-        present_mode: wgpu::PresentMode,
-    ) -> Self {
+        dxc_path: Option<PathBuf>,
+        window: &winit::window::Window,
+    ) -> Result<(Self, SurfaceData)> {
+        let instance = Self::make_instance(backends, dxc_path);
+        let surface = unsafe { instance.create_surface(&window).unwrap() };
+        let base = Self::new(instance, Some(&surface)).await?;
+
         let window_size = window.inner_size();
 
-        let instance = wgpu::Instance::new(InstanceDescriptor {
+        let mut surface_config = surface
+            .get_default_config(&base.adapter, window_size.width, window_size.height)
+            .ok_or_else(|| {
+                anyhow::anyhow!("Window surface is incompatible with the graphics adapter")
+            })?;
+        surface_config.usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
+        // surface_config.format = wgpu::TextureFormat::Bgra8UnormSrgb;
+        surface_config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
+        surface_config.present_mode = wgpu::PresentMode::AutoNoVsync;
+        surface.configure(&base.device, &surface_config);
+
+        let surface_data = SurfaceData {
+            surface,
+            surface_config,
+        };
+
+        Ok((base, surface_data))
+    }
+
+    fn make_instance(backends: wgpu::Backends, dxc_path: Option<PathBuf>) -> wgpu::Instance {
+        wgpu::Instance::new(InstanceDescriptor {
             backends,
             dx12_shader_compiler: wgpu::Dx12Compiler::Dxc {
-                dxil_path: Some(PathBuf::from("ikari/dxc/")),
-                dxc_path: Some(PathBuf::from("ikari/dxc/")),
+                dxil_path: dxc_path.clone(),
+                dxc_path,
             },
-        });
-        let surface = unsafe { instance.create_surface(&window).unwrap() };
+        })
+    }
+
+    async fn new(instance: wgpu::Instance, surface: Option<&wgpu::Surface>) -> Result<Self> {
+        let request_adapter_options = wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: surface,
+            force_fallback_adapter: false,
+        };
         let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
+            .request_adapter(&request_adapter_options)
             .await
-            .expect("Failed to find an appropriate adapter");
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Failed to find a wgpu adapter with options: {request_adapter_options:?}"
+                )
+            })?;
 
         let mut features = adapter.features();
 
@@ -386,17 +422,7 @@ impl BaseRenderer {
                 None,
             )
             .await
-            .expect("Failed to create device");
-
-        let mut surface_config = surface
-            .get_default_config(&adapter, window_size.width, window_size.height)
-            .expect("Window surface is incompatible with the graphics adapter");
-        surface_config.usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
-        // surface_config.format = wgpu::TextureFormat::Bgra8UnormSrgb;
-        surface_config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
-        surface_config.present_mode = present_mode;
-
-        surface.configure(&device, &surface_config);
+            .map_err(|err| anyhow::anyhow!("Failed to create wgpu device: {err}"))?;
 
         let single_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -420,6 +446,7 @@ impl BaseRenderer {
                 ],
                 label: USE_LABELS.then_some("single_texture_bind_group_layout"),
             });
+
         let two_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -458,6 +485,72 @@ impl BaseRenderer {
                 ],
                 label: USE_LABELS.then_some("two_texture_bind_group_layout"),
             });
+
+        let single_cube_texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::Cube,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: USE_LABELS.then_some("single_cube_texture_bind_group_layout"),
+            });
+
+        let single_uniform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: USE_LABELS.then_some("single_uniform_bind_group_layout"),
+            });
+
+        let two_uniform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+                label: USE_LABELS.then_some("two_uniform_bind_group_layout"),
+            });
+
         let pbr_textures_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -545,6 +638,109 @@ impl BaseRenderer {
                 label: USE_LABELS.then_some("pbr_textures_bind_group_layout"),
             });
 
+        let environment_textures_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::Cube,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::Cube,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::Cube,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 7,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 8,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 9,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 10,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 11,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                        count: None,
+                    },
+                ],
+                label: USE_LABELS.then_some("environment_textures_bind_group_layout"),
+            });
+
         let bones_and_instances_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -574,21 +770,22 @@ impl BaseRenderer {
 
         let limits = device.limits();
 
-        Self {
+        Ok(Self {
             device,
             adapter,
             queue,
-            surface,
-            surface_config: Mutex::new(surface_config),
             limits,
-            window_size: Mutex::new(window_size),
             single_texture_bind_group_layout,
             two_texture_bind_group_layout,
+            single_cube_texture_bind_group_layout,
+            single_uniform_bind_group_layout,
+            two_uniform_bind_group_layout,
             bones_and_instances_bind_group_layout,
             pbr_textures_bind_group_layout,
+            environment_textures_bind_group_layout,
             default_texture_cache: Mutex::new(HashMap::new()),
             sampler_cache: Mutex::new(SamplerCache::new()),
-        }
+        })
     }
 
     #[profiling::function]
@@ -800,6 +997,7 @@ pub struct RendererPrivateData {
     tone_mapping_texture: Texture,
     depth_texture: Texture,
     bloom_pingpong_textures: [Texture; 2],
+    brdf_lut: Texture,
 }
 
 #[derive(Debug)]
@@ -820,14 +1018,57 @@ pub struct BindedSceneData {
     pub textures: Vec<Texture>,
 }
 
-pub struct RendererPublicData {
+#[derive(Debug)]
+pub enum SkyboxBackgroundPath {
+    Cube([GameFilePath; 6]),
+    ProcessedCube([GameFilePath; 6]),
+    Equirectangular(GameFilePath),
+}
+
+#[derive(Debug)]
+pub enum SkyboxHDREnvironmentPath {
+    Equirectangular(GameFilePath),
+    ProcessedCube {
+        diffuse: GameFilePath,
+        specular: GameFilePath,
+    },
+}
+
+#[derive(Debug)]
+pub enum BindableSkyboxBackground {
+    Cube(RawImage),
+    CompressedCube(RawImage),
+    Equirectangular(RawImage),
+}
+
+#[derive(Debug)]
+pub enum BindableSkyboxHDREnvironment {
+    Equirectangular(RawImage),
+    ProcessedCube {
+        diffuse: RawImage,
+        specular: RawImage,
+    },
+}
+
+#[derive(Debug)]
+pub struct BindableSkybox {
+    pub background: BindableSkyboxBackground,
+    pub environment_hdr: Option<BindableSkyboxHDREnvironment>,
+}
+
+#[derive(Debug)]
+pub struct BindedSkybox {
+    pub background: Texture,
+    pub diffuse_environment_map: Texture,
+    pub specular_environment_map: Texture,
+}
+
+pub struct RendererData {
     pub binded_pbr_meshes: Vec<BindedPbrMesh>,
     pub binded_unlit_meshes: Vec<BindedUnlitMesh>,
     pub binded_transparent_meshes: Vec<BindedTransparentMesh>,
     pub binded_wireframe_meshes: Vec<BindedWireframeMesh>,
     pub textures: Vec<Texture>,
-
-    pub skybox_mesh: BindedGeometryBuffers,
 
     pub tone_mapping_exposure: f32,
     pub bloom_threshold: f32,
@@ -846,27 +1087,36 @@ pub struct RendererPublicData {
     pub soft_shadow_grid_dims: u32,
 }
 
+pub struct RendererConstantData {
+    pub skybox_mesh: BindedGeometryBuffers,
+
+    pub mesh_pipeline: wgpu::RenderPipeline,
+    pub unlit_mesh_pipeline: wgpu::RenderPipeline,
+    pub transparent_mesh_pipeline: wgpu::RenderPipeline,
+    pub wireframe_pipeline: wgpu::RenderPipeline,
+    pub skybox_pipeline: wgpu::RenderPipeline,
+    pub tone_mapping_pipeline: wgpu::RenderPipeline,
+    pub surface_blit_pipeline: Option<wgpu::RenderPipeline>,
+    pub pre_gamma_surface_blit_pipeline: Option<wgpu::RenderPipeline>,
+    pub point_shadow_map_pipeline: wgpu::RenderPipeline,
+    pub directional_shadow_map_pipeline: wgpu::RenderPipeline,
+    pub bloom_threshold_pipeline: wgpu::RenderPipeline,
+    pub bloom_blur_pipeline: wgpu::RenderPipeline,
+    pub equirectangular_to_cubemap_pipeline: wgpu::RenderPipeline,
+    pub equirectangular_to_cubemap_hdr_pipeline: wgpu::RenderPipeline,
+    pub diffuse_env_map_gen_pipeline: wgpu::RenderPipeline,
+    pub specular_env_map_gen_pipeline: wgpu::RenderPipeline,
+}
+
+// TODO: store the framebuffer texture format and size, then remove it from a bunch of the function arguments
 pub struct Renderer {
     pub base: Arc<BaseRenderer>,
-    pub data: Arc<Mutex<RendererPublicData>>,
-    pub ui_overlay: IkariUiOverlay,
+    pub data: Arc<Mutex<RendererData>>,
+    pub constant_data: Arc<RendererConstantData>,
 
     private_data: Mutex<RendererPrivateData>,
 
     profiler: Mutex<wgpu_profiler::GpuProfiler>,
-
-    mesh_pipeline: wgpu::RenderPipeline,
-    unlit_mesh_pipeline: wgpu::RenderPipeline,
-    transparent_mesh_pipeline: wgpu::RenderPipeline,
-    wireframe_pipeline: wgpu::RenderPipeline,
-    skybox_pipeline: wgpu::RenderPipeline,
-    tone_mapping_pipeline: wgpu::RenderPipeline,
-    surface_blit_pipeline: wgpu::RenderPipeline,
-    pre_gamma_surface_blit_pipeline: wgpu::RenderPipeline,
-    point_shadow_map_pipeline: wgpu::RenderPipeline,
-    directional_shadow_map_pipeline: wgpu::RenderPipeline,
-    bloom_threshold_pipeline: wgpu::RenderPipeline,
-    bloom_blur_pipeline: wgpu::RenderPipeline,
 
     #[allow(dead_code)]
     box_mesh_index: i32,
@@ -882,36 +1132,21 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub async fn new(base: BaseRenderer, window: &Window) -> Result<Self> {
-        log::info!("Controls:");
-        ["Look Around:             Mouse",
-            "Move Around:             WASD, Space Bar, Ctrl",
-            "Adjust Speed:            Scroll or Up/Down Arrow Keys",
-            "Adjust Render Scale:     Z / X",
-            "Adjust Exposure:         E / R",
-            "Adjust Bloom Threshold:  T / Y",
-            "Pause/Resume Animations: P",
-            "Toggle Bloom Effect:     B",
-            "Toggle Shadows:          M",
-            "Toggle Wireframe:        F",
-            "Toggle Collision Boxes:  C",
-            "Draw Bounding Spheres:   J",
-            "Open Options Menu:       Tab"]
-        .iter()
-        .for_each(|line| {
-            log::info!("  {line}");
-        });
-
-        let surface_format = base.surface_config.lock().unwrap().format;
-
+    pub async fn new(
+        base: BaseRenderer,
+        framebuffer_format: wgpu::TextureFormat,
+        framebuffer_size: (u32, u32),
+    ) -> Result<Self> {
         let unlit_mesh_shader = base
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: USE_LABELS.then_some("Unlit Mesh Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    crate::file_loader::read_to_string("src/shaders/unlit_mesh.wgsl")
-                        .await?
-                        .into(),
+                    FileLoader::read_to_string(
+                        &IKARI_PATH_MAKER.make("src/shaders/unlit_mesh.wgsl"),
+                    )
+                    .await?
+                    .into(),
                 ),
             });
 
@@ -920,7 +1155,7 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: USE_LABELS.then_some("Blit Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    crate::file_loader::read_to_string("src/shaders/blit.wgsl")
+                    FileLoader::read_to_string(&IKARI_PATH_MAKER.make("src/shaders/blit.wgsl"))
                         .await?
                         .into(),
                 ),
@@ -931,9 +1166,11 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: USE_LABELS.then_some("Textured Mesh Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    crate::file_loader::read_to_string("src/shaders/textured_mesh.wgsl")
-                        .await?
-                        .into(),
+                    FileLoader::read_to_string(
+                        &IKARI_PATH_MAKER.make("src/shaders/textured_mesh.wgsl"),
+                    )
+                    .await?
+                    .into(),
                 ),
             });
 
@@ -942,155 +1179,11 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: USE_LABELS.then_some("Skybox Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    crate::file_loader::read_to_string("src/shaders/skybox.wgsl")
+                    FileLoader::read_to_string(&IKARI_PATH_MAKER.make("src/shaders/skybox.wgsl"))
                         .await?
                         .into(),
                 ),
             });
-
-        let single_cube_texture_bind_group_layout =
-            base.device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                multisampled: false,
-                                view_dimension: wgpu::TextureViewDimension::Cube,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                    ],
-                    label: USE_LABELS.then_some("single_cube_texture_bind_group_layout"),
-                });
-
-        let environment_textures_bind_group_layout =
-            base.device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                multisampled: false,
-                                view_dimension: wgpu::TextureViewDimension::Cube,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                multisampled: false,
-                                view_dimension: wgpu::TextureViewDimension::Cube,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 3,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 4,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                multisampled: false,
-                                view_dimension: wgpu::TextureViewDimension::Cube,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 5,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 6,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                multisampled: false,
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 7,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 8,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                multisampled: false,
-                                view_dimension: wgpu::TextureViewDimension::D2Array,
-                                sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 9,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 10,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                multisampled: false,
-                                view_dimension: wgpu::TextureViewDimension::D2Array,
-                                sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 11,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
-                            count: None,
-                        },
-                    ],
-                    label: USE_LABELS.then_some("environment_textures_bind_group_layout"),
-                });
-
-        let single_uniform_bind_group_layout =
-            base.device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
-                    label: USE_LABELS.then_some("single_uniform_bind_group_layout"),
-                });
 
         let two_uniform_bind_group_layout =
             base.device
@@ -1181,7 +1274,7 @@ impl Renderer {
                     label: USE_LABELS.then_some("Mesh Pipeline Layout"),
                     bind_group_layouts: &[
                         &camera_lights_and_pbr_shader_options_bind_group_layout,
-                        &environment_textures_bind_group_layout,
+                        &base.environment_textures_bind_group_layout,
                         &base.bones_and_instances_bind_group_layout,
                         &base.pbr_textures_bind_group_layout,
                     ],
@@ -1293,7 +1386,7 @@ impl Renderer {
                     label: None,
                     bind_group_layouts: &[
                         &base.single_texture_bind_group_layout,
-                        &single_uniform_bind_group_layout,
+                        &base.single_uniform_bind_group_layout,
                     ],
                     push_constant_ranges: &[],
                 });
@@ -1347,65 +1440,77 @@ impl Renderer {
             .device
             .create_render_pipeline(&bloom_blur_pipeline_descriptor);
 
-        let surface_blit_color_targets = &[Some(wgpu::ColorTargetState {
-            format: surface_format,
-            blend: Some(wgpu::BlendState::REPLACE),
-            write_mask: wgpu::ColorWrites::ALL,
-        })];
-        let surface_blit_pipeline_layout =
-            base.device
-                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: None,
-                    bind_group_layouts: &[
-                        &base.single_texture_bind_group_layout,
-                        &single_uniform_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
-                });
-        let surface_blit_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: USE_LABELS.then_some("Surface Blit Render Pipeline"),
-            layout: Some(&surface_blit_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &blit_shader,
-                entry_point: "vs_main",
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &blit_shader,
-                entry_point: "surface_blit_fs_main",
-                targets: surface_blit_color_targets,
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        };
-        let surface_blit_pipeline = base
-            .device
-            .create_render_pipeline(&surface_blit_pipeline_descriptor);
+        let surface_pipelines = {
+            let surface_blit_color_targets = &[Some(wgpu::ColorTargetState {
+                format: framebuffer_format,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })];
+            let surface_blit_pipeline_layout =
+                base.device
+                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: None,
+                        bind_group_layouts: &[
+                            &base.single_texture_bind_group_layout,
+                            &base.single_uniform_bind_group_layout,
+                        ],
+                        push_constant_ranges: &[],
+                    });
+            let surface_blit_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+                label: USE_LABELS.then_some("Surface Blit Render Pipeline"),
+                layout: Some(&surface_blit_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &blit_shader,
+                    entry_point: "vs_main",
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &blit_shader,
+                    entry_point: "surface_blit_fs_main",
+                    targets: surface_blit_color_targets,
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+            };
+            let surface_blit_pipeline = base
+                .device
+                .create_render_pipeline(&surface_blit_pipeline_descriptor);
 
-        let mut pre_gamma_surface_blit_pipeline_descriptor =
-            surface_blit_pipeline_descriptor.clone();
-        let pre_gamma_surface_blit_pipeline_layout =
-            base.device
-                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: None,
-                    bind_group_layouts: &[&base.single_texture_bind_group_layout],
-                    push_constant_ranges: &[],
-                });
-        pre_gamma_surface_blit_pipeline_descriptor.layout =
-            Some(&pre_gamma_surface_blit_pipeline_layout);
-        pre_gamma_surface_blit_pipeline_descriptor.fragment = Some(wgpu::FragmentState {
-            module: &blit_shader,
-            entry_point: "fs_main",
-            targets: fragment_shader_color_targets,
-        });
-        let pre_gamma_surface_blit_pipeline = base
-            .device
-            .create_render_pipeline(&pre_gamma_surface_blit_pipeline_descriptor);
+            let mut pre_gamma_surface_blit_pipeline_descriptor =
+                surface_blit_pipeline_descriptor.clone();
+            let pre_gamma_surface_blit_pipeline_layout =
+                base.device
+                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: None,
+                        bind_group_layouts: &[&base.single_texture_bind_group_layout],
+                        push_constant_ranges: &[],
+                    });
+            pre_gamma_surface_blit_pipeline_descriptor.layout =
+                Some(&pre_gamma_surface_blit_pipeline_layout);
+            pre_gamma_surface_blit_pipeline_descriptor.fragment = Some(wgpu::FragmentState {
+                module: &blit_shader,
+                entry_point: "fs_main",
+                targets: fragment_shader_color_targets,
+            });
+            let pre_gamma_surface_blit_pipeline = base
+                .device
+                .create_render_pipeline(&pre_gamma_surface_blit_pipeline_descriptor);
+
+            Some((surface_blit_pipeline, pre_gamma_surface_blit_pipeline))
+        };
+
+        let (surface_blit_pipeline, pre_gamma_surface_blit_pipeline) = match surface_pipelines {
+            Some((surface_blit_pipeline, pre_gamma_surface_blit_pipeline)) => (
+                Some(surface_blit_pipeline),
+                Some(pre_gamma_surface_blit_pipeline),
+            ),
+            None => (None, None),
+        };
 
         let tone_mapping_colors_targets = &[Some(wgpu::ColorTargetState {
             format: wgpu::TextureFormat::Rgba16Float,
@@ -1425,7 +1530,7 @@ impl Renderer {
                     label: None,
                     bind_group_layouts: &[
                         &base.two_texture_bind_group_layout,
-                        &single_uniform_bind_group_layout,
+                        &base.single_uniform_bind_group_layout,
                     ],
                     push_constant_ranges: &[],
                 });
@@ -1470,7 +1575,7 @@ impl Renderer {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: USE_LABELS.then_some("Skybox Render Pipeline Layout"),
                     bind_group_layouts: &[
-                        &environment_textures_bind_group_layout,
+                        &base.environment_textures_bind_group_layout,
                         &camera_lights_and_pbr_shader_options_bind_group_layout,
                     ],
                     push_constant_ranges: &[],
@@ -1499,7 +1604,7 @@ impl Renderer {
             .create_render_pipeline(&skybox_pipeline_descriptor);
 
         let equirectangular_to_cubemap_color_targets = &[Some(wgpu::ColorTargetState {
-            format: wgpu::TextureFormat::Rgba16Float,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
             blend: Some(wgpu::BlendState::REPLACE),
             write_mask: wgpu::ColorWrites::ALL,
         })];
@@ -1510,7 +1615,7 @@ impl Renderer {
                         .then_some("Equirectangular To Cubemap Render Pipeline Layout"),
                     bind_group_layouts: &[
                         &base.single_texture_bind_group_layout,
-                        &single_uniform_bind_group_layout,
+                        &base.single_uniform_bind_group_layout,
                     ],
                     push_constant_ranges: &[],
                 });
@@ -1537,6 +1642,21 @@ impl Renderer {
             .device
             .create_render_pipeline(&equirectangular_to_cubemap_pipeline_descriptor);
 
+        let mut equirectangular_to_cubemap_hdr_pipeline_descriptor =
+            equirectangular_to_cubemap_pipeline_descriptor.clone();
+        equirectangular_to_cubemap_hdr_pipeline_descriptor
+            .fragment
+            .as_mut()
+            .unwrap()
+            .targets = &[Some(wgpu::ColorTargetState {
+            format: wgpu::TextureFormat::Rgba16Float,
+            blend: Some(wgpu::BlendState::REPLACE),
+            write_mask: wgpu::ColorWrites::ALL,
+        })];
+        let equirectangular_to_cubemap_hdr_pipeline = base
+            .device
+            .create_render_pipeline(&equirectangular_to_cubemap_hdr_pipeline_descriptor);
+
         let diffuse_env_map_color_targets = &[Some(wgpu::ColorTargetState {
             format: wgpu::TextureFormat::Rgba16Float,
             blend: Some(wgpu::BlendState::REPLACE),
@@ -1547,8 +1667,8 @@ impl Renderer {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: USE_LABELS.then_some("diffuse env map Gen Pipeline Layout"),
                     bind_group_layouts: &[
-                        &single_cube_texture_bind_group_layout,
-                        &single_uniform_bind_group_layout,
+                        &base.single_cube_texture_bind_group_layout,
+                        &base.single_uniform_bind_group_layout,
                     ],
                     push_constant_ranges: &[],
                 });
@@ -1584,7 +1704,7 @@ impl Renderer {
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: USE_LABELS.then_some("specular env map Gen Pipeline Layout"),
                     bind_group_layouts: &[
-                        &single_cube_texture_bind_group_layout,
+                        &base.single_cube_texture_bind_group_layout,
                         &two_uniform_bind_group_layout,
                     ],
                     push_constant_ranges: &[],
@@ -1739,20 +1859,58 @@ impl Renderer {
 
         let initial_render_scale = INITIAL_RENDER_SCALE;
 
-        let cube_mesh = BasicMesh::new("src/models/cube.obj").await?;
+        let cube_mesh = BasicMesh::new(&IKARI_PATH_MAKER.make("src/models/cube.obj")).await?;
 
         let skybox_mesh = Self::bind_geometry_buffers_for_basic_mesh_impl(&base.device, &cube_mesh);
 
-        let pre_gamma_fb = (!surface_format.is_srgb())
-            .then(|| Texture::create_scaled_surface_texture(&base, 1.0, "pre_gamma_fb"));
-        let shading_texture =
-            Texture::create_scaled_surface_texture(&base, initial_render_scale, "shading_texture");
+        let constant_data = RendererConstantData {
+            skybox_mesh,
+
+            mesh_pipeline,
+            unlit_mesh_pipeline,
+            transparent_mesh_pipeline,
+            wireframe_pipeline,
+            skybox_pipeline,
+            tone_mapping_pipeline,
+            surface_blit_pipeline,
+            pre_gamma_surface_blit_pipeline,
+            point_shadow_map_pipeline,
+            directional_shadow_map_pipeline,
+            bloom_threshold_pipeline,
+            bloom_blur_pipeline,
+            equirectangular_to_cubemap_pipeline,
+            equirectangular_to_cubemap_hdr_pipeline,
+            diffuse_env_map_gen_pipeline,
+            specular_env_map_gen_pipeline,
+        };
+
+        let pre_gamma_fb = (!framebuffer_format.is_srgb()).then(|| {
+            Texture::create_scaled_surface_texture(&base, framebuffer_size, 1.0, "pre_gamma_fb")
+        });
+
+        let shading_texture = Texture::create_scaled_surface_texture(
+            &base,
+            framebuffer_size,
+            initial_render_scale,
+            "shading_texture",
+        );
         let bloom_pingpong_textures = [
-            Texture::create_scaled_surface_texture(&base, initial_render_scale, "bloom_texture_1"),
-            Texture::create_scaled_surface_texture(&base, initial_render_scale, "bloom_texture_2"),
+            Texture::create_scaled_surface_texture(
+                &base,
+                framebuffer_size,
+                initial_render_scale,
+                "bloom_texture_1",
+            ),
+            Texture::create_scaled_surface_texture(
+                &base,
+                framebuffer_size,
+                initial_render_scale,
+                "bloom_texture_2",
+            ),
         ];
         let tone_mapping_texture = Texture::create_scaled_surface_texture(
             &base,
+            framebuffer_size,
             initial_render_scale,
             "tone_mapping_texture",
         );
@@ -1763,22 +1921,19 @@ impl Renderer {
         let bloom_pingpong_texture_bind_groups;
         {
             let sampler_cache_guard = base.sampler_cache.lock().unwrap();
-            pre_gamma_fb_bind_group = (!surface_format.is_srgb()).then(|| {
+            pre_gamma_fb_bind_group = pre_gamma_fb.as_ref().map(|pre_gamma_fb| {
                 base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: &base.single_texture_bind_group_layout,
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: wgpu::BindingResource::TextureView(
-                                &pre_gamma_fb.as_ref().unwrap().view,
-                            ),
+                            resource: wgpu::BindingResource::TextureView(&pre_gamma_fb.view),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard.get_sampler_by_index(
-                                    pre_gamma_fb.as_ref().unwrap().sampler_index,
-                                ),
+                                sampler_cache_guard
+                                    .get_sampler_by_index(pre_gamma_fb.sampler_index),
                             ),
                         },
                     ],
@@ -1914,7 +2069,7 @@ impl Renderer {
 
         let bloom_config_bind_groups = [
             base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &single_uniform_bind_group_layout,
+                layout: &base.single_uniform_bind_group_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
                     resource: bloom_config_buffers[0].as_entire_binding(),
@@ -1922,7 +2077,7 @@ impl Renderer {
                 label: USE_LABELS.then_some("bloom_config_bind_group_0"),
             }),
             base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &single_uniform_bind_group_layout,
+                layout: &base.single_uniform_bind_group_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
                     resource: bloom_config_buffers[1].as_entire_binding(),
@@ -1941,7 +2096,7 @@ impl Renderer {
 
         let tone_mapping_config_bind_group =
             base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &single_uniform_bind_group_layout,
+                layout: &base.single_uniform_bind_group_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
                     resource: tone_mapping_config_buffer.as_entire_binding(),
@@ -1949,149 +2104,98 @@ impl Renderer {
                 label: USE_LABELS.then_some("tone_mapping_config_bind_group"),
             });
 
-        let depth_texture =
-            Texture::create_depth_texture(&base, initial_render_scale, "depth_texture");
+        let depth_texture = Texture::create_depth_texture(
+            &base,
+            framebuffer_size,
+            initial_render_scale,
+            "depth_texture",
+        );
 
-        let (skybox_background, skybox_hdr_environment) = get_skybox_path();
+        let start = crate::time::Instant::now();
 
-        let skybox_texture = match skybox_background {
-            SkyboxBackground::Equirectangular { image_path } => {
-                let er_skybox_texture_bytes = crate::file_loader::read(image_path).await?;
-
-                let er_skybox_texture = Texture::from_encoded_image(
-                    &base,
-                    &er_skybox_texture_bytes,
-                    image_path,
-                    None,
-                    false,
-                    &SamplerDescriptor {
-                        address_mode_u: wgpu::AddressMode::ClampToEdge,
-                        address_mode_v: wgpu::AddressMode::ClampToEdge,
-                        address_mode_w: wgpu::AddressMode::ClampToEdge,
-                        mag_filter: wgpu::FilterMode::Linear,
-                        min_filter: wgpu::FilterMode::Linear,
-                        mipmap_filter: wgpu::FilterMode::Nearest,
-                        ..Default::default()
-                    },
-                )?;
-
-                Texture::create_cubemap_from_equirectangular(
-                    &base,
-                    Some(image_path),
-                    &skybox_mesh,
-                    &equirectangular_to_cubemap_pipeline,
-                    &base.single_texture_bind_group_layout,
-                    &single_uniform_bind_group_layout,
-                    &er_skybox_texture,
-                    false, // an artifact occurs between the edges of the texture with mipmaps enabled
-                )
-            }
-            SkyboxBackground::Cube { face_image_paths } => {
-                let mut cubemap_skybox_images: Vec<image::DynamicImage> = vec![];
-                for path in face_image_paths {
-                    cubemap_skybox_images.push(image::load_from_memory(
-                        &crate::file_loader::read(path).await?,
-                    )?);
-                }
-
-                Texture::create_cubemap(
-                    &base,
-                    CreateCubeMapImagesParam {
-                        pos_x: &cubemap_skybox_images[0],
-                        neg_x: &cubemap_skybox_images[1],
-                        pos_y: &cubemap_skybox_images[2],
-                        neg_y: &cubemap_skybox_images[3],
-                        pos_z: &cubemap_skybox_images[4],
-                        neg_z: &cubemap_skybox_images[5],
-                    },
-                    Some("cubemap_skybox_texture"),
-                    wgpu::TextureFormat::Rgba8UnormSrgb,
-                    false,
-                )
-            }
+        let skybox_dim = 32;
+        let sky_color = [8, 113, 184, 255];
+        let sun_color = [253, 251, 211, 255];
+        let skybox_image = {
+            let image = image::RgbaImage::from_pixel(skybox_dim, skybox_dim, sky_color.into());
+            Texture::from_decoded_image(
+                &base,
+                &image,
+                image.dimensions(),
+                1,
+                Some("skybox_image texture"),
+                wgpu::TextureFormat::Rgba8UnormSrgb.into(),
+                false,
+                &SamplerDescriptor {
+                    mag_filter: wgpu::FilterMode::Nearest,
+                    min_filter: wgpu::FilterMode::Nearest,
+                    ..Default::default()
+                },
+            )?
         };
+        let skybox_texture = Texture::create_cubemap_from_equirectangular(
+            &base,
+            &constant_data,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            None,
+            &skybox_image,
+            false, // an artifact occurs between the edges of the texture with mipmaps enabled
+        )?;
 
-        let er_to_cube_texture;
-        let skybox_rad_texture = match skybox_hdr_environment {
-            Some(SkyboxHDREnvironment::Equirectangular { image_path }) => {
-                let image_bytes = crate::file_loader::read(image_path).await?;
-                let skybox_rad_texture_decoder =
-                    image::codecs::hdr::HdrDecoder::new(image_bytes.as_slice())?;
-                let skybox_rad_texture_dimensions = {
-                    let md = skybox_rad_texture_decoder.metadata();
-                    (md.width, md.height)
-                };
-                let skybox_rad_texture_decoded: Vec<Float16> = {
-                    let rgb_values = skybox_rad_texture_decoder.read_image_hdr()?;
-                    rgb_values
-                        .iter()
-                        .copied()
-                        .flat_map(|rbg| {
-                            rbg.to_rgba()
-                                .0
-                                .into_iter()
-                                .map(|c| Float16(half::f16::from_f32(c)))
-                        })
-                        .collect()
-                };
+        let skybox_rad_texture = {
+            let pixel_count = skybox_dim * skybox_dim;
+            let color_hdr =
+                sun_color.map(|val| Float16(half::f16::from_f32(0.2 * val as f32 / 255.0)));
+            let mut image_raw: Vec<[Float16; 4]> = Vec::with_capacity(pixel_count as usize);
+            image_raw.resize(pixel_count as usize, color_hdr);
+            let texture_er = Texture::from_decoded_image(
+                &base,
+                bytemuck::cast_slice(&image_raw),
+                (skybox_dim, skybox_dim),
+                1,
+                None,
+                wgpu::TextureFormat::Rgba16Float.into(),
+                false,
+                &SamplerDescriptor {
+                    address_mode_u: wgpu::AddressMode::ClampToEdge,
+                    address_mode_v: wgpu::AddressMode::ClampToEdge,
+                    address_mode_w: wgpu::AddressMode::ClampToEdge,
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    mipmap_filter: wgpu::FilterMode::Nearest,
+                    ..Default::default()
+                },
+            )?;
 
-                let skybox_rad_texture_er = Texture::from_decoded_image(
-                    &base,
-                    bytemuck::cast_slice(&skybox_rad_texture_decoded),
-                    skybox_rad_texture_dimensions,
-                    1,
-                    image_path.into(),
-                    wgpu::TextureFormat::Rgba16Float.into(),
-                    false,
-                    &SamplerDescriptor {
-                        address_mode_u: wgpu::AddressMode::ClampToEdge,
-                        address_mode_v: wgpu::AddressMode::ClampToEdge,
-                        address_mode_w: wgpu::AddressMode::ClampToEdge,
-                        mag_filter: wgpu::FilterMode::Linear,
-                        min_filter: wgpu::FilterMode::Linear,
-                        mipmap_filter: wgpu::FilterMode::Nearest,
-                        ..Default::default()
-                    },
-                )?;
-
-                er_to_cube_texture = Texture::create_cubemap_from_equirectangular(
-                    &base,
-                    Some(image_path),
-                    &skybox_mesh,
-                    &equirectangular_to_cubemap_pipeline,
-                    &base.single_texture_bind_group_layout,
-                    &single_uniform_bind_group_layout,
-                    &skybox_rad_texture_er,
-                    false,
-                );
-
-                &er_to_cube_texture
-            }
-            None => &skybox_texture,
+            Texture::create_cubemap_from_equirectangular(
+                &base,
+                &constant_data,
+                wgpu::TextureFormat::Rgba16Float,
+                None,
+                &texture_er,
+                false,
+            )?
         };
+        let skybox_rad_texture = &skybox_rad_texture;
 
         let diffuse_env_map = Texture::create_diffuse_env_map(
             &base,
+            &constant_data,
             Some("diffuse env map"),
-            &skybox_mesh,
-            &diffuse_env_map_gen_pipeline,
-            &single_cube_texture_bind_group_layout,
-            &single_uniform_bind_group_layout,
             skybox_rad_texture,
-            false,
         );
 
         let specular_env_map = Texture::create_specular_env_map(
             &base,
+            &constant_data,
             Some("specular env map"),
-            &skybox_mesh,
-            &specular_env_map_gen_pipeline,
-            &single_cube_texture_bind_group_layout,
-            &two_uniform_bind_group_layout,
             skybox_rad_texture,
         );
 
         let brdf_lut = Texture::create_brdf_lut(&base, &brdf_lut_gen_pipeline);
+
+        let skybox_gen_time = start.elapsed();
+        log::debug!("skybox_gen_time={skybox_gen_time:?}");
 
         let initial_point_lights_buffer: Vec<u8> = (0..(MAX_LIGHT_COUNT
             * std::mem::size_of::<PointLightUniform>()))
@@ -2300,7 +2404,7 @@ impl Renderer {
         let environment_textures_bind_group = {
             let sampler_cache_guard = base.sampler_cache.lock().unwrap();
             base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &environment_textures_bind_group_layout,
+                layout: &base.environment_textures_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -2375,24 +2479,12 @@ impl Renderer {
             })
         };
 
-        let ui_overlay = IkariUiOverlay::new(
-            window,
-            &base.device,
-            if surface_format.is_srgb() {
-                surface_format
-            } else {
-                wgpu::TextureFormat::Rgba16Float
-            },
-        );
-
-        let mut data = RendererPublicData {
+        let mut data = RendererData {
             binded_pbr_meshes: vec![],
             binded_unlit_meshes: vec![],
             binded_transparent_meshes: vec![],
             binded_wireframe_meshes: vec![],
             textures: vec![],
-
-            skybox_mesh,
 
             tone_mapping_exposure: INITIAL_TONE_MAPPING_EXPOSURE,
             bloom_threshold: INITIAL_BLOOM_THRESHOLD,
@@ -2420,7 +2512,7 @@ impl Renderer {
                 .try_into()
                 .unwrap();
 
-        let sphere_mesh = BasicMesh::new("src/models/sphere.obj").await?;
+        let sphere_mesh = BasicMesh::new(&IKARI_PATH_MAKER.make("src/models/sphere.obj")).await?;
         let sphere_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &sphere_mesh)
             .try_into()
             .unwrap();
@@ -2429,7 +2521,7 @@ impl Renderer {
                 .try_into()
                 .unwrap();
 
-        let plane_mesh = BasicMesh::new("src/models/plane.obj").await?;
+        let plane_mesh = BasicMesh::new(&IKARI_PATH_MAKER.make("src/models/plane.obj")).await?;
         let plane_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &plane_mesh)
             .try_into()
             .unwrap();
@@ -2444,7 +2536,7 @@ impl Renderer {
         let renderer = Self {
             base: Arc::new(base),
             data: Arc::new(Mutex::new(data)),
-            ui_overlay,
+            constant_data: Arc::new(constant_data),
 
             private_data: Mutex::new(RendererPrivateData {
                 all_bone_transforms: AllBoneTransforms {
@@ -2499,22 +2591,10 @@ impl Renderer {
                 tone_mapping_texture,
                 depth_texture,
                 bloom_pingpong_textures,
+                brdf_lut,
             }),
 
             profiler: Mutex::new(profiler),
-
-            mesh_pipeline,
-            unlit_mesh_pipeline,
-            transparent_mesh_pipeline,
-            wireframe_pipeline,
-            skybox_pipeline,
-            tone_mapping_pipeline,
-            surface_blit_pipeline,
-            pre_gamma_surface_blit_pipeline,
-            point_shadow_map_pipeline,
-            directional_shadow_map_pipeline,
-            bloom_threshold_pipeline,
-            bloom_blur_pipeline,
 
             box_mesh_index,
             transparent_box_mesh_index,
@@ -2528,7 +2608,7 @@ impl Renderer {
 
     pub fn bind_basic_unlit_mesh(
         base: &BaseRenderer,
-        data: &mut RendererPublicData,
+        data: &mut RendererData,
         mesh: &BasicMesh,
     ) -> usize {
         let geometry_buffers = Self::bind_geometry_buffers_for_basic_mesh(base, mesh);
@@ -2551,7 +2631,7 @@ impl Renderer {
 
     pub fn bind_basic_transparent_mesh(
         base: &BaseRenderer,
-        data: &mut RendererPublicData,
+        data: &mut RendererData,
         mesh: &BasicMesh,
     ) -> usize {
         let geometry_buffers = Self::bind_geometry_buffers_for_basic_mesh(base, mesh);
@@ -2572,7 +2652,7 @@ impl Renderer {
         transparent_mesh_index
     }
 
-    pub fn unbind_transparent_mesh(data: &RendererPublicData, mesh_index: usize) {
+    pub fn unbind_transparent_mesh(data: &RendererData, mesh_index: usize) {
         let geometry_buffers = &data.binded_transparent_meshes[mesh_index];
         let wireframe_mesh = data
             .binded_wireframe_meshes
@@ -2596,7 +2676,7 @@ impl Renderer {
     // returns index of mesh in the RenderScene::binded_pbr_meshes list
     pub fn bind_basic_pbr_mesh(
         base: &BaseRenderer,
-        data: &mut RendererPublicData,
+        data: &mut RendererData,
         mesh: &BasicMesh,
         material: &PbrMaterial,
         dynamic_pbr_params: DynamicPbrParams,
@@ -2719,69 +2799,90 @@ impl Renderer {
         index_buffer
     }
 
-    pub fn set_vsync(&self, vsync: bool) {
-        let surface_config = {
-            let mut surface_config_guard = self.base.surface_config.lock().unwrap();
-            let new_present_mode = if vsync {
-                wgpu::PresentMode::AutoVsync
-            } else {
-                wgpu::PresentMode::AutoNoVsync
-            };
-            if surface_config_guard.present_mode == new_present_mode {
-                return;
-            }
-            surface_config_guard.present_mode = new_present_mode;
-            surface_config_guard.clone()
+    pub fn set_vsync(&self, vsync: bool, surface_data: &mut SurfaceData) {
+        let new_present_mode = if vsync {
+            wgpu::PresentMode::AutoVsync
+        } else {
+            wgpu::PresentMode::AutoNoVsync
         };
 
-        self.base
+        if surface_data.surface_config.present_mode == new_present_mode {
+            return;
+        }
+
+        surface_data.surface_config.present_mode = new_present_mode;
+
+        surface_data
             .surface
-            .configure(&self.base.device, &surface_config);
+            .configure(&self.base.device, &surface_data.surface_config);
     }
 
-    pub fn resize(&mut self, new_window_size: winit::dpi::PhysicalSize<u32>, scale_factor: f64) {
-        // let mut base_guard = self.base.lock().unwrap();
+    pub fn resize_surface(&mut self, new_size: (u32, u32), surface_data: &mut SurfaceData) {
+        let (new_width, new_height) = new_size;
+
+        surface_data.surface_config.width = new_width;
+        surface_data.surface_config.height = new_height;
+
+        surface_data
+            .surface
+            .configure(&self.base.device, &surface_data.surface_config);
+    }
+
+    pub fn resize(&mut self, new_framebuffer_size: (u32, u32)) {
         let data_guard = self.data.lock().unwrap();
         let mut private_data_guard = self.private_data.lock().unwrap();
         let render_scale = data_guard.render_scale;
 
-        self.ui_overlay.resize(new_window_size, scale_factor);
-
-        *self.base.window_size.lock().unwrap() = new_window_size;
-        let surface_config = {
-            let mut surface_config_guard = self.base.surface_config.lock().unwrap();
-            surface_config_guard.width = new_window_size.width;
-            surface_config_guard.height = new_window_size.height;
-            surface_config_guard.clone()
-        };
-
-        self.base
-            .surface
-            .configure(&self.base.device, &surface_config);
-
-        private_data_guard.pre_gamma_fb = (!surface_config.format.is_srgb())
-            .then(|| Texture::create_scaled_surface_texture(&self.base, 1.0, "pre_gamma_fb"));
-        private_data_guard.shading_texture =
-            Texture::create_scaled_surface_texture(&self.base, render_scale, "shading_texture");
+        private_data_guard.pre_gamma_fb = private_data_guard.pre_gamma_fb.is_some().then(|| {
+            Texture::create_scaled_surface_texture(
+                &self.base,
+                new_framebuffer_size,
+                1.0,
+                "pre_gamma_fb",
+            )
+        });
+        private_data_guard.shading_texture = Texture::create_scaled_surface_texture(
+            &self.base,
+            new_framebuffer_size,
+            render_scale,
+            "shading_texture",
+        );
         private_data_guard.bloom_pingpong_textures = [
-            Texture::create_scaled_surface_texture(&self.base, render_scale, "bloom_texture_1"),
-            Texture::create_scaled_surface_texture(&self.base, render_scale, "bloom_texture_2"),
+            Texture::create_scaled_surface_texture(
+                &self.base,
+                new_framebuffer_size,
+                render_scale,
+                "bloom_texture_1",
+            ),
+            Texture::create_scaled_surface_texture(
+                &self.base,
+                new_framebuffer_size,
+                render_scale,
+                "bloom_texture_2",
+            ),
         ];
         private_data_guard.tone_mapping_texture = Texture::create_scaled_surface_texture(
             &self.base,
+            new_framebuffer_size,
             render_scale,
             "tone_mapping_texture",
         );
-        private_data_guard.depth_texture =
-            Texture::create_depth_texture(&self.base, render_scale, "depth_texture");
+        private_data_guard.depth_texture = Texture::create_depth_texture(
+            &self.base,
+            new_framebuffer_size,
+            render_scale,
+            "depth_texture",
+        );
 
         let device = &self.base.device;
         let single_texture_bind_group_layout = &self.base.single_texture_bind_group_layout;
         let two_texture_bind_group_layout = &self.base.two_texture_bind_group_layout;
 
         let sampler_cache_guard = self.base.sampler_cache.lock().unwrap();
-        private_data_guard.pre_gamma_fb_bind_group =
-            (!surface_config.format.is_srgb()).then(|| {
+        private_data_guard.pre_gamma_fb_bind_group = private_data_guard
+            .pre_gamma_fb_bind_group
+            .is_some()
+            .then(|| {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: single_texture_bind_group_layout,
                     entries: &[
@@ -2933,9 +3034,10 @@ impl Renderer {
     #[profiling::function]
     pub fn add_debug_nodes(
         &self,
-        data: &mut RendererPublicData,
+        data: &mut RendererData,
         private_data: &mut RendererPrivateData,
         game_state: &mut GameState,
+        framebuffer_size: (u32, u32),
         culling_frustum_focal_point: Vec3,
         culling_frustum_forward_vector: Vec3,
     ) {
@@ -3000,8 +3102,8 @@ impl Renderer {
             let near_plane_distance = 3.0;
             let far_plane_distance = 500.0;
 
-            let window_size = *self.base.window_size.lock().unwrap();
-            let aspect_ratio = window_size.width as f32 / window_size.height as f32;
+            let (framebuffer_width, framebuffer_height) = framebuffer_size;
+            let aspect_ratio = framebuffer_width as f32 / framebuffer_height as f32;
 
             let culling_frustum_basic_mesh = Frustum::make_frustum_mesh(
                 culling_frustum_focal_point,
@@ -3117,6 +3219,7 @@ impl Renderer {
     pub fn set_culling_frustum_lock(
         &self,
         game_state: &GameState,
+        framebuffer_size: (u32, u32),
         lock_mode: CullingFrustumLockMode,
     ) {
         let mut private_data_guard = self.private_data.lock().unwrap();
@@ -3127,8 +3230,8 @@ impl Renderer {
             return;
         }
 
-        let window_size = *self.base.window_size.lock().unwrap();
-        let aspect_ratio = window_size.width as f32 / window_size.height as f32;
+        let (framebuffer_width, framebuffer_height) = framebuffer_size;
+        let aspect_ratio = framebuffer_width as f32 / framebuffer_height as f32;
 
         let position = match private_data_guard.frustum_culling_lock {
             CullingFrustumLock::Full((_, locked_position, _)) => locked_position,
@@ -3154,11 +3257,17 @@ impl Renderer {
     pub fn render(
         &mut self,
         game_state: &mut GameState,
-        window: &winit::window::Window,
-        control_flow: &mut winit::event_loop::ControlFlow,
+        surface_data: &SurfaceData,
     ) -> anyhow::Result<()> {
-        self.update_internal(game_state, window, control_flow);
-        self.render_internal(game_state)
+        self.update_internal(
+            game_state,
+            surface_data.surface_config.format,
+            (
+                surface_data.surface_config.width,
+                surface_data.surface_config.height,
+            ),
+        );
+        self.render_internal(game_state, surface_data.surface.get_current_texture()?)
     }
 
     // culling mask is a bitmask where each bit corresponds to a frustum
@@ -3170,7 +3279,7 @@ impl Renderer {
     // per point light.
     fn get_node_culling_mask(
         node: &GameNode,
-        data: &RendererPublicData,
+        data: &RendererData,
         game_state: &GameState,
         camera_culling_frustum: &Frustum,
         point_lights_frusta: &Vec<Option<Vec<Frustum>>>,
@@ -3240,25 +3349,121 @@ impl Renderer {
         culling_mask
     }
 
+    pub fn set_skybox(&mut self, skybox: BindedSkybox) {
+        let mut private_data_guard = self.private_data.lock().unwrap();
+
+        private_data_guard.environment_textures_bind_group = {
+            let sampler_cache_guard = self.base.sampler_cache.lock().unwrap();
+            self.base
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &self.base.environment_textures_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&skybox.background.view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(
+                                sampler_cache_guard
+                                    .get_sampler_by_index(skybox.background.sampler_index),
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(
+                                &skybox.diffuse_environment_map.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::Sampler(
+                                sampler_cache_guard.get_sampler_by_index(
+                                    skybox.diffuse_environment_map.sampler_index,
+                                ),
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: wgpu::BindingResource::TextureView(
+                                &skybox.specular_environment_map.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
+                            resource: wgpu::BindingResource::Sampler(
+                                sampler_cache_guard.get_sampler_by_index(
+                                    skybox.specular_environment_map.sampler_index,
+                                ),
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 6,
+                            resource: wgpu::BindingResource::TextureView(
+                                &private_data_guard.brdf_lut.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 7,
+                            resource: wgpu::BindingResource::Sampler(
+                                sampler_cache_guard.get_sampler_by_index(
+                                    private_data_guard.brdf_lut.sampler_index,
+                                ),
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 8,
+                            resource: wgpu::BindingResource::TextureView(
+                                &private_data_guard.point_shadow_map_textures.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 9,
+                            resource: wgpu::BindingResource::Sampler(
+                                sampler_cache_guard.get_sampler_by_index(
+                                    private_data_guard.point_shadow_map_textures.sampler_index,
+                                ),
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 10,
+                            resource: wgpu::BindingResource::TextureView(
+                                &private_data_guard.directional_shadow_map_textures.view,
+                            ),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 11,
+                            resource: wgpu::BindingResource::Sampler(
+                                sampler_cache_guard.get_sampler_by_index(
+                                    private_data_guard
+                                        .directional_shadow_map_textures
+                                        .sampler_index,
+                                ),
+                            ),
+                        },
+                    ],
+                    label: USE_LABELS.then_some("environment_textures_bind_group"),
+                })
+        };
+    }
+
     /// Prepare and send all data to gpu so it's ready to render
     #[profiling::function]
     fn update_internal(
         &mut self,
         game_state: &mut GameState,
-        window: &winit::window::Window,
-        control_flow: &mut winit::event_loop::ControlFlow,
+        framebuffer_format: wgpu::TextureFormat,
+        framebuffer_size: (u32, u32),
     ) {
         let mut data_guard = self.data.lock().unwrap();
-        let data: &mut RendererPublicData = &mut data_guard;
+        let data: &mut RendererData = &mut data_guard;
 
         let mut private_data_guard = self.private_data.lock().unwrap();
         let private_data: &mut RendererPrivateData = &mut private_data_guard;
 
-        self.ui_overlay.update(window, control_flow);
-
-        let surface_format = self.base.surface_config.lock().unwrap().format;
-        let window_size = *self.base.window_size.lock().unwrap();
-        let aspect_ratio = window_size.width as f32 / window_size.height as f32;
+        let (framebuffer_width, framebuffer_height) = framebuffer_size;
+        let aspect_ratio = framebuffer_width as f32 / framebuffer_height as f32;
         let camera_position = game_state
             .player_controller
             .position(&game_state.physics_state);
@@ -3286,6 +3491,7 @@ impl Renderer {
             data,
             private_data,
             game_state,
+            framebuffer_size,
             culling_frustum_focal_point,
             culling_frustum_forward_vector,
         );
@@ -3771,7 +3977,7 @@ impl Renderer {
             .get_global_transform_for_node(game_state.player_node_id);
         all_camera_data.push(ShaderCameraData::from_mat4(
             player_transform.into(),
-            window_size.width as f32 / window_size.height as f32,
+            aspect_ratio,
             NEAR_PLANE_DISTANCE,
             FAR_PLANE_DISTANCE,
             deg_to_rad(FOV_Y_DEG),
@@ -3919,7 +4125,11 @@ impl Renderer {
             0,
             bytemuck::cast_slice(&[
                 data.tone_mapping_exposure,
-                if surface_format.is_srgb() { 0f32 } else { 1f32 },
+                if framebuffer_format.is_srgb() {
+                    0f32
+                } else {
+                    1f32
+                },
                 0f32,
                 0f32,
             ]),
@@ -3948,9 +4158,13 @@ impl Renderer {
     }
 
     #[profiling::function]
-    pub fn render_internal(&mut self, game_state: &mut GameState) -> anyhow::Result<()> {
+    pub fn render_internal(
+        &mut self,
+        game_state: &mut GameState,
+        surface_texture: wgpu::SurfaceTexture,
+    ) -> anyhow::Result<()> {
         let mut data_guard = self.data.lock().unwrap();
-        let data: &mut RendererPublicData = &mut data_guard;
+        let data: &mut RendererData = &mut data_guard;
 
         let mut private_data_guard = self.private_data.lock().unwrap();
         let private_data: &mut RendererPrivateData = &mut private_data_guard;
@@ -3958,7 +4172,6 @@ impl Renderer {
         let mut profiler_guard = self.profiler.lock().unwrap();
         let profiler: &mut GpuProfiler = &mut profiler_guard;
 
-        let surface_texture = self.base.surface.get_current_texture()?;
         let surface_texture_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -4004,7 +4217,7 @@ impl Renderer {
                         profiler,
                         &mut encoder,
                         &shadow_render_pass_desc,
-                        &self.directional_shadow_map_pipeline,
+                        &self.constant_data.directional_shadow_map_pipeline,
                         &private_data.camera_lights_and_pbr_shader_options_bind_groups
                             [1 + light_index],
                         true,
@@ -4069,7 +4282,7 @@ impl Renderer {
                             profiler,
                             &mut encoder,
                             &shadow_render_pass_desc,
-                            &self.point_shadow_map_pipeline,
+                            &self.constant_data.point_shadow_map_pipeline,
                             &private_data.camera_lights_and_pbr_shader_options_bind_groups[1
                                 + game_state.directional_lights.len()
                                 + light_index * 6
@@ -4117,7 +4330,7 @@ impl Renderer {
             profiler,
             &mut encoder,
             &shading_render_pass_desc,
-            &self.mesh_pipeline,
+            &self.constant_data.mesh_pipeline,
             &private_data.camera_lights_and_pbr_shader_options_bind_groups[0],
             false,
             1, // use main camera culling mask
@@ -4147,7 +4360,7 @@ impl Renderer {
             });
 
             wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
-                render_pass.set_pipeline(&self.unlit_mesh_pipeline);
+                render_pass.set_pipeline(&self.constant_data.unlit_mesh_pipeline);
 
                 render_pass.set_bind_group(
                     0,
@@ -4181,7 +4394,7 @@ impl Renderer {
                     );
                 }
 
-                render_pass.set_pipeline(&self.wireframe_pipeline);
+                render_pass.set_pipeline(&self.constant_data.wireframe_pipeline);
 
                 for wireframe_instance_chunk in private_data.all_wireframe_instances.chunks() {
                     let binded_wireframe_mesh_index = wireframe_instance_chunk.id;
@@ -4264,7 +4477,7 @@ impl Renderer {
                 });
 
                 wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
-                    render_pass.set_pipeline(&self.bloom_threshold_pipeline);
+                    render_pass.set_pipeline(&self.constant_data.bloom_threshold_pipeline);
                     render_pass.set_bind_group(0, &private_data.shading_texture_bind_group, &[]);
                     render_pass.set_bind_group(1, &private_data.bloom_config_bind_groups[0], &[]);
                     render_pass.draw(0..3, 0..1);
@@ -4291,7 +4504,7 @@ impl Renderer {
                     });
 
                     wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
-                        render_pass.set_pipeline(&self.bloom_blur_pipeline);
+                        render_pass.set_pipeline(&self.constant_data.bloom_blur_pipeline);
                         render_pass.set_bind_group(0, src_texture, &[]);
                         render_pass.set_bind_group(
                             1,
@@ -4355,7 +4568,7 @@ impl Renderer {
             });
 
             wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
-                render_pass.set_pipeline(&self.skybox_pipeline);
+                render_pass.set_pipeline(&self.constant_data.skybox_pipeline);
                 render_pass.set_bind_group(0, &private_data.environment_textures_bind_group, &[]);
                 render_pass.set_bind_group(
                     1,
@@ -4365,13 +4578,21 @@ impl Renderer {
                         - 1],
                     &[],
                 );
-                render_pass.set_vertex_buffer(0, data.skybox_mesh.vertex_buffer.src().slice(..));
+                render_pass.set_vertex_buffer(
+                    0,
+                    self.constant_data.skybox_mesh.vertex_buffer.src().slice(..),
+                );
                 render_pass.set_index_buffer(
-                    data.skybox_mesh.index_buffer.buffer.src().slice(..),
-                    data.skybox_mesh.index_buffer.format,
+                    self.constant_data
+                        .skybox_mesh
+                        .index_buffer
+                        .buffer
+                        .src()
+                        .slice(..),
+                    self.constant_data.skybox_mesh.index_buffer.format,
                 );
                 render_pass.draw_indexed(
-                    0..(data.skybox_mesh.index_buffer.buffer.length() as u32),
+                    0..(self.constant_data.skybox_mesh.index_buffer.buffer.length() as u32),
                     0,
                     0..1,
                 );
@@ -4392,7 +4613,7 @@ impl Renderer {
                 depth_stencil_attachment: None,
             });
             wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
-                render_pass.set_pipeline(&self.tone_mapping_pipeline);
+                render_pass.set_pipeline(&self.constant_data.tone_mapping_pipeline);
                 render_pass.set_bind_group(
                     0,
                     &private_data.shading_and_bloom_textures_bind_group,
@@ -4426,7 +4647,7 @@ impl Renderer {
             });
 
             wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
-                render_pass.set_pipeline(&self.transparent_mesh_pipeline);
+                render_pass.set_pipeline(&self.constant_data.transparent_mesh_pipeline);
 
                 render_pass.set_bind_group(
                     0,
@@ -4465,7 +4686,10 @@ impl Renderer {
             });
         }
 
-        if let Some(pre_gamma_fb) = &private_data.pre_gamma_fb {
+        if let (Some(pre_gamma_fb), Some(pre_gamma_surface_blit_pipeline)) = (
+            &private_data.pre_gamma_fb,
+            &self.constant_data.pre_gamma_surface_blit_pipeline,
+        ) {
             {
                 let label = "Pre-gamma Surface blit";
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -4483,7 +4707,7 @@ impl Renderer {
 
                 wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
                     {
-                        render_pass.set_pipeline(&self.pre_gamma_surface_blit_pipeline);
+                        render_pass.set_pipeline(pre_gamma_surface_blit_pipeline);
                         render_pass.set_bind_group(
                             0,
                             &private_data.tone_mapping_texture_bind_group,
@@ -4495,11 +4719,12 @@ impl Renderer {
             }
 
             // TODO: pass a separate encoder to the ui overlay so it can be profiled
-            self.ui_overlay
+            game_state
+                .ui_overlay
                 .render(&self.base.device, &mut encoder, &pre_gamma_fb.view);
         }
 
-        {
+        if let Some(surface_blit_pipeline) = self.constant_data.surface_blit_pipeline.as_ref() {
             let label = "Surface blit";
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: USE_LABELS.then_some(label),
@@ -4516,7 +4741,7 @@ impl Renderer {
 
             wgpu_profiler!(label, profiler, &mut render_pass, &self.base.device, {
                 {
-                    render_pass.set_pipeline(&self.surface_blit_pipeline);
+                    render_pass.set_pipeline(surface_blit_pipeline);
                     render_pass.set_bind_group(
                         0,
                         private_data
@@ -4537,8 +4762,9 @@ impl Renderer {
 
         if private_data.pre_gamma_fb.is_none() {
             // TODO: pass a separate encoder to the ui overlay so it can be profiled
-            self.ui_overlay
-                .render(&self.base.device, &mut encoder, &surface_texture_view);
+            game_state
+                .ui_overlay
+                .render(&self.base.device, &mut encoder, &surface_texture_view)
         }
 
         profiler.resolve_queries(&mut encoder);
@@ -4557,7 +4783,7 @@ impl Renderer {
     #[allow(clippy::too_many_arguments)]
     fn render_pbr_meshes<'a>(
         base: &BaseRenderer,
-        data: &RendererPublicData,
+        data: &RendererData,
         private_data: &RendererPrivateData,
         profiler: &mut wgpu_profiler::GpuProfiler,
         encoder: &mut wgpu::CommandEncoder,
