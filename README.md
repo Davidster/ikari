@@ -48,6 +48,8 @@ cargo run --features="tracy" --bin example_game
 cargo build_web --release --bin example_game
 ```
 
+See console logs for list of available controls
+
 ## clikari
 
 The ikari CLI has the following capabilities:
@@ -59,8 +61,6 @@ For example:
 ```sh
 cargo run --bin clikari -- --command process_skybox --background_path ikari/src/textures/milkyway/background.jpg --environment_hdr_path ikari/src/textures/milkyway/radiance.hdr --out_folder ikari/src/skyboxes/milkyway
 ```
-
-See console logs for list of available controls
 
 ## Screenshots / Videos:
 
