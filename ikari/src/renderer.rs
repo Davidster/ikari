@@ -3038,6 +3038,7 @@ impl Renderer {
         private_data: &mut RendererPrivateData,
         game_state: &mut GameState,
         framebuffer_size: (u32, u32),
+        culling_frustum: &Frustum,
         culling_frustum_focal_point: Vec3,
         culling_frustum_forward_vector: Vec3,
     ) {
@@ -3065,6 +3066,21 @@ impl Renderer {
             let node_ids: Vec<_> = scene.nodes().map(|node| node.id()).collect();
             for node_id in node_ids {
                 if let Some(bounding_sphere) = scene.get_node_bounding_sphere(node_id, data) {
+                    let culling_frustum_intersection_result =
+                        Self::get_node_cam_intersection_result(
+                            &scene.get_node(node_id).unwrap(),
+                            data,
+                            scene,
+                            &culling_frustum,
+                        );
+
+                    let debug_sphere_color = match culling_frustum_intersection_result {
+                        Some(IntersectionResult::FullyContained) => [0.0, 1.0, 0.0, 0.1],
+                        Some(IntersectionResult::PartiallyIntersecting) => [1.0, 1.0, 0.0, 0.15],
+                        Some(IntersectionResult::NotIntersecting) => [1.0, 0.0, 0.0, 0.1],
+                        None => [1.0, 1.0, 1.0, 0.1],
+                    };
+
                     private_data.debug_node_bounding_spheres_nodes.push(
                         scene
                             .add_node(
@@ -3079,7 +3095,7 @@ impl Renderer {
                                     )
                                     .mesh(Some(GameNodeMesh {
                                         mesh_type: GameNodeMeshType::Transparent {
-                                            color: Vec4::new(0.0, 1.0, 0.0, 0.1),
+                                            color: debug_sphere_color.into(),
                                             premultiplied_alpha: false,
                                         },
                                         mesh_indices: vec![self
@@ -3099,7 +3115,7 @@ impl Renderer {
 
         if data.draw_culling_frustum {
             // shrink the frustum along the view direction for the debug view
-            let near_plane_distance = 3.0;
+            let near_plane_distance = 0.01;
             let far_plane_distance = 500.0;
 
             let (framebuffer_width, framebuffer_height) = framebuffer_size;
@@ -3268,6 +3284,32 @@ impl Renderer {
             ),
         );
         self.render_internal(game_state, surface_data.surface.get_current_texture()?)
+    }
+
+    fn get_node_cam_intersection_result(
+        node: &GameNode,
+        data: &RendererData,
+        scene: &Scene,
+        camera_culling_frustum: &Frustum,
+    ) -> Option<IntersectionResult> {
+        if node.mesh.is_none() {
+            return None;
+        }
+
+        /* bounding boxes will be wrong for skinned meshes so we currently can't cull them */
+        if node.skin_index.is_some() || !node.mesh.as_ref().unwrap().cullable {
+            return None;
+        }
+
+        let node_bounding_sphere = scene.get_node_bounding_sphere_opt(node.id(), data);
+
+        if node_bounding_sphere.is_none() {
+            return None;
+        }
+
+        let node_bounding_sphere = node_bounding_sphere.unwrap();
+
+        Some(camera_culling_frustum.sphere_intersection_test(node_bounding_sphere))
     }
 
     // culling mask is a bitmask where each bit corresponds to a frustum
@@ -3492,6 +3534,7 @@ impl Renderer {
             private_data,
             game_state,
             framebuffer_size,
+            &culling_frustum,
             culling_frustum_focal_point,
             culling_frustum_forward_vector,
         );
@@ -3576,6 +3619,8 @@ impl Renderer {
                                 &culling_frustum,
                                 &point_lights_frusta,
                             );
+                            // TODO: add a debug option to disable the main camera's culling?
+                            // culling_mask |= 1u32;
                             let gpu_instance = GpuPbrMeshInstance::new(
                                 transform,
                                 material_override.unwrap_or_else(|| {
@@ -3665,16 +3710,16 @@ impl Renderer {
                             if is_wireframe_mode_on || is_node_wireframe {
                                 // TODO: this search is slow.. but it's only for wireframe mode, so who cares.. ?
                                 let wireframe_mesh_index = data
-                                    .binded_wireframe_meshes
-                                    .iter()
-                                    .enumerate()
-                                    .find(|(_, wireframe_mesh)| {
-                                        wireframe_mesh.source_mesh_index == mesh_index
-                                            && MeshType::from(*mesh_type)
-                                                == wireframe_mesh.source_mesh_type
-                                    })
-                                    .unwrap_or_else(|| panic!("Attempted to draw mesh {mesh_index:?} in wireframe mode without a corresponding wireframe object"))
-                                    .0;
+                                        .binded_wireframe_meshes
+                                        .iter()
+                                        .enumerate()
+                                        .find(|(_, wireframe_mesh)| {
+                                            wireframe_mesh.source_mesh_index == mesh_index
+                                                && MeshType::from(*mesh_type)
+                                                    == wireframe_mesh.source_mesh_type
+                                        })
+                                        .unwrap_or_else(|| panic!("Attempted to draw mesh {mesh_index:?} in wireframe mode without a corresponding wireframe object"))
+                                        .0;
                                 let gpu_instance = GpuWireframeMeshInstance {
                                     color,
                                     model_transform: transform,

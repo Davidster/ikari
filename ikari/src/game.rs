@@ -49,6 +49,7 @@ pub const INITIAL_SOFT_SHADOW_FACTOR: f32 = 0.0015;
 pub const INITIAL_SOFT_SHADOW_GRID_DIMS: u32 = 4;
 
 pub const CREATE_POINT_SHADOW_MAP_DEBUG_OBJECTS: bool = false;
+pub const REMOVE_LARGE_OBJECTS_FROM_FOREST: bool = false;
 
 // pub const LIGHT_COLOR_A: Vec3 = Vec3::new(0.996, 0.973, 0.663);
 // pub const LIGHT_COLOR_B: Vec3 = Vec3::new(0.25, 0.973, 0.663);
@@ -559,7 +560,7 @@ pub async fn init_game_state(
         ball_node_ids.push(node.id());
     }
 
-    let physics_ball_count = 0;
+    let physics_ball_count = 500;
     let physics_balls: Vec<_> = (0..physics_ball_count)
         .map(|_| {
             PhysicsBall::new_random(
@@ -1280,6 +1281,20 @@ pub fn update_game_state(
                 other_scene,
                 other_render_buffers,
             );
+
+            if REMOVE_LARGE_OBJECTS_FROM_FOREST {
+                let node_ids: Vec<_> = game_state.scene.nodes().map(|node| node.id()).collect();
+                for node_id in node_ids {
+                    if let Some(sphere) = game_state
+                        .scene
+                        .get_node_bounding_sphere(node_id, &renderer_data_guard)
+                    {
+                        if sphere.radius > 10.0 {
+                            game_state.scene.remove_node(node_id);
+                        }
+                    }
+                }
+            }
         }
 
         if let Entry::Occupied(entry) =
