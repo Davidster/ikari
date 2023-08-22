@@ -8,6 +8,12 @@ Most of the rendering features were implemented by following the awesome tutoria
 
 Hopefully one day it will be used in a real game 😃
 
+## TODO
+
+how to get timestamp queries to work on web?
+merge miniz_oxide changes? or is there a bug with it?
+try out https://docs.rs/wasm-tracing-allocator/latest/wasm_tracing_allocator/ to debug the wasm OOM error
+
 ## Features:
 
 - Physically-Based Rendering materials (PBR)

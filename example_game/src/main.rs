@@ -42,9 +42,9 @@ async fn start() {
                 .unwrap()
                 .dyn_into::<web_sys::HtmlElement>()
                 .unwrap();
-            window.set_inner_size(winit::dpi::PhysicalSize::new(
-                canvas_container.offset_width(),
-                canvas_container.offset_height(),
+            window.set_inner_size(winit::dpi::LogicalSize::new(
+                (canvas_container.offset_width() as f64 * window.scale_factor()) as u32,
+                (canvas_container.offset_height() as f64 * window.scale_factor()) as u32,
             ));
 
             let canvas = web_sys::Element::from(window.canvas());

@@ -151,8 +151,8 @@ pub fn run(
                 #[cfg(target_arch = "wasm32")]
                 {
                     let new_size = winit::dpi::PhysicalSize::new(
-                        canvas_container.offset_width() as u32,
-                        canvas_container.offset_height() as u32,
+                        (canvas_container.offset_width() as f64 * window.scale_factor()) as u32,
+                        (canvas_container.offset_height() as f64 * window.scale_factor()) as u32,
                     );
                     if window.inner_size() != new_size {
                         window.set_inner_size(new_size);

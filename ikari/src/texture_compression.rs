@@ -41,9 +41,10 @@ impl TextureCompressor {
         image.serialize(&mut Serializer::new(&mut image_serialized))?;
 
         // 0 = default compression level
-        let zstd_encoded_data = zstd::stream::encode_all(image_serialized.as_slice(), 0)?;
+        let miniz_encoded_data =
+            miniz_oxide::deflate::compress_to_vec(image_serialized.as_slice(), 6);
 
-        Ok(zstd_encoded_data)
+        Ok(miniz_encoded_data)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -107,16 +108,18 @@ impl TextureCompressor {
         }
 
         // 0 = default compression level
-        let zstd_encoded_data = zstd::stream::encode_all(basisu_compressor.basis_file(), 0)?;
+        let miniz_encoded_data =
+            miniz_oxide::deflate::compress_to_vec(basisu_compressor.basis_file(), 6);
 
-        Ok(zstd_encoded_data)
+        Ok(miniz_encoded_data)
     }
 
     // floating point texture format isn't yet supported by basisu. see
     // https://github.com/BinomialLLC/basis_universal/issues/310
     pub fn transcode_float_image(&self, img_bytes: &[u8]) -> anyhow::Result<RawImage> {
-        let zstd_decoded_data = zstd::stream::decode_all(img_bytes)?;
-        Ok(rmp_serde::from_slice(&zstd_decoded_data)?)
+        let miniz_decoded_data = miniz_oxide::inflate::decompress_to_vec(img_bytes)
+            .map_err(|err| anyhow::anyhow!("{err}"))?;
+        Ok(rmp_serde::from_slice(&miniz_decoded_data)?)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -128,26 +131,28 @@ impl TextureCompressor {
     ) -> anyhow::Result<CompressedTexture> {
         basis_universal::transcoder_init();
 
-        let zstd_decoded_data = zstd::stream::decode_all(img_bytes)?;
+        // let zstd_decoded_data = zstd::stream::decode_all(img_bytes)?;
+        let miniz_decoded_data = miniz_oxide::inflate::decompress_to_vec(img_bytes)
+            .map_err(|err| anyhow::anyhow!("{err}"))?;
 
         let mut basisu_transcoder = basis_universal::Transcoder::new();
 
-        if !basisu_transcoder.validate_header(&zstd_decoded_data) {
+        if !basisu_transcoder.validate_header(&miniz_decoded_data) {
             anyhow::bail!("Image data failed basisu validation");
         }
 
-        if let Err(prep_err) = basisu_transcoder.prepare_transcoding(&zstd_decoded_data) {
+        if let Err(prep_err) = basisu_transcoder.prepare_transcoding(&miniz_decoded_data) {
             anyhow::bail!("Error calling prepare_transcoding: {:?}", prep_err);
         }
 
-        let mip_levels = basisu_transcoder.image_level_count(&zstd_decoded_data, 0);
+        let mip_levels = basisu_transcoder.image_level_count(&miniz_decoded_data, 0);
 
         let basis_universal::ImageLevelDescription {
             original_width: img_width,
             original_height: img_height,
             ..
         } = basisu_transcoder
-            .image_level_description(&zstd_decoded_data, 0, 0)
+            .image_level_description(&miniz_decoded_data, 0, 0)
             .unwrap();
 
         let gpu_texture_format = if is_normal_map {
@@ -162,7 +167,7 @@ impl TextureCompressor {
             Vec::with_capacity((img_width as f32 * img_height as f32 * 1.34).ceil() as usize);
         for mip_level in 0..mip_levels {
             match basisu_transcoder.transcode_image_level(
-                &zstd_decoded_data,
+                &miniz_decoded_data,
                 gpu_texture_format,
                 basis_universal::transcoding::TranscodeParameters {
                     image_index: 0,

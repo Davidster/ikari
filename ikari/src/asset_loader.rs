@@ -400,6 +400,8 @@ impl AssetLoader {
 
                         profiling::scope!("Load skybox", &next_skybox_id);
 
+                        log::info!("1");
+
                         match make_bindable_skybox(
                             &next_skybox_background,
                             next_skybox_env_hdr.as_ref(),
@@ -407,6 +409,7 @@ impl AssetLoader {
                         .await
                         {
                             Ok(result) => {
+                                log::info!("2");
                                 let _replaced_ignored = bindable_skyboxes
                                     .lock()
                                     .unwrap()
@@ -432,6 +435,7 @@ pub async fn make_bindable_skybox(
     background: &SkyboxBackgroundPath,
     environment_hdr: Option<&SkyboxHDREnvironmentPath>,
 ) -> Result<BindableSkybox> {
+    log::info!("1.1");
     let background = match background {
         SkyboxBackgroundPath::Equirectangular(image_path) => {
             BindableSkyboxBackground::Equirectangular(
@@ -499,10 +503,13 @@ pub async fn make_bindable_skybox(
             }
 
             let first_img = to_img(&face_image_paths[0]).await?;
+            log::info!("first_img len bytes: {}", first_img.as_raw().len());
             let mut raw = vec![];
             raw.extend_from_slice(first_img.as_raw());
             for path in &face_image_paths[1..] {
-                raw.extend_from_slice(to_img(path).await?.as_raw());
+                let img = to_img(path).await?;
+                log::info!("img len bytes: {}", img.as_raw().len());
+                raw.extend_from_slice(img.as_raw());
             }
 
             BindableSkyboxBackground::Cube(RawImage {
@@ -514,6 +521,8 @@ pub async fn make_bindable_skybox(
             })
         }
     };
+
+    log::info!("1.2");
 
     let mut bindable_environment_hdr = None;
     match environment_hdr {
