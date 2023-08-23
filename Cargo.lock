@@ -2031,6 +2031,7 @@ dependencies = [
  "twox-hash",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-tracing-allocator",
  "wasm_thread",
  "wavefront_obj",
  "web-sys",
@@ -4642,6 +4643,15 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "wasm-tracing-allocator"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00638b0f463575ce0ad7fe03809c9b86b2a3abbb6c1f2e4d5569572b74ca65ae"
+dependencies = [
+ "wasm-bindgen",
 ]
 
 [[package]]

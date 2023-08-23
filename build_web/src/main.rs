@@ -54,6 +54,7 @@ struct Args {
     build_only: bool,
     port: Option<String>,
     build_args: Vec<String>,
+    build_args_contains_wasm_alloc_feature: bool,
     package: Option<String>,
     example: Option<String>,
     bin: Option<String>,
@@ -110,6 +111,15 @@ Remove one flag or the other to continue."#
             }
         };
 
+        let peeked_features: Option<String> = args
+            .clone()
+            .opt_value_from_str("--features")
+            .unwrap()
+            .or_else(|| args.opt_value_from_str("-F").unwrap());
+
+        let build_args_contains_wasm_alloc_feature = peeked_features.is_some()
+            && peeked_features.unwrap().contains("wasm-tracing-allocator");
+
         let build_args = args
             .finish()
             .into_iter()
@@ -120,6 +130,7 @@ Remove one flag or the other to continue."#
             help,
             profile,
             build_only,
+            build_args_contains_wasm_alloc_feature,
             port,
             build_args,
             package,
@@ -233,10 +244,20 @@ fn main() {
 
     // process template html and write to the destination folder
     let index_template = include_str!("ikari-web.template.html");
-    let index_processed = index_template.replace("{{name}}", &binary_name).replace(
-        "{{jspath}}",
-        &format!("./target/{examples_dir_name}/{binary_name}/{binary_name}.js"),
-    );
+    let index_processed = index_template
+        .replace(
+            "{{wasm_tracing_allocator}}",
+            if args.build_args_contains_wasm_alloc_feature {
+                "<script src=\"https://unpkg.com/wasm-tracing-allocator@0.1.0/js/hooks.js\"></script>"
+            } else {
+                ""
+            }
+        )
+        .replace("{{name}}", &binary_name)
+        .replace(
+            "{{jspath}}",
+            &format!("./target/{examples_dir_name}/{binary_name}/{binary_name}.js"),
+        );
 
     let html_file_name = "ikari-web.html";
 

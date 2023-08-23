@@ -17,6 +17,7 @@ path = "src/lib.rs"
 default = []
 tracy = ["profiling/profile-with-tracy", "dep:tracing-tracy"]
 tracy-n-alloc = ["tracy"]
+wasm-tracing-allocator = []
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
@@ -105,3 +106,4 @@ wasm-bindgen.workspace = true
 cpal = { git = "https://github.com/DouglasDwyer/cpal.git", rev = "91aeb4d", features = [
     "wasm-bindgen",
 ] }
+wasm-tracing-allocator = "0.1.0"
