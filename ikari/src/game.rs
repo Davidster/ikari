@@ -1514,7 +1514,7 @@ pub fn update_game_state(
         //     (global_time_seconds * 2.0).sin(),
         // );
         if let Some(node) = game_state.scene.get_node_mut(point_light_0.node_id) {
-            let t = global_time_seconds;
+            let t = global_time_seconds * 0.5;
             // let t = game_state.player_controller.speed;
             node.transform.set_position(
                 Vec3::new(0.0, 6.5, 0.0)

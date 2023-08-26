@@ -3129,26 +3129,34 @@ impl Renderer {
             }
         }
 
-        if data.draw_culling_frustum {
+        let (framebuffer_width, framebuffer_height) = framebuffer_size;
+
+        let main_camera_frustum_descriptor = FrustumDescriptor {
+            focal_point: culling_frustum_focal_point,
+            forward_vector: culling_frustum_forward_vector,
+            near_plane_distance: NEAR_PLANE_DISTANCE,
+            far_plane_distance: FAR_PLANE_DISTANCE,
+            fov_y_rad: deg_to_rad(FOV_Y_DEG),
+            aspect_ratio: framebuffer_width as f32 / framebuffer_height as f32,
+        };
+
+        let debug_main_camera_frustum_descriptor = FrustumDescriptor {
             // shrink the frustum along the view direction for the debug view
-            let near_plane_distance = 0.01;
-            let far_plane_distance = 500.0;
+            near_plane_distance: 0.01,
+            far_plane_distance: 500.0,
+            ..main_camera_frustum_descriptor
+        };
 
-            let (framebuffer_width, framebuffer_height) = framebuffer_size;
-            let aspect_ratio = framebuffer_width as f32 / framebuffer_height as f32;
+        if data.draw_culling_frustum {
+            let debug_main_camera_frustum_mesh =
+                debug_main_camera_frustum_descriptor.to_basic_mesh();
 
-            let culling_frustum_basic_mesh = Frustum::make_frustum_mesh(
-                culling_frustum_focal_point,
-                culling_frustum_forward_vector,
-                near_plane_distance,
-                far_plane_distance,
-                deg_to_rad(FOV_Y_DEG),
-                aspect_ratio,
-            );
-
-            private_data.debug_culling_frustum_mesh_index = Some(
-                Self::bind_basic_transparent_mesh(&self.base, data, &culling_frustum_basic_mesh),
-            );
+            private_data.debug_culling_frustum_mesh_index =
+                Some(Self::bind_basic_transparent_mesh(
+                    &self.base,
+                    data,
+                    &debug_main_camera_frustum_mesh,
+                ));
 
             let culling_frustum_mesh = GameNodeMesh {
                 mesh_type: GameNodeMeshType::Transparent {
@@ -3188,31 +3196,42 @@ impl Renderer {
         if data.draw_point_light_culling_frusta {
             for point_light in &game_state.point_lights {
                 for controlled_direction in build_cubemap_face_camera_view_directions() {
-                    // shrink the frustum along the view direction for the debug view
-                    let near_plane_distance = 0.5;
-                    let far_plane_distance = 5.0;
-
-                    let culling_frustum_basic_mesh = Frustum::make_frustum_mesh(
-                        scene
+                    let frustum_descriptor = FrustumDescriptor {
+                        focal_point: scene
                             .get_global_transform_for_node(point_light.node_id)
                             .position(),
-                        controlled_direction.to_vector(),
-                        near_plane_distance,
-                        far_plane_distance,
-                        deg_to_rad(90.0),
-                        1.0,
-                    );
+                        forward_vector: controlled_direction.to_vector(),
+                        near_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
+                        far_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
+                        fov_y_rad: deg_to_rad(90.0),
+                        aspect_ratio: 1.0,
+                    };
+
+                    let debug_frustum_descriptor = FrustumDescriptor {
+                        // shrink the frustum along the view direction for the debug view
+                        near_plane_distance: 0.5,
+                        far_plane_distance: 5.0,
+                        ..frustum_descriptor
+                    };
+                    let debug_culling_frustum_mesh = debug_frustum_descriptor.to_basic_mesh();
+
+                    let collision_based_color = match debug_frustum_descriptor
+                        .frustum_intersection_test(&debug_main_camera_frustum_descriptor)
+                    {
+                        Some(contact) => Vec4::new(0.0, 1.0, 0.0, 0.1),
+                        None => Vec4::new(1.0, 0.0, 0.0, 0.1),
+                    };
 
                     private_data.debug_culling_frustum_mesh_index =
                         Some(Self::bind_basic_transparent_mesh(
                             &self.base,
                             data,
-                            &culling_frustum_basic_mesh,
+                            &debug_culling_frustum_mesh,
                         ));
 
                     let culling_frustum_mesh = GameNodeMesh {
                         mesh_type: GameNodeMeshType::Transparent {
-                            color: Vec4::new(1.0, 0.0, 0.0, 0.1),
+                            color: collision_based_color,
                             premultiplied_alpha: false,
                         },
                         mesh_indices: vec![private_data.debug_culling_frustum_mesh_index.unwrap()],
@@ -3243,6 +3262,8 @@ impl Renderer {
                             )
                             .id(),
                     );
+
+                    return;
                 }
             }
         }

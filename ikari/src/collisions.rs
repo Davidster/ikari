@@ -1,6 +1,7 @@
 use glam::f32::Vec3;
 use rand::Rng;
 use rand::SeedableRng;
+use rapier3d::prelude::*;
 
 use crate::math::*;
 use crate::mesh::*;
@@ -25,6 +26,16 @@ pub struct Frustum {
     pub bottom: Plane,
     pub near: Plane,
     pub far: Plane,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FrustumDescriptor {
+    pub focal_point: Vec3,
+    pub forward_vector: Vec3,
+    pub aspect_ratio: f32,
+    pub near_plane_distance: f32,
+    pub far_plane_distance: f32,
+    pub fov_y_rad: f32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -321,33 +332,61 @@ impl Frustum {
 
         result
     }
+}
 
-    pub fn make_frustum_mesh(
-        focal_point: Vec3,
-        forward_vector: Vec3,
-        near_plane_distance: f32,
-        far_plane_distance: f32,
-        fov_y_rad: f32,
-        aspect_ratio: f32,
-    ) -> BasicMesh {
-        let culling_frustum_right_vector =
-            forward_vector.cross(Vec3::new(0.0, 1.0, 0.0)).normalize();
+impl FrustumDescriptor {
+    pub fn frustum_intersection_test(
+        &self,
+        other: &FrustumDescriptor,
+    ) -> Option<rapier3d::parry::query::contact::Contact> {
+        rapier3d::parry::query::contact::contact(
+            &rapier3d::na::Isometry::identity(),
+            &self.to_convex_polyhedron(),
+            &rapier3d::na::Isometry::identity(),
+            &other.to_convex_polyhedron(),
+            0.0,
+        )
+        .unwrap()
+    }
+
+    pub fn to_convex_polyhedron(&self) -> ConvexPolyhedron {
+        let points: Vec<_> = self
+            .to_basic_mesh()
+            .vertices
+            .iter()
+            .map(|vertex| Point::from(vertex.position))
+            .collect();
+        ColliderBuilder::convex_hull(&points)
+            .expect("Failed to construct convex hull for frustum")
+            .build()
+            .shape()
+            .as_convex_polyhedron()
+            .unwrap()
+            .clone()
+    }
+
+    pub fn to_basic_mesh(&self) -> BasicMesh {
+        let culling_frustum_right_vector = self
+            .forward_vector
+            .cross(Vec3::new(0.0, 1.0, 0.0))
+            .normalize();
 
         let (d_x, d_y) = {
             let vertical_vec = culling_frustum_right_vector
-                .cross(forward_vector)
+                .cross(self.forward_vector)
                 .normalize();
-            let sin_half_fovy = (fov_y_rad / 2.0).tan();
+            let sin_half_fovy = (self.fov_y_rad / 2.0).tan();
             (
-                sin_half_fovy * culling_frustum_right_vector * aspect_ratio,
+                sin_half_fovy * culling_frustum_right_vector * self.aspect_ratio,
                 sin_half_fovy * vertical_vec,
             )
         };
 
-        let d_x_near = near_plane_distance * d_x;
-        let d_y_near = near_plane_distance * d_y;
+        let d_x_near = self.near_plane_distance * d_x;
+        let d_y_near = self.near_plane_distance * d_y;
         let near_vertices = {
-            let near_plane_center = focal_point + near_plane_distance * forward_vector;
+            let near_plane_center =
+                self.focal_point + self.near_plane_distance * self.forward_vector;
             let top_left = near_plane_center + d_y_near - d_x_near;
             let top_right = near_plane_center + d_y_near + d_x_near;
             let bottom_right = near_plane_center - d_y_near + d_x_near;
@@ -356,10 +395,10 @@ impl Frustum {
             (top_left, top_right, bottom_right, bottom_left)
         };
 
-        let d_x_far = far_plane_distance * d_x;
-        let d_y_far = far_plane_distance * d_y;
+        let d_x_far = self.far_plane_distance * d_x;
+        let d_y_far = self.far_plane_distance * d_y;
         let far_vertices = {
-            let far_plane_center = focal_point + far_plane_distance * forward_vector;
+            let far_plane_center = self.focal_point + self.far_plane_distance * self.forward_vector;
             let top_left = far_plane_center + d_y_far - d_x_far;
             let top_right = far_plane_center + d_y_far + d_x_far;
             let bottom_right = far_plane_center - d_y_far + d_x_far;
