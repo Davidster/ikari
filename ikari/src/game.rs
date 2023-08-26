@@ -102,21 +102,37 @@ pub fn get_skybox_path() -> (SkyboxBackgroundPath, Option<SkyboxHDREnvironmentPa
             GAME_PATH_MAKER.make("src/textures/milkyway/radiance.hdr"),
         ));
 
-    // Milkyway pre-processed
+    // let preprocessed_skybox_folder = "milkyway";
+    let preprocessed_skybox_folder = "photosphere_small";
+
     let skybox_background = SkyboxBackgroundPath::ProcessedCube([
-        GAME_PATH_MAKER.make("src/skyboxes/milkyway/background/pos_x.png"),
-        GAME_PATH_MAKER.make("src/skyboxes/milkyway/background/neg_x.png"),
-        GAME_PATH_MAKER.make("src/skyboxes/milkyway/background/pos_y.png"),
-        GAME_PATH_MAKER.make("src/skyboxes/milkyway/background/neg_y.png"),
-        GAME_PATH_MAKER.make("src/skyboxes/milkyway/background/pos_z.png"),
-        GAME_PATH_MAKER.make("src/skyboxes/milkyway/background/neg_z.png"),
+        GAME_PATH_MAKER.make(format!(
+            "src/skyboxes/{preprocessed_skybox_folder}/background/pos_x.png"
+        )),
+        GAME_PATH_MAKER.make(format!(
+            "src/skyboxes/{preprocessed_skybox_folder}/background/neg_x.png"
+        )),
+        GAME_PATH_MAKER.make(format!(
+            "src/skyboxes/{preprocessed_skybox_folder}/background/pos_y.png"
+        )),
+        GAME_PATH_MAKER.make(format!(
+            "src/skyboxes/{preprocessed_skybox_folder}/background/neg_y.png"
+        )),
+        GAME_PATH_MAKER.make(format!(
+            "src/skyboxes/{preprocessed_skybox_folder}/background/pos_z.png"
+        )),
+        GAME_PATH_MAKER.make(format!(
+            "src/skyboxes/{preprocessed_skybox_folder}/background/neg_z.png"
+        )),
     ]);
     let skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> =
         Some(SkyboxHDREnvironmentPath::ProcessedCube {
-            diffuse: GAME_PATH_MAKER
-                .make("src/skyboxes/milkyway/diffuse_environment_map_compressed.bin"),
-            specular: GAME_PATH_MAKER
-                .make("src/skyboxes/milkyway/specular_environment_map_compressed.bin"),
+            diffuse: GAME_PATH_MAKER.make(format!(
+                "src/skyboxes/{preprocessed_skybox_folder}/diffuse_environment_map_compressed.bin"
+            )),
+            specular: GAME_PATH_MAKER.make(format!(
+                "src/skyboxes/{preprocessed_skybox_folder}/specular_environment_map_compressed.bin"
+            )),
         });
 
     // My photosphere pic

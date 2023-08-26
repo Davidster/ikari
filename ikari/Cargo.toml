@@ -15,8 +15,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-tracy = ["profiling/profile-with-tracy", "dep:tracing-tracy"]
-tracy-n-alloc = ["tracy"]
+tracy = []
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
@@ -40,11 +39,9 @@ env_logger.workspace = true
 log.workspace = true
 
 # profiling
-# The version should be the one used by wgpu-core/hal TODO: does this version number need updating?
 profiling.workspace = true
 wgpu-profiler = "0.12"
 # wgpu-profiler = { path = "../../wgpu-profiler-fork" }
-tracing-tracy = { version = "0.10.2", features = ["ondemand"], optional = true }
 
 # assets
 gltf.workspace = true
@@ -89,7 +86,7 @@ wasm_thread = { version = "0.2.0", features = ["es_modules"] }
 futures-intrusive = "0.5.0"
 rmp-serde = "1.1.2"
 serde = "1.0.173"
-zstd = { version = "0.12.4", default-features = false }
+miniz_oxide = "0.7.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 basis-universal = "0.3.0"
@@ -105,4 +102,3 @@ wasm-bindgen.workspace = true
 cpal = { git = "https://github.com/DouglasDwyer/cpal.git", rev = "91aeb4d", features = [
     "wasm-bindgen",
 ] }
-zstd = { version = "0.12.4", default-features = false, features = ["wasm"] }
