@@ -111,6 +111,8 @@ Remove one flag or the other to continue."#
             }
         };
 
+        dbg!(&args.clone());
+
         let peeked_features: Option<String> = args
             .clone()
             .opt_value_from_str("--features")
@@ -141,7 +143,8 @@ Remove one flag or the other to continue."#
     }
 }
 
-/// Adapted from cargo-build-wasm v0.3.2
+/// Adapted from cargo-run-wasm v0.3.2
+/// TODO: exit with code 1 on failures?
 fn main() {
     env_logger::init();
 
@@ -198,6 +201,9 @@ fn main() {
     }
 
     cargo_args.extend(args.build_args.iter().map(OsStr::new));
+
+    dbg!(&cargo_args);
+
     let status = Command::new("cargo")
         // .current_dir(&workspace_root)
         .env(
@@ -242,13 +248,15 @@ fn main() {
         .generate(&example_dest)
         .unwrap();
 
+    dbg!(args.build_args_contains_wasm_alloc_feature);
+
     // process template html and write to the destination folder
     let index_template = include_str!("ikari-web.template.html");
     let index_processed = index_template
         .replace(
             "{{wasm_tracing_allocator}}",
             if args.build_args_contains_wasm_alloc_feature {
-                "<script src=\"https://unpkg.com/wasm-tracing-allocator@0.1.0/js/hooks.js\"></script>"
+                "<script crossorigin=\"anonymous\" src=\"https://unpkg.com/wasm-tracing-allocator@0.1.1/js/hooks.js\"></script>"
             } else {
                 ""
             }

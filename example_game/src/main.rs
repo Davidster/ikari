@@ -137,6 +137,7 @@ fn main() {
         #[global_allocator]
         static GLOBAL: ProfiledAllocator<std::alloc::System> =
             ProfiledAllocator::new(std::alloc::System, 100);
+        dbg!("LMAO WTF");
     }
     #[cfg(feature = "tracy")]
     profiling::tracy_client::Client::start();
@@ -170,5 +171,15 @@ fn panic_hook(info: &std::panic::PanicInfo) {
 pub async fn run() {
     std::panic::set_hook(Box::new(panic_hook));
     console_log::init_with_level(log::Level::Info).expect("Couldn't initialize logger");
+
+    #[cfg(feature = "wasm-tracing-allocator")]
+    {
+        use std::alloc::System;
+        use wasm_tracing_allocator::WasmTracingAllocator;
+
+        #[global_allocator]
+        static GLOBAL_ALLOCATOR: WasmTracingAllocator<System> = WasmTracingAllocator(System);
+    }
+
     start().await;
 }

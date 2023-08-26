@@ -18,8 +18,8 @@ Usage: clikari --command CMD [OPTIONS]
 
 Options:
   --command CMD  Required  The command to run. Possible values include:
-                            compress_textures
-                            process_skybox
+                             compress_textures
+                             process_skybox
   --help         Optional  Display this help message
 ";
 
