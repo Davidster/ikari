@@ -824,7 +824,7 @@ pub async fn init_game_state(
     let floor_thickness = 0.1;
     let floor_collider = ColliderBuilder::cuboid(
         floor_transform.scale().x as f64,
-        floor_thickness as f64 / 2.0,
+        floor_thickness / 2.0,
         floor_transform.scale().z as f64,
     )
     .translation(vector![
@@ -1645,7 +1645,7 @@ pub fn update_game_state(
         node.transform.apply_isometry(*ball_body.position());
     }
 
-    physics_state.integration_parameters.dt = frame_time_seconds as f64;
+    physics_state.integration_parameters.dt = frame_time_seconds;
     game_state
         .physics_balls
         .iter()

@@ -319,7 +319,7 @@ impl PlayerController {
         rigid_body.set_linvel(
             vector![
                 new_linear_velocity.x as f64,
-                current_linear_velocity.y as f64, // preserve effect of gravity
+                current_linear_velocity.y, // preserve effect of gravity
                 new_linear_velocity.z as f64
             ],
             true,

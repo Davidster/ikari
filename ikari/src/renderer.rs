@@ -3056,7 +3056,6 @@ impl Renderer {
         data: &mut RendererData,
         private_data: &mut RendererPrivateData,
         game_state: &mut GameState,
-        framebuffer_size: (u32, u32),
         main_culling_frustum: &Frustum,
         main_culling_frustum_desc: &CameraFrustumDescriptor,
     ) {
@@ -3130,8 +3129,6 @@ impl Renderer {
                 }
             }
         }
-
-        let (framebuffer_width, framebuffer_height) = framebuffer_size;
 
         let debug_main_camera_frustum_descriptor = CameraFrustumDescriptor {
             // shrink the frustum along the view direction for the debug view
@@ -3209,7 +3206,7 @@ impl Renderer {
                     let debug_culling_frustum_mesh = debug_frustum_descriptor.to_basic_mesh();
 
                     let collision_based_color = if frustum_descriptor
-                        .frustum_intersection_test(&main_culling_frustum_desc)
+                        .frustum_intersection_test(main_culling_frustum_desc)
                     {
                         Vec4::new(0.0, 1.0, 0.0, 0.1)
                     } else {
@@ -3545,7 +3542,6 @@ impl Renderer {
         let camera_position = game_state
             .player_controller
             .position(&game_state.physics_state);
-        let camera_view_direction = game_state.player_controller.view_forward_vector();
         let culling_frustum_desc = match private_data.frustum_culling_lock {
             CullingFrustumLock::Full(locked) => locked,
             CullingFrustumLock::FocalPoint(locked_position) => game_state
@@ -3562,7 +3558,6 @@ impl Renderer {
             data,
             private_data,
             game_state,
-            framebuffer_size,
             &culling_frustum,
             &culling_frustum_desc,
         );
