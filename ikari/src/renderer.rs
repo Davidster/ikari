@@ -1148,6 +1148,8 @@ pub struct Renderer {
     plane_mesh_index: i32,
 }
 
+type PointLightFrustaWithCullingInfo = Vec<Option<(Vec<(Frustum, bool)>, bool)>>;
+
 impl Renderer {
     pub async fn new(
         base: BaseRenderer,
@@ -3049,6 +3051,7 @@ impl Renderer {
     }
 
     #[profiling::function]
+    #[allow(clippy::too_many_arguments)]
     pub fn add_debug_nodes(
         &self,
         data: &mut RendererData,
@@ -3085,10 +3088,10 @@ impl Renderer {
                 if let Some(bounding_sphere) = scene.get_node_bounding_sphere(node_id, data) {
                     let culling_frustum_intersection_result =
                         Self::get_node_cam_intersection_result(
-                            &scene.get_node(node_id).unwrap(),
+                            scene.get_node(node_id).unwrap(),
                             data,
                             scene,
-                            &culling_frustum,
+                            culling_frustum,
                         );
 
                     let debug_sphere_color = match culling_frustum_intersection_result {
@@ -3329,9 +3332,7 @@ impl Renderer {
         scene: &Scene,
         camera_culling_frustum: &Frustum,
     ) -> Option<IntersectionResult> {
-        if node.mesh.is_none() {
-            return None;
-        }
+        node.mesh.as_ref()?;
 
         /* bounding boxes will be wrong for skinned meshes so we currently can't cull them */
         if node.skin_index.is_some() || !node.mesh.as_ref().unwrap().cullable {
@@ -3340,9 +3341,7 @@ impl Renderer {
 
         let node_bounding_sphere = scene.get_node_bounding_sphere_opt(node.id(), data);
 
-        if node_bounding_sphere.is_none() {
-            return None;
-        }
+        node_bounding_sphere?;
 
         let node_bounding_sphere = node_bounding_sphere.unwrap();
 
@@ -3361,7 +3360,7 @@ impl Renderer {
         data: &RendererData,
         game_state: &GameState,
         camera_culling_frustum: &Frustum,
-        point_lights_frusta: &Vec<Option<(Vec<(Frustum, bool)>, bool)>>,
+        point_lights_frusta: &PointLightFrustaWithCullingInfo,
     ) -> u32 {
         assert!(1 + game_state.directional_lights.len() + game_state.point_lights.len() * 6 <= 32,
             "u32 can only store a max of 5 point lights, might be worth using a larger, might be worth using a larger bitvec or a Vec<bool> or something"
@@ -3420,9 +3419,9 @@ impl Renderer {
                                 *can_cull_offscreen_objects && !is_node_on_screen;
                             is_offscreen_culled
                                 || *is_light_view_culled
-                                || !is_touching_frustum(&frustum)
+                                || !is_touching_frustum(frustum)
                         } else {
-                            !is_touching_frustum(&frustum)
+                            !is_touching_frustum(frustum)
                         };
 
                         if !is_culled {
@@ -3632,7 +3631,7 @@ impl Renderer {
         let mut transparent_meshes: Vec<(usize, GpuTransparentMeshInstance, f32)> = Vec::new();
 
         // list of 6 frusta for each point light including culling information
-        let point_lights_frusta: Vec<Option<(Vec<(Frustum, bool)>, bool)>> = game_state
+        let point_lights_frusta: PointLightFrustaWithCullingInfo = game_state
             .point_lights
             .iter()
             .map(|point_light| {

@@ -3,7 +3,6 @@ use rand::Rng;
 use rand::SeedableRng;
 use rapier3d::prelude::*;
 
-use crate::math::*;
 use crate::mesh::*;
 
 #[derive(Debug, Clone, Copy)]
