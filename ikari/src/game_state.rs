@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 pub struct GameState {
     pub scene: Scene,
     pub time_tracker: Option<TimeTracker>,
-    pub state_update_time_accumulator: f32,
+    pub state_update_time_accumulator: f64,
     pub is_playing_animations: bool,
 
     pub audio_streams: AudioStreams,
@@ -38,7 +38,7 @@ pub struct GameState {
     pub ball_node_ids: Vec<GameNodeId>,
     pub ball_pbr_mesh_index: usize,
 
-    pub ball_spawner_acc: f32,
+    pub ball_spawner_acc: f64,
 
     pub test_object_node_id: GameNodeId,
     pub crosshair_node_id: Option<GameNodeId>,

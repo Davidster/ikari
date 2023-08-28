@@ -956,7 +956,7 @@ impl BaseRenderer {
 
 #[derive(Clone, Debug)]
 pub enum CullingFrustumLock {
-    Full((CameraFrustumDescriptor, Vec3, Vec3)),
+    Full(CameraFrustumDescriptor),
     FocalPoint(Vec3),
     None,
 }
@@ -3051,16 +3051,14 @@ impl Renderer {
     }
 
     #[profiling::function]
-    #[allow(clippy::too_many_arguments)]
     pub fn add_debug_nodes(
         &self,
         data: &mut RendererData,
         private_data: &mut RendererPrivateData,
         game_state: &mut GameState,
         framebuffer_size: (u32, u32),
-        culling_frustum: &Frustum,
-        culling_frustum_focal_point: Vec3,
-        culling_frustum_forward_vector: Vec3,
+        main_culling_frustum: &Frustum,
+        main_culling_frustum_desc: &CameraFrustumDescriptor,
     ) {
         let scene = &mut game_state.scene;
 
@@ -3091,7 +3089,7 @@ impl Renderer {
                             scene.get_node(node_id).unwrap(),
                             data,
                             scene,
-                            culling_frustum,
+                            main_culling_frustum,
                         );
 
                     let debug_sphere_color = match culling_frustum_intersection_result {
@@ -3135,20 +3133,11 @@ impl Renderer {
 
         let (framebuffer_width, framebuffer_height) = framebuffer_size;
 
-        let main_camera_frustum_descriptor = CameraFrustumDescriptor {
-            focal_point: culling_frustum_focal_point,
-            forward_vector: culling_frustum_forward_vector,
-            near_plane_distance: NEAR_PLANE_DISTANCE,
-            far_plane_distance: FAR_PLANE_DISTANCE,
-            fov_y_rad: deg_to_rad(FOV_Y_DEG),
-            aspect_ratio: framebuffer_width as f32 / framebuffer_height as f32,
-        };
-
         let debug_main_camera_frustum_descriptor = CameraFrustumDescriptor {
             // shrink the frustum along the view direction for the debug view
             near_plane_distance: 1.0,
             far_plane_distance: 500.0,
-            ..main_camera_frustum_descriptor
+            ..(*main_culling_frustum_desc)
         };
 
         if data.draw_culling_frustum {
@@ -3220,7 +3209,7 @@ impl Renderer {
                     let debug_culling_frustum_mesh = debug_frustum_descriptor.to_basic_mesh();
 
                     let collision_based_color = if frustum_descriptor
-                        .frustum_intersection_test(&main_camera_frustum_descriptor)
+                        .frustum_intersection_test(&main_culling_frustum_desc)
                     {
                         Vec4::new(0.0, 1.0, 0.0, 0.1)
                     } else {
@@ -3290,21 +3279,19 @@ impl Renderer {
         let aspect_ratio = framebuffer_width as f32 / framebuffer_height as f32;
 
         let position = match private_data_guard.frustum_culling_lock {
-            CullingFrustumLock::Full((_, locked_position, _)) => locked_position,
-            CullingFrustumLock::FocalPoint(locked_position) => locked_position,
+            CullingFrustumLock::Full(desc) => desc.focal_point,
+            CullingFrustumLock::FocalPoint(locked_focal_point) => locked_focal_point,
             CullingFrustumLock::None => game_state
                 .player_controller
                 .position(&game_state.physics_state),
         };
 
         private_data_guard.frustum_culling_lock = match lock_mode {
-            CullingFrustumLockMode::Full => CullingFrustumLock::Full((
+            CullingFrustumLockMode::Full => CullingFrustumLock::Full(
                 game_state
                     .player_controller
                     .view_frustum_with_position(aspect_ratio, position),
-                position,
-                game_state.player_controller.view_forward_vector(),
-            )),
+            ),
             CullingFrustumLockMode::FocalPoint => CullingFrustumLock::FocalPoint(position),
             CullingFrustumLockMode::None => CullingFrustumLock::None,
         };
@@ -3559,24 +3546,15 @@ impl Renderer {
             .player_controller
             .position(&game_state.physics_state);
         let camera_view_direction = game_state.player_controller.view_forward_vector();
-        let (culling_frustum_desc, culling_frustum_focal_point, culling_frustum_forward_vector) =
-            match private_data.frustum_culling_lock {
-                CullingFrustumLock::Full(locked) => locked,
-                CullingFrustumLock::FocalPoint(locked_position) => (
-                    game_state
-                        .player_controller
-                        .view_frustum_with_position(aspect_ratio, locked_position),
-                    locked_position,
-                    camera_view_direction,
-                ),
-                CullingFrustumLock::None => (
-                    game_state
-                        .player_controller
-                        .view_frustum_with_position(aspect_ratio, camera_position),
-                    camera_position,
-                    camera_view_direction,
-                ),
-            };
+        let culling_frustum_desc = match private_data.frustum_culling_lock {
+            CullingFrustumLock::Full(locked) => locked,
+            CullingFrustumLock::FocalPoint(locked_position) => game_state
+                .player_controller
+                .view_frustum_with_position(aspect_ratio, locked_position),
+            CullingFrustumLock::None => game_state
+                .player_controller
+                .view_frustum_with_position(aspect_ratio, camera_position),
+        };
 
         let culling_frustum = Frustum::from(culling_frustum_desc);
 
@@ -3586,8 +3564,7 @@ impl Renderer {
             game_state,
             framebuffer_size,
             &culling_frustum,
-            culling_frustum_focal_point,
-            culling_frustum_forward_vector,
+            &culling_frustum_desc,
         );
 
         // TODO: compute node bounding spheres here too?

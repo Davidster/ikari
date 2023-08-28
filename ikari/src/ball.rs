@@ -45,10 +45,10 @@ impl BallComponent {
         )
     }
 
-    pub fn update(&mut self, dt: f32) {
+    pub fn update(&mut self, dt: f64) {
         // update position
         let curr_position = self.transform.position();
-        let displacement = self.direction * self.speed * dt;
+        let displacement = self.direction * self.speed * dt as f32;
         let new_position = curr_position + (displacement / 1.0);
         self.transform.set_position(new_position);
 

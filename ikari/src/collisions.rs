@@ -1,7 +1,7 @@
 use glam::f32::Vec3;
 use rand::Rng;
 use rand::SeedableRng;
-use rapier3d::prelude::*;
+use rapier3d_f64::prelude::*;
 
 use crate::mesh::*;
 
@@ -338,10 +338,10 @@ impl From<CameraFrustumDescriptor> for Frustum {
 
 impl CameraFrustumDescriptor {
     pub fn frustum_intersection_test(&self, other: &CameraFrustumDescriptor) -> bool {
-        rapier3d::parry::query::intersection_test(
-            &rapier3d::na::Isometry::identity(),
+        rapier3d_f64::parry::query::intersection_test(
+            &rapier3d_f64::na::Isometry::identity(),
             &self.to_convex_polyhedron(),
-            &rapier3d::na::Isometry::identity(),
+            &rapier3d_f64::na::Isometry::identity(),
             &other.to_convex_polyhedron(),
         )
         .unwrap()
@@ -352,7 +352,13 @@ impl CameraFrustumDescriptor {
             .to_basic_mesh()
             .vertices
             .iter()
-            .map(|vertex| Point::from(vertex.position))
+            .map(|vertex| {
+                Point::from([
+                    vertex.position[0] as f64,
+                    vertex.position[1] as f64,
+                    vertex.position[2] as f64,
+                ])
+            })
             .collect();
         ColliderBuilder::convex_hull(&points)
             .expect("Failed to construct convex hull for frustum")

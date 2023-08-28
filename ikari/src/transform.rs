@@ -84,17 +84,17 @@ impl Transform {
         )
     }
 
-    pub fn apply_isometry(&mut self, isometry: Isometry<f32>) {
+    pub fn apply_isometry(&mut self, isometry: Isometry<f64>) {
         self.set_position(Vec3::new(
-            isometry.translation.x,
-            isometry.translation.y,
-            isometry.translation.z,
+            isometry.translation.x as f32,
+            isometry.translation.y as f32,
+            isometry.translation.z as f32,
         ));
         self.set_rotation(Quat::from_xyzw(
-            isometry.rotation.i,
-            isometry.rotation.j,
-            isometry.rotation.k,
-            isometry.rotation.w,
+            isometry.rotation.i as f32,
+            isometry.rotation.j as f32,
+            isometry.rotation.k as f32,
+            isometry.rotation.w as f32,
         ));
     }
 

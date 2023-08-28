@@ -72,7 +72,11 @@ impl PlayerController {
         view_direction: ControlledViewDirection,
     ) -> Self {
         let rigid_body = RigidBodyBuilder::dynamic()
-            .translation(vector![position.x, position.y, position.z])
+            .translation(vector![
+                position.x as f64,
+                position.y as f64,
+                position.z as f64
+            ])
             .lock_rotations()
             .build();
         let collider = ColliderBuilder::capsule_y(0.5, 0.25)
@@ -314,9 +318,9 @@ impl PlayerController {
         let current_linear_velocity = rigid_body.linvel();
         rigid_body.set_linvel(
             vector![
-                new_linear_velocity.x,
-                current_linear_velocity.y, // preserve effect of gravity
-                new_linear_velocity.z
+                new_linear_velocity.x as f64,
+                current_linear_velocity.y as f64, // preserve effect of gravity
+                new_linear_velocity.z as f64
             ],
             true,
         );
@@ -350,7 +354,7 @@ impl PlayerController {
             .get(self.rigid_body_handle)
             .unwrap()
             .translation();
-        Vec3::new(position.x, position.y, position.z)
+        Vec3::new(position.x as f32, position.y as f32, position.z as f32)
     }
 
     pub fn view_forward_vector(&self) -> Vec3 {

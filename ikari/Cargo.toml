@@ -56,7 +56,7 @@ winit.workspace = true
 
 # math
 rand = { version = "0.8", features = ["small_rng"] }
-rapier3d = "0.17.2"
+rapier3d-f64 = "0.17.2"
 glam = { version = "0.24.1", features = ["approx", "bytemuck"] }
 approx = "0.5"
 

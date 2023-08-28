@@ -30,7 +30,7 @@ use std::{
 
 use anyhow::Result;
 use glam::f32::{Vec3, Vec4};
-use rapier3d::prelude::*;
+use rapier3d_f64::prelude::*;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
 pub const INITIAL_ENABLE_VSYNC: bool = true;
@@ -823,14 +823,14 @@ pub async fn init_game_state(
     // );
     let floor_thickness = 0.1;
     let floor_collider = ColliderBuilder::cuboid(
-        floor_transform.scale().x,
-        floor_thickness / 2.0,
-        floor_transform.scale().z,
+        floor_transform.scale().x as f64,
+        floor_thickness as f64 / 2.0,
+        floor_transform.scale().z as f64,
     )
     .translation(vector![
-        floor_transform.position().x / 2.0,
-        floor_transform.position().y - floor_thickness / 2.0,
-        floor_transform.position().z / 2.0
+        floor_transform.position().x as f64 / 2.0,
+        floor_transform.position().y as f64 - (floor_thickness / 2.0),
+        floor_transform.position().z as f64 / 2.0
     ])
     .collision_groups(
         InteractionGroups::all().with_memberships(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
@@ -872,12 +872,12 @@ pub async fn init_game_state(
         );
         let bouncing_ball_rigid_body = RigidBodyBuilder::dynamic()
             .translation(vector![
-                bouncing_ball_node.transform.position().x,
-                bouncing_ball_node.transform.position().y,
-                bouncing_ball_node.transform.position().z
+                bouncing_ball_node.transform.position().x as f64,
+                bouncing_ball_node.transform.position().y as f64,
+                bouncing_ball_node.transform.position().z as f64
             ])
             .build();
-        let bouncing_ball_collider = ColliderBuilder::ball(bouncing_ball_radius)
+        let bouncing_ball_collider = ColliderBuilder::ball(bouncing_ball_radius as f64)
             .collision_groups(
                 InteractionGroups::all().with_memberships(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
             )
@@ -1495,7 +1495,7 @@ pub fn update_game_state(
         .prev_balls
         .iter()
         .zip(game_state.next_balls.iter())
-        .map(|(prev_ball, next_ball)| prev_ball.lerp(next_ball, alpha))
+        .map(|(prev_ball, next_ball)| prev_ball.lerp(next_ball, alpha as f32))
         .collect();
     game_state
         .ball_node_ids
@@ -1514,7 +1514,7 @@ pub fn update_game_state(
             .iter_mut()
             .find(|animation| animation.name == Some(String::from("jump_up_root_motion")))
             .map(|animation| animation.state.current_time_seconds * 2.0)
-            .unwrap_or(global_time_seconds * 0.5);
+            .unwrap_or(global_time_seconds as f32 * 0.5);
 
         // point_light_0.color = lerp_vec(
         //     LIGHT_COLOR_A,
@@ -1583,7 +1583,7 @@ pub fn update_game_state(
 
     // rotate the test object
     let rotational_displacement =
-        make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), frame_time_seconds / 5.0);
+        make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), frame_time_seconds as f32 / 5.0);
     if let Some(node) = game_state
         .scene
         .get_node_mut(game_state.test_object_node_id)
@@ -1645,7 +1645,7 @@ pub fn update_game_state(
         node.transform.apply_isometry(*ball_body.position());
     }
 
-    physics_state.integration_parameters.dt = frame_time_seconds;
+    physics_state.integration_parameters.dt = frame_time_seconds as f64;
     game_state
         .physics_balls
         .iter()
@@ -1711,10 +1711,18 @@ pub fn update_game_state(
                 .position(&game_state.physics_state);
             let direction_vec = game_state.player_controller.view_direction.to_vector();
             let ray = Ray::new(
-                point![player_position.x, player_position.y, player_position.z],
-                vector![direction_vec.x, direction_vec.y, direction_vec.z],
+                point![
+                    player_position.x as f64,
+                    player_position.y as f64,
+                    player_position.z as f64
+                ],
+                vector![
+                    direction_vec.x as f64,
+                    direction_vec.y as f64,
+                    direction_vec.z as f64
+                ],
             );
-            let max_distance = ARENA_SIDE_LENGTH * 10.0;
+            let max_distance = ARENA_SIDE_LENGTH as f64 * 10.0;
             let solid = true;
             if let Some((collider_handle, collision_point_distance)) =
                 game_state.physics_state.query_pipeline.cast_ray(

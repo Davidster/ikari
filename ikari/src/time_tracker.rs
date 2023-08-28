@@ -21,12 +21,12 @@ impl TimeTracker {
         self.current_frame_start_instant = Instant::now();
     }
 
-    pub fn global_time_seconds(&self) -> f32 {
-        self.first_frame_instant.elapsed().as_secs_f32()
+    pub fn global_time_seconds(&self) -> f64 {
+        self.first_frame_instant.elapsed().as_secs_f64()
     }
 
-    pub fn last_frame_time_seconds(&self) -> f32 {
-        self.last_frame_start_instant.elapsed().as_secs_f32()
+    pub fn last_frame_time_seconds(&self) -> f64 {
+        self.last_frame_start_instant.elapsed().as_secs_f64()
     }
 }
 

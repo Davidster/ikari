@@ -5,7 +5,7 @@ use crate::transform::*;
 
 use glam::f32::Vec3;
 
-const RESTITUTION: f32 = 0.1;
+const RESTITUTION: f64 = 0.1;
 
 #[derive(Clone, Debug)]
 pub struct PhysicsBall {
@@ -35,9 +35,13 @@ impl PhysicsBall {
         );
 
         let rigid_body = RigidBodyBuilder::dynamic()
-            .translation(vector![position.x, position.y, position.z])
+            .translation(vector![
+                position.x as f64,
+                position.y as f64,
+                position.z as f64
+            ])
             .build();
-        let collider = ColliderBuilder::ball(radius)
+        let collider = ColliderBuilder::ball(radius as f64)
             .collision_groups(
                 InteractionGroups::all().with_memberships(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
             )

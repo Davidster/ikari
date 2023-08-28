@@ -83,12 +83,16 @@ impl Character {
                     self.collision_box_nodes
                         .push(scene.add_node(Default::default()).id());
                     let box_scale = transform_decomposed.scale;
-                    let the_box = ColliderBuilder::cuboid(box_scale.x, box_scale.y, box_scale.z)
-                        .collision_groups(
-                            InteractionGroups::all()
-                                .with_memberships(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
-                        )
-                        .build();
+                    let the_box = ColliderBuilder::cuboid(
+                        box_scale.x as f64,
+                        box_scale.y as f64,
+                        box_scale.z as f64,
+                    )
+                    .collision_groups(
+                        InteractionGroups::all()
+                            .with_memberships(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
+                    )
+                    .build();
                     self.collision_box_colliders
                         .push(physics_state.collider_set.insert(the_box));
                 }
@@ -102,15 +106,15 @@ impl Character {
                 {
                     collider.set_position(Isometry::from_parts(
                         nalgebra::Translation3::new(
-                            transform_decomposed.position.x,
-                            transform_decomposed.position.y,
-                            transform_decomposed.position.z,
+                            transform_decomposed.position.x as f64,
+                            transform_decomposed.position.y as f64,
+                            transform_decomposed.position.z as f64,
                         ),
                         nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
-                            transform_decomposed.rotation.w,
-                            transform_decomposed.rotation.x,
-                            transform_decomposed.rotation.y,
-                            transform_decomposed.rotation.z,
+                            transform_decomposed.rotation.w as f64,
+                            transform_decomposed.rotation.x as f64,
+                            transform_decomposed.rotation.y as f64,
+                            transform_decomposed.rotation.z as f64,
                         )),
                     ))
                 }

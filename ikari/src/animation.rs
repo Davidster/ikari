@@ -56,7 +56,7 @@ struct KeyframeTime {
     time: f32,
 }
 
-pub fn step_animations(scene: &mut Scene, delta_time_seconds: f32) {
+pub fn step_animations(scene: &mut Scene, delta_time_seconds: f64) {
     pub enum Op {
         Translation(Vec3),
         Scale(Vec3),
@@ -69,7 +69,8 @@ pub fn step_animations(scene: &mut Scene, delta_time_seconds: f32) {
         if !state.is_playing {
             continue;
         }
-        state.current_time_seconds += delta_time_seconds * animation.speed;
+        // TODO: use f64?
+        state.current_time_seconds += delta_time_seconds as f32 * animation.speed;
         if state.loop_type == LoopType::Once
             && state.current_time_seconds > animation.length_seconds
         {
