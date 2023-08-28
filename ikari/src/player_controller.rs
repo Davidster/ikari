@@ -357,23 +357,20 @@ impl PlayerController {
         self.view_direction.to_vector()
     }
 
-    #[allow(dead_code)]
-    pub fn view_frustum(&self, physics_state: &PhysicsState, aspect_ratio: f32) -> Frustum {
-        self.view_frustum_with_position(aspect_ratio, self.position(physics_state))
-    }
-
-    pub fn view_frustum_with_position(&self, aspect_ratio: f32, camera_position: Vec3) -> Frustum {
+    pub fn view_frustum_with_position(
+        &self,
+        aspect_ratio: f32,
+        camera_position: Vec3,
+    ) -> CameraFrustumDescriptor {
         let camera_forward = self.view_direction.to_vector();
-        let camera_right = camera_forward.cross(Vec3::new(0.0, 1.0, 0.0)).normalize();
 
-        Frustum::from_camera_params(
-            camera_position,
-            camera_forward,
-            camera_right,
+        CameraFrustumDescriptor {
+            focal_point: camera_position,
+            forward_vector: camera_forward,
             aspect_ratio,
-            NEAR_PLANE_DISTANCE,
-            FAR_PLANE_DISTANCE,
-            FOV_Y_DEG,
-        )
+            near_plane_distance: NEAR_PLANE_DISTANCE,
+            far_plane_distance: FAR_PLANE_DISTANCE,
+            fov_y_rad: deg_to_rad(FOV_Y_DEG),
+        }
     }
 }

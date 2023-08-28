@@ -29,7 +29,7 @@ pub struct Frustum {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct FrustumDescriptor {
+pub struct CameraFrustumDescriptor {
     pub focal_point: Vec3,
     pub forward_vector: Vec3,
     pub aspect_ratio: f32,
@@ -186,43 +186,6 @@ impl Sphere {
 }
 
 impl Frustum {
-    pub fn from_camera_params(
-        position: Vec3,
-        forward: Vec3,
-        right: Vec3,
-        aspect_ratio: f32,
-        near_plane_distance: f32,
-        far_plane_distance: f32,
-        fov_y_deg: f32,
-    ) -> Self {
-        // see https://learnopengl.com/Guest-Articles/2021/Scene/Frustum-Culling
-        let up = right.cross(forward).normalize();
-        let half_v_side = far_plane_distance * (deg_to_rad(fov_y_deg) * 0.5).tan();
-        let half_h_side = half_v_side * aspect_ratio;
-        let front_mult_far = far_plane_distance * forward;
-
-        Self {
-            left: Plane::from_normal_and_point(
-                (front_mult_far - right * half_h_side).cross(up),
-                position,
-            ),
-            right: Plane::from_normal_and_point(
-                up.cross(front_mult_far + right * half_h_side),
-                position,
-            ),
-            bottom: Plane::from_normal_and_point(
-                (front_mult_far + up * half_v_side).cross(right),
-                position,
-            ),
-            top: Plane::from_normal_and_point(
-                right.cross(front_mult_far - up * half_v_side),
-                position,
-            ),
-            near: Plane::from_normal_and_point(forward, position + near_plane_distance * forward),
-            far: Plane::from_normal_and_point(-forward, position + front_mult_far),
-        }
-    }
-
     pub fn planes(&self) -> [Plane; 6] {
         [
             self.left,
@@ -334,17 +297,53 @@ impl Frustum {
     }
 }
 
-impl FrustumDescriptor {
-    pub fn frustum_intersection_test(
-        &self,
-        other: &FrustumDescriptor,
-    ) -> Option<rapier3d::parry::query::contact::Contact> {
-        rapier3d::parry::query::contact::contact(
+impl From<CameraFrustumDescriptor> for Frustum {
+    fn from(desc: CameraFrustumDescriptor) -> Self {
+        let right = desc
+            .forward_vector
+            .cross(Vec3::new(0.0, 1.0, 0.0))
+            .normalize();
+        let forward = desc.forward_vector;
+
+        // see https://learnopengl.com/Guest-Articles/2021/Scene/Frustum-Culling
+        let up = right.cross(forward).normalize();
+        let half_v_side = desc.far_plane_distance * (desc.fov_y_rad * 0.5).tan();
+        let half_h_side = half_v_side * desc.aspect_ratio;
+        let front_mult_far = desc.far_plane_distance * forward;
+
+        Self {
+            left: Plane::from_normal_and_point(
+                (front_mult_far - right * half_h_side).cross(up),
+                desc.focal_point,
+            ),
+            right: Plane::from_normal_and_point(
+                up.cross(front_mult_far + right * half_h_side),
+                desc.focal_point,
+            ),
+            bottom: Plane::from_normal_and_point(
+                (front_mult_far + up * half_v_side).cross(right),
+                desc.focal_point,
+            ),
+            top: Plane::from_normal_and_point(
+                right.cross(front_mult_far - up * half_v_side),
+                desc.focal_point,
+            ),
+            near: Plane::from_normal_and_point(
+                forward,
+                desc.focal_point + desc.near_plane_distance * forward,
+            ),
+            far: Plane::from_normal_and_point(-forward, desc.focal_point + front_mult_far),
+        }
+    }
+}
+
+impl CameraFrustumDescriptor {
+    pub fn frustum_intersection_test(&self, other: &CameraFrustumDescriptor) -> bool {
+        rapier3d::parry::query::intersection_test(
             &rapier3d::na::Isometry::identity(),
             &self.to_convex_polyhedron(),
             &rapier3d::na::Isometry::identity(),
             &other.to_convex_polyhedron(),
-            0.0,
         )
         .unwrap()
     }

@@ -659,7 +659,7 @@ impl Program for UiOverlay {
             );
 
             // profile dump
-            if cfg!(not(target_arch = "wasm32")) {
+            if can_generate_profile_dump() {
                 if let Some(pending_perf_dump) = &self.pending_perf_dump {
                     let (message, color) = if self.perf_dump_completion_time.is_some() {
                         match *pending_perf_dump.lock().unwrap() {

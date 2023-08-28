@@ -1508,13 +1508,20 @@ pub fn update_game_state(
         });
 
     if let Some(point_light_0) = game_state.point_lights.get_mut(0) {
+        let t = game_state
+            .scene
+            .animations
+            .iter_mut()
+            .find(|animation| animation.name == Some(String::from("jump_up_root_motion")))
+            .map(|animation| animation.state.current_time_seconds * 2.0)
+            .unwrap_or(global_time_seconds * 0.5);
+
         // point_light_0.color = lerp_vec(
         //     LIGHT_COLOR_A,
         //     LIGHT_COLOR_B,
         //     (global_time_seconds * 2.0).sin(),
         // );
         if let Some(node) = game_state.scene.get_node_mut(point_light_0.node_id) {
-            let t = global_time_seconds * 0.5;
             // let t = game_state.player_controller.speed;
             node.transform.set_position(
                 Vec3::new(0.0, 6.5, 0.0)
