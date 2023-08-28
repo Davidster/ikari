@@ -88,20 +88,20 @@ struct VertexInput {
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) world_position: vec3<f32>,
-    @location(1) world_normal: vec3<f32>,
-    @location(2) world_tangent: vec3<f32>,
-    @location(3) world_bitangent: vec3<f32>,
+    // @location(0) world_position: vec3<f32>,
+    // @location(1) world_normal: vec3<f32>,
+    // @location(2) world_tangent: vec3<f32>,
+    // @location(3) world_bitangent: vec3<f32>,
     @location(4) tex_coords: vec2<f32>,
     @location(5) vertex_color: vec4<f32>,
     @location(6) base_color_factor: vec4<f32>,
-    @location(7) emissive_factor: vec4<f32>,
-    @location(8) metallicness_factor: f32,
-    @location(9) roughness_factor: f32,
-    @location(10) normal_scale: f32,
-    @location(11) occlusion_strength: f32,
-    @location(12) alpha_cutoff: f32,
-    @location(13) object_tangent: vec3<f32>,
+    // @location(7) emissive_factor: vec4<f32>,
+    // @location(8) metallicness_factor: f32,
+    // @location(9) roughness_factor: f32,
+    // @location(10) normal_scale: f32,
+    // @location(11) occlusion_strength: f32,
+    // @location(12) alpha_cutoff: f32,
+    // @location(13) object_tangent: vec3<f32>,
 }
 
 struct FragmentOutput {
@@ -162,15 +162,15 @@ var ambient_occlusion_map_texture: texture_2d<f32>;
 var ambient_occlusion_map_sampler: sampler;
 
 @group(1) @binding(0)
-var skybox_texture: texture_cube<f32>;
+var skybox_texture: texture_cube_array<f32>;
 @group(1) @binding(1)
 var skybox_sampler: sampler;
 @group(1) @binding(2)
-var diffuse_env_map_texture: texture_cube<f32>;
+var diffuse_env_map_texture: texture_cube_array<f32>;
 @group(1) @binding(3)
 var diffuse_env_map_sampler: sampler;
 @group(1) @binding(4)
-var specular_env_map_texture: texture_cube<f32>;
+var specular_env_map_texture: texture_cube_array<f32>;
 @group(1) @binding(5)
 var specular_env_map_sampler: sampler;
 @group(1) @binding(6)
@@ -210,41 +210,42 @@ fn do_vertex_shade(
     vshader_input: VertexInput,
     camera_view_proj: mat4x4<f32>,
     model_transform: mat4x4<f32>,
-    skin_transform: mat4x4<f32>,
+    // skin_transform: mat4x4<f32>,
     base_color_factor: vec4<f32>,
-    emissive_factor: vec4<f32>,
-    metallicness_factor: f32,
-    roughness_factor: f32,
+    // emissive_factor: vec4<f32>,
+    // metallicness_factor: f32,
+    // roughness_factor: f32,
     normal_scale: f32,
-    occlusion_strength: f32,
-    alpha_cutoff: f32
+    // occlusion_strength: f32,
+    // alpha_cutoff: f32
 ) -> VertexOutput {
     var out: VertexOutput;
-    out.world_normal = vshader_input.object_normal;
+    // out.world_normal = vshader_input.object_normal;
 
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
-    let skinned_model_transform = model_transform * skin_transform;
+    // let skinned_model_transform = model_transform * skin_transform;
+    let skinned_model_transform = model_transform;
     let world_position = skinned_model_transform * object_position;
     let clip_position = camera_view_proj * skinned_model_transform * object_position;
-    let world_normal = normalize((skinned_model_transform * vec4<f32>(vshader_input.object_normal, 0.0)).xyz);
-    let world_tangent = normalize((skinned_model_transform * vec4<f32>(vshader_input.object_tangent, 0.0)).xyz);
-    let world_bitangent = normalize((skinned_model_transform * vec4<f32>(vshader_input.object_bitangent, 0.0)).xyz);
+    let world_normal = ((skinned_model_transform * vec4<f32>(vshader_input.object_normal, 0.0)).xyz);
+    let world_tangent = ((skinned_model_transform * vec4<f32>(vshader_input.object_tangent, 0.0)).xyz);
+    let world_bitangent = ((skinned_model_transform * vec4<f32>(vshader_input.object_bitangent, 0.0)).xyz);
 
     out.clip_position = clip_position;
-    out.world_position = world_position.xyz;
-    out.world_normal = world_normal;
-    out.world_tangent = world_tangent;
-    out.object_tangent = vshader_input.object_tangent;
-    out.world_bitangent = world_bitangent;
+    // out.world_position = world_position.xyz;
+    // out.world_normal = world_normal;
+    // out.world_tangent = world_tangent;
+    // out.object_tangent = vshader_input.object_tangent;
+    // out.world_bitangent = world_bitangent;
     out.tex_coords = vshader_input.object_tex_coords;
     out.vertex_color = vshader_input.object_color;
     out.base_color_factor = base_color_factor;
-    out.emissive_factor = emissive_factor;
-    out.metallicness_factor = metallicness_factor;
-    out.roughness_factor = roughness_factor;
-    out.normal_scale = normal_scale;
-    out.occlusion_strength = occlusion_strength;
-    out.alpha_cutoff = alpha_cutoff;
+    // out.emissive_factor = emissive_factor;
+    // out.metallicness_factor = metallicness_factor;
+    // out.roughness_factor = roughness_factor;
+    // out.normal_scale = normal_scale;
+    // out.occlusion_strength = occlusion_strength;
+    // out.alpha_cutoff = alpha_cutoff;
 
     return out;
 }
@@ -263,26 +264,26 @@ fn vs_main(
         instance.model_transform_3,
     );
 
-    let bone_indices = vshader_input.bone_indices;
-    let bone_weights = vshader_input.bone_weights; // one f32 per weight
-    let skin_transform_0 = bone_weights.x * bones_uniform.value[bone_indices.x];
-    let skin_transform_1 = bone_weights.y * bones_uniform.value[bone_indices.y];
-    let skin_transform_2 = bone_weights.z * bones_uniform.value[bone_indices.z];
-    let skin_transform_3 = bone_weights.w * bones_uniform.value[bone_indices.w];
-    let skin_transform = skin_transform_0 + skin_transform_1 + skin_transform_2 + skin_transform_3;
+    // let bone_indices = vshader_input.bone_indices;
+    // let bone_weights = vshader_input.bone_weights; // one f32 per weight
+    // let skin_transform_0 = bone_weights.x * bones_uniform.value[bone_indices.x];
+    // let skin_transform_1 = bone_weights.y * bones_uniform.value[bone_indices.y];
+    // let skin_transform_2 = bone_weights.z * bones_uniform.value[bone_indices.z];
+    // let skin_transform_3 = bone_weights.w * bones_uniform.value[bone_indices.w];
+    // let skin_transform = skin_transform_0 + skin_transform_1 + skin_transform_2 + skin_transform_3;
 
     return do_vertex_shade(
         vshader_input,
         CAMERA.view_proj,
         model_transform,
-        skin_transform,
+        // skin_transform,
         instance.base_color_factor,
-        instance.emissive_factor,
-        instance.mrno[0],
-        instance.mrno[1],
+        // instance.emissive_factor,
+        // instance.mrno[0],
+        // instance.mrno[1],
         instance.mrno[2],
-        instance.mrno[3],
-        instance.alpha_cutoff[0],
+        // instance.mrno[3],
+        // instance.alpha_cutoff[0],
     );
 }
 
@@ -618,17 +619,17 @@ fn validate_jittered_sample_coordinate(in_coord: vec2<f32>, face_slice: f32) -> 
 }
 
 fn do_fragment_shade(
-    world_position: vec3<f32>,
-    world_normal: vec3<f32>,
+    // world_position: vec3<f32>,
+    // world_normal: vec3<f32>,
     tex_coords: vec2<f32>,
     vertex_color: vec4<f32>,
-    camera_position: vec3<f32>,
+    // camera_position: vec3<f32>,
     base_color_factor: vec4<f32>,
-    emissive_factor: vec4<f32>,
-    metallicness_factor: f32,
-    roughness_factor: f32,
-    occlusion_strength: f32,
-    alpha_cutoff: f32
+    // emissive_factor: vec4<f32>,
+    // metallicness_factor: f32,
+    // roughness_factor: f32,
+    // occlusion_strength: f32,
+    // alpha_cutoff: f32
 ) -> FragmentOutput {
 
     // let roughness = 0.12;
@@ -640,454 +641,460 @@ fn do_fragment_shade(
     );
     
     let base_color = base_color_t.rgb * base_color_factor.rgb * vertex_color.rgb;
-    let metallic_roughness = textureSample(
-        metallic_roughness_map_texture,
-        metallic_roughness_map_sampler,
-        tex_coords
-    ).rgb;
-    let metallicness = metallic_roughness.z * metallicness_factor;
-    let roughness = metallic_roughness.y * roughness_factor;
-    let ambient_occlusion = textureSample(
-        ambient_occlusion_map_texture,
-        ambient_occlusion_map_sampler,
-        tex_coords
-    ).r;
-    let emissive = textureSample(
-        emissive_map_texture,
-        emissive_map_sampler,
-        tex_coords
-    ).rgb * emissive_factor.rgb;
-
-    let to_viewer_vec = normalize(camera_position - world_position);
-    let reflection_vec = reflect(-to_viewer_vec, normalize(world_normal));
-    let surface_reflection_at_zero_incidence_dialectric = vec3<f32>(0.04);
-    let surface_reflection_at_zero_incidence = mix(
-        surface_reflection_at_zero_incidence_dialectric,
-        base_color,
-        metallicness
-    );
-
-    let MAX_REFLECTION_LOD = 4.0;
-    let pre_filtered_color = textureSampleLevel(
-        specular_env_map_texture,
-        specular_env_map_sampler,
-        world_normal_to_cubemap_vec(reflection_vec),
-        roughness * MAX_REFLECTION_LOD
-    ).rgb;
-
-    // copy variable names from the math formulas
-    let n = world_normal;
-    let w0 = to_viewer_vec;
-    let v = w0;
-    let a = roughness;
-    let f0 = surface_reflection_at_zero_incidence;
-
-    let n_dot_v = max(dot(n, v), 0.0);
-    let brdf_lut_res = textureSample(brdf_lut_texture, brdf_lut_sampler, vec2<f32>(n_dot_v, roughness));
-    let env_map_diffuse_irradiance = textureSample(diffuse_env_map_texture, diffuse_env_map_sampler, world_normal_to_cubemap_vec(world_normal)).rgb;
-
-    if base_color_t.a <= alpha_cutoff {
-        discard;
-    }
-
-    var random_seed_x = 1000.0 * vec3<f32>(
-        world_position.x,
-        world_position.y,
-        world_position.z,
-    );
-    var random_seed_y = random_seed_x + 1000.0;
-    var random_jitter = vec2(2.0, 2.0) * vec2(noise3(random_seed_x), noise3(random_seed_y)) - vec2(1.0, 1.0);
-
-    let shadow_bias = get_shadow_bias();
-    let soft_shadow_grid_dims = get_soft_shadow_grid_dims();
-
-    var total_shadow_occlusion_acc = 0.0;
-    var total_light_count = 0u;
-
-    var total_light_irradiance = vec3<f32>(0.0);
-    for (var light_index = 0u; light_index < MAX_LIGHTS; light_index = light_index + 1u) {
-        let light = point_lights.values[light_index];
-
-        if light.color.w < epsilon {
-            // break seems to be decently faster than continue here
-            break;
-        }
-
-        let light_color_scaled = light.color.xyz * light.color.w;
-
-        let from_shadow_vec = world_position - light.position.xyz;
-        let to_light_vec = -from_shadow_vec;
-        let to_light_vec_norm = normalize(to_light_vec);
-        let light_space_position_uv_and_face_slice = get_sample_coordinate(world_normal_to_cubemap_vec(from_shadow_vec));
-        let light_space_position_uv = light_space_position_uv_and_face_slice.xy;
-        let light_space_position_face_slice = light_space_position_uv_and_face_slice.z;
-        let shadow_camera_far_plane_distance = 1000.0;
-        let current_depth = length(from_shadow_vec) / shadow_camera_far_plane_distance; // domain is (0, 1), lower means closer to the light
-
-        var shadow_occlusion_acc = 0.0;
-
-        if get_soft_shadows_are_enabled() {
-            // soft shadows code path
-            // TODO: dedupe with directional lights
-
-            var early_test_coords = array<vec2<u32>, 4>(
-                vec2<u32>(0u, 3u),
-                vec2<u32>(1u, 3u),
-                vec2<u32>(2u, 3u),
-                vec2<u32>(3u, 3u)
-            );
-
-            let max_sample_jitter = get_soft_shadow_factor() * 0.67;
-
-            for (var i = 0; i < 4; i++) {
-                let base_sample_jitter = get_soft_shadow_sample_jitter(early_test_coords[i], random_jitter, 4u);
-                // TODO: multiply by current_depth to get softer shadows at a distance?
-                var sample_jitter = base_sample_jitter * max_sample_jitter;
-                sample_jitter.y = sample_jitter.y * 6.0;
-                let closest_depth = textureSampleLevel(
-                    point_shadow_map_textures,
-                    point_shadow_map_sampler,
-                    validate_jittered_sample_coordinate(
-                        light_space_position_uv + sample_jitter, 
-                        light_space_position_face_slice
-                    ),
-                    i32(light_index),
-                    0.0
-                ).r;
-
-                if current_depth - shadow_bias < closest_depth {
-                    shadow_occlusion_acc = shadow_occlusion_acc + 0.25;
-                }
-            }
-
-            let n_dot_l = max(dot(n, to_light_vec_norm), 0.0);
-
-            // if the early test finds the fragment to be completely in shadow, 
-            // completely in light, or its surface isn't facing the light (n_dot_l =< 0)
-            // then skip the extra work that we do to soften the penumbra
-            if (shadow_occlusion_acc - 1.0) * shadow_occlusion_acc * n_dot_l != 0.0 {
-                
-                if soft_shadow_grid_dims > 0u {
-                    // TODO: don't clear shadow_occlusion_acc, we can perserve it and perform fewer samples here
-                    // (skip the samples already done by early test) for a theoretically equivalent level of quality
-                    // and decent performance boost if soft_shadow_grid_dims isn't too high
-                    shadow_occlusion_acc = 0.0;
-                }
-
-                for (var i = 0u; i < soft_shadow_grid_dims; i++) {
-                    for (var j = 0u; j < soft_shadow_grid_dims; j++) {
-                        let coord = vec2<u32>(i, j);
-                        let base_sample_jitter = get_soft_shadow_sample_jitter(coord, random_jitter, soft_shadow_grid_dims);
-                        // TODO: multiply by current_depth to get softer shadows at a distance?
-                        var sample_jitter = base_sample_jitter * max_sample_jitter;
-                        sample_jitter.y = sample_jitter.y * 6.0;
-                        let closest_depth = textureSampleLevel(
-                            point_shadow_map_textures,
-                            point_shadow_map_sampler,
-                            validate_jittered_sample_coordinate(
-                                light_space_position_uv + sample_jitter, 
-                                light_space_position_face_slice
-                            ),
-                            i32(light_index),
-                            0.0
-                        ).r;
-                        
-                        if current_depth - shadow_bias < closest_depth {
-                            shadow_occlusion_acc = shadow_occlusion_acc + (1.0 / f32(soft_shadow_grid_dims * soft_shadow_grid_dims));
-                        }
-                    }
-                }
-            }
-
-            /*
-            // old method, way slower.
-            let sample_count = 4.0;
-            let random_jitter_3d = vec3(random_jitter, 2.0 * noise3(random_seed_y + 1000.0) - 1.0);
-            let max_sample_jitter = get_soft_shadow_factor() * 100.0;
-            for (var x = 0.0; x < sample_count; x = x + 1.0) {
-                for (var y = 0.0; y < sample_count; y = y + 1.0) {
-                    for (var z = 0.0; z < sample_count; z = z + 1.0) {
-                        let irregular_offset = max_sample_jitter * random_jitter_3d * vec3(x, y, z) / sample_count;
-                        let closest_depth = textureSample(
-                            point_shadow_map_textures,
-                            point_shadow_map_sampler,
-                            get_sample_coordinate(world_normal_to_cubemap_vec(from_shadow_vec + irregular_offset)).xy,
-                            i32(light_index)
-                        ).r;
-                        if current_depth - shadow_bias < closest_depth {
-                            shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
-                        }
-                    }
-                }
-            }
-            shadow_occlusion_acc = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
-            */
-         } else {
-            // hard shadows
-            let closest_depth = textureSampleLevel(
-                point_shadow_map_textures,
-                point_shadow_map_sampler,
-                light_space_position_uv,
-                i32(light_index),
-                0.0
-            ).r;
-            if (current_depth - shadow_bias < closest_depth) {
-                shadow_occlusion_acc = 1.0;
-            }
-         }
-
-        var shadow_occlusion_factor = shadow_occlusion_acc;
-        total_shadow_occlusion_acc = total_shadow_occlusion_acc + shadow_occlusion_acc;
-        total_light_count = total_light_count + 1u;
-
-        if shadow_occlusion_factor < epsilon {
-                continue;
-        }
-
-        let distance_from_light = length(to_light_vec);
-        // https://learnopengl.com/Lighting/Light-casters
-        // let light_attenuation_factor_d20 = 1.0 / (1.0 + 0.22 * distance_from_light + 0.20 * distance_from_light * distance_from_light);
-        // let light_attenuation_factor_d100 = 1.0 / (1.0 + 0.045 * distance_from_light + 0.0075 * distance_from_light * distance_from_light);
-        let light_attenuation_factor_d600 = 1.0 / (1.0 + 0.007 * distance_from_light + 0.0002 * distance_from_light * distance_from_light);
-        // let light_attenuation_factor_d3250 = 1.0 / (1.0 + 0.0014 * distance_from_light + 0.000007 * distance_from_light * distance_from_light);
-        let light_attenuation_factor = light_attenuation_factor_d600;
-
-        let light_irradiance = compute_direct_lighting(
-            world_normal,
-            to_viewer_vec,
-            to_light_vec_norm,
-            light_color_scaled,
-            light_attenuation_factor,
-            base_color,
-            roughness,
-            metallicness,
-            f0
-        );
-        total_light_irradiance = total_light_irradiance + light_irradiance * shadow_occlusion_factor;
-    }
-
-    for (var light_index = 0u; light_index < MAX_LIGHTS; light_index = light_index + 1u) {
-        let light = directional_lights.values[light_index];
-
-        if light.color.w < epsilon {
-            // break seems to be decently faster than continue here
-            break;
-        }
-
-        let light_color_scaled = light.color.xyz * light.color.w;
-
-        // let from_shadow_vec = world_position - light.position.xyz;
-        // let shadow_camera_far_plane_distance = 40.0;
-        // let current_depth = length(from_shadow_vec) / shadow_camera_far_plane_distance;
-        let light_space_position_nopersp = light.world_space_to_light_space * vec4<f32>(world_position, 1.0);
-        let light_space_position = light_space_position_nopersp / light_space_position_nopersp.w;
-        let light_space_position_uv = vec2<f32>(
-            light_space_position.x * 0.5 + 0.5,
-            1.0 - (light_space_position.y * 0.5 + 0.5),
-        );
-        let to_light_vec = light.position.xyz - world_position;
-        let to_light_vec_norm = normalize(to_light_vec);
-
-        var shadow_occlusion_acc = 0.0;
-
-        // assume we're in shadow if we're outside the shadow frustum
-        if light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0 {
-            let current_depth = light_space_position.z; // domain is (0, 1), lower means closer to the light
-            
-            if get_soft_shadows_are_enabled() {
-                // soft shadows code path. costs about 0.15ms extra (per shadow map?) per frame
-                // on an RTX 3060 when compared to hard shadows
-
-                // these coordinates will distribute the early samples
-                // around the edges of the soft shadow poisson sampling disc
-                var early_test_coords = array<vec2<u32>, 4>(
-                    vec2<u32>(0u, 3u),
-                    vec2<u32>(1u, 3u),
-                    vec2<u32>(2u, 3u),
-                    vec2<u32>(3u, 3u)
-                );
-
-                let max_sample_jitter = get_soft_shadow_factor();
-
-                for (var i = 0; i < 4; i++) {
-                    let base_sample_jitter = get_soft_shadow_sample_jitter(early_test_coords[i], random_jitter, 4u);
-                    // TODO: multiply by current_depth to get softer shadows at a distance?
-                    let sample_jitter = base_sample_jitter * max_sample_jitter;
-                    let closest_depth = textureSampleLevel(
-                        directional_shadow_map_textures,
-                        directional_shadow_map_sampler,
-                        light_space_position_uv + sample_jitter,
-                        i32(light_index),
-                        0.0
-                    ).r;
-
-                    if current_depth - shadow_bias < closest_depth {
-                        shadow_occlusion_acc = shadow_occlusion_acc + 0.25;
-                    }
-                }
-
-                let n_dot_l = max(dot(n, to_light_vec_norm), 0.0);
-
-                // if the early test finds the fragment to be completely in shadow, 
-                // completely in light, or its surface isn't facing the light (n_dot_l =< 0)
-                // then skip the extra work that we do to soften the penumbra
-                if (shadow_occlusion_acc - 1.0) * shadow_occlusion_acc * n_dot_l != 0.0 {
-                    
-                    if soft_shadow_grid_dims > 0u {
-                        // TODO: don't clear shadow_occlusion_acc, we can perserve it and perform fewer samples here
-                        // (skip the samples already done by early test) for a theoretically equivalent level of quality
-                        // and decent performance boost if soft_shadow_grid_dims isn't too high
-                        shadow_occlusion_acc = 0.0;
-                    }
-
-                    for (var i = 0u; i < soft_shadow_grid_dims; i++) {
-                        for (var j = 0u; j < soft_shadow_grid_dims; j++) {
-                            let coord = vec2<u32>(i, j);
-                            let base_sample_jitter = get_soft_shadow_sample_jitter(coord, random_jitter, soft_shadow_grid_dims);
-                            // TODO: multiply by current_depth to get softer shadows at a distance?
-                            let sample_jitter = base_sample_jitter * max_sample_jitter;
-                            let closest_depth = textureSampleLevel(
-                                directional_shadow_map_textures,
-                                directional_shadow_map_sampler,
-                                light_space_position_uv + sample_jitter,
-                                i32(light_index),
-                                0.0
-                            ).r;
-                            
-                            if current_depth - shadow_bias < closest_depth {
-                                shadow_occlusion_acc = shadow_occlusion_acc + (1.0 / f32(soft_shadow_grid_dims * soft_shadow_grid_dims));
-                            }
-                        }
-                    }
-                }
-            } else {
-                // hard shadows
-                let closest_depth = textureSampleLevel(
-                    directional_shadow_map_textures,
-                    directional_shadow_map_sampler,
-                    light_space_position_uv,
-                    i32(light_index),
-                    0.0
-                ).r;
-                if light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0 {
-                    if current_depth - shadow_bias < closest_depth {
-                        shadow_occlusion_acc = 1.0;
-                    }
-                } else {
-                    shadow_occlusion_acc = 1.0;
-                }
-            }
-        }
-        
-        var shadow_occlusion_factor = shadow_occlusion_acc;
-        total_shadow_occlusion_acc = total_shadow_occlusion_acc + shadow_occlusion_acc;
-        total_light_count = total_light_count + 1u;        
-
-        if shadow_occlusion_factor < epsilon {
-                continue;
-        }
-
-        let light_attenuation_factor = 1.0;
-
-        // TODO: accumulate total shadow occlusion amount and average light color and only call compute_direct_lighting once?
-        let light_irradiance = compute_direct_lighting(
-            world_normal,
-            to_viewer_vec,
-            to_light_vec_norm,
-            light_color_scaled,
-            light_attenuation_factor,
-            base_color,
-            roughness,
-            metallicness,
-            f0
-        );
-        total_light_irradiance = total_light_irradiance + light_irradiance * shadow_occlusion_factor;
-    }
-
-    if get_shadow_debug_enabled() {
-        total_shadow_occlusion_acc = total_shadow_occlusion_acc / f32(total_light_count);
-        var out: FragmentOutput;
-        out.color = vec4<f32>(total_shadow_occlusion_acc, total_shadow_occlusion_acc, total_shadow_occlusion_acc, 1.0);
-        return out;
-    }
-
-    let fresnel_ambient = fresnel_func_schlick_with_roughness(n_dot_v, f0, a);
-    // mip level count - 1
-    
-    // let pre_filtered_color = textureSample(
-    //     specular_env_map_texture,
-    //     specular_env_map_sampler,
-    //     world_normal_to_cubemap_vec(reflection_vec)
-    // ).rgb;
-
-    let ambient_specular_irradiance = pre_filtered_color * (fresnel_ambient * brdf_lut_res.r + brdf_lut_res.g);
-
-    let kd_ambient = (vec3<f32>(1.0) - fresnel_ambient) * (1.0 - metallicness);
-
-    let ambient_diffuse_irradiance = env_map_diffuse_irradiance * base_color;
-
-    let ambient_irradiance_pre_ao = (kd_ambient * ambient_diffuse_irradiance + ambient_specular_irradiance);
-    let ambient_irradiance = mix(
-        ambient_irradiance_pre_ao,
-        ambient_irradiance_pre_ao * ambient_occlusion,
-        occlusion_strength
-    );
-    // let ambient_irradiance = ambient_irradiance_pre_ao;
-
-    let combined_irradiance_hdr = ambient_irradiance + total_light_irradiance + emissive;
-    // let combined_irradiance_hdr = total_light_irradiance;
-    // let combined_irradiance_ldr = (combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0))) + emissive;
-
-    // let hi = textureSample(shadow_map_texture, shadow_map_sampler, vec2<f32>(0.1, 0.1));
-
-    // let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
-    let final_color = vec4<f32>(combined_irradiance_hdr, 1.0);
 
     var out: FragmentOutput;
-    out.color = final_color;
+    out.color = vec4(base_color, 1.0);
     return out;
+
+    // let metallic_roughness = textureSample(
+    //     metallic_roughness_map_texture,
+    //     metallic_roughness_map_sampler,
+    //     tex_coords
+    // ).rgb;
+    // let metallicness = metallic_roughness.z * metallicness_factor;
+    // let roughness = metallic_roughness.y * roughness_factor;
+    // let ambient_occlusion = textureSample(
+    //     ambient_occlusion_map_texture,
+    //     ambient_occlusion_map_sampler,
+    //     tex_coords
+    // ).r;
+    // let emissive = textureSample(
+    //     emissive_map_texture,
+    //     emissive_map_sampler,
+    //     tex_coords
+    // ).rgb * emissive_factor.rgb;
+
+    // let to_viewer_vec = normalize(camera_position - world_position);
+    // let reflection_vec = reflect(-to_viewer_vec, normalize(world_normal));
+    // let surface_reflection_at_zero_incidence_dialectric = vec3<f32>(0.04);
+    // let surface_reflection_at_zero_incidence = mix(
+    //     surface_reflection_at_zero_incidence_dialectric,
+    //     base_color,
+    //     metallicness
+    // );
+
+    // let MAX_REFLECTION_LOD = 4.0;
+    // let pre_filtered_color = textureSampleLevel(
+    //     specular_env_map_texture,
+    //     specular_env_map_sampler,
+    //     world_normal_to_cubemap_vec(reflection_vec),
+    //     0,
+    //     roughness * MAX_REFLECTION_LOD
+    // ).rgb;
+
+    // // copy variable names from the math formulas
+    // let n = world_normal;
+    // let w0 = to_viewer_vec;
+    // let v = w0;
+    // let a = roughness;
+    // let f0 = surface_reflection_at_zero_incidence;
+
+    // let n_dot_v = max(dot(n, v), 0.0);
+    // let brdf_lut_res = textureSample(brdf_lut_texture, brdf_lut_sampler, vec2<f32>(n_dot_v, roughness));
+    // let env_map_diffuse_irradiance = textureSample(diffuse_env_map_texture, diffuse_env_map_sampler, world_normal_to_cubemap_vec(world_normal), 0).rgb;
+
+    // if base_color_t.a <= alpha_cutoff {
+    //     discard;
+    // }
+
+    // var random_seed_x = 1000.0 * vec3<f32>(
+    //     world_position.x,
+    //     world_position.y,
+    //     world_position.z,
+    // );
+    // var random_seed_y = random_seed_x + 1000.0;
+    // var random_jitter = vec2(2.0, 2.0) * vec2(noise3(random_seed_x), noise3(random_seed_y)) - vec2(1.0, 1.0);
+
+    // let shadow_bias = get_shadow_bias();
+    // let soft_shadow_grid_dims = get_soft_shadow_grid_dims();
+
+    // var total_shadow_occlusion_acc = 0.0;
+    // var total_light_count = 0u;
+
+    // var total_light_irradiance = vec3<f32>(0.0);
+    // for (var light_index = 0u; light_index < MAX_LIGHTS; light_index = light_index + 1u) {
+    //     let light = point_lights.values[light_index];
+
+    //     if light.color.w < epsilon {
+    //         // break seems to be decently faster than continue here
+    //         break;
+    //     }
+
+    //     let light_color_scaled = light.color.xyz * light.color.w;
+
+    //     let from_shadow_vec = world_position - light.position.xyz;
+    //     let to_light_vec = -from_shadow_vec;
+    //     let to_light_vec_norm = normalize(to_light_vec);
+    //     let light_space_position_uv_and_face_slice = get_sample_coordinate(world_normal_to_cubemap_vec(from_shadow_vec));
+    //     let light_space_position_uv = light_space_position_uv_and_face_slice.xy;
+    //     let light_space_position_face_slice = light_space_position_uv_and_face_slice.z;
+    //     let shadow_camera_far_plane_distance = 1000.0;
+    //     let current_depth = length(from_shadow_vec) / shadow_camera_far_plane_distance; // domain is (0, 1), lower means closer to the light
+
+    //     var shadow_occlusion_acc = 0.0;
+
+    //     if get_soft_shadows_are_enabled() {
+    //         // soft shadows code path
+    //         // TODO: dedupe with directional lights
+
+    //         var early_test_coords = array<vec2<u32>, 4>(
+    //             vec2<u32>(0u, 3u),
+    //             vec2<u32>(1u, 3u),
+    //             vec2<u32>(2u, 3u),
+    //             vec2<u32>(3u, 3u)
+    //         );
+
+    //         let max_sample_jitter = get_soft_shadow_factor() * 0.67;
+
+    //         for (var i = 0; i < 4; i++) {
+    //             let base_sample_jitter = get_soft_shadow_sample_jitter(early_test_coords[i], random_jitter, 4u);
+    //             // TODO: multiply by current_depth to get softer shadows at a distance?
+    //             var sample_jitter = base_sample_jitter * max_sample_jitter;
+    //             sample_jitter.y = sample_jitter.y * 6.0;
+    //             let closest_depth = textureSampleLevel(
+    //                 point_shadow_map_textures,
+    //                 point_shadow_map_sampler,
+    //                 validate_jittered_sample_coordinate(
+    //                     light_space_position_uv + sample_jitter, 
+    //                     light_space_position_face_slice
+    //                 ),
+    //                 i32(light_index),
+    //                 0.0
+    //             ).r;
+
+    //             if current_depth - shadow_bias < closest_depth {
+    //                 shadow_occlusion_acc = shadow_occlusion_acc + 0.25;
+    //             }
+    //         }
+
+    //         let n_dot_l = max(dot(n, to_light_vec_norm), 0.0);
+
+    //         // if the early test finds the fragment to be completely in shadow, 
+    //         // completely in light, or its surface isn't facing the light (n_dot_l =< 0)
+    //         // then skip the extra work that we do to soften the penumbra
+    //         if (shadow_occlusion_acc - 1.0) * shadow_occlusion_acc * n_dot_l != 0.0 {
+                
+    //             if soft_shadow_grid_dims > 0u {
+    //                 // TODO: don't clear shadow_occlusion_acc, we can perserve it and perform fewer samples here
+    //                 // (skip the samples already done by early test) for a theoretically equivalent level of quality
+    //                 // and decent performance boost if soft_shadow_grid_dims isn't too high
+    //                 shadow_occlusion_acc = 0.0;
+    //             }
+
+    //             for (var i = 0u; i < soft_shadow_grid_dims; i++) {
+    //                 for (var j = 0u; j < soft_shadow_grid_dims; j++) {
+    //                     let coord = vec2<u32>(i, j);
+    //                     let base_sample_jitter = get_soft_shadow_sample_jitter(coord, random_jitter, soft_shadow_grid_dims);
+    //                     // TODO: multiply by current_depth to get softer shadows at a distance?
+    //                     var sample_jitter = base_sample_jitter * max_sample_jitter;
+    //                     sample_jitter.y = sample_jitter.y * 6.0;
+    //                     let closest_depth = textureSampleLevel(
+    //                         point_shadow_map_textures,
+    //                         point_shadow_map_sampler,
+    //                         validate_jittered_sample_coordinate(
+    //                             light_space_position_uv + sample_jitter, 
+    //                             light_space_position_face_slice
+    //                         ),
+    //                         i32(light_index),
+    //                         0.0
+    //                     ).r;
+                        
+    //                     if current_depth - shadow_bias < closest_depth {
+    //                         shadow_occlusion_acc = shadow_occlusion_acc + (1.0 / f32(soft_shadow_grid_dims * soft_shadow_grid_dims));
+    //                     }
+    //                 }
+    //             }
+    //         }
+
+    //         /*
+    //         // old method, way slower.
+    //         let sample_count = 4.0;
+    //         let random_jitter_3d = vec3(random_jitter, 2.0 * noise3(random_seed_y + 1000.0) - 1.0);
+    //         let max_sample_jitter = get_soft_shadow_factor() * 100.0;
+    //         for (var x = 0.0; x < sample_count; x = x + 1.0) {
+    //             for (var y = 0.0; y < sample_count; y = y + 1.0) {
+    //                 for (var z = 0.0; z < sample_count; z = z + 1.0) {
+    //                     let irregular_offset = max_sample_jitter * random_jitter_3d * vec3(x, y, z) / sample_count;
+    //                     let closest_depth = textureSample(
+    //                         point_shadow_map_textures,
+    //                         point_shadow_map_sampler,
+    //                         get_sample_coordinate(world_normal_to_cubemap_vec(from_shadow_vec + irregular_offset)).xy,
+    //                         i32(light_index)
+    //                     ).r;
+    //                     if current_depth - shadow_bias < closest_depth {
+    //                         shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //         shadow_occlusion_acc = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
+    //         */
+    //      } else {
+    //         // hard shadows
+    //         let closest_depth = textureSampleLevel(
+    //             point_shadow_map_textures,
+    //             point_shadow_map_sampler,
+    //             light_space_position_uv,
+    //             i32(light_index),
+    //             0.0
+    //         ).r;
+    //         if (current_depth - shadow_bias < closest_depth) {
+    //             shadow_occlusion_acc = 1.0;
+    //         }
+    //      }
+
+    //     var shadow_occlusion_factor = shadow_occlusion_acc;
+    //     total_shadow_occlusion_acc = total_shadow_occlusion_acc + shadow_occlusion_acc;
+    //     total_light_count = total_light_count + 1u;
+
+    //     if shadow_occlusion_factor < epsilon {
+    //             continue;
+    //     }
+
+    //     let distance_from_light = length(to_light_vec);
+    //     // https://learnopengl.com/Lighting/Light-casters
+    //     // let light_attenuation_factor_d20 = 1.0 / (1.0 + 0.22 * distance_from_light + 0.20 * distance_from_light * distance_from_light);
+    //     // let light_attenuation_factor_d100 = 1.0 / (1.0 + 0.045 * distance_from_light + 0.0075 * distance_from_light * distance_from_light);
+    //     let light_attenuation_factor_d600 = 1.0 / (1.0 + 0.007 * distance_from_light + 0.0002 * distance_from_light * distance_from_light);
+    //     // let light_attenuation_factor_d3250 = 1.0 / (1.0 + 0.0014 * distance_from_light + 0.000007 * distance_from_light * distance_from_light);
+    //     let light_attenuation_factor = light_attenuation_factor_d600;
+
+    //     let light_irradiance = compute_direct_lighting(
+    //         world_normal,
+    //         to_viewer_vec,
+    //         to_light_vec_norm,
+    //         light_color_scaled,
+    //         light_attenuation_factor,
+    //         base_color,
+    //         roughness,
+    //         metallicness,
+    //         f0
+    //     );
+    //     total_light_irradiance = total_light_irradiance + light_irradiance * shadow_occlusion_factor;
+    // }
+
+    // for (var light_index = 0u; light_index < MAX_LIGHTS; light_index = light_index + 1u) {
+    //     let light = directional_lights.values[light_index];
+
+    //     if light.color.w < epsilon {
+    //         // break seems to be decently faster than continue here
+    //         break;
+    //     }
+
+    //     let light_color_scaled = light.color.xyz * light.color.w;
+
+    //     // let from_shadow_vec = world_position - light.position.xyz;
+    //     // let shadow_camera_far_plane_distance = 40.0;
+    //     // let current_depth = length(from_shadow_vec) / shadow_camera_far_plane_distance;
+    //     let light_space_position_nopersp = light.world_space_to_light_space * vec4<f32>(world_position, 1.0);
+    //     let light_space_position = light_space_position_nopersp / light_space_position_nopersp.w;
+    //     let light_space_position_uv = vec2<f32>(
+    //         light_space_position.x * 0.5 + 0.5,
+    //         1.0 - (light_space_position.y * 0.5 + 0.5),
+    //     );
+    //     let to_light_vec = light.position.xyz - world_position;
+    //     let to_light_vec_norm = normalize(to_light_vec);
+
+    //     var shadow_occlusion_acc = 0.0;
+
+    //     // assume we're in shadow if we're outside the shadow frustum
+    //     if light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0 {
+    //         let current_depth = light_space_position.z; // domain is (0, 1), lower means closer to the light
+            
+    //         if get_soft_shadows_are_enabled() {
+    //             // soft shadows code path. costs about 0.15ms extra (per shadow map?) per frame
+    //             // on an RTX 3060 when compared to hard shadows
+
+    //             // these coordinates will distribute the early samples
+    //             // around the edges of the soft shadow poisson sampling disc
+    //             var early_test_coords = array<vec2<u32>, 4>(
+    //                 vec2<u32>(0u, 3u),
+    //                 vec2<u32>(1u, 3u),
+    //                 vec2<u32>(2u, 3u),
+    //                 vec2<u32>(3u, 3u)
+    //             );
+
+    //             let max_sample_jitter = get_soft_shadow_factor();
+
+    //             for (var i = 0; i < 4; i++) {
+    //                 let base_sample_jitter = get_soft_shadow_sample_jitter(early_test_coords[i], random_jitter, 4u);
+    //                 // TODO: multiply by current_depth to get softer shadows at a distance?
+    //                 let sample_jitter = base_sample_jitter * max_sample_jitter;
+    //                 let closest_depth = textureSampleLevel(
+    //                     directional_shadow_map_textures,
+    //                     directional_shadow_map_sampler,
+    //                     light_space_position_uv + sample_jitter,
+    //                     i32(light_index),
+    //                     0.0
+    //                 ).r;
+
+    //                 if current_depth - shadow_bias < closest_depth {
+    //                     shadow_occlusion_acc = shadow_occlusion_acc + 0.25;
+    //                 }
+    //             }
+
+    //             let n_dot_l = max(dot(n, to_light_vec_norm), 0.0);
+
+    //             // if the early test finds the fragment to be completely in shadow, 
+    //             // completely in light, or its surface isn't facing the light (n_dot_l =< 0)
+    //             // then skip the extra work that we do to soften the penumbra
+    //             if (shadow_occlusion_acc - 1.0) * shadow_occlusion_acc * n_dot_l != 0.0 {
+                    
+    //                 if soft_shadow_grid_dims > 0u {
+    //                     // TODO: don't clear shadow_occlusion_acc, we can perserve it and perform fewer samples here
+    //                     // (skip the samples already done by early test) for a theoretically equivalent level of quality
+    //                     // and decent performance boost if soft_shadow_grid_dims isn't too high
+    //                     shadow_occlusion_acc = 0.0;
+    //                 }
+
+    //                 for (var i = 0u; i < soft_shadow_grid_dims; i++) {
+    //                     for (var j = 0u; j < soft_shadow_grid_dims; j++) {
+    //                         let coord = vec2<u32>(i, j);
+    //                         let base_sample_jitter = get_soft_shadow_sample_jitter(coord, random_jitter, soft_shadow_grid_dims);
+    //                         // TODO: multiply by current_depth to get softer shadows at a distance?
+    //                         let sample_jitter = base_sample_jitter * max_sample_jitter;
+    //                         let closest_depth = textureSampleLevel(
+    //                             directional_shadow_map_textures,
+    //                             directional_shadow_map_sampler,
+    //                             light_space_position_uv + sample_jitter,
+    //                             i32(light_index),
+    //                             0.0
+    //                         ).r;
+                            
+    //                         if current_depth - shadow_bias < closest_depth {
+    //                             shadow_occlusion_acc = shadow_occlusion_acc + (1.0 / f32(soft_shadow_grid_dims * soft_shadow_grid_dims));
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //         } else {
+    //             // hard shadows
+    //             let closest_depth = textureSampleLevel(
+    //                 directional_shadow_map_textures,
+    //                 directional_shadow_map_sampler,
+    //                 light_space_position_uv,
+    //                 i32(light_index),
+    //                 0.0
+    //             ).r;
+    //             if light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0 {
+    //                 if current_depth - shadow_bias < closest_depth {
+    //                     shadow_occlusion_acc = 1.0;
+    //                 }
+    //             } else {
+    //                 shadow_occlusion_acc = 1.0;
+    //             }
+    //         }
+    //     }
+        
+    //     var shadow_occlusion_factor = shadow_occlusion_acc;
+    //     total_shadow_occlusion_acc = total_shadow_occlusion_acc + shadow_occlusion_acc;
+    //     total_light_count = total_light_count + 1u;        
+
+    //     if shadow_occlusion_factor < epsilon {
+    //             continue;
+    //     }
+
+    //     let light_attenuation_factor = 1.0;
+
+    //     // TODO: accumulate total shadow occlusion amount and average light color and only call compute_direct_lighting once?
+    //     let light_irradiance = compute_direct_lighting(
+    //         world_normal,
+    //         to_viewer_vec,
+    //         to_light_vec_norm,
+    //         light_color_scaled,
+    //         light_attenuation_factor,
+    //         base_color,
+    //         roughness,
+    //         metallicness,
+    //         f0
+    //     );
+    //     total_light_irradiance = total_light_irradiance + light_irradiance * shadow_occlusion_factor;
+    // }
+
+    // if get_shadow_debug_enabled() {
+    //     total_shadow_occlusion_acc = total_shadow_occlusion_acc / f32(total_light_count);
+    //     var out: FragmentOutput;
+    //     out.color = vec4<f32>(total_shadow_occlusion_acc, total_shadow_occlusion_acc, total_shadow_occlusion_acc, 1.0);
+    //     return out;
+    // }
+
+    // let fresnel_ambient = fresnel_func_schlick_with_roughness(n_dot_v, f0, a);
+    // // mip level count - 1
+    
+    // // let pre_filtered_color = textureSample(
+    // //     specular_env_map_texture,
+    // //     specular_env_map_sampler,
+    // //     world_normal_to_cubemap_vec(reflection_vec)
+    // // ).rgb;
+
+    // let ambient_specular_irradiance = pre_filtered_color * (fresnel_ambient * brdf_lut_res.r + brdf_lut_res.g);
+
+    // let kd_ambient = (vec3<f32>(1.0) - fresnel_ambient) * (1.0 - metallicness);
+
+    // let ambient_diffuse_irradiance = env_map_diffuse_irradiance * base_color;
+
+    // let ambient_irradiance_pre_ao = (kd_ambient * ambient_diffuse_irradiance + ambient_specular_irradiance);
+    // let ambient_irradiance = mix(
+    //     ambient_irradiance_pre_ao,
+    //     ambient_irradiance_pre_ao * ambient_occlusion,
+    //     occlusion_strength
+    // );
+    // // let ambient_irradiance = ambient_irradiance_pre_ao;
+
+    // let combined_irradiance_hdr = ambient_irradiance + total_light_irradiance + emissive;
+    // // let combined_irradiance_hdr = total_light_irradiance;
+    // // let combined_irradiance_ldr = (combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0))) + emissive;
+
+    // // let hi = textureSample(shadow_map_texture, shadow_map_sampler, vec2<f32>(0.1, 0.1));
+
+    // // let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
+    // let final_color = vec4<f32>(combined_irradiance_hdr, 1.0);
+
+    // var out: FragmentOutput;
+    // out.color = final_color;
+    // return out;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> FragmentOutput {
-    let tbn = (mat3x3<f32>(
-        in.world_tangent,
-        in.world_bitangent,
-        in.world_normal,
-    ));
-    let normal_map_normal = textureSample(
-        normal_map_texture,
-        normal_map_sampler,
-        in.tex_coords
-    ) * 2.0 - 1.0;
-    let tangent_space_normal = vec3<f32>(
-        normal_map_normal.x,
-        -normal_map_normal.y, // I guess this is needed due to differing uv-mapping conventions
-        sqrt(1.0 - clamp(normal_map_normal.x * normal_map_normal.x - normal_map_normal.y * normal_map_normal.y, 0.0, 1.0))
-    );
+    // let tbn = (mat3x3<f32>(
+    //     in.world_tangent,
+    //     in.world_bitangent,
+    //     in.world_normal,
+    // ));
+    // let normal_map_normal = textureSample(
+    //     normal_map_texture,
+    //     normal_map_sampler,
+    //     in.tex_coords
+    // ) * 2.0 - 1.0;
+    // let tangent_space_normal = vec3<f32>(
+    //     normal_map_normal.x,
+    //     -normal_map_normal.y, // I guess this is needed due to differing uv-mapping conventions
+    //     sqrt(1.0 - clamp(normal_map_normal.x * normal_map_normal.x - normal_map_normal.y * normal_map_normal.y, 0.0, 1.0))
+    // );
     // normal scale helpful comment:
     // https://github.com/KhronosGroup/glTF/issues/885#issuecomment-288320363
-    let transformed_normal = normalize(
-        tbn * normalize(
-            tangent_space_normal * vec3<f32>(in.normal_scale, in.normal_scale, 1.0)
-        )
-    );
+    // let transformed_normal = normalize(
+    //     tbn * normalize(
+    //         tangent_space_normal * vec3<f32>(in.normal_scale, in.normal_scale, 1.0)
+    //     )
+    // );
 
     //  var out: FragmentOutput;
     // out.color = vec4<f32>(in.object_tangent, 1.0);;
     // return out;
 
     return do_fragment_shade(
-        in.world_position,
-        transformed_normal,
+        // in.world_position,
+        // transformed_normal,
         in.tex_coords,
         in.vertex_color,
-        CAMERA.position.xyz,
+        // CAMERA.position.xyz,
         in.base_color_factor,
-        in.emissive_factor,
-        in.metallicness_factor,
-        in.roughness_factor,
-        in.occlusion_strength,
-        in.alpha_cutoff
+        // in.emissive_factor,
+        // in.metallicness_factor,
+        // in.roughness_factor,
+        // in.occlusion_strength,
+        // in.alpha_cutoff
     );
 }

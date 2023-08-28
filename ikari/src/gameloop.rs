@@ -61,6 +61,38 @@ pub fn run(
 
                 update_game_state(&mut game_state, &mut renderer, &surface_data);
 
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let new_size = winit::dpi::PhysicalSize::new(
+                        (canvas_container.offset_width() as f64 * window.scale_factor()) as u32,
+                        (canvas_container.offset_height() as f64 * window.scale_factor()) as u32,
+                    );
+                    if window.inner_size() != new_size {
+                        window.set_inner_size(new_size);
+                    }
+                }
+
+                game_state.ui_overlay.update(&window, control_flow);
+
+                match renderer.render(&mut game_state, &surface_data) {
+                    Ok(_) => {}
+                    Err(err) => match err.downcast_ref::<wgpu::SurfaceError>() {
+                        // Reconfigure the surface if lost
+                        Some(wgpu::SurfaceError::Lost) => {
+                            resize_window(
+                                &mut renderer,
+                                &mut game_state.ui_overlay,
+                                &mut surface_data,
+                                &window,
+                                window.inner_size().into(),
+                            );
+                        }
+                        // The system is out of memory, we should probably quit
+                        Some(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
+                        _ => log::error!("{err:?}"),
+                    },
+                }
+
                 {
                     // sync UI
                     // TODO: move this into a function in game module?
@@ -68,6 +100,9 @@ pub fn run(
                     let mut renderer_data_guard = renderer.data.lock().unwrap();
 
                     if let Some(frame_duration) = frame_duration {
+                        // let cpu_render_time = cpu_render_start_time.elapsed();
+                        // let cpu_only_render_time = collect_frame_time_ms();
+
                         if !logged_start_time {
                             log::debug!(
                                 "Took {:?} from process startup till first frame",
@@ -146,38 +181,6 @@ pub fn run(
                         ),
                         ui_state.culling_frustum_lock_mode,
                     );
-                }
-
-                #[cfg(target_arch = "wasm32")]
-                {
-                    let new_size = winit::dpi::PhysicalSize::new(
-                        (canvas_container.offset_width() as f64 * window.scale_factor()) as u32,
-                        (canvas_container.offset_height() as f64 * window.scale_factor()) as u32,
-                    );
-                    if window.inner_size() != new_size {
-                        window.set_inner_size(new_size);
-                    }
-                }
-
-                game_state.ui_overlay.update(&window, control_flow);
-
-                match renderer.render(&mut game_state, &surface_data) {
-                    Ok(_) => {}
-                    Err(err) => match err.downcast_ref::<wgpu::SurfaceError>() {
-                        // Reconfigure the surface if lost
-                        Some(wgpu::SurfaceError::Lost) => {
-                            resize_window(
-                                &mut renderer,
-                                &mut game_state.ui_overlay,
-                                &mut surface_data,
-                                &window,
-                                window.inner_size().into(),
-                            );
-                        }
-                        // The system is out of memory, we should probably quit
-                        Some(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                        _ => log::error!("{err:?}"),
-                    },
                 }
             }
             Event::LoopDestroyed => {

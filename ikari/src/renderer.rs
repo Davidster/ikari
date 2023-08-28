@@ -658,54 +658,61 @@ impl BaseRenderer {
         let environment_textures_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
+                    // skybox_texture
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
                             multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::Cube,
+                            view_dimension: wgpu::TextureViewDimension::CubeArray,
                         },
                         count: None,
                     },
+                    // skybox_sampler
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    // diffuse_env_map_texture
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
                             multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::Cube,
+                            view_dimension: wgpu::TextureViewDimension::CubeArray,
                         },
                         count: None,
                     },
+                    // diffuse_env_map_sampler
                     wgpu::BindGroupLayoutEntry {
                         binding: 3,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    // specular_env_map_texture
                     wgpu::BindGroupLayoutEntry {
                         binding: 4,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
                             multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::Cube,
+                            view_dimension: wgpu::TextureViewDimension::CubeArray,
                         },
                         count: None,
                     },
+                    // specular_env_map_sampler
                     wgpu::BindGroupLayoutEntry {
                         binding: 5,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    // brdf_lut_texture
                     wgpu::BindGroupLayoutEntry {
                         binding: 6,
                         visibility: wgpu::ShaderStages::FRAGMENT,
@@ -716,12 +723,14 @@ impl BaseRenderer {
                         },
                         count: None,
                     },
+                    // brdf_lut_sampler
                     wgpu::BindGroupLayoutEntry {
                         binding: 7,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    // point_shadow_map_textures
                     wgpu::BindGroupLayoutEntry {
                         binding: 8,
                         visibility: wgpu::ShaderStages::FRAGMENT,
@@ -732,12 +741,14 @@ impl BaseRenderer {
                         },
                         count: None,
                     },
+                    // point_shadow_map_sampler
                     wgpu::BindGroupLayoutEntry {
                         binding: 9,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
                         count: None,
                     },
+                    // directional_shadow_map_textures
                     wgpu::BindGroupLayoutEntry {
                         binding: 10,
                         visibility: wgpu::ShaderStages::FRAGMENT,
@@ -748,6 +759,7 @@ impl BaseRenderer {
                         },
                         count: None,
                     },
+                    // directional_shadow_map_sampler
                     wgpu::BindGroupLayoutEntry {
                         binding: 11,
                         visibility: wgpu::ShaderStages::FRAGMENT,
@@ -2152,7 +2164,7 @@ impl Renderer {
                 },
             )?
         };
-        let skybox_texture = Texture::create_cubemap_from_equirectangular(
+        let mut skybox_texture = Texture::create_cubemap_from_equirectangular(
             &base,
             &constant_data,
             wgpu::TextureFormat::Rgba8UnormSrgb,
@@ -2160,6 +2172,13 @@ impl Renderer {
             &skybox_image,
             false, // an artifact occurs between the edges of the texture with mipmaps enabled
         )?;
+
+        skybox_texture.view = skybox_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::CubeArray),
+                ..Default::default()
+            });
 
         let skybox_rad_texture = {
             let pixel_count = skybox_dim * skybox_dim;
@@ -2197,19 +2216,34 @@ impl Renderer {
         };
         let skybox_rad_texture = &skybox_rad_texture;
 
-        let diffuse_env_map = Texture::create_diffuse_env_map(
+        let mut diffuse_env_map = Texture::create_diffuse_env_map(
             &base,
             &constant_data,
             Some("diffuse env map"),
             skybox_rad_texture,
         );
 
-        let specular_env_map = Texture::create_specular_env_map(
+        diffuse_env_map.view = diffuse_env_map
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::CubeArray),
+                ..Default::default()
+            });
+
+        let mut specular_env_map = Texture::create_specular_env_map(
             &base,
             &constant_data,
             Some("specular env map"),
             skybox_rad_texture,
         );
+
+        specular_env_map.view =
+            specular_env_map
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(wgpu::TextureViewDimension::CubeArray),
+                    ..Default::default()
+                });
 
         let brdf_lut = Texture::create_brdf_lut(&base, &brdf_lut_gen_pipeline);
 

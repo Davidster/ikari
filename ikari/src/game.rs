@@ -33,7 +33,7 @@ use glam::f32::{Vec3, Vec4};
 use rapier3d_f64::prelude::*;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
-pub const INITIAL_ENABLE_VSYNC: bool = true;
+pub const INITIAL_ENABLE_VSYNC: bool = false;
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
@@ -272,9 +272,9 @@ pub async fn init_game_state(
             );
             // forest
             // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
-            asset_loader.load_gltf_scene(
-                GAME_PATH_MAKER.make("src/models/gltf/free_low_poly_forest/scene.glb"),
-            );
+            // asset_loader.load_gltf_scene(
+            //     GAME_PATH_MAKER.make("src/models/gltf/free_low_poly_forest/scene.glb"),
+            // );
             // legendary robot
             // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
             asset_loader.load_gltf_scene(

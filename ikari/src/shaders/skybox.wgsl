@@ -40,15 +40,19 @@ fn world_normal_to_cubemap_vec(world_pos: vec3<f32>) -> vec3<f32> {
 }
 
 @group(0) @binding(0)
-var cubemap_texture: texture_cube<f32>;
+var skybox_texture: texture_cube_array<f32>;
+@group(0) @binding(1)
+var skybox_sampler: sampler;
 
+@group(0) @binding(0)
+var cubemap_texture: texture_cube<f32>;
 @group(0) @binding(1)
 var cubemap_sampler: sampler;
 
 @fragment
 fn cubemap_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // let col = textureSampleLevel(cubemap_texture, cubemap_sampler, world_normal_to_cubemap_vec(in.world_position), 0.0);
-    let col = textureSample(cubemap_texture, cubemap_sampler, world_normal_to_cubemap_vec(in.world_position));
+    let col = textureSample(skybox_texture, skybox_sampler, world_normal_to_cubemap_vec(in.world_position), 0);
     return vec4<f32>(col.x % 1.01, col.y % 1.01, col.z % 1.01, 1.0);
 }
 

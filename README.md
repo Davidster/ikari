@@ -8,6 +8,10 @@ Most of the rendering features were implemented by following the awesome tutoria
 
 Hopefully one day it will be used in a real game 😃
 
+## TODO
+
+- make sure to test all skybox flows, including equirectangular, cubemap, pre-processed, etc
+
 ## Features:
 
 - Physically-Based Rendering materials (PBR)

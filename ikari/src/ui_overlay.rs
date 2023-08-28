@@ -160,7 +160,7 @@ impl Chart<Message> for FpsChart {
         mut builder: plotters_iced::ChartBuilder<DB>,
     ) {
         let result: Result<(), String> = (|| {
-            let oldest_ft_age_secs = 5.0f32;
+            let oldest_ft_age_secs = 2.2f32;
             let mut frame_times_with_ages = Vec::new();
             let mut acc = std::time::Duration::from_secs(0);
             for frame_time in self.recent_frame_times.iter().rev() {
@@ -765,7 +765,7 @@ fn clone_nested_scopes(
         .collect()
 }
 
-fn collect_frame_time_ms(frame_times: &Vec<GpuTimerScopeResultWrapper>) -> f64 {
+pub fn collect_frame_time_ms(frame_times: &Vec<GpuTimerScopeResultWrapper>) -> f64 {
     let mut result = 0.0;
     for frame_time in frame_times {
         result += (frame_time.time.end - frame_time.time.start) * 1000.0;

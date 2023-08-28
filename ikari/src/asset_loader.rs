@@ -819,7 +819,7 @@ pub fn bind_skybox(
 ) -> Result<BindedSkybox> {
     let start = crate::time::Instant::now();
 
-    let background = match bindable_skybox.background {
+    let mut background = match bindable_skybox.background {
         BindableSkyboxBackground::Equirectangular(image) => {
             let er_background_texture = Texture::from_decoded_image(
                 base_renderer,
@@ -863,6 +863,13 @@ pub fn bind_skybox(
         ),
     };
 
+    background.view = background
+        .texture
+        .create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::CubeArray),
+            ..Default::default()
+        });
+
     let generate_diffuse_and_specular_maps = |hdr_env_texture: &Texture| {
         (
             Texture::create_diffuse_env_map(
@@ -880,55 +887,71 @@ pub fn bind_skybox(
         )
     };
 
-    let (diffuse_environment_map, specular_environment_map) = match bindable_skybox.environment_hdr
-    {
-        Some(BindableSkyboxHDREnvironment::Equirectangular(image)) => {
-            let er_hdr_env_texture = Texture::from_decoded_image(
-                base_renderer,
-                &image.raw,
-                (image.width, image.height),
-                image.mip_count,
-                None,
-                Some(wgpu::TextureFormat::Rgba16Float),
-                false,
-                &SamplerDescriptor {
-                    address_mode_u: wgpu::AddressMode::ClampToEdge,
-                    address_mode_v: wgpu::AddressMode::ClampToEdge,
-                    address_mode_w: wgpu::AddressMode::ClampToEdge,
-                    mag_filter: wgpu::FilterMode::Linear,
-                    min_filter: wgpu::FilterMode::Linear,
-                    mipmap_filter: wgpu::FilterMode::Nearest,
-                    ..Default::default()
-                },
-            )?;
+    let (mut diffuse_environment_map, mut specular_environment_map) =
+        match bindable_skybox.environment_hdr {
+            Some(BindableSkyboxHDREnvironment::Equirectangular(image)) => {
+                let er_hdr_env_texture = Texture::from_decoded_image(
+                    base_renderer,
+                    &image.raw,
+                    (image.width, image.height),
+                    image.mip_count,
+                    None,
+                    Some(wgpu::TextureFormat::Rgba16Float),
+                    false,
+                    &SamplerDescriptor {
+                        address_mode_u: wgpu::AddressMode::ClampToEdge,
+                        address_mode_v: wgpu::AddressMode::ClampToEdge,
+                        address_mode_w: wgpu::AddressMode::ClampToEdge,
+                        mag_filter: wgpu::FilterMode::Linear,
+                        min_filter: wgpu::FilterMode::Linear,
+                        mipmap_filter: wgpu::FilterMode::Nearest,
+                        ..Default::default()
+                    },
+                )?;
 
-            let hdr_env_texture = Texture::create_cubemap_from_equirectangular(
-                base_renderer,
-                renderer_constant_data,
-                wgpu::TextureFormat::Rgba16Float,
-                None,
-                &er_hdr_env_texture,
-                false,
-            )?;
+                let hdr_env_texture = Texture::create_cubemap_from_equirectangular(
+                    base_renderer,
+                    renderer_constant_data,
+                    wgpu::TextureFormat::Rgba16Float,
+                    None,
+                    &er_hdr_env_texture,
+                    false,
+                )?;
 
-            generate_diffuse_and_specular_maps(&hdr_env_texture)
-        }
-        Some(BindableSkyboxHDREnvironment::ProcessedCube { diffuse, specular }) => (
-            Texture::create_cubemap(
-                base_renderer,
-                diffuse.slice(),
-                Some("diffuse env map"),
-                wgpu::TextureFormat::Rgba16Float,
+                generate_diffuse_and_specular_maps(&hdr_env_texture)
+            }
+            Some(BindableSkyboxHDREnvironment::ProcessedCube { diffuse, specular }) => (
+                Texture::create_cubemap(
+                    base_renderer,
+                    diffuse.slice(),
+                    Some("diffuse env map"),
+                    wgpu::TextureFormat::Rgba16Float,
+                ),
+                Texture::create_cubemap(
+                    base_renderer,
+                    specular.slice(),
+                    Some("specular env map"),
+                    wgpu::TextureFormat::Rgba16Float,
+                ),
             ),
-            Texture::create_cubemap(
-                base_renderer,
-                specular.slice(),
-                Some("specular env map"),
-                wgpu::TextureFormat::Rgba16Float,
-            ),
-        ),
-        None => generate_diffuse_and_specular_maps(&background),
-    };
+            None => generate_diffuse_and_specular_maps(&background),
+        };
+
+    diffuse_environment_map.view =
+        diffuse_environment_map
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::CubeArray),
+                ..Default::default()
+            });
+
+    specular_environment_map.view =
+        specular_environment_map
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::CubeArray),
+                ..Default::default()
+            });
 
     log::debug!("skybox bind time: {:?}", start.elapsed());
 

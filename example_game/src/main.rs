@@ -22,7 +22,7 @@ async fn start() {
             let inner_size = winit::dpi::PhysicalSize::new(width * 3 / 4, height * 3 / 4);
             let title = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
             winit::window::WindowBuilder::new()
-                //.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
+                // .with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
                 .with_inner_size(inner_size)
                 .with_title(title)
                 .with_maximized(false)
