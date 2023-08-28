@@ -1157,6 +1157,7 @@ dependencies = [
  "ikari",
  "log",
  "profiling",
+ "tracing-tracy",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -2013,6 +2014,7 @@ dependencies = [
  "js-sys",
  "lazy_static",
  "log",
+ "miniz_oxide",
  "obj-rs",
  "oddio",
  "plotters",
@@ -2020,13 +2022,12 @@ dependencies = [
  "pollster",
  "profiling",
  "rand",
- "rapier3d",
+ "rapier3d-f64",
  "rmp-serde",
  "serde",
  "serde_derive",
  "smallvec",
  "symphonia",
- "tracing-tracy",
  "twox-hash",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -2036,7 +2037,6 @@ dependencies = [
  "wgpu",
  "wgpu-profiler",
  "winit",
- "zstd",
 ]
 
 [[package]]
@@ -2976,10 +2976,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "parry3d"
+name = "parry3d-f64"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b55dc0e6db79bddbc5fd583569f7356cdcc63e1e9b2b93a9ab70dd8e717160e0"
+checksum = "9789fd9474afd3b68cc1379a20b56c221dc73e1d5b21671c0646f78cd5441d8c"
 dependencies = [
  "approx",
  "arrayvec 0.7.4",
@@ -3256,10 +3256,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c8a99fddc9f0ba0a85884b8d14e3592853e787d581ca1816c91349b10e4eeab"
 
 [[package]]
-name = "rapier3d"
+name = "rapier3d-f64"
 version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62a8a0bd9d3135f7b4eb45d0796540e7bab47b6b7c974f90567ccc5a0454f42b"
+checksum = "4b680491ffdf398dc4728782a094bc566f49af9676de8995881e9759155fffbd"
 dependencies = [
  "approx",
  "arrayvec 0.7.4",
@@ -3270,7 +3270,7 @@ dependencies = [
  "nalgebra",
  "num-derive",
  "num-traits",
- "parry3d",
+ "parry3d-f64",
  "rustc-hash",
  "simba",
 ]
@@ -5269,33 +5269,3 @@ name = "xml-rs"
 version = "0.8.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47430998a7b5d499ccee752b41567bc3afc57e1327dc855b1a2aa44ce29b5fa1"
-
-[[package]]
-name = "zstd"
-version = "0.12.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a27595e173641171fc74a1232b7b1c7a7cb6e18222c11e9dfb9888fa424c53c"
-dependencies = [
- "zstd-safe",
-]
-
-[[package]]
-name = "zstd-safe"
-version = "6.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee98ffd0b48ee95e6c5168188e44a54550b1564d9d530ee21d5f0eaed1069581"
-dependencies = [
- "libc",
- "zstd-sys",
-]
-
-[[package]]
-name = "zstd-sys"
-version = "2.0.8+zstd.1.5.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5556e6ee25d32df2586c098bbfa278803692a20d0ab9565e049480d52707ec8c"
-dependencies = [
- "cc",
- "libc",
- "pkg-config",
-]

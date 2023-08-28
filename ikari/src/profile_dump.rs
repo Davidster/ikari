@@ -11,6 +11,10 @@ pub fn profiling_is_enabled() -> bool {
     cfg!(feature = "tracy")
 }
 
+pub fn can_generate_profile_dump() -> bool {
+    cfg!(not(target_arch = "wasm32")) && cfg!(not(target_os = "macos"))
+}
+
 pub fn generate_profile_dump() -> PendingPerfDump {
     if !profiling_is_enabled() {
         let msg = "Warning: tried to capture a profile dump but profiling is not enabled. Please enable the tracy feature in cargo";

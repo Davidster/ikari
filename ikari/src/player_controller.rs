@@ -72,7 +72,11 @@ impl PlayerController {
         view_direction: ControlledViewDirection,
     ) -> Self {
         let rigid_body = RigidBodyBuilder::dynamic()
-            .translation(vector![position.x, position.y, position.z])
+            .translation(vector![
+                position.x as f64,
+                position.y as f64,
+                position.z as f64
+            ])
             .lock_rotations()
             .build();
         let collider = ColliderBuilder::capsule_y(0.5, 0.25)
@@ -314,9 +318,9 @@ impl PlayerController {
         let current_linear_velocity = rigid_body.linvel();
         rigid_body.set_linvel(
             vector![
-                new_linear_velocity.x,
+                new_linear_velocity.x as f64,
                 current_linear_velocity.y, // preserve effect of gravity
-                new_linear_velocity.z
+                new_linear_velocity.z as f64
             ],
             true,
         );
@@ -350,30 +354,27 @@ impl PlayerController {
             .get(self.rigid_body_handle)
             .unwrap()
             .translation();
-        Vec3::new(position.x, position.y, position.z)
+        Vec3::new(position.x as f32, position.y as f32, position.z as f32)
     }
 
     pub fn view_forward_vector(&self) -> Vec3 {
         self.view_direction.to_vector()
     }
 
-    #[allow(dead_code)]
-    pub fn view_frustum(&self, physics_state: &PhysicsState, aspect_ratio: f32) -> Frustum {
-        self.view_frustum_with_position(aspect_ratio, self.position(physics_state))
-    }
-
-    pub fn view_frustum_with_position(&self, aspect_ratio: f32, camera_position: Vec3) -> Frustum {
+    pub fn view_frustum_with_position(
+        &self,
+        aspect_ratio: f32,
+        camera_position: Vec3,
+    ) -> CameraFrustumDescriptor {
         let camera_forward = self.view_direction.to_vector();
-        let camera_right = camera_forward.cross(Vec3::new(0.0, 1.0, 0.0)).normalize();
 
-        Frustum::from_camera_params(
-            camera_position,
-            camera_forward,
-            camera_right,
+        CameraFrustumDescriptor {
+            focal_point: camera_position,
+            forward_vector: camera_forward,
             aspect_ratio,
-            NEAR_PLANE_DISTANCE,
-            FAR_PLANE_DISTANCE,
-            FOV_Y_DEG,
-        )
+            near_plane_distance: NEAR_PLANE_DISTANCE,
+            far_plane_distance: FAR_PLANE_DISTANCE,
+            fov_y_rad: deg_to_rad(FOV_Y_DEG),
+        }
     }
 }

@@ -18,6 +18,7 @@ async fn start() {
                 None => (1920, 1080), // Most widespread resolution in 2022.
                 Some(handle) => (handle.size().width, handle.size().height),
             };
+
             let inner_size = winit::dpi::PhysicalSize::new(width * 3 / 4, height * 3 / 4);
             let title = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
             winit::window::WindowBuilder::new()
@@ -42,9 +43,9 @@ async fn start() {
                 .unwrap()
                 .dyn_into::<web_sys::HtmlElement>()
                 .unwrap();
-            window.set_inner_size(winit::dpi::PhysicalSize::new(
-                canvas_container.offset_width(),
-                canvas_container.offset_height(),
+            window.set_inner_size(winit::dpi::LogicalSize::new(
+                (canvas_container.offset_width() as f64 * window.scale_factor()) as u32,
+                (canvas_container.offset_height() as f64 * window.scale_factor()) as u32,
             ));
 
             let canvas = web_sys::Element::from(window.canvas());

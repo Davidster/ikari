@@ -174,26 +174,22 @@ pub fn build_cubemap_face_camera_views(
         .collect()
 }
 
-// TODO: use arrays instead of vecs
-pub fn build_cubemap_face_camera_frusta(
+pub fn build_cubemap_face_frusta(
     position: Vec3,
     near_plane_distance: f32,
     far_plane_distance: f32,
-) -> Vec<Frustum> {
+) -> Vec<CameraFrustumDescriptor> {
     build_cubemap_face_camera_view_directions()
         .map(|view_direction| {
             let forward = view_direction.to_vector();
-            let right = forward.cross(Vec3::new(0.0, 1.0, 0.0)).normalize();
-
-            Frustum::from_camera_params(
-                position,
-                forward,
-                right,
-                1.0,
+            CameraFrustumDescriptor {
+                focal_point: position,
+                forward_vector: forward,
+                aspect_ratio: 1.0,
                 near_plane_distance,
                 far_plane_distance,
-                90.0,
-            )
+                fov_y_rad: deg_to_rad(90.0),
+            }
         })
         .collect()
 }

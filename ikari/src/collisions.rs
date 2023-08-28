@@ -1,8 +1,8 @@
 use glam::f32::Vec3;
 use rand::Rng;
 use rand::SeedableRng;
+use rapier3d_f64::prelude::*;
 
-use crate::math::*;
 use crate::mesh::*;
 
 #[derive(Debug, Clone, Copy)]
@@ -25,6 +25,16 @@ pub struct Frustum {
     pub bottom: Plane,
     pub near: Plane,
     pub far: Plane,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CameraFrustumDescriptor {
+    pub focal_point: Vec3,
+    pub forward_vector: Vec3,
+    pub aspect_ratio: f32,
+    pub near_plane_distance: f32,
+    pub far_plane_distance: f32,
+    pub fov_y_rad: f32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -175,43 +185,6 @@ impl Sphere {
 }
 
 impl Frustum {
-    pub fn from_camera_params(
-        position: Vec3,
-        forward: Vec3,
-        right: Vec3,
-        aspect_ratio: f32,
-        near_plane_distance: f32,
-        far_plane_distance: f32,
-        fov_y_deg: f32,
-    ) -> Self {
-        // see https://learnopengl.com/Guest-Articles/2021/Scene/Frustum-Culling
-        let up = right.cross(forward).normalize();
-        let half_v_side = far_plane_distance * (deg_to_rad(fov_y_deg) * 0.5).tan();
-        let half_h_side = half_v_side * aspect_ratio;
-        let front_mult_far = far_plane_distance * forward;
-
-        Self {
-            left: Plane::from_normal_and_point(
-                (front_mult_far - right * half_h_side).cross(up),
-                position,
-            ),
-            right: Plane::from_normal_and_point(
-                up.cross(front_mult_far + right * half_h_side),
-                position,
-            ),
-            bottom: Plane::from_normal_and_point(
-                (front_mult_far + up * half_v_side).cross(right),
-                position,
-            ),
-            top: Plane::from_normal_and_point(
-                right.cross(front_mult_far - up * half_v_side),
-                position,
-            ),
-            near: Plane::from_normal_and_point(forward, position + near_plane_distance * forward),
-            far: Plane::from_normal_and_point(-forward, position + front_mult_far),
-        }
-    }
-
     pub fn planes(&self) -> [Plane; 6] {
         [
             self.left,
@@ -321,33 +294,103 @@ impl Frustum {
 
         result
     }
+}
 
-    pub fn make_frustum_mesh(
-        focal_point: Vec3,
-        forward_vector: Vec3,
-        near_plane_distance: f32,
-        far_plane_distance: f32,
-        fov_y_rad: f32,
-        aspect_ratio: f32,
-    ) -> BasicMesh {
-        let culling_frustum_right_vector =
-            forward_vector.cross(Vec3::new(0.0, 1.0, 0.0)).normalize();
+impl From<CameraFrustumDescriptor> for Frustum {
+    fn from(desc: CameraFrustumDescriptor) -> Self {
+        let right = desc
+            .forward_vector
+            .cross(Vec3::new(0.0, 1.0, 0.0))
+            .normalize();
+        let forward = desc.forward_vector;
+
+        // see https://learnopengl.com/Guest-Articles/2021/Scene/Frustum-Culling
+        let up = right.cross(forward).normalize();
+        let half_v_side = desc.far_plane_distance * (desc.fov_y_rad * 0.5).tan();
+        let half_h_side = half_v_side * desc.aspect_ratio;
+        let front_mult_far = desc.far_plane_distance * forward;
+
+        Self {
+            left: Plane::from_normal_and_point(
+                (front_mult_far - right * half_h_side).cross(up),
+                desc.focal_point,
+            ),
+            right: Plane::from_normal_and_point(
+                up.cross(front_mult_far + right * half_h_side),
+                desc.focal_point,
+            ),
+            bottom: Plane::from_normal_and_point(
+                (front_mult_far + up * half_v_side).cross(right),
+                desc.focal_point,
+            ),
+            top: Plane::from_normal_and_point(
+                right.cross(front_mult_far - up * half_v_side),
+                desc.focal_point,
+            ),
+            near: Plane::from_normal_and_point(
+                forward,
+                desc.focal_point + desc.near_plane_distance * forward,
+            ),
+            far: Plane::from_normal_and_point(-forward, desc.focal_point + front_mult_far),
+        }
+    }
+}
+
+impl CameraFrustumDescriptor {
+    pub fn frustum_intersection_test(&self, other: &CameraFrustumDescriptor) -> bool {
+        rapier3d_f64::parry::query::intersection_test(
+            &rapier3d_f64::na::Isometry::identity(),
+            &self.to_convex_polyhedron(),
+            &rapier3d_f64::na::Isometry::identity(),
+            &other.to_convex_polyhedron(),
+        )
+        .unwrap()
+    }
+
+    pub fn to_convex_polyhedron(&self) -> ConvexPolyhedron {
+        let points: Vec<_> = self
+            .to_basic_mesh()
+            .vertices
+            .iter()
+            .map(|vertex| {
+                Point::from([
+                    vertex.position[0] as f64,
+                    vertex.position[1] as f64,
+                    vertex.position[2] as f64,
+                ])
+            })
+            .collect();
+        ColliderBuilder::convex_hull(&points)
+            .expect("Failed to construct convex hull for frustum")
+            .build()
+            .shape()
+            .as_convex_polyhedron()
+            .unwrap()
+            .clone()
+    }
+
+    pub fn to_basic_mesh(&self) -> BasicMesh {
+        let culling_frustum_right_vector = self
+            .forward_vector
+            .cross(Vec3::new(0.0, 1.0, 0.0))
+            .normalize();
 
         let (d_x, d_y) = {
             let vertical_vec = culling_frustum_right_vector
-                .cross(forward_vector)
+                .cross(self.forward_vector)
                 .normalize();
-            let sin_half_fovy = (fov_y_rad / 2.0).tan();
+            let sin_half_fovy = (self.fov_y_rad / 2.0).tan();
             (
-                sin_half_fovy * culling_frustum_right_vector * aspect_ratio,
+                sin_half_fovy * culling_frustum_right_vector * self.aspect_ratio,
                 sin_half_fovy * vertical_vec,
             )
         };
 
-        let d_x_near = near_plane_distance * d_x;
-        let d_y_near = near_plane_distance * d_y;
+        let d_x_near = self.near_plane_distance * d_x;
+        let d_y_near = self.near_plane_distance * d_y;
         let near_vertices = {
-            let near_plane_center = focal_point + near_plane_distance * forward_vector;
+            let near_plane_center =
+                self.focal_point + self.near_plane_distance * self.forward_vector;
             let top_left = near_plane_center + d_y_near - d_x_near;
             let top_right = near_plane_center + d_y_near + d_x_near;
             let bottom_right = near_plane_center - d_y_near + d_x_near;
@@ -356,10 +399,10 @@ impl Frustum {
             (top_left, top_right, bottom_right, bottom_left)
         };
 
-        let d_x_far = far_plane_distance * d_x;
-        let d_y_far = far_plane_distance * d_y;
+        let d_x_far = self.far_plane_distance * d_x;
+        let d_y_far = self.far_plane_distance * d_y;
         let far_vertices = {
-            let far_plane_center = focal_point + far_plane_distance * forward_vector;
+            let far_plane_center = self.focal_point + self.far_plane_distance * self.forward_vector;
             let top_left = far_plane_center + d_y_far - d_x_far;
             let top_right = far_plane_center + d_y_far + d_x_far;
             let bottom_right = far_plane_center - d_y_far + d_x_far;

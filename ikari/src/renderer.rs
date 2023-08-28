@@ -32,6 +32,7 @@ use wgpu_profiler::wgpu_profiler;
 use wgpu_profiler::GpuProfiler;
 
 pub const USE_LABELS: bool = true;
+pub const USE_EXTRA_SHADOW_MAP_CULLING: bool = true;
 
 pub const MAX_LIGHT_COUNT: usize = 32;
 pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
@@ -371,6 +372,16 @@ impl BaseRenderer {
         surface_config.present_mode = wgpu::PresentMode::AutoNoVsync;
         surface.configure(&base.device, &surface_config);
 
+        let capabilities = surface.get_capabilities(&base.adapter);
+
+        log::info!(
+            "WGPU surface initialized with:\nPossible formats: {:?}\nChosen format: {:?}\nPossible present modes: {:?}\nAlpha modes: {:?}",
+            capabilities.formats,
+            surface_config.format,
+            capabilities.present_modes,
+            capabilities.alpha_modes,
+        );
+
         let surface_data = SurfaceData {
             surface,
             surface_config,
@@ -423,6 +434,12 @@ impl BaseRenderer {
             )
             .await
             .map_err(|err| anyhow::anyhow!("Failed to create wgpu device: {err}"))?;
+
+        log::info!(
+            "WGPU device initialized with:\nAdapter: {:?}\nFeatures: {:?}",
+            adapter.get_info(),
+            device.features()
+        );
 
         let single_texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -939,7 +956,7 @@ impl BaseRenderer {
 
 #[derive(Clone, Debug)]
 pub enum CullingFrustumLock {
-    Full((Frustum, Vec3, Vec3)),
+    Full(CameraFrustumDescriptor),
     FocalPoint(Vec3),
     None,
 }
@@ -1130,6 +1147,8 @@ pub struct Renderer {
     #[allow(dead_code)]
     plane_mesh_index: i32,
 }
+
+type PointLightFrustaWithCullingInfo = Vec<Option<(Vec<(Frustum, bool)>, bool)>>;
 
 impl Renderer {
     pub async fn new(
@@ -3037,10 +3056,8 @@ impl Renderer {
         data: &mut RendererData,
         private_data: &mut RendererPrivateData,
         game_state: &mut GameState,
-        framebuffer_size: (u32, u32),
-        culling_frustum: &Frustum,
-        culling_frustum_focal_point: Vec3,
-        culling_frustum_forward_vector: Vec3,
+        main_culling_frustum: &Frustum,
+        main_culling_frustum_desc: &CameraFrustumDescriptor,
     ) {
         let scene = &mut game_state.scene;
 
@@ -3068,10 +3085,10 @@ impl Renderer {
                 if let Some(bounding_sphere) = scene.get_node_bounding_sphere(node_id, data) {
                     let culling_frustum_intersection_result =
                         Self::get_node_cam_intersection_result(
-                            &scene.get_node(node_id).unwrap(),
+                            scene.get_node(node_id).unwrap(),
                             data,
                             scene,
-                            &culling_frustum,
+                            main_culling_frustum,
                         );
 
                     let debug_sphere_color = match culling_frustum_intersection_result {
@@ -3113,26 +3130,23 @@ impl Renderer {
             }
         }
 
-        if data.draw_culling_frustum {
+        let debug_main_camera_frustum_descriptor = CameraFrustumDescriptor {
             // shrink the frustum along the view direction for the debug view
-            let near_plane_distance = 0.01;
-            let far_plane_distance = 500.0;
+            near_plane_distance: 1.0,
+            far_plane_distance: 500.0,
+            ..(*main_culling_frustum_desc)
+        };
 
-            let (framebuffer_width, framebuffer_height) = framebuffer_size;
-            let aspect_ratio = framebuffer_width as f32 / framebuffer_height as f32;
+        if data.draw_culling_frustum {
+            let debug_main_camera_frustum_mesh =
+                debug_main_camera_frustum_descriptor.to_basic_mesh();
 
-            let culling_frustum_basic_mesh = Frustum::make_frustum_mesh(
-                culling_frustum_focal_point,
-                culling_frustum_forward_vector,
-                near_plane_distance,
-                far_plane_distance,
-                deg_to_rad(FOV_Y_DEG),
-                aspect_ratio,
-            );
-
-            private_data.debug_culling_frustum_mesh_index = Some(
-                Self::bind_basic_transparent_mesh(&self.base, data, &culling_frustum_basic_mesh),
-            );
+            private_data.debug_culling_frustum_mesh_index =
+                Some(Self::bind_basic_transparent_mesh(
+                    &self.base,
+                    data,
+                    &debug_main_camera_frustum_mesh,
+                ));
 
             let culling_frustum_mesh = GameNodeMesh {
                 mesh_type: GameNodeMeshType::Transparent {
@@ -3172,31 +3186,43 @@ impl Renderer {
         if data.draw_point_light_culling_frusta {
             for point_light in &game_state.point_lights {
                 for controlled_direction in build_cubemap_face_camera_view_directions() {
-                    // shrink the frustum along the view direction for the debug view
-                    let near_plane_distance = 0.5;
-                    let far_plane_distance = 5.0;
-
-                    let culling_frustum_basic_mesh = Frustum::make_frustum_mesh(
-                        scene
+                    let frustum_descriptor = CameraFrustumDescriptor {
+                        focal_point: scene
                             .get_global_transform_for_node(point_light.node_id)
                             .position(),
-                        controlled_direction.to_vector(),
-                        near_plane_distance,
-                        far_plane_distance,
-                        deg_to_rad(90.0),
-                        1.0,
-                    );
+                        forward_vector: controlled_direction.to_vector(),
+                        near_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
+                        far_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
+                        fov_y_rad: deg_to_rad(90.0),
+                        aspect_ratio: 1.0,
+                    };
+
+                    let debug_frustum_descriptor = CameraFrustumDescriptor {
+                        // shrink the frustum along the view direction for the debug view
+                        near_plane_distance: 0.5,
+                        far_plane_distance: 5.0,
+                        ..frustum_descriptor
+                    };
+                    let debug_culling_frustum_mesh = debug_frustum_descriptor.to_basic_mesh();
+
+                    let collision_based_color = if frustum_descriptor
+                        .frustum_intersection_test(main_culling_frustum_desc)
+                    {
+                        Vec4::new(0.0, 1.0, 0.0, 0.1)
+                    } else {
+                        Vec4::new(1.0, 0.0, 0.0, 0.1)
+                    };
 
                     private_data.debug_culling_frustum_mesh_index =
                         Some(Self::bind_basic_transparent_mesh(
                             &self.base,
                             data,
-                            &culling_frustum_basic_mesh,
+                            &debug_culling_frustum_mesh,
                         ));
 
                     let culling_frustum_mesh = GameNodeMesh {
                         mesh_type: GameNodeMeshType::Transparent {
-                            color: Vec4::new(1.0, 0.0, 0.0, 0.1),
+                            color: collision_based_color,
                             premultiplied_alpha: false,
                         },
                         mesh_indices: vec![private_data.debug_culling_frustum_mesh_index.unwrap()],
@@ -3250,21 +3276,19 @@ impl Renderer {
         let aspect_ratio = framebuffer_width as f32 / framebuffer_height as f32;
 
         let position = match private_data_guard.frustum_culling_lock {
-            CullingFrustumLock::Full((_, locked_position, _)) => locked_position,
-            CullingFrustumLock::FocalPoint(locked_position) => locked_position,
+            CullingFrustumLock::Full(desc) => desc.focal_point,
+            CullingFrustumLock::FocalPoint(locked_focal_point) => locked_focal_point,
             CullingFrustumLock::None => game_state
                 .player_controller
                 .position(&game_state.physics_state),
         };
 
         private_data_guard.frustum_culling_lock = match lock_mode {
-            CullingFrustumLockMode::Full => CullingFrustumLock::Full((
+            CullingFrustumLockMode::Full => CullingFrustumLock::Full(
                 game_state
                     .player_controller
                     .view_frustum_with_position(aspect_ratio, position),
-                position,
-                game_state.player_controller.view_forward_vector(),
-            )),
+            ),
             CullingFrustumLockMode::FocalPoint => CullingFrustumLock::FocalPoint(position),
             CullingFrustumLockMode::None => CullingFrustumLock::None,
         };
@@ -3292,9 +3316,7 @@ impl Renderer {
         scene: &Scene,
         camera_culling_frustum: &Frustum,
     ) -> Option<IntersectionResult> {
-        if node.mesh.is_none() {
-            return None;
-        }
+        node.mesh.as_ref()?;
 
         /* bounding boxes will be wrong for skinned meshes so we currently can't cull them */
         if node.skin_index.is_some() || !node.mesh.as_ref().unwrap().cullable {
@@ -3303,9 +3325,7 @@ impl Renderer {
 
         let node_bounding_sphere = scene.get_node_bounding_sphere_opt(node.id(), data);
 
-        if node_bounding_sphere.is_none() {
-            return None;
-        }
+        node_bounding_sphere?;
 
         let node_bounding_sphere = node_bounding_sphere.unwrap();
 
@@ -3324,9 +3344,9 @@ impl Renderer {
         data: &RendererData,
         game_state: &GameState,
         camera_culling_frustum: &Frustum,
-        point_lights_frusta: &Vec<Option<Vec<Frustum>>>,
+        point_lights_frusta: &PointLightFrustaWithCullingInfo,
     ) -> u32 {
-        assert!(1 + game_state.directional_lights.len() + point_lights_frusta.len() * 6 <= 32,
+        assert!(1 + game_state.directional_lights.len() + game_state.point_lights.len() * 6 <= 32,
             "u32 can only store a max of 5 point lights, might be worth using a larger, might be worth using a larger bitvec or a Vec<bool> or something"
         );
 
@@ -3357,12 +3377,15 @@ impl Renderer {
         };
 
         let mut culling_mask = 0u32;
+        let mut mask_pos = 0;
 
-        if is_touching_frustum(camera_culling_frustum) {
-            culling_mask |= 1u32;
+        let is_node_on_screen = is_touching_frustum(camera_culling_frustum);
+
+        if is_node_on_screen {
+            culling_mask |= 2u32.pow(mask_pos);
         }
 
-        let mut mask_pos = 1; // start at the second bit, first is reserved for camera
+        mask_pos += 1;
 
         for _ in &game_state.directional_lights {
             // TODO: add support for frustum culling directional lights shadow map gen?
@@ -3373,12 +3396,22 @@ impl Renderer {
 
         for frusta in point_lights_frusta {
             match frusta {
-                Some(frusta) => {
-                    for frustum in frusta {
-                        let is_touching_frustum = is_touching_frustum(frustum);
-                        if is_touching_frustum {
+                Some((frusta, can_cull_offscreen_objects)) => {
+                    for (frustum, is_light_view_culled) in frusta {
+                        let is_culled = if USE_EXTRA_SHADOW_MAP_CULLING {
+                            let is_offscreen_culled =
+                                *can_cull_offscreen_objects && !is_node_on_screen;
+                            is_offscreen_culled
+                                || *is_light_view_culled
+                                || !is_touching_frustum(frustum)
+                        } else {
+                            !is_touching_frustum(frustum)
+                        };
+
+                        if !is_culled {
                             culling_mask |= 2u32.pow(mask_pos);
                         }
+
                         mask_pos += 1;
                     }
                 }
@@ -3509,34 +3542,24 @@ impl Renderer {
         let camera_position = game_state
             .player_controller
             .position(&game_state.physics_state);
-        let camera_view_direction = game_state.player_controller.view_forward_vector();
-        let (culling_frustum, culling_frustum_focal_point, culling_frustum_forward_vector) =
-            match private_data.frustum_culling_lock {
-                CullingFrustumLock::Full(locked) => locked,
-                CullingFrustumLock::FocalPoint(locked_position) => (
-                    game_state
-                        .player_controller
-                        .view_frustum_with_position(aspect_ratio, locked_position),
-                    locked_position,
-                    camera_view_direction,
-                ),
-                CullingFrustumLock::None => (
-                    game_state
-                        .player_controller
-                        .view_frustum_with_position(aspect_ratio, camera_position),
-                    camera_position,
-                    camera_view_direction,
-                ),
-            };
+        let culling_frustum_desc = match private_data.frustum_culling_lock {
+            CullingFrustumLock::Full(locked) => locked,
+            CullingFrustumLock::FocalPoint(locked_position) => game_state
+                .player_controller
+                .view_frustum_with_position(aspect_ratio, locked_position),
+            CullingFrustumLock::None => game_state
+                .player_controller
+                .view_frustum_with_position(aspect_ratio, camera_position),
+        };
+
+        let culling_frustum = Frustum::from(culling_frustum_desc);
 
         self.add_debug_nodes(
             data,
             private_data,
             game_state,
-            framebuffer_size,
             &culling_frustum,
-            culling_frustum_focal_point,
-            culling_frustum_forward_vector,
+            &culling_frustum_desc,
         );
 
         // TODO: compute node bounding spheres here too?
@@ -3579,7 +3602,8 @@ impl Renderer {
         // no instancing for transparent meshes to allow for sorting
         let mut transparent_meshes: Vec<(usize, GpuTransparentMeshInstance, f32)> = Vec::new();
 
-        let point_lights_frusta: Vec<Option<Vec<Frustum>>> = game_state
+        // list of 6 frusta for each point light including culling information
+        let point_lights_frusta: PointLightFrustaWithCullingInfo = game_state
             .point_lights
             .iter()
             .map(|point_light| {
@@ -3587,10 +3611,39 @@ impl Renderer {
                     .scene
                     .get_node(point_light.node_id)
                     .map(|point_light_node| {
-                        build_cubemap_face_camera_frusta(
+                        let frustum_descriptors = build_cubemap_face_frusta(
                             point_light_node.transform.position(),
                             POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
                             POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
+                        );
+
+                        // if the point light is inside the main camera view this means that
+                        // no objects outside the main view can cast shadows on objects that
+                        // are inside the main view so we cull any such objects from the
+                        // shadow map render pass
+                        let can_cull_offscreen_objects = if USE_EXTRA_SHADOW_MAP_CULLING {
+                            culling_frustum.contains_point(point_light_node.transform.position())
+                        } else {
+                            false
+                        };
+
+                        (
+                            frustum_descriptors
+                                .iter()
+                                .map(|desc| {
+                                    // if the light view doesn't intersect with the main camera view at all
+                                    // then none of the objects inside of it can cast shadows on objects
+                                    // that are inside the main view so we can completely skip the shadow map
+                                    // render pass for this light view
+                                    let is_light_view_culled = if USE_EXTRA_SHADOW_MAP_CULLING {
+                                        !desc.frustum_intersection_test(&culling_frustum_desc)
+                                    } else {
+                                        false
+                                    };
+                                    ((*desc).into(), is_light_view_culled)
+                                })
+                                .collect(),
+                            can_cull_offscreen_objects,
                         )
                     })
             })
@@ -3619,8 +3672,6 @@ impl Renderer {
                                 &culling_frustum,
                                 &point_lights_frusta,
                             );
-                            // TODO: add a debug option to disable the main camera's culling?
-                            // culling_mask |= 1u32;
                             let gpu_instance = GpuPbrMeshInstance::new(
                                 transform,
                                 material_override.unwrap_or_else(|| {
@@ -4875,6 +4926,9 @@ impl Renderer {
                 for (pbr_instance_chunk_index, pbr_instance_chunk) in
                     private_data.all_pbr_instances.chunks().iter().enumerate()
                 {
+                    // TODO: if none of the instances pass the culling test, we should
+                    //       early out at the beginning of this function to avoid creating
+                    //       the render pass / clearing the texture at all.
                     if private_data.all_pbr_instances_culling_masks[pbr_instance_chunk_index]
                         & culling_mask
                         == 0

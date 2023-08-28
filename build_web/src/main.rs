@@ -130,7 +130,8 @@ Remove one flag or the other to continue."#
     }
 }
 
-/// Adapted from cargo-build-wasm v0.3.2
+/// Adapted from cargo-run-wasm v0.3.2
+/// TODO: exit with code 1 on failures?
 fn main() {
     env_logger::init();
 
@@ -187,6 +188,7 @@ fn main() {
     }
 
     cargo_args.extend(args.build_args.iter().map(OsStr::new));
+
     let status = Command::new("cargo")
         // .current_dir(&workspace_root)
         .env(

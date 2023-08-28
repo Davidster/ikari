@@ -8,10 +8,10 @@ use glam::{
     f32::{Vec3, Vec4},
     Mat4,
 };
-pub use rapier3d::prelude::*;
+pub use rapier3d_f64::prelude::*;
 
 pub struct PhysicsState {
-    pub gravity: nalgebra::Vector3<f32>,
+    pub gravity: nalgebra::Vector3<f64>,
     pub integration_parameters: IntegrationParameters,
     pub physics_pipeline: PhysicsPipeline,
     pub island_manager: IslandManager,
@@ -77,8 +77,8 @@ impl PhysicsState {
         renderer_data: &RendererData,
         node_id: GameNodeId,
     ) {
-        #[allow(clippy::or_fun_call)]
         let collider_handles = self.static_box_set.entry(node_id).or_insert(vec![]);
+
         if let Some(node) = scene.get_node(node_id) {
             if let Some(mesh) = node.mesh.as_ref() {
                 let transform: crate::transform::Transform =
@@ -116,18 +116,26 @@ impl PhysicsState {
                         position_rotated.z + transform_decomposed.position.z,
                     );
                     let rotation = transform_decomposed.rotation;
-                    let mut collider = ColliderBuilder::cuboid(scale.x, scale.y, scale.z)
-                        .collision_groups(
-                            InteractionGroups::all()
-                                .with_memberships(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
-                        )
-                        .friction(1.0)
-                        .restitution(1.0)
-                        .build();
+                    let mut collider =
+                        ColliderBuilder::cuboid(scale.x as f64, scale.y as f64, scale.z as f64)
+                            .collision_groups(
+                                InteractionGroups::all()
+                                    .with_memberships(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
+                            )
+                            .friction(1.0)
+                            .restitution(1.0)
+                            .build();
                     collider.set_position(Isometry::from_parts(
-                        nalgebra::Translation3::new(position.x, position.y, position.z),
+                        nalgebra::Translation3::new(
+                            position.x as f64,
+                            position.y as f64,
+                            position.z as f64,
+                        ),
                         nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
-                            rotation.w, rotation.x, rotation.y, rotation.z,
+                            rotation.w as f64,
+                            rotation.x as f64,
+                            rotation.y as f64,
+                            rotation.z as f64,
                         )),
                     ));
                     collider_handles.push(self.collider_set.insert(collider));
