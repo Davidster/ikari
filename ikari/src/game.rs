@@ -272,17 +272,18 @@ pub async fn init_game_state(
             );
             // forest
             // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
-            asset_loader.load_gltf_scene(
-                GAME_PATH_MAKER.make("src/models/gltf/free_low_poly_forest/scene.glb"),
-            );
+            // asset_loader.load_gltf_scene(
+            //     GAME_PATH_MAKER.make("src/models/gltf/free_low_poly_forest/scene.glb"),
+            // );
             // legendary robot
             // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-            asset_loader.load_gltf_scene(
-                GAME_PATH_MAKER.make("src/models/gltf/LegendaryRobot/Legendary_Robot.glb"),
-            );
+            // asset_loader.load_gltf_scene(
+            //     GAME_PATH_MAKER.make("src/models/gltf/LegendaryRobot/Legendary_Robot.glb"),
+            // );
             // maze
-            asset_loader
-                .load_gltf_scene(GAME_PATH_MAKER.make("src/models/gltf/TestLevel/test_level.glb"));
+            asset_loader.load_gltf_scene(
+                GAME_PATH_MAKER.make("src/models/gltf/MartensSurface/MartensSurface.glb"),
+            );
             // other
             // asset_loader.load_gltf_scene(get_misc_gltf_path());
 
@@ -1365,6 +1366,40 @@ pub fn update_game_state(
                     &renderer_data_guard,
                     node_id,
                 );
+            }
+        }
+
+        if let Entry::Occupied(entry) =
+            loaded_assets_guard.entry("src/models/gltf/MartensSurface/MartensSurface.glb".into())
+        {
+            let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
+            let skip_nodes = game_state.scene.node_count();
+            game_state.scene.merge_scene(
+                &mut renderer_data_guard,
+                other_scene,
+                other_render_buffers,
+            );
+
+            let test_level_node_ids: Vec<_> = game_state
+                .scene
+                .nodes()
+                .skip(skip_nodes)
+                .map(|node| node.id())
+                .collect();
+            for node_id in test_level_node_ids {
+                dbg!(game_state
+                    .scene
+                    .get_node_mut(node_id)
+                    .map(|node| node.name.clone()));
+                let transform = &mut game_state.scene.get_node_mut(node_id).unwrap().transform;
+                transform.set_position(Vec3::new(0.0, 3.0, 0.0));
+                // transform.set_rotation(
+                //     transform.rotation()
+                //         * glam::Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), deg_to_rad(180.0)),
+                // );
+                // if let Some(name) = game_state.scene.get_node_mut(node_id).unwrap().name {
+                //     dbg!(name);
+                // }
             }
         }
 
