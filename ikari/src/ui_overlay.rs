@@ -6,12 +6,14 @@ use glam::Vec3;
 use iced::alignment::Horizontal;
 use iced::widget::Button;
 use iced::widget::Column;
+use iced::widget::Container;
+use iced::widget::Row;
 use iced::widget::Text;
 use iced::Background;
+use iced::{Command, Element, Length};
 use iced_aw::{Card, Modal};
-use iced_wgpu::Renderer;
-use iced_winit::widget::{Container, Row};
-use iced_winit::{Command, Element, Length, Program};
+use iced_winit::runtime::Program;
+use iced_winit::style::Theme;
 use plotters::prelude::*;
 use plotters::style::RED;
 use plotters_iced::{Chart, ChartWidget, DrawingBackend};
@@ -130,7 +132,7 @@ impl std::fmt::Display for CullingFrustumLockMode {
 pub struct ContainerStyle;
 
 impl iced::widget::container::StyleSheet for ContainerStyle {
-    type Style = iced_wgpu::Theme;
+    type Style = iced::Theme;
 
     fn appearance(&self, _: &Self::Style) -> iced::widget::container::Appearance {
         iced::widget::container::Appearance {
@@ -261,7 +263,7 @@ impl FpsChart {
 
 // the iced ui
 impl Program for UiOverlay {
-    type Renderer = Renderer;
+    type Renderer = iced_wgpu::Renderer<Theme>;
     type Message = Message;
 
     fn update(&mut self, message: Message) -> Command<Message> {
@@ -385,7 +387,7 @@ impl Program for UiOverlay {
         Command::none()
     }
 
-    fn view(&self) -> Element<Message, Renderer> {
+    fn view(&self) -> Element<Message, iced_wgpu::Renderer<Theme>> {
         if self.fps_chart.recent_frame_times.is_empty() {
             return Row::new().into();
         }
@@ -419,21 +421,21 @@ impl Program for UiOverlay {
             } else {
                 "".into()
             };
-            rows = rows.push(iced_winit::widget::text(&format!(
+            rows = rows.push(iced::widget::text(&format!(
                 "Frametime: {cpu_frametime_string}{gpu_frametime_string}"
             )));
         }
 
         if self.is_showing_camera_pose {
             if let Some((camera_position, camera_direction)) = self.camera_pose {
-                rows = rows.push(iced_winit::widget::text(&format!(
+                rows = rows.push(iced::widget::text(&format!(
                     "Camera position:  x={:.2}, y={:.2}, z={:.2}",
                     camera_position.x, camera_position.y, camera_position.z
                 )));
                 let two_pi = 2.0 * std::f32::consts::PI;
                 let camera_horizontal = (camera_direction.horizontal + two_pi) % two_pi;
                 let camera_vertical = camera_direction.vertical;
-                rows = rows.push(iced_winit::widget::text(&format!(
+                rows = rows.push(iced::widget::text(&format!(
                     "Camera direction: h={:.2} ({:.2} deg), v={:.2} ({:.2} deg)",
                     camera_horizontal,
                     rad_to_deg(camera_horizontal),
@@ -459,7 +461,7 @@ impl Program for UiOverlay {
                     })
                     .unwrap_or_default();
                 let buffered_pos = format_timestamp(stats.buffered_to_pos_seconds);
-                rows = rows.push(iced_winit::widget::text(&format!(
+                rows = rows.push(iced::widget::text(&format!(
                     "{file_path}: {pos}{length}, buffer to {buffered_pos}"
                 )));
             }
@@ -514,7 +516,7 @@ impl Program for UiOverlay {
             avg_span_times_vec.reverse();
             for (span, span_frame_time) in avg_span_times_vec {
                 let msg = &format!("{span:}: {span_frame_time:.2}ms");
-                rows = rows.push(iced_winit::widget::text(msg).size(14));
+                rows = rows.push(iced::widget::text(msg).size(14));
             }
         }
 
@@ -523,7 +525,199 @@ impl Program for UiOverlay {
             rows = rows.push(Container::new(self.fps_chart.view()).padding(padding));
         }
 
-        let content = Row::new()
+        /* let content = Row::new()
+        .width(Length::Shrink)
+        .height(Length::Shrink)
+        .padding(8)
+        .push(
+            Container::new(rows)
+                .padding(8)
+                .style(iced::theme::Container::Custom(container_style)),
+        ); */
+
+        let mut options = Column::new()
+            .spacing(16)
+            .padding([6, 48, 6, 6])
+            .width(Length::Fill);
+
+        if self.is_showing_options_menu {
+            let separator_line = Text::new("-------------")
+                .width(Length::Fill)
+                .horizontal_alignment(Horizontal::Center);
+
+            // vsync
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                options = options.push(iced::widget::checkbox(
+                    "Enable VSync",
+                    self.enable_vsync,
+                    Message::ToggleVSync,
+                ));
+            }
+
+            // camera debug
+            options = options.push(iced::widget::checkbox(
+                "Show Camera Pose",
+                self.is_showing_camera_pose,
+                Message::ToggleCameraPose,
+            ));
+
+            // camera debug
+            options = options.push(iced::widget::checkbox(
+                "Show Audio Stats",
+                self.is_showing_audio_stats,
+                Message::ToggleAudioStats,
+            ));
+
+            // fps overlay
+            options = options.push(iced::widget::checkbox(
+                "Show FPS Chart",
+                self.is_showing_fps_chart,
+                Message::ToggleFpsChart,
+            ));
+
+            if has_gpu_frame_time_data {
+                options = options.push(iced::widget::checkbox(
+                    "Show Detailed GPU Frametimes",
+                    self.is_showing_gpu_spans,
+                    Message::ToggleGpuSpans,
+                ));
+            }
+
+            // frustum culling debug
+            options = options.push(separator_line.clone());
+            options = options.push(iced::widget::checkbox(
+                "Enable Frustum Culling Debug",
+                self.draw_culling_frustum,
+                Message::ToggleDrawCullingFrustum,
+            ));
+            if self.draw_culling_frustum {
+                options = options.push(Text::new("Lock Culling Frustum"));
+                for mode in CullingFrustumLockMode::ALL {
+                    options = options.push(iced::widget::radio(
+                        format!("{mode}"),
+                        mode,
+                        Some(self.culling_frustum_lock_mode),
+                        Message::CullingFrustumLockModeChanged,
+                    ));
+                }
+            }
+
+            // point light frusta debug
+            options = options.push(iced::widget::checkbox(
+                "Enable Point Light Frustum Culling Debug",
+                self.draw_point_light_culling_frusta,
+                Message::ToggleDrawPointLightCullingFrusta,
+            ));
+
+            // shadow debug
+            options = options.push(separator_line.clone());
+            options = options.push(iced::widget::checkbox(
+                "Enable Shadow Debug",
+                self.enable_shadow_debug,
+                Message::ToggleSoftShadows,
+            ));
+            options = options.push(iced::widget::checkbox(
+                "Enable Soft Shadows",
+                self.enable_soft_shadows,
+                Message::ToggleShadowDebug,
+            ));
+            options = options.push(Text::new(format!("Shadow Bias: {:.5}", self.shadow_bias)));
+            options = options.push(
+                iced::widget::slider(
+                    0.00001..=0.005,
+                    self.shadow_bias,
+                    Message::ShadowBiasChanged,
+                )
+                .step(0.00001),
+            );
+            options = options.push(Text::new(format!(
+                "Soft Shadow Factor: {:.4}",
+                self.soft_shadow_factor
+            )));
+            options = options.push(
+                iced::widget::slider(
+                    0.0001..=0.005,
+                    self.soft_shadow_factor,
+                    Message::SoftShadowFactorChanged,
+                )
+                .step(0.0001),
+            );
+            options = options.push(Text::new(format!(
+                "Soft Shadow Grid Dims: {:}",
+                self.soft_shadow_grid_dims
+            )));
+            options = options.push(
+                iced::widget::slider(
+                    0..=16u32,
+                    self.soft_shadow_grid_dims,
+                    Message::SoftShadowGridDimsChanged,
+                )
+                .step(1),
+            );
+
+            // profile dump
+            if cfg!(not(target_arch = "wasm32")) {
+                if let Some(pending_perf_dump) = &self.pending_perf_dump {
+                    let (message, color) = if self.perf_dump_completion_time.is_some() {
+                        match *pending_perf_dump.lock().unwrap() {
+                            Some(Ok(_)) => (
+                                "Profile dump complete!".to_string(),
+                                iced::Color::from_rgb(0.7, 1.0, 0.0),
+                            ),
+                            Some(Err(_)) => (
+                                "Profile dump failed! See stdout for details.".to_string(),
+                                iced::Color::from_rgb(0.9, 0.1, 0.2),
+                            ),
+                            None => {
+                                unreachable!();
+                            }
+                        }
+                    } else {
+                        let time_secs = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or(Default::default())
+                            .as_secs_f64();
+                        let ellipsis_num = 2 + (time_secs * 4.0).sin().round() as i32;
+                        let elipsis_str =
+                            (0..ellipsis_num).map(|_| ".").collect::<Vec<_>>().join("");
+                        (
+                            format!("Generating profile dump{elipsis_str}"),
+                            iced::Color::from_rgb(1.0, 0.7, 0.1),
+                        )
+                    };
+                    options = options.push(Text::new(message).style(color));
+                } else {
+                    options = options.push(
+                        Button::new(
+                            Text::new("Generate Profile Dump")
+                                .horizontal_alignment(Horizontal::Center),
+                        )
+                        .width(Length::Shrink)
+                        .on_press(Message::GenerateProfileDump),
+                    );
+                }
+            }
+
+            // exit button
+            options = options.push(
+                Button::new(Text::new("Exit Game").horizontal_alignment(Horizontal::Center))
+                    .width(Length::Shrink)
+                    .on_press(Message::ExitButtonPressed),
+            );
+        }
+
+        // Card::new(
+        //     Text::new("Options"),
+        //     iced::widget::scrollable(options).height(iced::Length::Fixed(
+        //         self.viewport_dims.1 as f32 * 0.75 - 50.0,
+        //     )),
+        // )
+        // .max_width(300.0)
+        // .on_close(Message::ClosePopupMenu)
+        // .into()
+
+        Row::new()
             .width(Length::Shrink)
             .height(Length::Shrink)
             .padding(8)
@@ -531,9 +725,35 @@ impl Program for UiOverlay {
                 Container::new(rows)
                     .padding(8)
                     .style(iced::theme::Container::Custom(container_style)),
-            );
+            )
+            .into()
 
-        Modal::new(self.is_showing_options_menu, content, move || {
+        // if self.is_showing_options_menu {
+        //     Card::new(
+        //         Text::new("Options"),
+        //         iced::widget::scrollable(options).height(iced::Length::Fixed(
+        //             self.viewport_dims.1 as f32 * 0.75 - 50.0,
+        //         )),
+        //     )
+        //     .max_width(300.0)
+        //     .on_close(Message::ClosePopupMenu)
+        //     .into()
+        // } else {
+        //     Container::new(
+        //         Row::new()
+        //             .width(Length::Shrink)
+        //             .height(Length::Shrink)
+        //             .padding(8)
+        //             .push(
+        //                 Container::new(rows)
+        //                     .padding(8)
+        //                     .style(iced::theme::Container::Custom(container_style)),
+        //             ),
+        //     )
+        //     .into()
+        // }
+
+        /* Modal::new(self.is_showing_options_menu, content, move || {
             let separator_line = Text::new("-------------")
                 .width(Length::Fill)
                 .horizontal_alignment(Horizontal::Center);
@@ -546,7 +766,7 @@ impl Program for UiOverlay {
             // vsync
             #[cfg(not(target_arch = "wasm32"))]
             {
-                options = options.push(iced_winit::widget::checkbox(
+                options = options.push(iced::widget::checkbox(
                     "Enable VSync",
                     self.enable_vsync,
                     Message::ToggleVSync,
@@ -554,28 +774,28 @@ impl Program for UiOverlay {
             }
 
             // camera debug
-            options = options.push(iced_winit::widget::checkbox(
+            options = options.push(iced::widget::checkbox(
                 "Show Camera Pose",
                 self.is_showing_camera_pose,
                 Message::ToggleCameraPose,
             ));
 
             // camera debug
-            options = options.push(iced_winit::widget::checkbox(
+            options = options.push(iced::widget::checkbox(
                 "Show Audio Stats",
                 self.is_showing_audio_stats,
                 Message::ToggleAudioStats,
             ));
 
             // fps overlay
-            options = options.push(iced_winit::widget::checkbox(
+            options = options.push(iced::widget::checkbox(
                 "Show FPS Chart",
                 self.is_showing_fps_chart,
                 Message::ToggleFpsChart,
             ));
 
             if has_gpu_frame_time_data {
-                options = options.push(iced_winit::widget::checkbox(
+                options = options.push(iced::widget::checkbox(
                     "Show Detailed GPU Frametimes",
                     self.is_showing_gpu_spans,
                     Message::ToggleGpuSpans,
@@ -584,7 +804,7 @@ impl Program for UiOverlay {
 
             // frustum culling debug
             options = options.push(separator_line.clone());
-            options = options.push(iced_winit::widget::checkbox(
+            options = options.push(iced::widget::checkbox(
                 "Enable Frustum Culling Debug",
                 self.draw_culling_frustum,
                 Message::ToggleDrawCullingFrustum,
@@ -592,7 +812,7 @@ impl Program for UiOverlay {
             if self.draw_culling_frustum {
                 options = options.push(Text::new("Lock Culling Frustum"));
                 for mode in CullingFrustumLockMode::ALL {
-                    options = options.push(iced_winit::widget::radio(
+                    options = options.push(iced::widget::radio(
                         format!("{mode}"),
                         mode,
                         Some(self.culling_frustum_lock_mode),
@@ -602,7 +822,7 @@ impl Program for UiOverlay {
             }
 
             // point light frusta debug
-            options = options.push(iced_winit::widget::checkbox(
+            options = options.push(iced::widget::checkbox(
                 "Enable Point Light Frustum Culling Debug",
                 self.draw_point_light_culling_frusta,
                 Message::ToggleDrawPointLightCullingFrusta,
@@ -610,19 +830,19 @@ impl Program for UiOverlay {
 
             // shadow debug
             options = options.push(separator_line.clone());
-            options = options.push(iced_winit::widget::checkbox(
+            options = options.push(iced::widget::checkbox(
                 "Enable Shadow Debug",
                 self.enable_shadow_debug,
                 Message::ToggleSoftShadows,
             ));
-            options = options.push(iced_winit::widget::checkbox(
+            options = options.push(iced::widget::checkbox(
                 "Enable Soft Shadows",
                 self.enable_soft_shadows,
                 Message::ToggleShadowDebug,
             ));
             options = options.push(Text::new(format!("Shadow Bias: {:.5}", self.shadow_bias)));
             options = options.push(
-                iced_winit::widget::slider(
+                iced::widget::slider(
                     0.00001..=0.005,
                     self.shadow_bias,
                     Message::ShadowBiasChanged,
@@ -634,7 +854,7 @@ impl Program for UiOverlay {
                 self.soft_shadow_factor
             )));
             options = options.push(
-                iced_winit::widget::slider(
+                iced::widget::slider(
                     0.0001..=0.005,
                     self.soft_shadow_factor,
                     Message::SoftShadowFactorChanged,
@@ -646,7 +866,7 @@ impl Program for UiOverlay {
                 self.soft_shadow_grid_dims
             )));
             options = options.push(
-                iced_winit::widget::slider(
+                iced::widget::slider(
                     0..=16u32,
                     self.soft_shadow_grid_dims,
                     Message::SoftShadowGridDimsChanged,
@@ -714,7 +934,22 @@ impl Program for UiOverlay {
             .on_close(Message::ClosePopupMenu)
             .into()
         })
-        .into()
+        .into() */
+
+        // let mut options = Column::new()
+        //     .spacing(16)
+        //     .padding([6, 48, 6, 6])
+        //     .width(Length::Fill);
+
+        // Card::new(
+        //     Text::new("Options"),
+        //     iced::widget::scrollable(options).height(iced::Length::Fixed(
+        //         self.viewport_dims.1 as f32 * 0.75 - 50.0,
+        //     )),
+        // )
+        // .max_width(300.0)
+        // .on_close(Message::ClosePopupMenu)
+        // .into()
     }
 }
 
@@ -772,12 +1007,12 @@ fn collect_frame_time_ms(frame_times: &Vec<GpuTimerScopeResultWrapper>) -> f64 {
 // integrates iced into ikari
 // based off of https://github.com/iced-rs/iced/tree/master/examples/integration_wgpu
 pub struct IkariUiOverlay {
-    debug: iced_winit::Debug,
-    renderer: iced_wgpu::Renderer,
+    debug: iced_winit::runtime::Debug,
+    renderer: iced_wgpu::Renderer<Theme>, // iced_winit::style::Theme::Dark?
     staging_belt: wgpu::util::StagingBelt,
-    viewport: iced_wgpu::Viewport,
-    clipboard: iced_winit::clipboard::Clipboard,
-    program_container: iced_winit::program::State<UiOverlay>,
+    viewport: iced_winit::Viewport,
+    clipboard: iced_winit::Clipboard,
+    program_container: iced_winit::runtime::program::State<UiOverlay>,
     cursor_position: winit::dpi::PhysicalPosition<f64>,
     modifiers: winit::event::ModifiersState,
     last_cursor_icon: Option<winit::window::CursorIcon>,
@@ -787,9 +1022,10 @@ impl IkariUiOverlay {
     pub fn new(
         window: &Window,
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         output_texture_format: wgpu::TextureFormat,
     ) -> Self {
-        let viewport = iced_wgpu::Viewport::with_physical_size(
+        let viewport = iced_winit::Viewport::with_physical_size(
             iced::Size::new(window.inner_size().width, window.inner_size().height),
             window.scale_factor(),
         );
@@ -828,14 +1064,15 @@ impl IkariUiOverlay {
             perf_dump_completion_time: None,
         };
 
-        let mut debug = iced_winit::Debug::new();
+        let mut debug = iced_winit::runtime::Debug::new();
         let mut renderer = iced_wgpu::Renderer::new(iced_wgpu::Backend::new(
             device,
+            queue,
             iced_wgpu::Settings::default(),
             output_texture_format,
         ));
 
-        let program_container = iced_winit::program::State::new(
+        let program_container = iced_winit::runtime::program::State::new(
             state,
             viewport.logical_size(),
             &mut renderer,
@@ -889,13 +1126,15 @@ impl IkariUiOverlay {
         if !self.program_container.is_queue_empty() {
             let _ = self.program_container.update(
                 self.viewport.logical_size(),
-                iced_winit::conversion::cursor_position(
-                    self.cursor_position,
-                    self.viewport.scale_factor(),
+                iced_winit::core::mouse::Cursor::Available(
+                    iced_winit::conversion::cursor_position(
+                        self.cursor_position,
+                        self.viewport.scale_factor(),
+                    ),
                 ),
                 &mut self.renderer,
-                &iced_wgpu::Theme::Dark,
-                &iced_winit::renderer::Style {
+                &iced_winit::style::Theme::Dark,
+                &iced_winit::core::renderer::Style {
                     text_color: iced::Color::WHITE,
                 },
                 &mut self.clipboard,
@@ -925,6 +1164,7 @@ impl IkariUiOverlay {
     pub fn render(
         &mut self,
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         texture_view: &wgpu::TextureView,
     ) {
@@ -933,8 +1173,10 @@ impl IkariUiOverlay {
         self.renderer.with_primitives(|backend, primitive| {
             backend.present(
                 device,
-                &mut self.staging_belt,
+                queue,
+                // &mut self.staging_belt,
                 encoder,
+                None,
                 texture_view,
                 primitive,
                 &self.viewport,

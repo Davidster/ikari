@@ -884,7 +884,8 @@ pub struct Renderer {
 impl Renderer {
     pub async fn new(base: BaseRenderer, window: &Window) -> Result<Self> {
         log::info!("Controls:");
-        ["Look Around:             Mouse",
+        [
+            "Look Around:             Mouse",
             "Move Around:             WASD, Space Bar, Ctrl",
             "Adjust Speed:            Scroll or Up/Down Arrow Keys",
             "Adjust Render Scale:     Z / X",
@@ -896,7 +897,8 @@ impl Renderer {
             "Toggle Wireframe:        F",
             "Toggle Collision Boxes:  C",
             "Draw Bounding Spheres:   J",
-            "Open Options Menu:       Tab"]
+            "Open Options Menu:       Tab",
+        ]
         .iter()
         .for_each(|line| {
             log::info!("  {line}");
@@ -2378,6 +2380,7 @@ impl Renderer {
         let ui_overlay = IkariUiOverlay::new(
             window,
             &base.device,
+            &base.queue,
             if surface_format.is_srgb() {
                 surface_format
             } else {
@@ -4495,8 +4498,12 @@ impl Renderer {
             }
 
             // TODO: pass a separate encoder to the ui overlay so it can be profiled
-            self.ui_overlay
-                .render(&self.base.device, &mut encoder, &pre_gamma_fb.view);
+            self.ui_overlay.render(
+                &self.base.device,
+                &self.base.queue,
+                &mut encoder,
+                &pre_gamma_fb.view,
+            );
         }
 
         {
@@ -4537,8 +4544,12 @@ impl Renderer {
 
         if private_data.pre_gamma_fb.is_none() {
             // TODO: pass a separate encoder to the ui overlay so it can be profiled
-            self.ui_overlay
-                .render(&self.base.device, &mut encoder, &surface_texture_view);
+            self.ui_overlay.render(
+                &self.base.device,
+                &self.base.queue,
+                &mut encoder,
+                &surface_texture_view,
+            );
         }
 
         profiler.resolve_queries(&mut encoder);

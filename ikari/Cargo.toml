@@ -56,7 +56,7 @@ log = "0.4"
 
 # profiling
 # The version should be the one used by wgpu-core/hal TODO: does this version number need updating?
-profiling = "1.0.8"
+profiling = "1.0.9"
 wgpu-profiler = "0.12"
 # wgpu-profiler = { path = "../../wgpu-profiler-fork" }
 tracing-tracy = { version = "0.10.2", features = ["ondemand"], optional = true }
@@ -73,7 +73,7 @@ wavefront_obj = "10.0"
 # rendering
 wgpu = "0.16"
 # wgpu = { path = "../../wgpu/wgpu" }
-winit = { version = "0.27", git = "https://github.com/iced-rs/winit.git", rev = "940457522e9fb9f5dac228b0ecfafe0138b4048c" }
+winit = { version = "0.28", git = "https://github.com/iced-rs/winit.git", rev = "c52db2045d0a2f1b8d9923870de1d4ab1994146e" }
 
 # math
 rand = { version = "0.8", features = ["small_rng"] }
@@ -87,19 +87,23 @@ oddio = "0.6"
 symphonia = { version = "0.5.3", features = ["mp3", "wav"] }
 
 # UI
-iced_wgpu = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
-iced = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
-iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
+iced = { version = "0.10" }
+iced_wgpu = "0.11"
+iced_winit = "0.10"
+iced_renderer = "0.1.0"
+# iced_wgpu = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
+# iced = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
+# iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
 # iced_wgpu = { path = "../../iced-fork/wgpu", default-features = false, features = [
 # ] }
 # iced = { path = "../../iced-fork" }
 # iced_winit = { path = "../../iced-fork/winit" }
 
-plotters-iced = "0.8"
+plotters-iced = "0.9"
 plotters = { version = "0.3", default-features = false, features = [
     "line_series",
 ] }
-iced_aw = { git = "https://github.com/iced-rs/iced_aw.git", branch = "main", default-features = false, features = [
+iced_aw = { version = "0.7", default-features = false, features = [
     "modal",
     "card",
 ] }
@@ -124,8 +128,8 @@ web-sys = { version = "0.3.64", features = [
     "WorkerGlobalScope",
 ] }
 getrandom = { version = "0.2.10", features = ["js"] }
-serde = "1.0.173"
-serde_derive = "1.0.173"
+serde = "1.0.183"
+serde_derive = "1.0.183"
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
 wasm-bindgen = { version = "0.2.87", features = ["serde-serialize"] }

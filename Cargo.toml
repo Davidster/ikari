@@ -18,9 +18,10 @@ authors = [
 ]
 
 [patch.crates-io]
-iced_native = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
-iced_graphics = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
-iced_style = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
+winit = { version = "0.28", git = "https://github.com/iced-rs/winit.git", rev = "c52db2045d0a2f1b8d9923870de1d4ab1994146e" }
+# iced_native = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
+# iced_graphics = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
+# iced_style = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
 # iced_native = { path = "../iced-fork/native" }
 # iced_graphics = { path = "../iced-fork/graphics" }
 # iced_style = { path = "../iced-fork/style" }
