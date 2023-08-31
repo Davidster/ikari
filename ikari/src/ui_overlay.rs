@@ -6,10 +6,12 @@ use glam::Vec3;
 use iced::alignment::Horizontal;
 use iced::widget::{Button, Column, Container, Row, Text};
 use iced::Background;
-use iced_winit::core::{Element, Length};
-use iced_winit::runtime::Command;
+use iced::Command;
+use iced::Element;
+use iced::Length;
+use iced::Theme;
+use iced_wgpu::Renderer;
 use iced_winit::runtime::Program;
-use iced_winit::style::Theme;
 use plotters::prelude::*;
 use plotters::style::RED;
 use plotters_iced::{Chart, ChartWidget, DrawingBackend};
@@ -19,7 +21,7 @@ use crate::game::*;
 use crate::math::*;
 use crate::player_controller::*;
 use crate::profile_dump::*;
-use crate::renderer::*;
+use crate::renderer::CullingFrustumLock;
 use crate::time::*;
 
 const FRAME_TIME_HISTORY_SIZE: usize = 720;
@@ -128,10 +130,10 @@ impl std::fmt::Display for CullingFrustumLockMode {
 pub struct ContainerStyle;
 
 impl iced_winit::style::container::StyleSheet for ContainerStyle {
-    type Style = iced_winit::style::Theme;
+    type Style = Theme;
 
-    fn appearance(&self, _: &Self::Style) -> iced::widget::container::Appearance {
-        iced::widget::container::Appearance {
+    fn appearance(&self, _: &Self::Style) -> iced_winit::style::container::Appearance {
+        iced_winit::style::container::Appearance {
             background: Some(Background::Color(iced::Color::from_rgba(
                 0.3, 0.3, 0.3, 0.6,
             ))),
@@ -249,11 +251,10 @@ impl Chart<Message> for FpsChart {
 }
 
 impl FpsChart {
-    fn view(&self) -> Element<Message, iced_wgpu::Renderer<iced::theme::Theme>> {
-        let chart: ChartWidget<'_, Message, iced_wgpu::Renderer<iced::theme::Theme>, &Self> =
-            ChartWidget::new(self)
-                .width(Length::Fixed(400.0))
-                .height(Length::Fixed(300.0));
+    fn view(&self) -> Element<Message, Renderer<Theme>> {
+        let chart: ChartWidget<'_, Message, Renderer, &Self> = ChartWidget::new(self)
+            .width(Length::Fixed(400.0))
+            .height(Length::Fixed(300.0));
 
         Element::new(chart)
     }
@@ -261,7 +262,7 @@ impl FpsChart {
 
 // the iced ui
 impl Program for UiOverlay {
-    type Renderer = iced_wgpu::Renderer<Theme>;
+    type Renderer = Renderer<Theme>;
     type Message = Message;
 
     fn update(&mut self, message: Message) -> Command<Message> {
@@ -385,7 +386,7 @@ impl Program for UiOverlay {
         Command::none()
     }
 
-    fn view(&self) -> Element<Message, iced_wgpu::Renderer<Theme>> {
+    fn view(&self) -> Element<Message, Renderer<Theme>> {
         if self.fps_chart.recent_frame_times.is_empty() {
             return Row::new().into();
         }
@@ -394,7 +395,7 @@ impl Program for UiOverlay {
 
         let container_style = Box::new(ContainerStyle {});
 
-        let mut rows: Column<'_, Message, iced_wgpu::Renderer<Theme>> = Column::new()
+        let mut rows: Column<'_, Message, Renderer> = Column::new()
             .width(Length::Shrink)
             .height(Length::Shrink)
             .spacing(4);
@@ -706,7 +707,7 @@ impl Program for UiOverlay {
             );
         }
 
-        let card: iced_aw::Card<'_, Message, iced_wgpu::Renderer<Theme>> = iced_aw::Card::new(
+        let card: iced_aw::Card<'_, Message, Renderer> = iced_aw::Card::new(
             Text::new("Options"),
             iced::widget::scrollable(options).height(iced::Length::Fixed(
                 self.viewport_dims.1 as f32 * 0.75 - 50.0,
@@ -1022,7 +1023,7 @@ fn collect_frame_time_ms(frame_times: &Vec<GpuTimerScopeResultWrapper>) -> f64 {
 // based off of https://github.com/iced-rs/iced/tree/master/examples/integration_wgpu
 pub struct IkariUiOverlay {
     debug: iced_winit::runtime::Debug,
-    renderer: iced_wgpu::Renderer<Theme>, // iced_winit::style::Theme::Dark?
+    renderer: Renderer<iced_winit::style::Theme>, // iced_winit::style::Theme::Dark?
     staging_belt: wgpu::util::StagingBelt,
     viewport: iced_winit::Viewport,
     clipboard: iced_winit::Clipboard,
@@ -1079,7 +1080,7 @@ impl IkariUiOverlay {
         };
 
         let mut debug = iced_winit::runtime::Debug::new();
-        let mut renderer = iced_wgpu::Renderer::new(iced_wgpu::Backend::new(
+        let mut renderer = Renderer::new(iced_wgpu::Backend::new(
             device,
             queue,
             iced_wgpu::Settings::default(),
