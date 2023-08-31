@@ -90,7 +90,7 @@ symphonia = { version = "0.5.3", features = ["mp3", "wav"] }
 iced = { version = "0.10" }
 iced_wgpu = "0.11"
 iced_winit = "0.10"
-iced_renderer = "0.1.0"
+# iced_renderer = "0.1.0"
 # iced_wgpu = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
 # iced = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
 # iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }

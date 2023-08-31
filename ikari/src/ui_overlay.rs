@@ -4,14 +4,10 @@ use std::collections::HashSet;
 
 use glam::Vec3;
 use iced::alignment::Horizontal;
-use iced::widget::Button;
-use iced::widget::Column;
-use iced::widget::Container;
-use iced::widget::Row;
-use iced::widget::Text;
+use iced::widget::{Button, Column, Container, Row, Text};
 use iced::Background;
-use iced::{Command, Element, Length};
-use iced_aw::{Card, Modal};
+use iced_winit::core::{Element, Length};
+use iced_winit::runtime::Command;
 use iced_winit::runtime::Program;
 use iced_winit::style::Theme;
 use plotters::prelude::*;
@@ -131,8 +127,8 @@ impl std::fmt::Display for CullingFrustumLockMode {
 
 pub struct ContainerStyle;
 
-impl iced::widget::container::StyleSheet for ContainerStyle {
-    type Style = iced::Theme;
+impl iced_winit::style::container::StyleSheet for ContainerStyle {
+    type Style = iced_winit::style::Theme;
 
     fn appearance(&self, _: &Self::Style) -> iced::widget::container::Appearance {
         iced::widget::container::Appearance {
@@ -253,11 +249,13 @@ impl Chart<Message> for FpsChart {
 }
 
 impl FpsChart {
-    fn view(&self) -> iced::Element<Message> {
-        ChartWidget::new(self)
-            .width(iced::Length::Fixed(400.0))
-            .height(iced::Length::Fixed(300.0))
-            .into()
+    fn view(&self) -> Element<Message, iced_wgpu::Renderer<iced::theme::Theme>> {
+        let chart: ChartWidget<'_, Message, iced_wgpu::Renderer<iced::theme::Theme>, &Self> =
+            ChartWidget::new(self)
+                .width(Length::Fixed(400.0))
+                .height(Length::Fixed(300.0));
+
+        Element::new(chart)
     }
 }
 
@@ -396,7 +394,7 @@ impl Program for UiOverlay {
 
         let container_style = Box::new(ContainerStyle {});
 
-        let mut rows = Column::new()
+        let mut rows: Column<'_, Message, iced_wgpu::Renderer<Theme>> = Column::new()
             .width(Length::Shrink)
             .height(Length::Shrink)
             .spacing(4);
@@ -522,7 +520,8 @@ impl Program for UiOverlay {
 
         if self.is_showing_fps_chart {
             let padding = [16, 20, 16, 0]; // top, right, bottom, left
-            rows = rows.push(Container::new(self.fps_chart.view()).padding(padding));
+            rows = rows.push(self.fps_chart.view());
+            // rows = rows.push(Container::new(self.fps_chart.view()).padding(padding));
         }
 
         /* let content = Row::new()
@@ -707,16 +706,31 @@ impl Program for UiOverlay {
             );
         }
 
-        // Card::new(
-        //     Text::new("Options"),
-        //     iced::widget::scrollable(options).height(iced::Length::Fixed(
-        //         self.viewport_dims.1 as f32 * 0.75 - 50.0,
-        //     )),
-        // )
-        // .max_width(300.0)
-        // .on_close(Message::ClosePopupMenu)
-        // .into()
+        let card: iced_aw::Card<'_, Message, iced_wgpu::Renderer<Theme>> = iced_aw::Card::new(
+            Text::new("Options"),
+            iced::widget::scrollable(options).height(iced::Length::Fixed(
+                self.viewport_dims.1 as f32 * 0.75 - 50.0,
+            )),
+        )
+        .max_width(300.0)
+        .on_close(Message::ClosePopupMenu);
 
+        let yo = Element::new(card);
+
+        // let row = ;
+
+        // let mut rows2 = Column::new()
+        //     .width(Length::Shrink)
+        //     .height(Length::Shrink)
+        //     .spacing(4);
+
+        // if self.is_showing_fps_chart {
+        //     let padding = [16, 20, 16, 0]; // top, right, bottom, left
+        //     rows = rows.push(Container::new(self.fps_chart.view()).padding(padding));
+        // }
+
+        // iced_winit::style::container::StyleSheet
+        //    ContainerStyle::
         Row::new()
             .width(Length::Shrink)
             .height(Length::Shrink)
@@ -729,7 +743,7 @@ impl Program for UiOverlay {
             .into()
 
         // if self.is_showing_options_menu {
-        //     Card::new(
+        //     iced_aw::Card::new(
         //         Text::new("Options"),
         //         iced::widget::scrollable(options).height(iced::Length::Fixed(
         //             self.viewport_dims.1 as f32 * 0.75 - 50.0,
@@ -753,7 +767,7 @@ impl Program for UiOverlay {
         //     .into()
         // }
 
-        /* Modal::new(self.is_showing_options_menu, content, move || {
+        /* iced_aw::Modal::new(self.is_showing_options_menu, content, move || {
             let separator_line = Text::new("-------------")
                 .width(Length::Fill)
                 .horizontal_alignment(Horizontal::Center);
@@ -924,7 +938,7 @@ impl Program for UiOverlay {
                     .on_press(Message::ExitButtonPressed),
             );
 
-            Card::new(
+            iced_aw::Card::new(
                 Text::new("Options"),
                 iced::widget::scrollable(options).height(iced::Length::Fixed(
                     self.viewport_dims.1 as f32 * 0.75 - 50.0,
@@ -941,7 +955,7 @@ impl Program for UiOverlay {
         //     .padding([6, 48, 6, 6])
         //     .width(Length::Fill);
 
-        // Card::new(
+        // iced_aw::Card::new(
         //     Text::new("Options"),
         //     iced::widget::scrollable(options).height(iced::Length::Fixed(
         //         self.viewport_dims.1 as f32 * 0.75 - 50.0,

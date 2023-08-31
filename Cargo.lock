@@ -1903,7 +1903,6 @@ dependencies = [
  "half",
  "iced",
  "iced_aw",
- "iced_renderer",
  "iced_wgpu",
  "iced_winit",
  "image",
