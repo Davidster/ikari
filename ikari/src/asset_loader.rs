@@ -27,16 +27,39 @@ type PendingSkybox = (
     Option<SkyboxHDREnvironmentPath>,
 );
 
+#[cfg(not(target_arch = "wasm32"))]
+pub trait WasmNotSend: Send {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Send> WasmNotSend for T {}
+#[cfg(target_arch = "wasm32")]
+pub trait WasmNotSend {}
+#[cfg(target_arch = "wasm32")]
+impl<T> WasmNotSend for T {}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub trait WasmNotSync: Sync {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Sync> WasmNotSync for T {}
+#[cfg(target_arch = "wasm32")]
+pub trait WasmNotSync {}
+#[cfg(target_arch = "wasm32")]
+impl<T> WasmNotSync for T {}
+
 pub struct AssetLoader {
     pending_audio: Arc<Mutex<Vec<(GameFilePath, AudioFileFormat, SoundParams)>>>,
     pub loaded_audio: Arc<Mutex<HashMap<PathBuf, usize>>>,
 
     audio_manager: Arc<Mutex<AudioManager>>,
     pending_scenes: Arc<Mutex<Vec<GameFilePath>>>,
-    scene_binder: Arc<Mutex<Box<dyn BindScene + Send + Sync>>>,
+    bindable_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindableSceneData)>>>,
 
     pending_skyboxes: Arc<Mutex<Vec<PendingSkybox>>>,
-    skybox_binder: Arc<Mutex<Box<dyn BindSkybox + Send + Sync>>>,
+    bindable_skyboxes: Arc<Mutex<HashMap<String, BindableSkybox>>>,
+}
+
+pub struct AssetBinder {
+    scene_binder: Arc<Mutex<Box<dyn BindScene>>>,
+    skybox_binder: Arc<Mutex<Box<dyn BindSkybox>>>,
 }
 
 /// loading must be split into two phases:
@@ -46,19 +69,12 @@ pub struct AssetLoader {
 /// This is because step 2) can only be done on the main thread on the web due to the fact that the webgpu device
 /// can't be used on a thread other than the one where it was created
 /// TODO: instead of using a PathBuf of the relative path of the scene, make user pass an ID in load_scene function and use that instead.
-trait BindScene {
-    fn update(&mut self, base_renderer: Arc<BaseRenderer>);
-    fn bindable_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindableSceneData)>>>;
+trait BindScene: WasmNotSend + WasmNotSync {
+    fn update(&mut self, base_renderer: Arc<BaseRenderer>, asset_loader: Arc<AssetLoader>);
     fn loaded_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>;
 }
 
-struct ThreadedSceneBinder {
-    bindable_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindableSceneData)>>>,
-    loaded_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>,
-}
-
 struct TimeSlicedSceneBinder {
-    bindable_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindableSceneData)>>>,
     staged_scenes: HashMap<
         PathBuf,
         (
@@ -70,47 +86,31 @@ struct TimeSlicedSceneBinder {
     loaded_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>,
 }
 
-trait BindSkybox {
+trait BindSkybox: WasmNotSend + WasmNotSync {
     fn update(
         &mut self,
         base_renderer: Arc<BaseRenderer>,
         renderer_constant_data: Arc<RendererConstantData>,
+        asset_loader: Arc<AssetLoader>,
     );
-    fn bindable_skyboxes(&self) -> Arc<Mutex<HashMap<String, BindableSkybox>>>;
     fn loaded_skyboxes(&self) -> Arc<Mutex<HashMap<String, BindedSkybox>>>;
 }
 
 struct TimeSlicedSkyboxBinder {
-    bindable_skyboxes: Arc<Mutex<HashMap<String, BindableSkybox>>>,
     loaded_skyboxes: Arc<Mutex<HashMap<String, BindedSkybox>>>,
 }
 
 impl AssetLoader {
     pub fn new(audio_manager: Arc<Mutex<AudioManager>>) -> Self {
-        let bindable_scenes = Arc::new(Mutex::new(HashMap::new()));
-        let loaded_scenes = Arc::new(Mutex::new(HashMap::new()));
-        let scene_binder: Box<dyn BindScene + Send + Sync> = if cfg!(target_arch = "wasm32") {
-            Box::new(TimeSlicedSceneBinder::new(bindable_scenes, loaded_scenes))
-        } else {
-            Box::new(ThreadedSceneBinder::new(bindable_scenes, loaded_scenes))
-        };
-
-        let bindable_skyboxes = Arc::new(Mutex::new(HashMap::new()));
-        let loaded_skyboxes = Arc::new(Mutex::new(HashMap::new()));
-        let skybox_binder: Box<dyn BindSkybox + Send + Sync> = Box::new(TimeSlicedSkyboxBinder {
-            bindable_skyboxes,
-            loaded_skyboxes,
-        });
-
         Self {
-            scene_binder: Arc::new(Mutex::new(scene_binder)),
-            skybox_binder: Arc::new(Mutex::new(skybox_binder)),
             pending_scenes: Arc::new(Mutex::new(Vec::new())),
+            bindable_scenes: Arc::new(Mutex::new(HashMap::new())),
             audio_manager,
             pending_audio: Arc::new(Mutex::new(Vec::new())),
             loaded_audio: Arc::new(Mutex::new(HashMap::new())),
 
             pending_skyboxes: Arc::new(Mutex::new(Vec::new())),
+            bindable_skyboxes: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -123,7 +123,7 @@ impl AssetLoader {
 
         if pending_scene_count == 1 {
             let pending_scenes = self.pending_scenes.clone();
-            let bindable_scenes = self.scene_binder.lock().unwrap().bindable_scenes();
+            let bindable_scenes = self.bindable_scenes.clone();
 
             crate::thread::spawn(move || {
                 profiling::register_thread!("GLTF loader");
@@ -186,29 +186,6 @@ impl AssetLoader {
                 });
             });
         }
-    }
-
-    pub fn loaded_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>> {
-        self.scene_binder.lock().unwrap().loaded_scenes()
-    }
-
-    pub fn loaded_skyboxes(&self) -> Arc<Mutex<HashMap<String, BindedSkybox>>> {
-        self.skybox_binder.lock().unwrap().loaded_skyboxes()
-    }
-
-    pub fn update(
-        &self,
-        base_renderer: Arc<BaseRenderer>,
-        renderer_constant_data: Arc<RendererConstantData>,
-    ) {
-        self.scene_binder
-            .lock()
-            .unwrap()
-            .update(base_renderer.clone());
-        self.skybox_binder
-            .lock()
-            .unwrap()
-            .update(base_renderer, renderer_constant_data);
     }
 
     pub fn load_audio(&self, path: GameFilePath, format: AudioFileFormat, params: SoundParams) {
@@ -389,7 +366,7 @@ impl AssetLoader {
 
         if pending_skybox_count == 1 {
             let pending_skyboxes = self.pending_skyboxes.clone();
-            let bindable_skyboxes = self.skybox_binder.lock().unwrap().bindable_skyboxes();
+            let bindable_skyboxes = self.bindable_skyboxes.clone();
 
             crate::thread::spawn(move || {
                 profiling::register_thread!("Skybox loader");
@@ -425,6 +402,60 @@ impl AssetLoader {
                 });
             });
         }
+    }
+}
+
+impl AssetBinder {
+    pub fn new() -> Self {
+        #[cfg(not(target_arch = "wasm32"))]
+        let scene_binder = Box::new(ThreadedSceneBinder::new(Arc::new(Mutex::new(
+            HashMap::new(),
+        ))));
+
+        #[cfg(target_arch = "wasm32")]
+        let scene_binder = Box::new(TimeSlicedSceneBinder::new(Arc::new(Mutex::new(
+            HashMap::new(),
+        ))));
+
+        let skybox_binder: Box<dyn BindSkybox> = Box::new(TimeSlicedSkyboxBinder {
+            loaded_skyboxes: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        Self {
+            scene_binder: Arc::new(Mutex::new(scene_binder)),
+            skybox_binder: Arc::new(Mutex::new(skybox_binder)),
+        }
+    }
+
+    pub fn update(
+        &self,
+        base_renderer: Arc<BaseRenderer>,
+        renderer_constant_data: Arc<RendererConstantData>,
+        asset_loader: Arc<AssetLoader>,
+    ) {
+        self.scene_binder
+            .lock()
+            .unwrap()
+            .update(base_renderer.clone(), asset_loader.clone());
+        self.skybox_binder.lock().unwrap().update(
+            base_renderer.clone(),
+            renderer_constant_data,
+            asset_loader.clone(),
+        );
+    }
+
+    pub fn loaded_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>> {
+        self.scene_binder.lock().unwrap().loaded_scenes().clone()
+    }
+
+    pub fn loaded_skyboxes(&self) -> Arc<Mutex<HashMap<String, BindedSkybox>>> {
+        self.skybox_binder.lock().unwrap().loaded_skyboxes().clone()
+    }
+}
+
+impl Default for AssetBinder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -565,15 +596,15 @@ pub async fn make_bindable_skybox(
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+struct ThreadedSceneBinder {
+    loaded_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 impl ThreadedSceneBinder {
-    pub fn new(
-        bindable_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindableSceneData)>>>,
-        loaded_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>,
-    ) -> Self {
-        Self {
-            bindable_scenes,
-            loaded_scenes,
-        }
+    pub fn new(loaded_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>) -> Self {
+        Self { loaded_scenes }
     }
 
     fn bind_scene(
@@ -614,13 +645,14 @@ impl ThreadedSceneBinder {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl BindScene for ThreadedSceneBinder {
-    fn update(&mut self, base_renderer: Arc<BaseRenderer>) {
+    fn update(&mut self, base_renderer: Arc<BaseRenderer>, asset_loader: Arc<AssetLoader>) {
         let loaded_scenes_clone = self.loaded_scenes.clone();
 
         let mut bindable_scenes: Vec<_> = vec![];
         {
-            let mut bindable_scenes_guard = self.bindable_scenes.lock().unwrap();
+            let mut bindable_scenes_guard = asset_loader.bindable_scenes.lock().unwrap();
             for item in bindable_scenes_guard.drain() {
                 bindable_scenes.push(item);
             }
@@ -653,24 +685,16 @@ impl BindScene for ThreadedSceneBinder {
         });
     }
 
-    fn bindable_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindableSceneData)>>> {
-        self.bindable_scenes.clone()
-    }
-
     fn loaded_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>> {
         self.loaded_scenes.clone()
     }
 }
 
 impl TimeSlicedSceneBinder {
-    pub fn new(
-        bindable_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindableSceneData)>>>,
-        loaded_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>,
-    ) -> Self {
+    #[allow(dead_code)]
+    pub fn new(loaded_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>) -> Self {
         Self {
-            bindable_scenes,
             loaded_scenes,
-
             staged_scenes: HashMap::new(),
         }
     }
@@ -752,11 +776,11 @@ impl TimeSlicedSceneBinder {
 }
 
 impl BindScene for TimeSlicedSceneBinder {
-    fn update(&mut self, base_renderer: Arc<BaseRenderer>) {
+    fn update(&mut self, base_renderer: Arc<BaseRenderer>, asset_loader: Arc<AssetLoader>) {
         const SLICE_BUDGET_SECONDS: f32 = 0.001;
 
         let start_time = crate::time::Instant::now();
-        let mut bindable_scenes_guard = self.bindable_scenes.lock().unwrap();
+        let mut bindable_scenes_guard = asset_loader.bindable_scenes.lock().unwrap();
         let loaded_scenes_clone = self.loaded_scenes.clone();
 
         let scene_ids: Vec<_> = bindable_scenes_guard.keys().cloned().collect();
@@ -801,10 +825,6 @@ impl BindScene for TimeSlicedSceneBinder {
                 break;
             }
         }
-    }
-
-    fn bindable_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindableSceneData)>>> {
-        self.bindable_scenes.clone()
     }
 
     fn loaded_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>> {
@@ -944,13 +964,14 @@ impl BindSkybox for TimeSlicedSkyboxBinder {
         &mut self,
         base_renderer: Arc<BaseRenderer>,
         renderer_constant_data: Arc<RendererConstantData>,
+        asset_loader: Arc<AssetLoader>,
     ) {
         let next_skybox_id = {
-            let guard = self.bindable_skyboxes.lock().unwrap();
+            let guard = asset_loader.bindable_skyboxes.lock().unwrap();
             guard.keys().next().cloned()
         };
         if let Some(next_skybox_id) = next_skybox_id {
-            if let Some(next_bindable_skybox) = self
+            if let Some(next_bindable_skybox) = asset_loader
                 .bindable_skyboxes
                 .lock()
                 .unwrap()
@@ -979,10 +1000,6 @@ impl BindSkybox for TimeSlicedSkyboxBinder {
                 }
             }
         }
-    }
-
-    fn bindable_skyboxes(&self) -> Arc<Mutex<HashMap<String, BindableSkybox>>> {
-        self.bindable_skyboxes.clone()
     }
 
     fn loaded_skyboxes(&self) -> Arc<Mutex<HashMap<String, BindedSkybox>>> {

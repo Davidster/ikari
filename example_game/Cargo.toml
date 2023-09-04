@@ -21,7 +21,7 @@ wgpu.workspace = true
 anyhow.workspace = true
 env_logger.workspace = true
 profiling.workspace = true
-tracing-tracy = { version = "0.10.2", features = ["ondemand"], optional = true }
+tracing-tracy = { version = "0.10.3", features = ["ondemand"], optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys.workspace = true

@@ -38,6 +38,7 @@ pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
 pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
+pub const INITIAL_ENABLE_BLOOM: bool = true;
 pub const ARENA_SIDE_LENGTH: f32 = 500.0;
 pub const INITIAL_IS_SHOWING_CAMERA_POSE: bool = true;
 pub const INITIAL_ENABLE_SHADOW_DEBUG: bool = false;
@@ -258,6 +259,7 @@ pub async fn init_game_state(
     let asset_loader = Arc::new(AssetLoader::new(audio_manager_mutex.clone()));
 
     let asset_loader_clone = asset_loader.clone();
+    let asset_binder = Arc::new(AssetBinder::new());
 
     crate::thread::spawn(move || {
         crate::block_on(async move {
@@ -1004,6 +1006,7 @@ pub async fn init_game_state(
         IkariUiOverlay::new(
             window,
             &renderer.base.device,
+            &renderer.base.queue,
             // TODO: can I just pass surface_format here? seems it should be ok even if the surface is not srgb,
             // the renderer will take care of that contingency..? this code would be really bad for the user.
             if surface_format.is_srgb() {
@@ -1060,6 +1063,7 @@ pub async fn init_game_state(
         cube_mesh,
 
         asset_loader: asset_loader_clone,
+        asset_binder,
 
         ui_overlay,
     })
@@ -1217,12 +1221,14 @@ pub fn update_game_state(
     let renderer_data = renderer.data.clone();
     let renderer_constant_data = renderer.constant_data.clone();
 
-    game_state
-        .asset_loader
-        .update(base_renderer.clone(), renderer_constant_data.clone());
+    game_state.asset_binder.update(
+        base_renderer.clone(),
+        renderer_constant_data.clone(),
+        game_state.asset_loader.clone(),
+    );
 
     {
-        let loaded_skyboxes = game_state.asset_loader.loaded_skyboxes();
+        let loaded_skyboxes = game_state.asset_binder.loaded_skyboxes();
         let mut loaded_skyboxes_guard = loaded_skyboxes.lock().unwrap();
 
         if let Entry::Occupied(entry) = loaded_skyboxes_guard.entry("skybox".to_string()) {
@@ -1232,7 +1238,7 @@ pub fn update_game_state(
     }
 
     {
-        let loaded_scenes = game_state.asset_loader.loaded_scenes();
+        let loaded_scenes = game_state.asset_binder.loaded_scenes();
         let mut loaded_assets_guard = loaded_scenes.lock().unwrap();
         let mut renderer_data_guard = renderer_data.lock().unwrap();
         if game_state.gunshot_sound_index.is_some() {
