@@ -27,12 +27,12 @@ env_logger = { version = "0.10", default-features = false, features = [
   "humantime",
 ] }
 # The version should be the one used by wgpu-core/hal TODO: does this version number need updating?
-profiling = "1.0.8"
+profiling = "1.0.10"
 image = { version = "0.24", default-features = false, features = [
   "hdr",
   "jpeg",
 ] }
-gltf = "1.2"
+gltf = "1.3"
 pico-args = "0.5.0"
 lazy_static = "1.4"
 

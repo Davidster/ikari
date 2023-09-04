@@ -25,7 +25,7 @@ twox-hash = "1.6"
 lazy_static.workspace = true
 smallvec = { version = "1.11", features = ["union", "const_generics"] }
 anyhow.workspace = true
-chrono = { version = "0.4.26", default-features = false, features = [
+chrono = { version = "0.4.28", default-features = false, features = [
     "std",
     "wasmbind",
     "clock",
@@ -86,7 +86,7 @@ iced_aw = { version = "0.7", default-features = false, features = [
 wasm_thread = { version = "0.2.0", features = ["es_modules"] }
 futures-intrusive = "0.5.0"
 rmp-serde = "1.1.2"
-serde = "1.0.173"
+serde = "1.0.188"
 miniz_oxide = "0.7.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

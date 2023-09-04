@@ -10,7 +10,7 @@ name = "build_web"
 path = "src/main.rs"
 
 [dependencies]
-arboard = "3.2.0"
+arboard = "3.2.1"
 pico-args.workspace = true
 # TODO: versions 0.2.86 and 0.2.87 seemed to cause an OOM panic when loading a huge
 # audio samples array (> 100MB). try to find out which wasm bindgen version
