@@ -62,12 +62,14 @@ pub fn run(
                 update_game_state(&mut game_state, &mut renderer, &surface_data);
 
                 {
+                    profiling::scope!("Sync UI");
                     // sync UI
                     // TODO: move this into a function in game module?
 
                     let mut renderer_data_guard = renderer.data.lock().unwrap();
 
                     if let Some(frame_duration) = frame_duration {
+                        profiling::scope!("GPU Profiler");
                         if !logged_start_time {
                             log::debug!(
                                 "Took {:?} from process startup till first frame",
@@ -86,18 +88,9 @@ pub fn run(
                         }
                     }
 
-                    let camera_position = game_state
-                        .player_controller
-                        .position(&game_state.physics_state);
-                    let camera_view_direction = game_state.player_controller.view_direction;
-                    game_state.ui_overlay.send_message(
-                        crate::ui_overlay::Message::CameraPoseChanged((
-                            camera_position,
-                            camera_view_direction,
-                        )),
-                    );
-
                     {
+                        profiling::scope!("Audio");
+
                         let audio_manager_guard = game_state.audio_manager.lock().unwrap();
                         for sound_index in audio_manager_guard.sound_indices() {
                             let file_path = audio_manager_guard
@@ -126,7 +119,18 @@ pub fn run(
                         }
                     }
 
-                    let ui_state = game_state.ui_overlay.get_state().clone();
+                    let camera_position = game_state
+                        .player_controller
+                        .position(&game_state.physics_state);
+                    let camera_view_direction = game_state.player_controller.view_direction;
+                    game_state.ui_overlay.send_message(
+                        crate::ui_overlay::Message::CameraPoseChanged((
+                            camera_position,
+                            camera_view_direction,
+                        )),
+                    );
+
+                    let ui_state = game_state.ui_overlay.get_state();
 
                     renderer_data_guard.enable_soft_shadows = ui_state.enable_soft_shadows;
                     renderer_data_guard.soft_shadow_factor = ui_state.soft_shadow_factor;

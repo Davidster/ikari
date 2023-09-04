@@ -152,6 +152,7 @@ impl<T: bytemuck::Pod> ChunkedBuffer<T> {
     /// Extra space is added to the end of the buffer to avoid the 'Dynamic binding at index x with offset y would overrun the buffer' error.
     /// Only supports replace() for now, could maybe create an add_all function if we keep track of the biggest chunk length and fix the padding
     /// at the end of the buffer
+    #[profiling::function]
     pub fn replace(&mut self, chunks: impl Iterator<Item = (usize, Vec<T>)>, alignment: usize) {
         self.clear();
 
@@ -160,7 +161,8 @@ impl<T: bytemuck::Pod> ChunkedBuffer<T> {
         for (id, chunk) in chunks {
             let start_index = self.buffer.len();
             let end_index = start_index + chunk.len() * stride;
-            self.buffer.extend_from_slice(bytemuck::cast_slice(&chunk));
+            let chunk_bytes = bytemuck::cast_slice(&chunk);
+            self.buffer.extend_from_slice(chunk_bytes);
 
             // add padding
             let needed_padding = alignment - (self.buffer.len() % alignment);

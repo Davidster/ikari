@@ -57,6 +57,7 @@ pub struct GameState {
     pub cube_mesh: BasicMesh,
 
     pub asset_loader: Arc<AssetLoader>,
+    pub asset_binder: Arc<AssetBinder>,
 
     pub ui_overlay: IkariUiOverlay,
 }

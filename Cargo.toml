@@ -17,10 +17,10 @@ authors = [
 ]
 
 [workspace.dependencies]
-winit = { version = "0.27", git = "https://github.com/iced-rs/winit.git", rev = "940457522e9fb9f5dac228b0ecfafe0138b4048c" }
+winit = { version = "0.28", git = "https://github.com/iced-rs/winit.git", rev = "c52db2045d0a2f1b8d9923870de1d4ab1994146e" }
 ikari = { version = "0.0.1", path = "./ikari" }
 log = "0.4"
-wgpu = "0.16"
+wgpu = { version = "0.17" }
 anyhow = { version = "1.0", features = ["backtrace"] }
 env_logger = { version = "0.10", default-features = false, features = [
   "auto-color",
@@ -53,12 +53,15 @@ wasm-bindgen = { version = "0.2.87", features = ["serde-serialize"] }
 wasm-bindgen-futures = "0.4.37"
 
 [patch.crates-io]
-iced_native = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
-iced_graphics = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
-iced_style = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
-# iced_native = { path = "../iced-fork/native" }
-# iced_graphics = { path = "../iced-fork/graphics" }
+iced_core = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
+iced_style = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
+iced_renderer = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
+iced_graphics = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
+# iced_core = { path = "../iced-fork/core" }
 # iced_style = { path = "../iced-fork/style" }
+# iced_renderer = { path = "../iced-fork/renderer" }
+# iced_graphics = { path = "../iced-fork/graphics" }
+# cosmic-text = { path = "../cosmic-text" }
 
 [profile.dev]
 opt-level = 1

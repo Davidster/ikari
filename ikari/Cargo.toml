@@ -40,7 +40,7 @@ log.workspace = true
 
 # profiling
 profiling.workspace = true
-wgpu-profiler = "0.12"
+wgpu-profiler = "0.14.1"
 # wgpu-profiler = { path = "../../wgpu-profiler-fork" }
 
 # assets
@@ -66,19 +66,21 @@ oddio = "0.6"
 symphonia = { version = "0.5.3", features = ["mp3", "wav"] }
 
 # UI
-iced_wgpu = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
-iced = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
-iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "no_webgl" }
-# iced_wgpu = { path = "../../iced-fork/wgpu", default-features = false, features = [
-# ] }
+iced = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
+iced_wgpu = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
+iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
+# iced = { version = "0.10" }
+# iced_wgpu = "0.11"
+# iced_winit = "0.10"
 # iced = { path = "../../iced-fork" }
+# iced_wgpu = { path = "../../iced-fork/wgpu", features = ["geometry"] }
 # iced_winit = { path = "../../iced-fork/winit" }
 
-plotters-iced = "0.8"
+plotters-iced = "0.9"
 plotters = { version = "0.3", default-features = false, features = [
     "line_series",
 ] }
-iced_aw = { git = "https://github.com/iced-rs/iced_aw.git", branch = "main", default-features = false, features = [
+iced_aw = { version = "0.7", default-features = false, features = [
     "modal",
     "card",
 ] }
@@ -96,9 +98,8 @@ js-sys = "0.3.64"
 wasm-bindgen-futures.workspace = true
 web-sys.workspace = true
 getrandom = { version = "0.2.10", features = ["js"] }
-serde = "1.0.173"
-serde_derive = "1.0.173"
 wasm-bindgen.workspace = true
 cpal = { git = "https://github.com/DouglasDwyer/cpal.git", rev = "91aeb4d", features = [
     "wasm-bindgen",
 ] }
+cosmic-text = { version = "0.9.0", features = ["wasm-web"] }
