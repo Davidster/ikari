@@ -453,6 +453,12 @@ impl AssetBinder {
     }
 }
 
+impl Default for AssetBinder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub async fn make_bindable_skybox(
     background: &SkyboxBackgroundPath,
     environment_hdr: Option<&SkyboxHDREnvironmentPath>,
@@ -685,6 +691,7 @@ impl BindScene for ThreadedSceneBinder {
 }
 
 impl TimeSlicedSceneBinder {
+    #[allow(dead_code)]
     pub fn new(loaded_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>) -> Self {
         Self {
             loaded_scenes,
