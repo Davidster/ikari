@@ -47,7 +47,6 @@ wgpu-profiler = "0.14.1"
 gltf.workspace = true
 image.workspace = true
 obj-rs = "0.7"
-wavefront_obj = "10.0"
 
 # rendering
 wgpu.workspace = true

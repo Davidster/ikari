@@ -3,13 +3,17 @@ use crate::{
     texture::*,
 };
 
-use std::collections::{hash_map, HashMap};
+use std::{
+    collections::{hash_map, HashMap},
+    io::{BufReader, Cursor},
+};
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use glam::{
     f32::{Vec2, Vec3, Vec4},
     Mat4,
 };
+use obj::raw::parse_obj;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -166,66 +170,47 @@ pub struct BasicMesh {
 
 impl BasicMesh {
     pub async fn new(obj_file_path: &GameFilePath) -> Result<Self> {
-        let obj_file_string = FileLoader::read_to_string(obj_file_path).await?;
+        let obj = parse_obj(BufReader::new(Cursor::new(
+            FileLoader::read(obj_file_path).await?,
+        )))?;
 
-        let obj = wavefront_obj::obj::parse(obj_file_string)?
-            .objects
-            .remove(0);
+        let mut triangles: Vec<[(usize, usize, usize); 3]> = vec![];
 
-        let triangles: Vec<(
-            wavefront_obj::obj::VTNIndex,
-            wavefront_obj::obj::VTNIndex,
-            wavefront_obj::obj::VTNIndex,
-        )> = obj
-            .geometry
-            .iter()
-            .flat_map(
-                |geometry| -> Vec<(
-                    wavefront_obj::obj::VTNIndex,
-                    wavefront_obj::obj::VTNIndex,
-                    wavefront_obj::obj::VTNIndex,
-                )> {
-                    geometry
-                        .shapes
-                        .iter()
-                        .flat_map(|shape| {
-                            if let wavefront_obj::obj::Primitive::Triangle(vti1, vti2, vti3) =
-                                shape.primitive
-                            {
-                                Some((vti1, vti2, vti3))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect()
-                },
-            )
-            .collect();
+        for polygon in obj.polygons.iter() {
+            match polygon {
+                obj::raw::object::Polygon::PTN(points) => {
+                    if points.len() < 3 {
+                        bail!("BasicMesh requires that all polygons have at least 3 vertices");
+                    }
+
+                    let last_elem = points.last().unwrap();
+
+                    triangles.extend(
+                        points[..points.len() - 1]
+                            .iter()
+                            .zip(points[1..points.len() - 1].iter())
+                            .map(|(&x, &y)| [*last_elem, x, y]),
+                    );
+                }
+                _ => {
+                    bail!("BasicMesh requires that all points have a position, uv and normal");
+                }
+            }
+        }
+
         let mut composite_index_map: HashMap<(usize, usize, usize), Vertex> = HashMap::new();
-        triangles.iter().for_each(|(vti1, vti2, vti3)| {
-            let points = [vti1, vti2, vti3];
+        triangles.iter().for_each(|points| {
             let points_with_attribs: Vec<_> = points
                 .iter()
                 .map(|vti| {
-                    let pos_index = vti.0;
-                    let normal_index = vti.2.expect("Obj file is missing normal");
-                    let uv_index = vti.1.expect("Obj file is missing uv index");
-                    let key = (pos_index, normal_index, uv_index);
-                    let wavefront_obj::obj::Vertex {
-                        x: p_x,
-                        y: p_y,
-                        z: p_z,
-                    } = obj.vertices[pos_index];
-                    let wavefront_obj::obj::Normal {
-                        x: n_x,
-                        y: n_y,
-                        z: n_z,
-                    } = obj.normals[normal_index];
-                    let wavefront_obj::obj::TVertex { u, v, .. } = obj.tex_vertices[uv_index];
-                    let position = Vec3::new(p_x as f32, p_y as f32, p_z as f32);
-                    let normal = Vec3::new(n_x as f32, n_y as f32, n_z as f32);
+                    let key = (vti.0, vti.2, vti.1);
+                    let pos = obj.positions[vti.0];
+                    let normal = obj.normals[vti.2];
+                    let uv = obj.tex_coords[vti.1];
+                    let position = Vec3::new(pos.0, pos.1, pos.2);
+                    let normal = Vec3::from(normal);
                     // convert uv format into 0->1 range
-                    let tex_coords = Vec2::new(u as f32, 1.0 - v as f32);
+                    let tex_coords = Vec2::new(uv.0, 1.0 - uv.1);
                     (key, position, normal, tex_coords)
                 })
                 .collect();
@@ -277,14 +262,11 @@ impl BasicMesh {
             });
         let indices: Vec<_> = triangles
             .iter()
-            .flat_map(|(vti1, vti2, vti3)| {
-                [vti1, vti2, vti3]
+            .flat_map(|points| {
+                points
                     .iter()
                     .flat_map(|vti| {
-                        let pos_index = vti.0;
-                        let normal_index = vti.2.expect("Obj file is missing normal");
-                        let uv_index = vti.1.unwrap();
-                        let key = (pos_index, normal_index, uv_index);
+                        let key = (vti.0, vti.2, vti.1);
                         index_map.get(&key).map(|final_index| *final_index as u16)
                     })
                     .collect::<Vec<u16>>()
