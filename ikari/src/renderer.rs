@@ -2259,14 +2259,14 @@ impl Renderer {
                     false, // an artifact occurs between the edges of the texture with mipmaps enabled
                 )?,
                 diffuse_environment_map: Texture::create_diffuse_env_map(
-                    &base,
-                    &constant_data,
+                    base,
+                    constant_data,
                     Some("diffuse env map"),
                     background_texture_rad,
                 ),
                 specular_environment_map: Texture::create_specular_env_map(
-                    &base,
-                    &constant_data,
+                    base,
+                    constant_data,
                     Some("specular env map 2"),
                     background_texture_rad,
                 ),
