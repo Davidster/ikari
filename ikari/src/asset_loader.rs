@@ -10,6 +10,9 @@ use crate::scene::*;
 use crate::texture::*;
 use crate::texture_compression::TextureCompressor;
 use crate::time::*;
+use crate::wasm_not_sync::WasmNotArc;
+use crate::wasm_not_sync::WasmNotMutex;
+use crate::wasm_not_sync::{WasmNotSend, WasmNotSync};
 
 use anyhow::bail;
 use anyhow::Result;
@@ -27,24 +30,6 @@ type PendingSkybox = (
     Option<SkyboxHDREnvironmentPath>,
 );
 
-#[cfg(not(target_arch = "wasm32"))]
-pub trait WasmNotSend: Send {}
-#[cfg(not(target_arch = "wasm32"))]
-impl<T: Send> WasmNotSend for T {}
-#[cfg(target_arch = "wasm32")]
-pub trait WasmNotSend {}
-#[cfg(target_arch = "wasm32")]
-impl<T> WasmNotSend for T {}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub trait WasmNotSync: Sync {}
-#[cfg(not(target_arch = "wasm32"))]
-impl<T: Sync> WasmNotSync for T {}
-#[cfg(target_arch = "wasm32")]
-pub trait WasmNotSync {}
-#[cfg(target_arch = "wasm32")]
-impl<T> WasmNotSync for T {}
-
 pub struct AssetLoader {
     pending_audio: Arc<Mutex<Vec<(GameFilePath, AudioFileFormat, SoundParams)>>>,
     pub loaded_audio: Arc<Mutex<HashMap<PathBuf, usize>>>,
@@ -58,8 +43,8 @@ pub struct AssetLoader {
 }
 
 pub struct AssetBinder {
-    scene_binder: Arc<Mutex<Box<dyn BindScene>>>,
-    skybox_binder: Arc<Mutex<Box<dyn BindSkybox>>>,
+    scene_binder: WasmNotArc<Box<dyn BindScene>>,
+    skybox_binder: WasmNotArc<Box<dyn BindSkybox>>,
 }
 
 /// loading must be split into two phases:
@@ -70,34 +55,38 @@ pub struct AssetBinder {
 /// can't be used on a thread other than the one where it was created
 /// TODO: instead of using a PathBuf of the relative path of the scene, make user pass an ID in load_scene function and use that instead.
 trait BindScene: WasmNotSend + WasmNotSync {
-    fn update(&mut self, base_renderer: Arc<BaseRenderer>, asset_loader: Arc<AssetLoader>);
-    fn loaded_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>;
+    fn update(&self, base_renderer: WasmNotArc<BaseRenderer>, asset_loader: Arc<AssetLoader>);
+    fn loaded_scenes(&self)
+        -> WasmNotArc<WasmNotMutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>;
 }
 
 struct TimeSlicedSceneBinder {
-    staged_scenes: HashMap<
-        PathBuf,
-        (
-            BindedSceneData,
-            // texture bind group cache
-            HashMap<IndexedPbrMaterial, Arc<wgpu::BindGroup>>,
-        ),
+    #[allow(clippy::type_complexity)]
+    staged_scenes: WasmNotMutex<
+        HashMap<
+            PathBuf,
+            (
+                BindedSceneData,
+                // texture bind group cache
+                HashMap<IndexedPbrMaterial, WasmNotArc<wgpu::BindGroup>>,
+            ),
+        >,
     >,
-    loaded_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>,
+    loaded_scenes: WasmNotArc<WasmNotMutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>,
 }
 
 trait BindSkybox: WasmNotSend + WasmNotSync {
     fn update(
-        &mut self,
-        base_renderer: Arc<BaseRenderer>,
-        renderer_constant_data: Arc<RendererConstantData>,
+        &self,
+        base_renderer: WasmNotArc<BaseRenderer>,
+        renderer_constant_data: WasmNotArc<RendererConstantData>,
         asset_loader: Arc<AssetLoader>,
     );
-    fn loaded_skyboxes(&self) -> Arc<Mutex<HashMap<String, BindedSkybox>>>;
+    fn loaded_skyboxes(&self) -> WasmNotArc<WasmNotMutex<HashMap<String, BindedSkybox>>>;
 }
 
 struct TimeSlicedSkyboxBinder {
-    loaded_skyboxes: Arc<Mutex<HashMap<String, BindedSkybox>>>,
+    loaded_skyboxes: WasmNotArc<WasmNotMutex<HashMap<String, BindedSkybox>>>,
 }
 
 impl AssetLoader {
@@ -408,48 +397,48 @@ impl AssetLoader {
 impl AssetBinder {
     pub fn new() -> Self {
         #[cfg(not(target_arch = "wasm32"))]
-        let scene_binder = Box::new(ThreadedSceneBinder::new(Arc::new(Mutex::new(
-            HashMap::new(),
-        ))));
+        let scene_binder = Box::new(ThreadedSceneBinder::new(WasmNotArc::new(
+            WasmNotMutex::new(HashMap::new()),
+        )));
 
         #[cfg(target_arch = "wasm32")]
-        let scene_binder = Box::new(TimeSlicedSceneBinder::new(Arc::new(Mutex::new(
-            HashMap::new(),
-        ))));
+        let scene_binder = Box::new(TimeSlicedSceneBinder::new(WasmNotArc::new(
+            WasmNotMutex::new(HashMap::new()),
+        )));
 
         let skybox_binder: Box<dyn BindSkybox> = Box::new(TimeSlicedSkyboxBinder {
-            loaded_skyboxes: Arc::new(Mutex::new(HashMap::new())),
+            loaded_skyboxes: WasmNotArc::new(WasmNotMutex::new(HashMap::new())),
         });
 
         Self {
-            scene_binder: Arc::new(Mutex::new(scene_binder)),
-            skybox_binder: Arc::new(Mutex::new(skybox_binder)),
+            scene_binder: WasmNotArc::new(scene_binder),
+            skybox_binder: WasmNotArc::new(skybox_binder),
         }
     }
 
     pub fn update(
         &self,
-        base_renderer: Arc<BaseRenderer>,
-        renderer_constant_data: Arc<RendererConstantData>,
+        base_renderer: WasmNotArc<BaseRenderer>,
+        renderer_constant_data: WasmNotArc<RendererConstantData>,
         asset_loader: Arc<AssetLoader>,
     ) {
         self.scene_binder
-            .lock()
-            .unwrap()
             .update(base_renderer.clone(), asset_loader.clone());
-        self.skybox_binder.lock().unwrap().update(
+        self.skybox_binder.update(
             base_renderer.clone(),
             renderer_constant_data,
             asset_loader.clone(),
         );
     }
 
-    pub fn loaded_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>> {
-        self.scene_binder.lock().unwrap().loaded_scenes().clone()
+    pub fn loaded_scenes(
+        &self,
+    ) -> WasmNotArc<WasmNotMutex<HashMap<PathBuf, (Scene, BindedSceneData)>>> {
+        self.scene_binder.loaded_scenes().clone()
     }
 
-    pub fn loaded_skyboxes(&self) -> Arc<Mutex<HashMap<String, BindedSkybox>>> {
-        self.skybox_binder.lock().unwrap().loaded_skyboxes().clone()
+    pub fn loaded_skyboxes(&self) -> WasmNotArc<WasmNotMutex<HashMap<String, BindedSkybox>>> {
+        self.skybox_binder.loaded_skyboxes().clone()
     }
 }
 
@@ -647,7 +636,7 @@ impl ThreadedSceneBinder {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl BindScene for ThreadedSceneBinder {
-    fn update(&mut self, base_renderer: Arc<BaseRenderer>, asset_loader: Arc<AssetLoader>) {
+    fn update(&self, base_renderer: Arc<BaseRenderer>, asset_loader: Arc<AssetLoader>) {
         let loaded_scenes_clone = self.loaded_scenes.clone();
 
         let mut bindable_scenes: Vec<_> = vec![];
@@ -692,10 +681,12 @@ impl BindScene for ThreadedSceneBinder {
 
 impl TimeSlicedSceneBinder {
     #[allow(dead_code)]
-    pub fn new(loaded_scenes: Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>) -> Self {
+    pub fn new(
+        loaded_scenes: WasmNotArc<WasmNotMutex<HashMap<PathBuf, (Scene, BindedSceneData)>>>,
+    ) -> Self {
         Self {
             loaded_scenes,
-            staged_scenes: HashMap::new(),
+            staged_scenes: WasmNotMutex::new(HashMap::new()),
         }
     }
 
@@ -706,7 +697,7 @@ impl TimeSlicedSceneBinder {
             (
                 BindedSceneData,
                 // texture bind group cache
-                HashMap<IndexedPbrMaterial, Arc<wgpu::BindGroup>>,
+                HashMap<IndexedPbrMaterial, WasmNotArc<wgpu::BindGroup>>,
             ),
         >,
         scene_id: PathBuf,
@@ -776,7 +767,7 @@ impl TimeSlicedSceneBinder {
 }
 
 impl BindScene for TimeSlicedSceneBinder {
-    fn update(&mut self, base_renderer: Arc<BaseRenderer>, asset_loader: Arc<AssetLoader>) {
+    fn update(&self, base_renderer: WasmNotArc<BaseRenderer>, asset_loader: Arc<AssetLoader>) {
         const SLICE_BUDGET_SECONDS: f32 = 0.001;
 
         let start_time = crate::time::Instant::now();
@@ -792,7 +783,7 @@ impl BindScene for TimeSlicedSceneBinder {
 
                 let binded_scene_result = Self::bind_scene_slice(
                     &base_renderer,
-                    &mut self.staged_scenes,
+                    &mut self.staged_scenes.lock().unwrap(),
                     scene_id.clone(),
                     &bindable_scene,
                 );
@@ -827,7 +818,9 @@ impl BindScene for TimeSlicedSceneBinder {
         }
     }
 
-    fn loaded_scenes(&self) -> Arc<Mutex<HashMap<PathBuf, (Scene, BindedSceneData)>>> {
+    fn loaded_scenes(
+        &self,
+    ) -> WasmNotArc<WasmNotMutex<HashMap<PathBuf, (Scene, BindedSceneData)>>> {
         self.loaded_scenes.clone()
     }
 }
@@ -961,9 +954,9 @@ pub fn bind_skybox(
 
 impl BindSkybox for TimeSlicedSkyboxBinder {
     fn update(
-        &mut self,
-        base_renderer: Arc<BaseRenderer>,
-        renderer_constant_data: Arc<RendererConstantData>,
+        &self,
+        base_renderer: WasmNotArc<BaseRenderer>,
+        renderer_constant_data: WasmNotArc<RendererConstantData>,
         asset_loader: Arc<AssetLoader>,
     ) {
         let next_skybox_id = {
@@ -1002,7 +995,7 @@ impl BindSkybox for TimeSlicedSkyboxBinder {
         }
     }
 
-    fn loaded_skyboxes(&self) -> Arc<Mutex<HashMap<String, BindedSkybox>>> {
+    fn loaded_skyboxes(&self) -> WasmNotArc<WasmNotMutex<HashMap<String, BindedSkybox>>> {
         self.loaded_skyboxes.clone()
     }
 }
@@ -1036,7 +1029,7 @@ fn bind_pbr_mesh(
     base_renderer: &BaseRenderer,
     mesh: &BindablePbrMesh,
     textures: &[Texture],
-    textures_bind_group_cache: &mut HashMap<IndexedPbrMaterial, Arc<wgpu::BindGroup>>,
+    textures_bind_group_cache: &mut HashMap<IndexedPbrMaterial, WasmNotArc<wgpu::BindGroup>>,
 ) -> Result<BindedPbrMesh> {
     let material = &mesh.material;
     let textures_bind_group = match textures_bind_group_cache.entry(material.clone()) {
@@ -1054,7 +1047,7 @@ fn bind_pbr_mesh(
                 metallic_roughness: get_texture(material.metallic_roughness),
             };
             let textures_bind_group =
-                Arc::new(base_renderer.make_pbr_textures_bind_group(&pbr_material, true)?);
+                WasmNotArc::new(base_renderer.make_pbr_textures_bind_group(&pbr_material, true)?);
             vacant_entry.insert(textures_bind_group.clone());
             textures_bind_group
         }

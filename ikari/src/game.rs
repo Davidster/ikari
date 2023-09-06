@@ -22,6 +22,7 @@ use crate::texture::*;
 use crate::texture_compression::*;
 use crate::transform::*;
 use crate::ui_overlay::IkariUiOverlay;
+use crate::wasm_not_sync::WasmNotArc;
 
 use std::{
     collections::hash_map::Entry,
@@ -259,7 +260,7 @@ pub async fn init_game_state(
     let asset_loader = Arc::new(AssetLoader::new(audio_manager_mutex.clone()));
 
     let asset_loader_clone = asset_loader.clone();
-    let asset_binder = Arc::new(AssetBinder::new());
+    let asset_binder = WasmNotArc::new(AssetBinder::new());
 
     crate::thread::spawn(move || {
         crate::block_on(async move {

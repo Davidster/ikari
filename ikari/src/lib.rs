@@ -12,10 +12,6 @@ pub mod camera;
 pub mod character;
 pub mod collisions;
 pub mod file_loader;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod file_loader_native;
-#[cfg(target_arch = "wasm32")]
-pub mod file_loader_wasm;
 pub mod game;
 pub mod game_state;
 pub mod gameloop;
@@ -40,3 +36,4 @@ pub mod time;
 pub mod time_tracker;
 pub mod transform;
 pub mod ui_overlay;
+pub mod wasm_not_sync;

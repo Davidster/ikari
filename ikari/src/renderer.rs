@@ -15,11 +15,12 @@ use crate::skinning::*;
 use crate::texture::*;
 use crate::transform::*;
 use crate::ui_overlay::*;
+use crate::wasm_not_sync::WasmNotArc;
 
 use std::collections::{hash_map::Entry, HashMap};
 use std::num::NonZeroU64;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use anyhow::Result;
 use glam::f32::{Mat4, Vec3};
@@ -219,7 +220,7 @@ pub struct BindablePbrMesh {
 #[derive(Debug)]
 pub struct BindedPbrMesh {
     pub geometry_buffers: BindedGeometryBuffers,
-    pub textures_bind_group: Arc<wgpu::BindGroup>,
+    pub textures_bind_group: WasmNotArc<wgpu::BindGroup>,
     pub dynamic_pbr_params: DynamicPbrParams,
     pub alpha_mode: AlphaMode,
     pub primitive_mode: PrimitiveMode,
@@ -335,7 +336,7 @@ pub struct BaseRenderer {
     pub bones_and_instances_bind_group_layout: wgpu::BindGroupLayout,
     pub pbr_textures_bind_group_layout: wgpu::BindGroupLayout,
     pub environment_textures_bind_group_layout: wgpu::BindGroupLayout,
-    default_texture_cache: Mutex<HashMap<DefaultTextureType, Arc<Texture>>>,
+    default_texture_cache: Mutex<HashMap<DefaultTextureType, WasmNotArc<Texture>>>,
     pub sampler_cache: Mutex<SamplerCache>,
 }
 
@@ -930,7 +931,7 @@ impl BaseRenderer {
     pub fn get_default_texture(
         &self,
         default_texture_type: DefaultTextureType,
-    ) -> anyhow::Result<Arc<Texture>> {
+    ) -> anyhow::Result<WasmNotArc<Texture>> {
         let mut default_texture_cache_guard = self.default_texture_cache.lock().unwrap();
         let default_texture = match default_texture_cache_guard.entry(default_texture_type) {
             Entry::Occupied(texture) => texture.get().clone(),
@@ -944,7 +945,7 @@ impl BaseRenderer {
                     DefaultTextureType::EmissiveGLTF => [255, 255, 255, 255],
                     DefaultTextureType::AmbientOcclusion => [255, 255, 255, 255],
                 };
-                Arc::new(Texture::from_color(self, color)?)
+                WasmNotArc::new(Texture::from_color(self, color)?)
             }
         };
         if let Entry::Vacant(entry) = default_texture_cache_guard.entry(default_texture_type) {
@@ -1127,9 +1128,9 @@ pub struct RendererConstantData {
 
 // TODO: store the framebuffer texture format and size, then remove it from a bunch of the function arguments
 pub struct Renderer {
-    pub base: Arc<BaseRenderer>,
-    pub data: Arc<Mutex<RendererData>>,
-    pub constant_data: Arc<RendererConstantData>,
+    pub base: WasmNotArc<BaseRenderer>,
+    pub data: WasmNotArc<Mutex<RendererData>>,
+    pub constant_data: WasmNotArc<RendererConstantData>,
 
     private_data: Mutex<RendererPrivateData>,
 
@@ -2549,9 +2550,9 @@ impl Renderer {
         let profiler = wgpu_profiler::GpuProfiler::new(&base.adapter, &base.device, &base.queue, 4);
 
         let renderer = Self {
-            base: Arc::new(base),
-            data: Arc::new(Mutex::new(data)),
-            constant_data: Arc::new(constant_data),
+            base: WasmNotArc::new(base),
+            data: WasmNotArc::new(Mutex::new(data)),
+            constant_data: WasmNotArc::new(constant_data),
 
             private_data: Mutex::new(RendererPrivateData {
                 all_bone_transforms: AllBoneTransforms {
@@ -2698,7 +2699,8 @@ impl Renderer {
     ) -> Result<usize> {
         let geometry_buffers = Self::bind_geometry_buffers_for_basic_mesh(base, mesh);
 
-        let textures_bind_group = Arc::new(base.make_pbr_textures_bind_group(material, false)?);
+        let textures_bind_group =
+            WasmNotArc::new(base.make_pbr_textures_bind_group(material, false)?);
 
         data.binded_pbr_meshes.push(BindedPbrMesh {
             geometry_buffers,
