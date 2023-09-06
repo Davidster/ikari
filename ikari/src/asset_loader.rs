@@ -10,6 +10,7 @@ use crate::scene::*;
 use crate::texture::*;
 use crate::texture_compression::TextureCompressor;
 use crate::time::*;
+use crate::wasm_not_sync::{WasmNotSend, WasmNotSync};
 
 use anyhow::bail;
 use anyhow::Result;
@@ -26,24 +27,6 @@ type PendingSkybox = (
     SkyboxBackgroundPath,
     Option<SkyboxHDREnvironmentPath>,
 );
-
-#[cfg(not(target_arch = "wasm32"))]
-pub trait WasmNotSend: Send {}
-#[cfg(not(target_arch = "wasm32"))]
-impl<T: Send> WasmNotSend for T {}
-#[cfg(target_arch = "wasm32")]
-pub trait WasmNotSend {}
-#[cfg(target_arch = "wasm32")]
-impl<T> WasmNotSend for T {}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub trait WasmNotSync: Sync {}
-#[cfg(not(target_arch = "wasm32"))]
-impl<T: Sync> WasmNotSync for T {}
-#[cfg(target_arch = "wasm32")]
-pub trait WasmNotSync {}
-#[cfg(target_arch = "wasm32")]
-impl<T> WasmNotSync for T {}
 
 pub struct AssetLoader {
     pending_audio: Arc<Mutex<Vec<(GameFilePath, AudioFileFormat, SoundParams)>>>,
