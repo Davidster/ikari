@@ -140,6 +140,8 @@ pub fn run(
                     renderer_data_guard.draw_culling_frustum = ui_state.draw_culling_frustum;
                     renderer_data_guard.draw_point_light_culling_frusta =
                         ui_state.draw_point_light_culling_frusta;
+                    renderer
+                        .set_skybox_weights([1.0 - ui_state.skybox_weight, ui_state.skybox_weight]);
                     renderer.set_vsync(ui_state.enable_vsync, &mut surface_data);
 
                     renderer.set_culling_frustum_lock(

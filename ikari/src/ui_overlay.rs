@@ -52,6 +52,7 @@ pub struct UiOverlay {
 
     pub enable_vsync: bool,
     pub enable_soft_shadows: bool,
+    pub skybox_weight: f32,
     pub shadow_bias: f32,
     pub soft_shadow_factor: f32,
     pub enable_shadow_debug: bool,
@@ -82,6 +83,7 @@ pub enum Message {
     ToggleShadowDebug(bool),
     ToggleAudioStats(bool),
     ShadowBiasChanged(f32),
+    SkyboxWeightChanged(f32),
     SoftShadowFactorChanged(f32),
     SoftShadowGridDimsChanged(u32),
     CullingFrustumLockModeChanged(CullingFrustumLockMode),
@@ -364,6 +366,9 @@ impl runtime::Program for UiOverlay {
             Message::ToggleAudioStats(new_state) => {
                 self.is_showing_audio_stats = new_state;
             }
+            Message::SkyboxWeightChanged(new_state) => {
+                self.skybox_weight = new_state;
+            }
             Message::ShadowBiasChanged(new_state) => {
                 self.shadow_bias = new_state;
             }
@@ -624,6 +629,13 @@ impl runtime::Program for UiOverlay {
                 self.enable_soft_shadows,
                 Message::ToggleShadowDebug,
             ));
+            options = options.push(Text::new(format!(
+                "Skybox weight: {:.5}",
+                self.skybox_weight
+            )));
+            options = options.push(
+                slider(0.0..=1.0, self.skybox_weight, Message::SkyboxWeightChanged).step(0.01),
+            );
             options = options.push(Text::new(format!("Shadow Bias: {:.5}", self.shadow_bias)));
             options = options.push(
                 slider(
@@ -822,6 +834,7 @@ impl IkariUiOverlay {
             is_showing_audio_stats: false,
             enable_vsync: INITIAL_ENABLE_VSYNC,
             enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
+            skybox_weight: INITIAL_SKYBOX_WEIGHT,
             shadow_bias: INITIAL_SHADOW_BIAS,
             soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
             enable_shadow_debug: INITIAL_ENABLE_SHADOW_DEBUG,

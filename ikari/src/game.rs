@@ -46,6 +46,7 @@ pub const INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG: bool = false;
 pub const INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG: bool = false;
 pub const INITIAL_ENABLE_SOFT_SHADOWS: bool = true;
 pub const INITIAL_SHADOW_BIAS: f32 = 0.0005;
+pub const INITIAL_SKYBOX_WEIGHT: f32 = 1.0;
 pub const INITIAL_SOFT_SHADOW_FACTOR: f32 = 0.0015;
 pub const INITIAL_SOFT_SHADOW_GRID_DIMS: u32 = 4;
 
@@ -103,8 +104,8 @@ pub fn get_skybox_path() -> (SkyboxBackgroundPath, Option<SkyboxHDREnvironmentPa
             GAME_PATH_MAKER.make("src/textures/milkyway/radiance.hdr"),
         ));
 
-    // let preprocessed_skybox_folder = "milkyway";
-    let preprocessed_skybox_folder = "photosphere_small";
+    let preprocessed_skybox_folder = "milkyway";
+    // let preprocessed_skybox_folder = "photosphere_small";
 
     let skybox_background = SkyboxBackgroundPath::ProcessedCube([
         GAME_PATH_MAKER.make(format!(
@@ -220,11 +221,11 @@ pub async fn init_game_state(
     log::info!("Controls:");
     [
         "Look Around:             Mouse",
-        "Move Around:             WASD, Space Bar, Ctrl",
+        "Move Around:             WASD, E, Space Bar",
         "Adjust Speed:            Scroll or Up/Down Arrow Keys",
         "Adjust Render Scale:     Z / X",
-        "Adjust Exposure:         E / R",
-        "Adjust Bloom Threshold:  T / Y",
+        "Adjust Exposure:         R / T",
+        "Adjust Bloom Threshold:  Y / U",
         "Pause/Resume Animations: P",
         "Toggle Bloom Effect:     B",
         "Toggle Shadows:          M",
@@ -309,7 +310,7 @@ pub async fn init_game_state(
                 },
             );
 
-            crate::thread::sleep_async(crate::time::Duration::from_secs_f32(4.0)).await;
+            // crate::thread::sleep_async(crate::time::Duration::from_secs_f32(4.0)).await;
             let (background, environment_hdr) = get_skybox_path();
             asset_loader.load_skybox("skybox".to_string(), background, environment_hdr);
         })
@@ -1116,16 +1117,16 @@ pub fn process_window_input(
                         &mut game_state.ui_overlay,
                     );
                 }
-                VirtualKeyCode::E => {
+                VirtualKeyCode::R => {
                     increment_exposure(&mut render_data_guard, false);
                 }
-                VirtualKeyCode::R => {
+                VirtualKeyCode::T => {
                     increment_exposure(&mut render_data_guard, true);
                 }
-                VirtualKeyCode::T => {
+                VirtualKeyCode::Y => {
                     increment_bloom_threshold(&mut render_data_guard, false);
                 }
-                VirtualKeyCode::Y => {
+                VirtualKeyCode::U => {
                     increment_bloom_threshold(&mut render_data_guard, true);
                 }
                 VirtualKeyCode::P => {
@@ -1233,7 +1234,7 @@ pub fn update_game_state(
 
         if let Entry::Occupied(entry) = loaded_skyboxes_guard.entry("skybox".to_string()) {
             let (_, skybox) = entry.remove_entry();
-            renderer.set_skybox(skybox);
+            renderer.set_skybox(SkyboxSlot::Two, skybox);
         }
     }
 
@@ -1366,6 +1367,8 @@ pub fn update_game_state(
                 {
                     // mesh.wireframe = true;
                 }
+                // let transform = &mut game_state.scene.get_node_mut(node_id).unwrap().transform;
+                // transform.set_position(transform.position() + Vec3::new(0.0, 25.0, 0.0));
                 game_state.physics_state.add_static_box(
                     &game_state.scene,
                     &renderer_data_guard,

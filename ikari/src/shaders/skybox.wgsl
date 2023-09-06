@@ -40,16 +40,31 @@ fn world_normal_to_cubemap_vec(world_pos: vec3<f32>) -> vec3<f32> {
 }
 
 @group(0) @binding(0)
-var cubemap_texture: texture_cube<f32>;
+var skybox_texture: texture_cube<f32>;
+@group(0) @binding(1)
+var skybox_sampler: sampler;
+@group(0) @binding(2)
+var skybox_texture_2: texture_cube<f32>;
+@group(0) @binding(3)
+var<uniform> skybox_weights: vec4<f32>;
 
+@fragment
+fn background_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let background_col_1 = textureSample(skybox_texture, skybox_sampler, world_normal_to_cubemap_vec(in.world_position));
+    let background_col_2 = textureSample(skybox_texture_2, skybox_sampler, world_normal_to_cubemap_vec(in.world_position));
+    let col_combined = (skybox_weights.x * background_col_1) + (skybox_weights.y * background_col_2);
+    return vec4<f32>(col_combined.xyz, 1.0);
+}
+
+@group(0) @binding(0)
+var cubemap_texture: texture_cube<f32>;
 @group(0) @binding(1)
 var cubemap_sampler: sampler;
 
 @fragment
 fn cubemap_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // let col = textureSampleLevel(cubemap_texture, cubemap_sampler, world_normal_to_cubemap_vec(in.world_position), 0.0);
     let col = textureSample(cubemap_texture, cubemap_sampler, world_normal_to_cubemap_vec(in.world_position));
-    return vec4<f32>(col.x % 1.01, col.y % 1.01, col.z % 1.01, 1.0);
+    return vec4<f32>(col.xyz, 1.0);
 }
 
 // for mapping equirectangular to cubemap
