@@ -659,6 +659,7 @@ impl BaseRenderer {
         let environment_textures_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
+                    // skybox_texture
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
                         visibility: wgpu::ShaderStages::FRAGMENT,
@@ -669,12 +670,14 @@ impl BaseRenderer {
                         },
                         count: None,
                     },
+                    // skybox_sampler
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    // skybox_texture_2
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
                         visibility: wgpu::ShaderStages::FRAGMENT,
@@ -685,12 +688,18 @@ impl BaseRenderer {
                         },
                         count: None,
                     },
+                    // skybox_weights
                     wgpu::BindGroupLayoutEntry {
                         binding: 3,
                         visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
                         count: None,
                     },
+                    // diffuse_env_map_texture
                     wgpu::BindGroupLayoutEntry {
                         binding: 4,
                         visibility: wgpu::ShaderStages::FRAGMENT,
@@ -701,14 +710,42 @@ impl BaseRenderer {
                         },
                         count: None,
                     },
+                    // diffuse_env_map_texture_2
                     wgpu::BindGroupLayoutEntry {
                         binding: 5,
                         visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::Cube,
+                        },
                         count: None,
                     },
+                    // specular_env_map_texture
                     wgpu::BindGroupLayoutEntry {
                         binding: 6,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::Cube,
+                        },
+                        count: None,
+                    },
+                    // specular_env_map_texture_2
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 7,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::Cube,
+                        },
+                        count: None,
+                    },
+                    // brdf_lut_texture
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 8,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             multisampled: false,
@@ -717,28 +754,14 @@ impl BaseRenderer {
                         },
                         count: None,
                     },
+                    // brdf_lut_sampler
                     wgpu::BindGroupLayoutEntry {
-                        binding: 7,
+                        binding: 9,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 8,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2Array,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 9,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
-                        count: None,
-                    },
+                    // point_shadow_map_textures
                     wgpu::BindGroupLayoutEntry {
                         binding: 10,
                         visibility: wgpu::ShaderStages::FRAGMENT,
@@ -749,8 +772,20 @@ impl BaseRenderer {
                         },
                         count: None,
                     },
+                    // directional_shadow_map_textures
                     wgpu::BindGroupLayoutEntry {
                         binding: 11,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        },
+                        count: None,
+                    },
+                    // shadow_map_sampler
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 12,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
                         count: None,
@@ -976,6 +1011,7 @@ pub struct RendererPrivateData {
 
     bloom_threshold_cleared: bool,
     frustum_culling_lock: CullingFrustumLock, // for debug
+    skybox_weights: [f32; 2],
 
     // gpu
     camera_lights_and_pbr_shader_options_bind_group_layout: wgpu::BindGroupLayout,
@@ -1005,6 +1041,9 @@ pub struct RendererPrivateData {
     unlit_instances_buffer: GpuBuffer,
     transparent_instances_buffer: GpuBuffer,
     wireframe_instances_buffer: GpuBuffer,
+
+    skyboxes: [BindedSkybox; 2],
+    skybox_weights_buffer: wgpu::Buffer,
 
     point_shadow_map_textures: Texture,
     directional_shadow_map_textures: Texture,
@@ -1079,6 +1118,21 @@ pub struct BindedSkybox {
     pub background: Texture,
     pub diffuse_environment_map: Texture,
     pub specular_environment_map: Texture,
+}
+
+#[derive(Debug)]
+pub enum SkyboxSlot {
+    One,
+    Two,
+}
+
+impl SkyboxSlot {
+    pub fn as_index(&self) -> usize {
+        match self {
+            SkyboxSlot::One => 0,
+            SkyboxSlot::Two => 1,
+        }
+    }
 }
 
 pub struct RendererData {
@@ -1611,7 +1665,7 @@ impl Renderer {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
-                entry_point: "cubemap_fs_main",
+                entry_point: "background_fs_main",
                 targets: fragment_shader_color_targets,
             }),
             primitive: skybox_pipeline_primitive_state,
@@ -2136,7 +2190,7 @@ impl Renderer {
         let skybox_dim = 32;
         let sky_color = [8, 113, 184, 255];
         let sun_color = [253, 251, 211, 255];
-        let skybox_image = {
+        let background_texture_er = {
             let image = image::RgbaImage::from_pixel(skybox_dim, skybox_dim, sky_color.into());
             Texture::from_decoded_image(
                 &base,
@@ -2153,16 +2207,8 @@ impl Renderer {
                 },
             )?
         };
-        let skybox_texture = Texture::create_cubemap_from_equirectangular(
-            &base,
-            &constant_data,
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-            None,
-            &skybox_image,
-            false, // an artifact occurs between the edges of the texture with mipmaps enabled
-        )?;
 
-        let skybox_rad_texture = {
+        let background_texture_rad = {
             let pixel_count = skybox_dim * skybox_dim;
             let color_hdr =
                 sun_color.map(|val| Float16(half::f16::from_f32(0.2 * val as f32 / 255.0)));
@@ -2196,21 +2242,66 @@ impl Renderer {
                 false,
             )?
         };
-        let skybox_rad_texture = &skybox_rad_texture;
 
-        let diffuse_env_map = Texture::create_diffuse_env_map(
-            &base,
-            &constant_data,
-            Some("diffuse env map"),
-            skybox_rad_texture,
-        );
+        fn make_skybox(
+            base: &BaseRenderer,
+            constant_data: &RendererConstantData,
+            background_texture_er: &Texture,
+            background_texture_rad: &Texture,
+        ) -> Result<BindedSkybox> {
+            Ok(BindedSkybox {
+                background: Texture::create_cubemap_from_equirectangular(
+                    base,
+                    constant_data,
+                    wgpu::TextureFormat::Rgba8UnormSrgb,
+                    None,
+                    background_texture_er,
+                    false, // an artifact occurs between the edges of the texture with mipmaps enabled
+                )?,
+                diffuse_environment_map: Texture::create_diffuse_env_map(
+                    &base,
+                    &constant_data,
+                    Some("diffuse env map"),
+                    background_texture_rad,
+                ),
+                specular_environment_map: Texture::create_specular_env_map(
+                    &base,
+                    &constant_data,
+                    Some("specular env map 2"),
+                    background_texture_rad,
+                ),
+            })
+        }
 
-        let specular_env_map = Texture::create_specular_env_map(
-            &base,
-            &constant_data,
-            Some("specular env map"),
-            skybox_rad_texture,
-        );
+        let skyboxes = [
+            make_skybox(
+                &base,
+                &constant_data,
+                &background_texture_er,
+                &background_texture_rad,
+            )?,
+            make_skybox(
+                &base,
+                &constant_data,
+                &background_texture_er,
+                &background_texture_rad,
+            )?,
+        ];
+
+        let skybox_weights = [1.0, 0.0];
+
+        let skybox_weights_buffer =
+            base.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: USE_LABELS.then_some("Skybox Weights Buffer"),
+                    contents: bytemuck::cast_slice(&[
+                        skybox_weights[0],
+                        skybox_weights[1],
+                        0.0,
+                        0.0,
+                    ]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
 
         let brdf_lut = Texture::create_brdf_lut(&base, &brdf_lut_gen_pipeline);
 
@@ -2421,83 +2512,14 @@ impl Renderer {
             2, // TODO: this currently puts on hard limit on number of directional lights at a time
         );
 
-        let environment_textures_bind_group = {
-            let sampler_cache_guard = base.sampler_cache.lock().unwrap();
-            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &base.environment_textures_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&skybox_texture.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(
-                            sampler_cache_guard.get_sampler_by_index(skybox_texture.sampler_index),
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&diffuse_env_map.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Sampler(
-                            sampler_cache_guard.get_sampler_by_index(diffuse_env_map.sampler_index),
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: wgpu::BindingResource::TextureView(&specular_env_map.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: wgpu::BindingResource::Sampler(
-                            sampler_cache_guard
-                                .get_sampler_by_index(specular_env_map.sampler_index),
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 6,
-                        resource: wgpu::BindingResource::TextureView(&brdf_lut.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 7,
-                        resource: wgpu::BindingResource::Sampler(
-                            sampler_cache_guard.get_sampler_by_index(brdf_lut.sampler_index),
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 8,
-                        resource: wgpu::BindingResource::TextureView(
-                            &point_shadow_map_textures.view,
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 9,
-                        resource: wgpu::BindingResource::Sampler(
-                            sampler_cache_guard
-                                .get_sampler_by_index(point_shadow_map_textures.sampler_index),
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 10,
-                        resource: wgpu::BindingResource::TextureView(
-                            &directional_shadow_map_textures.view,
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 11,
-                        resource: wgpu::BindingResource::Sampler(
-                            sampler_cache_guard.get_sampler_by_index(
-                                directional_shadow_map_textures.sampler_index,
-                            ),
-                        ),
-                    },
-                ],
-                label: USE_LABELS.then_some("environment_textures_bind_group"),
-            })
-        };
+        let environment_textures_bind_group = Self::get_environment_textures_bind_group(
+            &base,
+            &skyboxes,
+            &skybox_weights_buffer,
+            &brdf_lut,
+            &point_shadow_map_textures,
+            &directional_shadow_map_textures,
+        );
 
         let mut data = RendererData {
             binded_pbr_meshes: vec![],
@@ -2571,6 +2593,7 @@ impl Renderer {
 
                 bloom_threshold_cleared: true,
                 frustum_culling_lock: CullingFrustumLock::None,
+                skybox_weights,
 
                 camera_lights_and_pbr_shader_options_bind_group_layout,
 
@@ -2600,8 +2623,12 @@ impl Renderer {
                 transparent_instances_buffer,
                 wireframe_instances_buffer,
 
+                skyboxes,
+                skybox_weights_buffer,
+
                 point_shadow_map_textures,
                 directional_shadow_map_textures,
+
                 pre_gamma_fb,
                 shading_texture,
                 tone_mapping_texture,
@@ -3422,103 +3449,120 @@ impl Renderer {
         culling_mask
     }
 
-    pub fn set_skybox(&mut self, skybox: BindedSkybox) {
+    fn get_environment_textures_bind_group(
+        base: &BaseRenderer,
+        skyboxes: &[BindedSkybox; 2],
+        skybox_weights_buffer: &wgpu::Buffer,
+        brdf_lut: &Texture,
+        point_shadow_map_textures: &Texture,
+        directional_shadow_map_textures: &Texture,
+    ) -> wgpu::BindGroup {
+        let sampler_cache_guard = base.sampler_cache.lock().unwrap();
+
+        base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &base.environment_textures_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&skyboxes[0].background.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(
+                        sampler_cache_guard
+                            .get_sampler_by_index(skyboxes[0].background.sampler_index),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&skyboxes[1].background.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: skybox_weights_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(
+                        &skyboxes[0].diffuse_environment_map.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(
+                        &skyboxes[1].diffuse_environment_map.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(
+                        &skyboxes[0].specular_environment_map.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::TextureView(
+                        &skyboxes[1].specular_environment_map.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: wgpu::BindingResource::TextureView(&brdf_lut.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 9,
+                    resource: wgpu::BindingResource::Sampler(
+                        sampler_cache_guard.get_sampler_by_index(brdf_lut.sampler_index),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 10,
+                    resource: wgpu::BindingResource::TextureView(&point_shadow_map_textures.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 11,
+                    resource: wgpu::BindingResource::TextureView(
+                        &directional_shadow_map_textures.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 12,
+                    resource: wgpu::BindingResource::Sampler(
+                        sampler_cache_guard
+                            .get_sampler_by_index(point_shadow_map_textures.sampler_index),
+                    ),
+                },
+            ],
+            label: USE_LABELS.then_some("environment_textures_bind_group"),
+        })
+    }
+
+    pub fn set_skybox(&self, slot: SkyboxSlot, skybox: BindedSkybox) {
         let mut private_data_guard = self.private_data.lock().unwrap();
 
-        private_data_guard.environment_textures_bind_group = {
-            let sampler_cache_guard = self.base.sampler_cache.lock().unwrap();
-            self.base
-                .device
-                .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &self.base.environment_textures_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(&skybox.background.view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard
-                                    .get_sampler_by_index(skybox.background.sampler_index),
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::TextureView(
-                                &skybox.diffuse_environment_map.view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard.get_sampler_by_index(
-                                    skybox.diffuse_environment_map.sampler_index,
-                                ),
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: wgpu::BindingResource::TextureView(
-                                &skybox.specular_environment_map.view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 5,
-                            resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard.get_sampler_by_index(
-                                    skybox.specular_environment_map.sampler_index,
-                                ),
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 6,
-                            resource: wgpu::BindingResource::TextureView(
-                                &private_data_guard.brdf_lut.view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 7,
-                            resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard.get_sampler_by_index(
-                                    private_data_guard.brdf_lut.sampler_index,
-                                ),
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 8,
-                            resource: wgpu::BindingResource::TextureView(
-                                &private_data_guard.point_shadow_map_textures.view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 9,
-                            resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard.get_sampler_by_index(
-                                    private_data_guard.point_shadow_map_textures.sampler_index,
-                                ),
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 10,
-                            resource: wgpu::BindingResource::TextureView(
-                                &private_data_guard.directional_shadow_map_textures.view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 11,
-                            resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard.get_sampler_by_index(
-                                    private_data_guard
-                                        .directional_shadow_map_textures
-                                        .sampler_index,
-                                ),
-                            ),
-                        },
-                    ],
-                    label: USE_LABELS.then_some("environment_textures_bind_group"),
-                })
+        private_data_guard.skyboxes[slot.as_index()] = skybox;
+
+        private_data_guard.environment_textures_bind_group =
+            Self::get_environment_textures_bind_group(
+                &self.base,
+                &private_data_guard.skyboxes,
+                &private_data_guard.skybox_weights_buffer,
+                &private_data_guard.brdf_lut,
+                &private_data_guard.point_shadow_map_textures,
+                &private_data_guard.directional_shadow_map_textures,
+            );
+    }
+
+    pub fn set_skybox_weights(&self, weights: [f32; 2]) {
+        let normalized = {
+            let total = weights[0] + weights[1];
+            [weights[0] / total, weights[1] / total]
         };
+        self.private_data.lock().unwrap().skybox_weights = normalized;
+    }
+
+    pub fn get_skybox_weights(&self) -> [f32; 2] {
+        self.private_data.lock().unwrap().skybox_weights
     }
 
     /// Prepare and send all data to gpu so it's ready to render
@@ -4244,12 +4288,12 @@ impl Renderer {
                 0f32,
             ]),
         );
-        self.base.queue.write_buffer(
+        queue.write_buffer(
             &private_data.bloom_config_buffers[0],
             0,
             bytemuck::cast_slice(&[0.0f32, data.bloom_threshold, data.bloom_ramp_size, 0.0f32]),
         );
-        self.base.queue.write_buffer(
+        queue.write_buffer(
             &private_data.bloom_config_buffers[1],
             0,
             bytemuck::cast_slice(&[1.0f32, data.bloom_threshold, data.bloom_ramp_size, 0.0f32]),
@@ -4264,6 +4308,16 @@ impl Renderer {
                 data.enable_shadow_debug,
                 data.soft_shadow_grid_dims,
             )]),
+        );
+        queue.write_buffer(
+            &private_data.skybox_weights_buffer,
+            0,
+            bytemuck::cast_slice(&[
+                private_data.skybox_weights[0],
+                private_data.skybox_weights[1],
+                0.0,
+                0.0,
+            ]),
         );
     }
 

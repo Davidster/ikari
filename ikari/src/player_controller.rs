@@ -29,6 +29,7 @@ pub struct PlayerController {
     is_backward_pressed: bool,
     is_left_pressed: bool,
     is_right_pressed: bool,
+    is_jump_pressed: bool,
     is_up_pressed: bool,
     is_down_pressed: bool,
 
@@ -106,6 +107,7 @@ impl PlayerController {
             is_backward_pressed: false,
             is_left_pressed: false,
             is_right_pressed: false,
+            is_jump_pressed: false,
             is_up_pressed: false,
             is_down_pressed: false,
 
@@ -224,10 +226,13 @@ impl PlayerController {
                             self.is_right_pressed = is_pressed;
                         }
                         VirtualKeyCode::Space => {
-                            self.is_up_pressed = is_pressed;
+                            self.is_jump_pressed = is_pressed;
                         }
                         VirtualKeyCode::LControl => {
                             self.is_down_pressed = is_pressed;
+                        }
+                        VirtualKeyCode::E => {
+                            self.is_up_pressed = is_pressed;
                         }
                         _ => {}
                     }
@@ -236,7 +241,7 @@ impl PlayerController {
                     self.is_left_pressed = false;
                     self.is_backward_pressed = false;
                     self.is_right_pressed = false;
-                    self.is_up_pressed = false;
+                    self.is_jump_pressed = false;
                     self.is_down_pressed = false;
                 }
             }
@@ -319,13 +324,22 @@ impl PlayerController {
         rigid_body.set_linvel(
             vector![
                 new_linear_velocity.x as f64,
-                current_linear_velocity.y, // preserve effect of gravity
+                if self.is_up_pressed {
+                    5.0
+                } else {
+                    // preserve effect of gravity
+                    current_linear_velocity.y
+                },
                 new_linear_velocity.z as f64
             ],
             true,
         );
 
         let can_jump = || {
+            if self.is_up_pressed {
+                return false;
+            }
+
             let jump_cooldown_seconds = 1.25;
             match self.last_jump_time {
                 Some(last_jump_time) => {
@@ -335,7 +349,7 @@ impl PlayerController {
                 None => true,
             }
         };
-        if self.is_up_pressed && can_jump() {
+        if self.is_jump_pressed && can_jump() {
             rigid_body.apply_impulse(vector![0.0, 3.0, 0.0], true);
             self.last_jump_time = Some(Instant::now());
         }

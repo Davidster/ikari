@@ -166,25 +166,27 @@ var skybox_texture: texture_cube<f32>;
 @group(1) @binding(1)
 var skybox_sampler: sampler;
 @group(1) @binding(2)
-var diffuse_env_map_texture: texture_cube<f32>;
+var skybox_texture_2: texture_cube<f32>;
 @group(1) @binding(3)
-var diffuse_env_map_sampler: sampler;
+var<uniform> skybox_weights: vec4<f32>;
 @group(1) @binding(4)
-var specular_env_map_texture: texture_cube<f32>;
+var diffuse_env_map_texture: texture_cube<f32>;
 @group(1) @binding(5)
-var specular_env_map_sampler: sampler;
+var diffuse_env_map_texture_2: texture_cube<f32>;
 @group(1) @binding(6)
-var brdf_lut_texture: texture_2d<f32>;
+var specular_env_map_texture: texture_cube<f32>;
 @group(1) @binding(7)
-var brdf_lut_sampler: sampler;
+var specular_env_map_texture_2: texture_cube<f32>;
 @group(1) @binding(8)
-var point_shadow_map_textures: texture_2d_array<f32>;
+var brdf_lut_texture: texture_2d<f32>;
 @group(1) @binding(9)
-var point_shadow_map_sampler: sampler;
+var brdf_lut_sampler: sampler;
 @group(1) @binding(10)
-var directional_shadow_map_textures: texture_2d_array<f32>;
+var point_shadow_map_textures: texture_2d_array<f32>;
 @group(1) @binding(11)
-var directional_shadow_map_sampler: sampler;
+var directional_shadow_map_textures: texture_2d_array<f32>;
+@group(1) @binding(12)
+var shadow_map_sampler: sampler;
 
 fn get_soft_shadows_are_enabled() -> bool {
     return shader_options.options_1[0] > 0.0;
@@ -668,12 +670,20 @@ fn do_fragment_shade(
     );
 
     let MAX_REFLECTION_LOD = 4.0;
-    let pre_filtered_color = textureSampleLevel(
+    let pre_filtered_color_1 = textureSampleLevel(
         specular_env_map_texture,
-        specular_env_map_sampler,
+        skybox_sampler,
         world_normal_to_cubemap_vec(reflection_vec),
         roughness * MAX_REFLECTION_LOD
     ).rgb;
+    let pre_filtered_color_2 = textureSampleLevel(
+        specular_env_map_texture_2,
+        skybox_sampler,
+        world_normal_to_cubemap_vec(reflection_vec),
+        roughness * MAX_REFLECTION_LOD
+    ).rgb;
+
+    let pre_filtered_color = (skybox_weights.x * pre_filtered_color_1) + (skybox_weights.y * pre_filtered_color_2);
 
     // copy variable names from the math formulas
     let n = world_normal;
@@ -684,7 +694,18 @@ fn do_fragment_shade(
 
     let n_dot_v = max(dot(n, v), 0.0);
     let brdf_lut_res = textureSample(brdf_lut_texture, brdf_lut_sampler, vec2<f32>(n_dot_v, roughness));
-    let env_map_diffuse_irradiance = textureSample(diffuse_env_map_texture, diffuse_env_map_sampler, world_normal_to_cubemap_vec(world_normal)).rgb;
+    let env_map_diffuse_irradiance_1 = textureSample(
+        diffuse_env_map_texture, 
+        skybox_sampler, 
+        world_normal_to_cubemap_vec(world_normal)
+    ).rgb;
+    let env_map_diffuse_irradiance_2 = textureSample(
+        diffuse_env_map_texture_2, 
+        skybox_sampler, 
+        world_normal_to_cubemap_vec(world_normal)
+    ).rgb;
+
+    let env_map_diffuse_irradiance = (skybox_weights.x * env_map_diffuse_irradiance_1) + (skybox_weights.y * env_map_diffuse_irradiance_2);
 
     if base_color_t.a <= alpha_cutoff {
         discard;
@@ -746,7 +767,7 @@ fn do_fragment_shade(
                 sample_jitter.y = sample_jitter.y * 6.0;
                 let closest_depth = textureSampleLevel(
                     point_shadow_map_textures,
-                    point_shadow_map_sampler,
+                    shadow_map_sampler,
                     validate_jittered_sample_coordinate(
                         light_space_position_uv + sample_jitter, 
                         light_space_position_face_slice
@@ -783,7 +804,7 @@ fn do_fragment_shade(
                         sample_jitter.y = sample_jitter.y * 6.0;
                         let closest_depth = textureSampleLevel(
                             point_shadow_map_textures,
-                            point_shadow_map_sampler,
+                            shadow_map_sampler,
                             validate_jittered_sample_coordinate(
                                 light_space_position_uv + sample_jitter, 
                                 light_space_position_face_slice
@@ -810,7 +831,7 @@ fn do_fragment_shade(
                         let irregular_offset = max_sample_jitter * random_jitter_3d * vec3(x, y, z) / sample_count;
                         let closest_depth = textureSample(
                             point_shadow_map_textures,
-                            point_shadow_map_sampler,
+                            shadow_map_sampler,
                             get_sample_coordinate(world_normal_to_cubemap_vec(from_shadow_vec + irregular_offset)).xy,
                             i32(light_index)
                         ).r;
@@ -826,7 +847,7 @@ fn do_fragment_shade(
             // hard shadows
             let closest_depth = textureSampleLevel(
                 point_shadow_map_textures,
-                point_shadow_map_sampler,
+                shadow_map_sampler,
                 light_space_position_uv,
                 i32(light_index),
                 0.0
@@ -915,7 +936,7 @@ fn do_fragment_shade(
                     let sample_jitter = base_sample_jitter * max_sample_jitter;
                     let closest_depth = textureSampleLevel(
                         directional_shadow_map_textures,
-                        directional_shadow_map_sampler,
+                        shadow_map_sampler,
                         light_space_position_uv + sample_jitter,
                         i32(light_index),
                         0.0
@@ -948,7 +969,7 @@ fn do_fragment_shade(
                             let sample_jitter = base_sample_jitter * max_sample_jitter;
                             let closest_depth = textureSampleLevel(
                                 directional_shadow_map_textures,
-                                directional_shadow_map_sampler,
+                                shadow_map_sampler,
                                 light_space_position_uv + sample_jitter,
                                 i32(light_index),
                                 0.0
@@ -964,7 +985,7 @@ fn do_fragment_shade(
                 // hard shadows
                 let closest_depth = textureSampleLevel(
                     directional_shadow_map_textures,
-                    directional_shadow_map_sampler,
+                    shadow_map_sampler,
                     light_space_position_uv,
                     i32(light_index),
                     0.0
