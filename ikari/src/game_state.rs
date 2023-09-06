@@ -11,6 +11,7 @@ use crate::revolver::*;
 use crate::scene::*;
 use crate::time_tracker::*;
 use crate::ui_overlay::IkariUiOverlay;
+use crate::wasm_not_sync::WasmNotArc;
 
 use std::sync::{Arc, Mutex};
 
@@ -57,7 +58,7 @@ pub struct GameState {
     pub cube_mesh: BasicMesh,
 
     pub asset_loader: Arc<AssetLoader>,
-    pub asset_binder: Arc<AssetBinder>,
+    pub asset_binder: WasmNotArc<AssetBinder>,
 
     pub ui_overlay: IkariUiOverlay,
 }
