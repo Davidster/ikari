@@ -150,8 +150,15 @@ impl PlayerController {
         };
     }
 
-    fn update_cursor_grab(&mut self, is_showing_options_menu: bool, window: &Window) {
-        let grab = self.is_window_focused_and_clicked && !is_showing_options_menu;
+    fn update_cursor_grab(
+        &mut self,
+        is_showing_options_menu: bool,
+        is_showing_cursor_marker: bool,
+        window: &Window,
+    ) {
+        let grab = self.is_window_focused_and_clicked
+            && !is_showing_options_menu
+            && !is_showing_cursor_marker;
 
         let new_grab_mode = if !grab {
             CursorGrabMode::None
@@ -179,6 +186,7 @@ impl PlayerController {
         ui_overlay: &mut IkariUiOverlay,
     ) {
         let is_showing_options_menu = ui_overlay.get_state().is_showing_options_menu;
+        let is_showing_cursor_marker = ui_overlay.get_state().is_showing_cursor_marker;
         let is_controlling_game = self.is_controlling_game(ui_overlay);
 
         match event {
@@ -193,7 +201,11 @@ impl PlayerController {
             } => {
                 if *state == ElementState::Pressed && *keycode == VirtualKeyCode::Tab {
                     let new_is_showing_options_menu = !is_showing_options_menu;
-                    self.update_cursor_grab(new_is_showing_options_menu, window);
+                    self.update_cursor_grab(
+                        new_is_showing_options_menu,
+                        is_showing_cursor_marker,
+                        window,
+                    );
 
                     if new_is_showing_options_menu {
                         self.mouse_button_pressed = false;
@@ -255,7 +267,7 @@ impl PlayerController {
                 if !self.window_focused {
                     self.is_window_focused_and_clicked = false;
                 }
-                self.update_cursor_grab(is_showing_options_menu, window);
+                self.update_cursor_grab(is_showing_options_menu, is_showing_cursor_marker, window);
             }
             WindowEvent::MouseInput {
                 state,
@@ -269,7 +281,7 @@ impl PlayerController {
                     self.is_window_focused_and_clicked = true;
                 }
 
-                self.update_cursor_grab(is_showing_options_menu, window);
+                self.update_cursor_grab(is_showing_options_menu, is_showing_cursor_marker, window);
             }
             _ => {}
         };
