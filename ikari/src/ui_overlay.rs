@@ -7,10 +7,11 @@ use glam::Vec3;
 use iced::alignment::Horizontal;
 use iced::font::Family;
 use iced::widget::{
-    checkbox, container, radio, scrollable, slider, text, Button, Column, Container, Row, Text,
+    canvas, checkbox, container, radio, scrollable, slider, text, Button, Column, Container, Row,
+    Text,
 };
-use iced::{Background, Command, Element, Font, Length, Size, Theme};
-use iced_aw::Modal;
+use iced::{mouse, Background, Command, Element, Font, Length, Rectangle, Size, Theme};
+use iced_aw::{floating_element, Modal};
 use iced_winit::{runtime, Clipboard, Viewport};
 use plotters::prelude::*;
 use plotters::style::RED;
@@ -37,9 +38,11 @@ pub struct AudioSoundStats {
     pub buffered_to_pos_seconds: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct UiOverlay {
+    clock: canvas::Cache,
     viewport_dims: (u32, u32),
+    cursor_position: winit::dpi::PhysicalPosition<f64>,
     fps_chart: FpsChart,
     is_showing_fps_chart: bool,
     is_showing_gpu_spans: bool,
@@ -61,6 +64,7 @@ pub struct UiOverlay {
     pub culling_frustum_lock_mode: CullingFrustumLockMode,
     pub soft_shadow_grid_dims: u32,
     pub is_showing_camera_pose: bool,
+    pub is_showing_cursor_marker: bool,
 
     pub pending_perf_dump: Option<PendingPerfDump>,
     perf_dump_completion_time: Option<Instant>,
@@ -69,12 +73,14 @@ pub struct UiOverlay {
 #[derive(Debug, Clone)]
 pub enum Message {
     ViewportDimsChanged((u32, u32)),
+    CursorPosChanged(winit::dpi::PhysicalPosition<f64>),
     FrameCompleted(Duration),
     GpuFrameCompleted(Vec<GpuTimerScopeResultWrapper>),
     CameraPoseChanged((Vec3, ControlledViewDirection)),
     AudioSoundStatsChanged((GameFilePath, AudioSoundStats)),
     ToggleVSync(bool),
     ToggleCameraPose(bool),
+    ToggleCursorMarker(bool),
     ToggleFpsChart(bool),
     ToggleGpuSpans(bool),
     ToggleSoftShadows(bool),
@@ -262,6 +268,31 @@ impl FpsChart {
     }
 }
 
+impl<Message> canvas::Program<Message, iced::Renderer> for UiOverlay {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &iced::Renderer,
+        _theme: &Theme,
+        bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        let clock = self.clock.draw(renderer, bounds.size(), |frame| {
+            let center = iced::Point::new(
+                frame.width() * self.cursor_position.x as f32,
+                frame.height() * self.cursor_position.y as f32,
+            );
+            let radius = 24.0;
+            let background = canvas::Path::circle(center, radius);
+            frame.fill(&background, iced::Color::from_rgba8(0x12, 0x93, 0xD8, 0.5));
+        });
+
+        vec![clock]
+    }
+}
+
 // the iced ui
 impl runtime::Program for UiOverlay {
     type Renderer = iced::Renderer;
@@ -274,7 +305,12 @@ impl runtime::Program for UiOverlay {
             Message::ViewportDimsChanged(new_state) => {
                 self.viewport_dims = new_state;
             }
+            Message::CursorPosChanged(new_state) => {
+                self.cursor_position = new_state;
+            }
             Message::FrameCompleted(frame_duration) => {
+                self.clock.clear();
+
                 let frame_time_ms = frame_duration.as_nanos() as f64 / 1_000_000.0;
                 self.fps_chart.avg_frame_time_millis =
                     Some(match self.fps_chart.avg_frame_time_millis {
@@ -341,6 +377,9 @@ impl runtime::Program for UiOverlay {
             }
             Message::ToggleCameraPose(new_state) => {
                 self.is_showing_camera_pose = new_state;
+            }
+            Message::ToggleCursorMarker(new_state) => {
+                self.is_showing_cursor_marker = new_state;
             }
             Message::ToggleFpsChart(new_state) => {
                 self.is_showing_fps_chart = new_state;
@@ -532,15 +571,19 @@ impl runtime::Program for UiOverlay {
             rows = rows.push(Container::new(self.fps_chart.view()).padding(padding));
         }
 
-        let background_content = Row::new()
-            .width(Length::Shrink)
-            .height(Length::Shrink)
-            .padding(8)
-            .push(
-                Container::new(rows)
-                    .padding(8)
-                    .style(iced::theme::Container::Custom(container_style)),
-            );
+        let background_content = Container::new(
+            Row::new()
+                .width(Length::Shrink)
+                .height(Length::Shrink)
+                .padding(8)
+                .push(
+                    Container::new(rows)
+                        .padding(8)
+                        .style(iced::theme::Container::Custom(container_style)),
+                ),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill);
 
         let modal_content: Option<Element<_, _>> = self.is_showing_options_menu.then(|| {
             let separator_line = Text::new("-------------")
@@ -569,7 +612,14 @@ impl runtime::Program for UiOverlay {
                 Message::ToggleCameraPose,
             ));
 
-            // camera debug
+            // cursor marker debug
+            options = options.push(checkbox(
+                "Show Cursor Marker",
+                self.is_showing_cursor_marker,
+                Message::ToggleCursorMarker,
+            ));
+
+            // audio stats debug
             options = options.push(checkbox(
                 "Show Audio Stats",
                 self.is_showing_audio_stats,
@@ -730,7 +780,29 @@ impl runtime::Program for UiOverlay {
             .into()
         });
 
-        Modal::new(background_content, modal_content).into()
+        if self.is_showing_cursor_marker {
+            let overlay = {
+                let canvas: canvas::Canvas<&Self, Message, iced::Renderer> = canvas(self as &Self)
+                    .width(Length::Fill)
+                    .height(Length::Fill);
+
+                Element::from(
+                    container(canvas)
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .padding(0),
+                )
+            };
+
+            Modal::new(
+                floating_element(background_content, overlay)
+                    .anchor(floating_element::Anchor::NorthWest),
+                modal_content,
+            )
+            .into()
+        } else {
+            Modal::new(background_content, modal_content).into()
+        }
     }
 }
 
@@ -814,8 +886,12 @@ impl IkariUiOverlay {
             window.scale_factor(),
         );
 
+        let cursor_position = winit::dpi::PhysicalPosition::new(-1.0, -1.0);
+
         let state = UiOverlay {
+            clock: Default::default(),
             viewport_dims: (window.inner_size().width, window.inner_size().height),
+            cursor_position,
             fps_chart: FpsChart {
                 recent_frame_times: vec![],
                 recent_gpu_frame_times: vec![],
@@ -827,6 +903,7 @@ impl IkariUiOverlay {
 
             camera_pose: None,
             is_showing_camera_pose: INITIAL_IS_SHOWING_CAMERA_POSE,
+            is_showing_cursor_marker: INITIAL_IS_SHOWING_CURSOR_MARKER,
             is_showing_fps_chart: true,
             is_showing_gpu_spans: false,
             is_showing_options_menu: false,
@@ -873,7 +950,6 @@ impl IkariUiOverlay {
         let program_container =
             runtime::program::State::new(state, viewport.logical_size(), &mut renderer, &mut debug);
 
-        let cursor_position = winit::dpi::PhysicalPosition::new(-1.0, -1.0);
         let modifiers = winit::event::ModifiersState::default();
         let clipboard = Clipboard::connect(window);
 
@@ -939,11 +1015,21 @@ impl IkariUiOverlay {
             );
         }
 
+        let viewport_dims = (
+            (window.inner_size().width as f64 / window.scale_factor()) as u32,
+            (window.inner_size().height as f64 / window.scale_factor()) as u32,
+        );
+
         self.program_container
-            .queue_message(Message::ViewportDimsChanged((
-                (window.inner_size().width as f64 / window.scale_factor()) as u32,
-                (window.inner_size().height as f64 / window.scale_factor()) as u32,
-            )));
+            .queue_message(Message::ViewportDimsChanged(viewport_dims));
+
+        let cursor_pos = winit::dpi::PhysicalPosition::new(
+            self.cursor_position.x / window.inner_size().width as f64,
+            self.cursor_position.y / window.inner_size().height as f64,
+        );
+
+        self.program_container
+            .queue_message(Message::CursorPosChanged(cursor_pos));
 
         let cursor_icon =
             iced_winit::conversion::mouse_interaction(self.program_container.mouse_interaction());

@@ -42,6 +42,7 @@ pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
 pub const INITIAL_ENABLE_BLOOM: bool = true;
 pub const ARENA_SIDE_LENGTH: f32 = 500.0;
 pub const INITIAL_IS_SHOWING_CAMERA_POSE: bool = true;
+pub const INITIAL_IS_SHOWING_CURSOR_MARKER: bool = false;
 pub const INITIAL_ENABLE_SHADOW_DEBUG: bool = false;
 pub const INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG: bool = false;
 pub const INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG: bool = false;
