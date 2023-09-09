@@ -10,7 +10,11 @@ name = "example_game"
 path = "src/main.rs"
 
 [features]
-tracy = ["ikari/tracy", "profiling/profile-with-tracy", "dep:tracing-tracy"]
+tracy = [
+  "ikari/tracy-profile-dumps",
+  "profiling/profile-with-tracy",
+  "dep:tracing-tracy",
+]
 tracy-n-alloc = []
 
 [dependencies]
