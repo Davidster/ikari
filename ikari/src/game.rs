@@ -220,8 +220,6 @@ pub async fn init_game_state(
     surface_data: &SurfaceData,
     window: &winit::window::Window,
 ) -> Result<GameState> {
-    dbg!(cfg!(feature = "profiling/profile-with-tracy"));
-
     log::info!("Controls:");
     [
         "Look Around:             Mouse",
