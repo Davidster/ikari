@@ -15,7 +15,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-tracy = []
+tracy-profile-dumps = ["profiling/profile-with-tracy"]
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }

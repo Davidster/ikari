@@ -126,6 +126,35 @@ Based on instructions from here: https://github.com/wolfpld/tracy/issues/484
     Type=Application
     ```
 
+### Tracy macos install:
+
+- Install deps:
+
+```sh
+brew install freetype2 glfw
+# version 4.0.2, haven't tested with v5, maybe it works.
+wget https://raw.githubusercontent.com/Homebrew/homebrew-core/442f9cc511ce6dfe75b96b2c83749d90dde914d2/Formula/c/capstone.rb
+brew install ./capstone.rb
+brew pin capstone
+rm capstone.rb
+```
+
+- Install tracy
+```sh
+cd tracy/profiler/build/unix
+git checkout v0.9
+# you might need to mess around with clang for this to work, not sure if the system default clang is able to perform the compilation
+make -I/opt/homebrew/Cellar/capstone/4.0.2/include/capstone -j12
+```
+
+- Run tracy
+
+```sh
+# the TRACY_DPI_SCALE env var might be needed for the high dpi monitor of your macbook
+# you can export it in ~/.zprofile (add `export TRACY_DPI_SCALE=1.0`) to make it work when running from spotlight (cmd+space search thingy)
+TRACY_DPI_SCALE=1.0 ./Tracy-release
+```
+
 ## Running clippy for wasm target
 
 ```sh

@@ -8,11 +8,11 @@ use std::{
 pub type PendingPerfDump = Arc<Mutex<Option<anyhow::Result<String>>>>;
 
 pub fn profiling_is_enabled() -> bool {
-    cfg!(feature = "tracy")
+    cfg!(feature = "tracy-profile-dumps")
 }
 
 pub fn can_generate_profile_dump() -> bool {
-    cfg!(not(target_arch = "wasm32")) && cfg!(not(target_os = "macos"))
+    cfg!(not(target_arch = "wasm32"))
 }
 
 pub fn generate_profile_dump() -> PendingPerfDump {
@@ -44,19 +44,20 @@ fn generate_profile_dump_internal() -> anyhow::Result<String> {
         "-s",
         &format!("{dump_size_seconds}"),
     ];
-    let mut child_process = if cfg!(target_os = "windows") {
-        Command::new("./ikari/bin/tracy/win/capture.exe")
-            .args(args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
+
+    let tracy_capture_exe = if cfg!(target_os = "windows") {
+        "./ikari/bin/tracy/win/capture.exe"
+    } else if cfg!(target_os = "macos") {
+        "./ikari/bin/tracy/macos/capture"
     } else {
-        Command::new("./ikari/bin/tracy/unix/capture")
-            .args(args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
+        "./ikari/bin/tracy/unix/capture"
     };
+
+    let mut child_process = Command::new(tracy_capture_exe)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
 
     let std_out_lines = {
         let mut lines: Vec<String> = vec![];
