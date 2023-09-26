@@ -25,6 +25,10 @@ wgpu.workspace = true
 anyhow.workspace = true
 env_logger.workspace = true
 profiling.workspace = true
+glam.workspace = true
+rand.workspace = true
+lazy_static.workspace = true
+image.workspace = true
 tracing-tracy = { version = "0.10.3", features = ["ondemand"], optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

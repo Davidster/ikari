@@ -35,6 +35,8 @@ image = { version = "0.24", default-features = false, features = [
 gltf = "1.3"
 pico-args = "0.5.0"
 lazy_static = "1.4"
+glam = { version = "0.24.1", features = ["approx", "bytemuck"] }
+rand = { version = "0.8", features = ["small_rng"] }
 
 # wasm32 depdendencies
 web-sys = { version = "0.3.64", features = [

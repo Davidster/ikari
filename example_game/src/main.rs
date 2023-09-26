@@ -1,7 +1,18 @@
-use ikari::game::*;
-use ikari::renderer::*;
-use ikari::scene::*;
+mod ball;
+mod character;
+mod game;
+mod game_state;
+mod physics_ball;
+mod revolver;
 
+use crate::game::init_game_state;
+use crate::game::init_player_controller;
+use crate::game::process_window_input;
+use crate::game::update_game_state;
+
+use ikari::engine_state::EngineState;
+use ikari::renderer::BaseRenderer;
+use ikari::renderer::Renderer;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -66,10 +77,6 @@ async fn start() {
 
         log::debug!("base render: {:?}", application_start_time.elapsed());
 
-        let game_scene = Scene::default();
-
-        log::debug!("game scene: {:?}", application_start_time.elapsed());
-
         let mut renderer = Renderer::new(
             base_renderer,
             surface_data.surface_config.format,
@@ -82,7 +89,14 @@ async fn start() {
 
         log::debug!("renderer: {:?}", application_start_time.elapsed());
 
-        let game_state = init_game_state(game_scene, &mut renderer, &surface_data, &window).await?;
+        let mut engine_state = EngineState::new(
+            |physics_state| init_player_controller(physics_state),
+            &renderer,
+            &surface_data,
+            &window,
+        )?;
+
+        let mut game_state = init_game_state(&mut engine_state, &mut renderer).await?;
 
         log::debug!("game state: {:?}", application_start_time.elapsed());
 
@@ -90,6 +104,20 @@ async fn start() {
             window,
             event_loop,
             game_state,
+            engine_state,
+            |game_state, engine_state, renderer, surface_data| {
+                update_game_state(game_state, engine_state, renderer, surface_data);
+            },
+            |game_state, engine_state, renderer, surface_data, event, window| {
+                process_window_input(
+                    game_state,
+                    engine_state,
+                    renderer,
+                    surface_data,
+                    event,
+                    window,
+                );
+            },
             renderer,
             surface_data,
             application_start_time,

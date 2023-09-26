@@ -1,5 +1,4 @@
-use crate::game::*;
-use crate::game_state::*;
+use crate::engine_state::EngineState;
 use crate::renderer::*;
 use crate::time::*;
 use crate::ui_overlay::AudioSoundStats;
@@ -26,14 +25,29 @@ pub fn resize_window(
     ui_overlay.resize(new_size, window.scale_factor());
 }
 
-pub fn run(
+pub fn run<OnUpdateFunction, OnWindowEventFunction, GameState>(
     window: Window,
     event_loop: EventLoop<()>,
     mut game_state: GameState,
+    mut engine_state: EngineState,
+    mut on_update: OnUpdateFunction,
+    mut on_window_event: OnWindowEventFunction,
     mut renderer: Renderer,
     mut surface_data: SurfaceData,
     application_start_time: Instant,
-) {
+) where
+    OnUpdateFunction:
+        FnMut(&mut GameState, &mut EngineState, &mut Renderer, &SurfaceData) + 'static,
+    OnWindowEventFunction: FnMut(
+            &mut GameState,
+            &mut EngineState,
+            &mut Renderer,
+            &mut SurfaceData,
+            &winit::event::WindowEvent,
+            &winit::window::Window,
+        ) + 'static,
+    GameState: 'static,
+{
     let mut logged_start_time = false;
     let mut last_frame_start_time: Option<Instant> = None;
 
@@ -54,12 +68,17 @@ pub fn run(
         *control_flow = ControlFlow::Poll;
         match event {
             Event::RedrawRequested(_) => {
-                game_state.on_frame_started();
+                engine_state.on_frame_started();
                 profiling::finish_frame!();
                 let frame_duration = last_frame_start_time.map(|time| time.elapsed());
                 last_frame_start_time = Some(Instant::now());
 
-                update_game_state(&mut game_state, &mut renderer, &surface_data);
+                on_update(
+                    &mut game_state,
+                    &mut engine_state,
+                    &mut renderer,
+                    &surface_data,
+                );
 
                 {
                     profiling::scope!("Sync UI");
@@ -78,11 +97,11 @@ pub fn run(
                             logged_start_time = true;
                         }
 
-                        game_state.ui_overlay.send_message(
+                        engine_state.ui_overlay.send_message(
                             crate::ui_overlay::Message::FrameCompleted(frame_duration),
                         );
                         if let Some(gpu_timing_info) = renderer.process_profiler_frame() {
-                            game_state.ui_overlay.send_message(
+                            engine_state.ui_overlay.send_message(
                                 crate::ui_overlay::Message::GpuFrameCompleted(gpu_timing_info),
                             );
                         }
@@ -91,7 +110,7 @@ pub fn run(
                     {
                         profiling::scope!("Audio");
 
-                        let audio_manager_guard = game_state.audio_manager.lock().unwrap();
+                        let audio_manager_guard = engine_state.audio_manager.lock().unwrap();
                         for sound_index in audio_manager_guard.sound_indices() {
                             let file_path = audio_manager_guard
                                 .get_sound_file_path(sound_index)
@@ -106,7 +125,7 @@ pub fn run(
                                 .get_sound_buffered_to_pos_seconds(sound_index)
                                 .unwrap();
 
-                            game_state.ui_overlay.send_message(
+                            engine_state.ui_overlay.send_message(
                                 crate::ui_overlay::Message::AudioSoundStatsChanged((
                                     file_path.clone(),
                                     AudioSoundStats {
@@ -119,18 +138,18 @@ pub fn run(
                         }
                     }
 
-                    let camera_position = game_state
+                    let camera_position = engine_state
                         .player_controller
-                        .position(&game_state.physics_state);
-                    let camera_view_direction = game_state.player_controller.view_direction;
-                    game_state.ui_overlay.send_message(
+                        .position(&engine_state.physics_state);
+                    let camera_view_direction = engine_state.player_controller.view_direction;
+                    engine_state.ui_overlay.send_message(
                         crate::ui_overlay::Message::CameraPoseChanged((
                             camera_position,
                             camera_view_direction,
                         )),
                     );
 
-                    let ui_state = game_state.ui_overlay.get_state();
+                    let ui_state = engine_state.ui_overlay.get_state();
 
                     renderer_data_guard.enable_soft_shadows = ui_state.enable_soft_shadows;
                     renderer_data_guard.soft_shadow_factor = ui_state.soft_shadow_factor;
@@ -145,7 +164,7 @@ pub fn run(
                     renderer.set_vsync(ui_state.enable_vsync, &mut surface_data);
 
                     renderer.set_culling_frustum_lock(
-                        &game_state,
+                        &engine_state,
                         (
                             surface_data.surface_config.width,
                             surface_data.surface_config.height,
@@ -165,16 +184,16 @@ pub fn run(
                     }
                 }
 
-                game_state.ui_overlay.update(&window, control_flow);
+                engine_state.ui_overlay.update(&window, control_flow);
 
-                match renderer.render(&mut game_state, &surface_data) {
+                match renderer.render(&mut engine_state, &surface_data) {
                     Ok(_) => {}
                     Err(err) => match err.downcast_ref::<wgpu::SurfaceError>() {
                         // Reconfigure the surface if lost
                         Some(wgpu::SurfaceError::Lost) => {
                             resize_window(
                                 &mut renderer,
-                                &mut game_state.ui_overlay,
+                                &mut engine_state.ui_overlay,
                                 &mut surface_data,
                                 &window,
                                 window.inner_size().into(),
@@ -205,7 +224,10 @@ pub fn run(
                 window.request_redraw();
             }
             Event::DeviceEvent { event, .. } => {
-                process_device_input(&mut game_state, &event);
+                // TODO: add callback for game to process device events
+                engine_state
+                    .player_controller
+                    .process_device_events(&event, &engine_state.ui_overlay);
             }
             Event::WindowEvent {
                 event, window_id, ..
@@ -215,7 +237,7 @@ pub fn run(
                         if size.width > 0 && size.height > 0 {
                             resize_window(
                                 &mut renderer,
-                                &mut game_state.ui_overlay,
+                                &mut engine_state.ui_overlay,
                                 &mut surface_data,
                                 &window,
                                 (*size).into(),
@@ -226,7 +248,7 @@ pub fn run(
                         if new_inner_size.width > 0 && new_inner_size.height > 0 {
                             resize_window(
                                 &mut renderer,
-                                &mut game_state.ui_overlay,
+                                &mut engine_state.ui_overlay,
                                 &mut surface_data,
                                 &window,
                                 (**new_inner_size).into(),
@@ -237,10 +259,11 @@ pub fn run(
                     _ => {}
                 };
 
-                game_state.ui_overlay.handle_window_event(&window, &event);
+                engine_state.ui_overlay.handle_window_event(&window, &event);
 
-                process_window_input(
+                on_window_event(
                     &mut game_state,
+                    &mut engine_state,
                     &mut renderer,
                     &mut surface_data,
                     &event,

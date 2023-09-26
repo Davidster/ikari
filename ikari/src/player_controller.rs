@@ -1,11 +1,12 @@
 use crate::collisions::*;
-use crate::game::*;
 use crate::math::*;
 use crate::physics::*;
 use crate::renderer::*;
 use crate::time::*;
 use crate::transform::*;
 use crate::ui_overlay::*;
+
+use rapier3d_f64::prelude::*;
 
 use glam::f32::{Quat, Vec3};
 use glam::EulerRot;
@@ -71,6 +72,7 @@ impl PlayerController {
         speed: f32,
         position: Vec3,
         view_direction: ControlledViewDirection,
+        collider: Collider,
     ) -> Self {
         let rigid_body = RigidBodyBuilder::dynamic()
             .translation(vector![
@@ -79,15 +81,6 @@ impl PlayerController {
                 position.z as f64
             ])
             .lock_rotations()
-            .build();
-        let collider = ColliderBuilder::capsule_y(0.5, 0.25)
-            .restitution_combine_rule(CoefficientCombineRule::Min)
-            .friction_combine_rule(CoefficientCombineRule::Min)
-            .collision_groups(
-                InteractionGroups::all().with_memberships(COLLISION_GROUP_PLAYER_UNSHOOTABLE),
-            )
-            .friction(0.0)
-            .restitution(0.0)
             .build();
         let rigid_body_handle = physics_state.rigid_body_set.insert(rigid_body);
         physics_state.collider_set.insert_with_parent(

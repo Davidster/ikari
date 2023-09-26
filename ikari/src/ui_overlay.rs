@@ -19,7 +19,6 @@ use plotters_iced::{Chart, ChartWidget, DrawingBackend};
 use winit::{event::WindowEvent, window::Window};
 
 use crate::file_loader::GameFilePath;
-use crate::game::*;
 use crate::math::*;
 use crate::player_controller::*;
 use crate::profile_dump::*;
@@ -902,24 +901,34 @@ impl IkariUiOverlay {
             audio_sound_stats: BTreeMap::new(),
 
             camera_pose: None,
-            is_showing_camera_pose: INITIAL_IS_SHOWING_CAMERA_POSE,
-            is_showing_cursor_marker: INITIAL_IS_SHOWING_CURSOR_MARKER,
+            // is_showing_camera_pose: INITIAL_IS_SHOWING_CAMERA_POSE,
+            // is_showing_cursor_marker: INITIAL_IS_SHOWING_CURSOR_MARKER,
+            is_showing_camera_pose: false,
+            is_showing_cursor_marker: false,
             is_showing_fps_chart: true,
             is_showing_gpu_spans: false,
             is_showing_options_menu: false,
             was_exit_button_pressed: false,
             is_showing_audio_stats: false,
-            enable_vsync: INITIAL_ENABLE_VSYNC,
-            enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
-            skybox_weight: INITIAL_SKYBOX_WEIGHT,
-            shadow_bias: INITIAL_SHADOW_BIAS,
-            soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
-            enable_shadow_debug: INITIAL_ENABLE_SHADOW_DEBUG,
-            draw_culling_frustum: INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG,
-            draw_point_light_culling_frusta: INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG,
+            // enable_vsync: INITIAL_ENABLE_VSYNC,
+            // enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
+            // skybox_weight: INITIAL_SKYBOX_WEIGHT,
+            // shadow_bias: INITIAL_SHADOW_BIAS,
+            // soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
+            // enable_shadow_debug: INITIAL_ENABLE_SHADOW_DEBUG,
+            // draw_culling_frustum: INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG,
+            // draw_point_light_culling_frusta: INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG,
+            enable_vsync: false,
+            enable_soft_shadows: true,
+            skybox_weight: 1.0,
+            shadow_bias: 0.0005,
+            soft_shadow_factor: 0.0015,
+            enable_shadow_debug: false,
+            draw_culling_frustum: false,
+            draw_point_light_culling_frusta: false,
             culling_frustum_lock_mode: CullingFrustumLockMode::None,
-            soft_shadow_grid_dims: INITIAL_SOFT_SHADOW_GRID_DIMS,
-
+            // soft_shadow_grid_dims: INITIAL_SOFT_SHADOW_GRID_DIMS,
+            soft_shadow_grid_dims: 4,
             pending_perf_dump: None,
             perf_dump_completion_time: None,
         };

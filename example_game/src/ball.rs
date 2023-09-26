@@ -1,12 +1,14 @@
 use crate::game::*;
-use crate::math::*;
-use crate::transform::*;
 
-use glam::f32::{Vec2, Vec3};
+use glam::{
+    f32::{Vec2, Vec3},
+    Quat,
+};
+use ikari::math::{lerp, lerp_vec};
 
 #[derive(Clone, Debug)]
 pub struct BallComponent {
-    pub transform: crate::transform::Transform,
+    pub transform: ikari::transform::Transform,
     direction: Vec3,
     speed: f32,
     radius: f32,
@@ -14,7 +16,7 @@ pub struct BallComponent {
 
 impl BallComponent {
     pub fn new(position: Vec2, direction: Vec2, radius: f32, speed: f32) -> Self {
-        let transform = TransformBuilder::new()
+        let transform = ikari::transform::TransformBuilder::new()
             .position(Vec3::new(position.x, radius, position.y))
             .scale(Vec3::new(radius, radius, radius))
             .build();
@@ -59,8 +61,7 @@ impl BallComponent {
         let circumference = 2.0 * std::f32::consts::PI * self.radius;
         let angle_of_rotation =
             1.0 * (displacement.length() / circumference) * 2.0 * std::f32::consts::PI;
-        let rotational_displacement =
-            make_quat_from_axis_angle(axis_of_rotation, -angle_of_rotation);
+        let rotational_displacement = Quat::from_axis_angle(axis_of_rotation, -angle_of_rotation);
         let new_rotation = rotational_displacement * curr_rotation;
         self.transform.set_rotation(new_rotation);
 
@@ -99,7 +100,7 @@ impl BallComponent {
     }
 
     pub fn lerp(&self, other: &Self, alpha: f32) -> Self {
-        let transform = TransformBuilder::new()
+        let transform = ikari::transform::TransformBuilder::new()
             .position(lerp_vec(
                 self.transform.position(),
                 other.transform.position(),

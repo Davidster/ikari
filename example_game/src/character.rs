@@ -1,10 +1,13 @@
-use crate::game::*;
-use crate::mesh::*;
-use crate::physics::*;
-use crate::renderer::*;
-use crate::scene::*;
-
 use glam::Vec4;
+use ikari::mesh::BasicMesh;
+use ikari::physics::PhysicsState;
+use ikari::renderer::{BaseRenderer, Renderer, RendererData};
+use ikari::scene::{GameNodeId, GameNodeMesh, GameNodeMeshType, Scene};
+
+use ikari::physics::rapier3d_f64::prelude::*;
+use ikari::transform::Transform;
+
+use crate::game::COLLISION_GROUP_PLAYER_UNSHOOTABLE;
 
 pub struct Character {
     root_node_id: GameNodeId,
@@ -27,7 +30,7 @@ impl Character {
     ) -> Self {
         let collision_debug_mesh_index =
             Renderer::bind_basic_transparent_mesh(renderer_base, renderer_data, cube_mesh);
-        let mut result = Self {
+        let mut res = Self {
             root_node_id,
             skin_index,
             collision_box_nodes: vec![],
@@ -35,12 +38,12 @@ impl Character {
             collision_debug_mesh_index,
             is_displaying_collision_boxes: false,
         };
-        result.update(scene, physics_state);
-        result
+        res.update(scene, physics_state);
+        res
     }
 
     pub fn update(&mut self, scene: &mut Scene, physics_state: &mut PhysicsState) {
-        let root_node_global_transform: crate::transform::Transform =
+        let root_node_global_transform: Transform =
             scene.get_global_transform_for_node(self.root_node_id);
         let should_fill_collision_boxes = self.collision_box_colliders.is_empty();
         if let Some((skin_node_id, first_skin_bounding_box_transforms)) =
@@ -68,7 +71,7 @@ impl Character {
                         let bone_space_to_skeleton_space = node_ancestry_list
                             .iter()
                             .rev()
-                            .fold(crate::transform::Transform::IDENTITY, |acc, node_id| {
+                            .fold(Transform::IDENTITY, |acc, node_id| {
                                 acc * scene.get_node(*node_id).unwrap().transform
                             });
                         bone_space_to_skeleton_space

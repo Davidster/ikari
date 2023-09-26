@@ -1,45 +1,60 @@
-use crate::animation::*;
-use crate::asset_loader::*;
-use crate::audio::*;
 use crate::ball::*;
 use crate::character::*;
-use crate::file_loader::FileLoader;
-use crate::file_loader::GamePathMaker;
 use crate::game_state::*;
-use crate::gameloop::resize_window;
-use crate::light::*;
-use crate::math::*;
-use crate::mesh::*;
-use crate::physics::*;
 use crate::physics_ball::*;
-use crate::player_controller::*;
-use crate::renderer::*;
 use crate::revolver::*;
-use crate::sampler_cache::*;
-use crate::scene::*;
-use crate::texture::*;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::texture_compression::*;
-use crate::transform::*;
-use crate::ui_overlay::IkariUiOverlay;
-use crate::wasm_not_sync::WasmNotArc;
 
-use std::{
-    collections::hash_map::Entry,
-    sync::{Arc, Mutex},
-};
+use std::{collections::hash_map::Entry, sync::Arc};
 
 use anyhow::Result;
 use glam::f32::{Vec3, Vec4};
-use rapier3d_f64::prelude::*;
+use glam::Mat4;
+use glam::Quat;
+use ikari::animation::step_animations;
+use ikari::animation::LoopType;
+use ikari::asset_loader::AssetBinder;
+use ikari::asset_loader::AssetLoader;
+use ikari::audio::AudioFileFormat;
+use ikari::audio::SoundParams;
+use ikari::engine_state::EngineState;
+use ikari::file_loader::{FileLoader, GamePathMaker};
+use ikari::gameloop::resize_window;
+use ikari::light::DirectionalLightComponent;
+use ikari::light::PointLightComponent;
+use ikari::math::deg_to_rad;
+use ikari::mesh::BasicMesh;
+use ikari::mesh::DynamicPbrParams;
+use ikari::mesh::PbrMaterial;
+use ikari::mesh::Vertex;
+use ikari::physics::rapier3d_f64::prelude::*;
+use ikari::physics::PhysicsState;
+use ikari::player_controller::ControlledViewDirection;
+use ikari::player_controller::PlayerController;
+use ikari::renderer::RendererData;
+use ikari::renderer::SkyboxSlot;
+use ikari::renderer::USE_LABELS;
+use ikari::renderer::{
+    BaseRenderer, Renderer, SkyboxBackgroundPath, SkyboxHDREnvironmentPath, SurfaceData,
+};
+use ikari::sampler_cache::SamplerDescriptor;
+use ikari::scene::GameNodeDescBuilder;
+use ikari::scene::GameNodeId;
+use ikari::scene::GameNodeMesh;
+use ikari::scene::GameNodeMeshType;
+use ikari::scene::Scene;
+use ikari::texture::Texture;
+use ikari::transform::Transform;
+use ikari::transform::TransformBuilder;
+use ikari::ui_overlay::IkariUiOverlay;
+use ikari::wasm_not_sync::WasmNotArc;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
 pub const INITIAL_ENABLE_VSYNC: bool = true;
-pub const INITIAL_RENDER_SCALE: f32 = 1.0;
-pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
-pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
-pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
-pub const INITIAL_ENABLE_BLOOM: bool = true;
+pub const INITIAL_RENDER_SCALE: f32 = 1.0; // TODO: set this after the first frame?
+pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0; // TODO: set this after the first frame?
+pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8; // TODO: set this after the first frame?
+pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2; // TODO: set this after the first frame?
+pub const INITIAL_ENABLE_BLOOM: bool = true; // TODO: set this after the first frame?
 pub const ARENA_SIDE_LENGTH: f32 = 500.0;
 pub const INITIAL_IS_SHOWING_CAMERA_POSE: bool = true;
 pub const INITIAL_IS_SHOWING_CURSOR_MARKER: bool = false;
@@ -178,7 +193,7 @@ fn get_misc_gltf_path() -> &'static str {
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
-    let texture_compressor = TextureCompressor;
+    let texture_compressor = ikari::texture_compression::TextureCompressor;
     let rainbow_texture_path = "src/textures/rainbow_gradient_vertical_compressed.bin";
     let rainbow_texture_bytes =
         FileLoader::read(&GAME_PATH_MAKER.make(rainbow_texture_path)).await?;
@@ -214,11 +229,32 @@ async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
     )
 }
 
+pub fn init_player_controller(physics_state: &mut PhysicsState) -> PlayerController {
+    PlayerController::new(
+        physics_state,
+        6.0,
+        Vec3::new(8.0, 30.0, -13.0),
+        ControlledViewDirection {
+            horizontal: deg_to_rad(180.0),
+            vertical: 0.0,
+        },
+        ColliderBuilder::capsule_y(0.5, 0.25)
+            .restitution_combine_rule(CoefficientCombineRule::Min)
+            .friction_combine_rule(CoefficientCombineRule::Min)
+            .collision_groups(
+                InteractionGroups::all().with_memberships(COLLISION_GROUP_PLAYER_UNSHOOTABLE),
+            )
+            .friction(0.0)
+            .restitution(0.0)
+            .build(),
+    )
+}
+
 pub async fn init_game_state(
-    mut scene: Scene,
+    engine_state: &mut EngineState,
     renderer: &mut Renderer,
-    surface_data: &SurfaceData,
-    window: &winit::window::Window,
+    // surface_data: &SurfaceData,
+    // window: &winit::window::Window,
 ) -> Result<GameState> {
     log::info!("Controls:");
     [
@@ -241,31 +277,14 @@ pub async fn init_game_state(
         log::info!("  {line}");
     });
 
-    let mut physics_state = PhysicsState::new();
-
-    // create player
-    let player_node_id = scene.add_node(GameNodeDesc::default()).id();
-    let player_controller = PlayerController::new(
-        &mut physics_state,
-        6.0,
-        Vec3::new(8.0, 30.0, -13.0),
-        ControlledViewDirection {
-            horizontal: deg_to_rad(180.0),
-            vertical: 0.0,
-        },
-    );
-
-    let (audio_manager, audio_streams) = AudioManager::new()?;
-
-    let audio_manager_mutex = Arc::new(Mutex::new(audio_manager));
-
-    let asset_loader = Arc::new(AssetLoader::new(audio_manager_mutex.clone()));
+    // TODO: move asset loader into the engine
+    let asset_loader = Arc::new(AssetLoader::new(engine_state.audio_manager.clone()));
 
     let asset_loader_clone = asset_loader.clone();
     let asset_binder = WasmNotArc::new(AssetBinder::new());
 
-    crate::thread::spawn(move || {
-        crate::block_on(async move {
+    ikari::thread::spawn(move || {
+        ikari::block_on(async move {
             // crate::thread::sleep_async(crate::time::Duration::from_secs_f32(5.0)).await;
 
             // load in gltf files
@@ -323,7 +342,7 @@ pub async fn init_game_state(
     let cube_mesh = BasicMesh::new(&GAME_PATH_MAKER.make("src/models/cube.obj")).await?;
 
     // add lights to the scene
-    let directional_lights = vec![
+    engine_state.directional_lights = vec![
         // DirectionalLightComponent {
         //     position: Vec3::new(1.0, 5.0, -10.0) * 10.0,
         //     direction: (-Vec3::new(1.0, 5.0, -10.0)).normalize(),
@@ -339,7 +358,7 @@ pub async fn init_game_state(
     ];
     // let directional_lights: Vec<DirectionalLightComponent> = vec![];
 
-    let point_lights: Vec<(crate::transform::Transform, Vec3, f32)> = vec![
+    let point_lights: Vec<(Transform, Vec3, f32)> = vec![
         (
             TransformBuilder::new()
                 .scale(Vec3::new(0.05, 0.05, 0.05))
@@ -359,13 +378,15 @@ pub async fn init_game_state(
     ];
     // let point_lights: Vec<(crate::transform::Transform, Vec3, f32)> = vec![];
 
+    let physics_state = &mut engine_state.physics_state;
+    let scene = &mut engine_state.scene;
+
     let point_light_unlit_mesh_index = Renderer::bind_basic_unlit_mesh(
         &renderer.base,
         &mut renderer.data.lock().unwrap(),
         &sphere_mesh,
     );
     let mut point_light_node_ids: Vec<GameNodeId> = Vec::new();
-    let mut point_light_components: Vec<PointLightComponent> = Vec::new();
     for (transform, color, intensity) in point_lights {
         let node_id = scene
             .add_node(
@@ -382,7 +403,7 @@ pub async fn init_game_state(
             )
             .id();
         point_light_node_ids.push(node_id);
-        point_light_components.push(PointLightComponent {
+        engine_state.point_lights.push(PointLightComponent {
             node_id,
             color: POINT_LIGHT_COLOR,
             intensity,
@@ -479,6 +500,7 @@ pub async fn init_game_state(
         &checkerboard_texture_img,
         checkerboard_texture_img.dimensions(),
         1,
+        // TODO: check USE_LABELS flag internally inside the engine
         USE_LABELS.then_some("checkerboard_texture"),
         None,
         true,
@@ -585,8 +607,8 @@ pub async fn init_game_state(
     let physics_balls: Vec<_> = (0..physics_ball_count)
         .map(|_| {
             PhysicsBall::new_random(
-                &mut scene,
-                &mut physics_state,
+                scene,
+                physics_state,
                 GameNodeMesh::from_pbr_mesh_index(ball_pbr_mesh_index),
             )
         })
@@ -646,7 +668,7 @@ pub async fn init_game_state(
         let ceiling_transform = TransformBuilder::new()
             .position(cube_center + Vec3::new(0.0, cube_radius, 0.0))
             .scale(Vec3::new(cube_radius, 1.0, cube_radius))
-            .rotation(make_quat_from_axis_angle(
+            .rotation(Quat::from_axis_angle(
                 Vec3::new(1.0, 0.0, 0.0),
                 deg_to_rad(180.0),
             ))
@@ -679,7 +701,7 @@ pub async fn init_game_state(
         let wall_transform_1 = TransformBuilder::new()
             .position(cube_center + Vec3::new(0.0, 0.0, -cube_radius))
             .scale(Vec3::new(cube_radius, 1.0, cube_radius))
-            .rotation(make_quat_from_axis_angle(
+            .rotation(Quat::from_axis_angle(
                 Vec3::new(1.0, 0.0, 0.0),
                 deg_to_rad(90.0),
             ))
@@ -703,7 +725,7 @@ pub async fn init_game_state(
         let wall_transform_2 = TransformBuilder::new()
             .position(cube_center + Vec3::new(0.0, 0.0, cube_radius))
             .scale(Vec3::new(cube_radius, 1.0, cube_radius))
-            .rotation(make_quat_from_axis_angle(
+            .rotation(Quat::from_axis_angle(
                 Vec3::new(1.0, 0.0, 0.0),
                 deg_to_rad(270.0),
             ))
@@ -727,7 +749,7 @@ pub async fn init_game_state(
         let wall_transform_3 = TransformBuilder::new()
             .position(cube_center + Vec3::new(cube_radius, 0.0, 0.0))
             .scale(Vec3::new(cube_radius, 1.0, cube_radius))
-            .rotation(make_quat_from_axis_angle(
+            .rotation(Quat::from_axis_angle(
                 Vec3::new(0.0, 0.0, 1.0),
                 deg_to_rad(90.0),
             ))
@@ -751,7 +773,7 @@ pub async fn init_game_state(
         let wall_transform_4 = TransformBuilder::new()
             .position(cube_center + Vec3::new(-cube_radius, 0.0, 0.0))
             .scale(Vec3::new(cube_radius, 1.0, cube_radius))
-            .rotation(make_quat_from_axis_angle(
+            .rotation(Quat::from_axis_angle(
                 Vec3::new(0.0, 0.0, 1.0),
                 deg_to_rad(270.0),
             ))
@@ -813,7 +835,7 @@ pub async fn init_game_state(
     // let ceiling_transform = TransformBuilder::new()
     //     .position(Vec3::new(0.0, 10.0, 0.0))
     //     .scale(Vec3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH))
-    //     .rotation(make_quat_from_axis_angle(
+    //     .rotation(Quat::from_axis_angle(
     //         Vec3::new(1.0, 0.0, 0.0),
     //         deg_to_rad(180.0),
     //     ))
@@ -1004,42 +1026,18 @@ pub async fn init_game_state(
             .id(),
     );
 
-    let ui_overlay = {
-        let surface_format = surface_data.surface_config.format;
-        IkariUiOverlay::new(
-            window,
-            &renderer.base.device,
-            &renderer.base.queue,
-            // TODO: can I just pass surface_format here? seems it should be ok even if the surface is not srgb,
-            // the renderer will take care of that contingency..? this code would be really bad for the user.
-            if surface_format.is_srgb() {
-                surface_format
-            } else {
-                wgpu::TextureFormat::Rgba16Float
-            },
-        )
-    };
-
     // logger_log(&format!("{:?}", &revolver));
 
     // anyhow::bail!("suhh dude");
 
     Ok(GameState {
-        scene,
-        time_tracker: None,
         state_update_time_accumulator: 0.0,
         is_playing_animations: true,
 
-        audio_streams,
-        audio_manager: audio_manager_mutex,
         bgm_sound_index: None,
         gunshot_sound_index: None,
         // gunshot_sound_data,
-        player_node_id,
-
-        point_lights: point_light_components,
         point_light_node_ids,
-        directional_lights,
 
         next_balls: balls.clone(),
         prev_balls: balls.clone(),
@@ -1056,30 +1054,20 @@ pub async fn init_game_state(
         bouncing_ball_node_id,
         bouncing_ball_body_handle,
 
-        physics_state,
-
         physics_balls,
 
         character: None,
-        player_controller,
 
         cube_mesh,
 
         asset_loader: asset_loader_clone,
         asset_binder,
-
-        ui_overlay,
     })
-}
-
-pub fn process_device_input(game_state: &mut GameState, event: &winit::event::DeviceEvent) {
-    game_state
-        .player_controller
-        .process_device_events(event, &game_state.ui_overlay);
 }
 
 pub fn process_window_input(
     game_state: &mut GameState,
+    engine_state: &mut EngineState,
     renderer: &mut Renderer,
     surface_data: &mut SurfaceData,
     event: &winit::event::WindowEvent,
@@ -1106,7 +1094,7 @@ pub fn process_window_input(
                         surface_data,
                         false,
                         window,
-                        &mut game_state.ui_overlay,
+                        &mut engine_state.ui_overlay,
                     );
                 }
                 VirtualKeyCode::X => {
@@ -1116,7 +1104,7 @@ pub fn process_window_input(
                         surface_data,
                         true,
                         window,
-                        &mut game_state.ui_overlay,
+                        &mut engine_state.ui_overlay,
                     );
                 }
                 VirtualKeyCode::R => {
@@ -1150,16 +1138,18 @@ pub fn process_window_input(
                 }
                 VirtualKeyCode::C => {
                     if let Some(character) = game_state.character.as_mut() {
-                        character.toggle_collision_box_display(&mut game_state.scene);
+                        character.toggle_collision_box_display(&mut engine_state.scene);
                     }
                 }
                 _ => {}
             }
         }
     }
-    game_state
-        .player_controller
-        .process_window_events(event, window, &mut game_state.ui_overlay);
+    engine_state.player_controller.process_window_events(
+        event,
+        window,
+        &mut engine_state.ui_overlay,
+    );
 }
 
 pub fn increment_render_scale(
@@ -1217,6 +1207,7 @@ pub fn increment_bloom_threshold(renderer_data: &mut RendererData, increase: boo
 #[profiling::function]
 pub fn update_game_state(
     game_state: &mut GameState,
+    engine_state: &mut EngineState,
     renderer: &mut Renderer,
     surface_data: &SurfaceData,
 ) {
@@ -1249,24 +1240,24 @@ pub fn update_game_state(
                 loaded_assets_guard.entry("src/models/gltf/ColtPython/colt_python.glb".into())
             {
                 let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
-                game_state.scene.merge_scene(
+                engine_state.scene.merge_scene(
                     &mut renderer_data_guard,
                     other_scene,
                     other_render_buffers,
                 );
 
-                let node_id = game_state.scene.nodes().last().unwrap().id();
-                let animation_index = game_state.scene.animations.len() - 1;
+                let node_id = engine_state.scene.nodes().last().unwrap().id();
+                let animation_index = engine_state.scene.animations.len() - 1;
                 // revolver_indices = Some((revolver_model_node_id, animation_index));
                 game_state.revolver = Some(Revolver::new(
-                    &mut game_state.scene,
-                    game_state.player_node_id,
+                    &mut engine_state.scene,
+                    engine_state.player_node_id,
                     node_id,
                     animation_index,
                     // revolver model
                     // TransformBuilder::new()
                     //     .position(Vec3::new(0.21, -0.09, -1.0))
-                    //     .rotation(make_quat_from_axis_angle(
+                    //     .rotation(Quat::from_axis_angle(
                     //         Vec3::new(0.0, 1.0, 0.0),
                     //         deg_to_rad(180.0).into(),
                     //     ))
@@ -1276,8 +1267,8 @@ pub fn update_game_state(
                     TransformBuilder::new()
                         .position(Vec3::new(0.21, -0.13, -1.0))
                         .rotation(
-                            make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), deg_to_rad(180.0))
-                                * make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.1),
+                            Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), deg_to_rad(180.0))
+                                * Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.1),
                         )
                         .scale(2.0f32 * Vec3::new(1.0, 1.0, 1.0))
                         .build(),
@@ -1301,21 +1292,21 @@ pub fn update_game_state(
                 node.transform
                     .set_position(node.transform.position() + Vec3::new(0.0, 29.0, 0.0));
             }
-            game_state.scene.merge_scene(
+            engine_state.scene.merge_scene(
                 &mut renderer_data_guard,
                 other_scene,
                 other_render_buffers,
             );
 
             if REMOVE_LARGE_OBJECTS_FROM_FOREST {
-                let node_ids: Vec<_> = game_state.scene.nodes().map(|node| node.id()).collect();
+                let node_ids: Vec<_> = engine_state.scene.nodes().map(|node| node.id()).collect();
                 for node_id in node_ids {
-                    if let Some(sphere) = game_state
+                    if let Some(sphere) = engine_state
                         .scene
                         .get_node_bounding_sphere(node_id, &renderer_data_guard)
                     {
                         if sphere.radius > 10.0 {
-                            game_state.scene.remove_node(node_id);
+                            engine_state.scene.remove_node(node_id);
                         }
                     }
                 }
@@ -1335,7 +1326,7 @@ pub fn update_game_state(
                 jump_up_animation.state.is_playing = true;
                 jump_up_animation.state.loop_type = LoopType::Wrap;
             }
-            game_state.scene.merge_scene(
+            engine_state.scene.merge_scene(
                 &mut renderer_data_guard,
                 other_scene,
                 other_render_buffers,
@@ -1346,21 +1337,21 @@ pub fn update_game_state(
             loaded_assets_guard.entry("src/models/gltf/TestLevel/test_level.glb".into())
         {
             let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
-            let skip_nodes = game_state.scene.node_count();
-            game_state.scene.merge_scene(
+            let skip_nodes = engine_state.scene.node_count();
+            engine_state.scene.merge_scene(
                 &mut renderer_data_guard,
                 other_scene,
                 other_render_buffers,
             );
 
-            let test_level_node_ids: Vec<_> = game_state
+            let test_level_node_ids: Vec<_> = engine_state
                 .scene
                 .nodes()
                 .skip(skip_nodes)
                 .map(|node| node.id())
                 .collect();
             for node_id in test_level_node_ids {
-                if let Some(_mesh) = game_state
+                if let Some(_mesh) = engine_state
                     .scene
                     .get_node_mut(node_id)
                     .unwrap()
@@ -1369,10 +1360,11 @@ pub fn update_game_state(
                 {
                     // mesh.wireframe = true;
                 }
-                // let transform = &mut game_state.scene.get_node_mut(node_id).unwrap().transform;
+                // let transform = &mut engine_state.scene.get_node_mut(node_id).unwrap().transform;
                 // transform.set_position(transform.position() + Vec3::new(0.0, 25.0, 0.0));
-                game_state.physics_state.add_static_box(
-                    &game_state.scene,
+                add_static_box(
+                    &mut engine_state.physics_state,
+                    &engine_state.scene,
                     &renderer_data_guard,
                     node_id,
                 );
@@ -1385,7 +1377,7 @@ pub fn update_game_state(
                 animation.state.is_playing = true;
                 animation.state.loop_type = LoopType::Wrap;
             }
-            game_state.scene.merge_scene(
+            engine_state.scene.merge_scene(
                 &mut renderer_data_guard,
                 other_scene,
                 other_render_buffers,
@@ -1407,9 +1399,9 @@ pub fn update_game_state(
             let (_, bgm_sound_index) = entry.remove_entry();
             game_state.bgm_sound_index = Some(bgm_sound_index);
 
-            let audio_manager_clone = game_state.audio_manager.clone();
+            let audio_manager_clone = engine_state.audio_manager.clone();
             let bgm_sound_index_clone = bgm_sound_index;
-            crate::thread::spawn(move || {
+            ikari::thread::spawn(move || {
                 // #[cfg(not(target_arch = "wasm32"))]
                 // crate::thread::sleep(crate::time::Duration::from_secs_f32(5.0));
 
@@ -1428,14 +1420,14 @@ pub fn update_game_state(
     }
 
     if game_state.character.is_none() {
-        let legendary_robot_root_node_id = game_state
+        let legendary_robot_root_node_id = engine_state
             .scene
             .nodes()
             .find(|node| node.name == Some(String::from("robot")))
             .map(|legendary_robot_root_node| legendary_robot_root_node.id());
 
         game_state.character = legendary_robot_root_node_id.map(|legendary_robot_root_node_id| {
-            game_state
+            engine_state
                 .scene
                 .get_node_mut(legendary_robot_root_node_id)
                 .unwrap()
@@ -1445,8 +1437,8 @@ pub fn update_game_state(
             let legendary_robot_skin_index = 0;
 
             Character::new(
-                &mut game_state.scene,
-                &mut game_state.physics_state,
+                &mut engine_state.scene,
+                &mut engine_state.physics_state,
                 &base_renderer,
                 &mut renderer_data.lock().unwrap(),
                 legendary_robot_root_node_id,
@@ -1458,7 +1450,7 @@ pub fn update_game_state(
 
     // "src/models/gltf/free_low_poly_forest/scene.gltf"
 
-    let time_tracker = game_state.time();
+    let time_tracker = engine_state.time();
     let global_time_seconds = time_tracker.global_time_seconds();
 
     // results in ~60 state changes per second
@@ -1472,20 +1464,20 @@ pub fn update_game_state(
     }
     game_state.state_update_time_accumulator += frame_time_seconds;
 
-    game_state.physics_state.step();
+    engine_state.physics_state.step();
 
-    game_state
+    engine_state
         .player_controller
-        .update(&mut game_state.physics_state);
+        .update(&mut engine_state.physics_state);
     // logger_log(&format!(
     //     "camera pose: {:?}",
     //     game_state.camera_controller.current_pose
     // ));
 
-    let new_player_transform = game_state
+    let new_player_transform = engine_state
         .player_controller
-        .transform(&game_state.physics_state);
-    if let Some(player_transform) = game_state.scene.get_node_mut(game_state.player_node_id) {
+        .transform(&engine_state.physics_state);
+    if let Some(player_transform) = engine_state.scene.get_node_mut(engine_state.player_node_id) {
         player_transform.transform = new_player_transform;
     }
 
@@ -1513,13 +1505,13 @@ pub fn update_game_state(
         .iter()
         .zip(game_state.actual_balls.iter())
         .for_each(|(node_id, ball)| {
-            if let Some(node) = game_state.scene.get_node_mut(*node_id) {
+            if let Some(node) = engine_state.scene.get_node_mut(*node_id) {
                 node.transform = ball.transform;
             }
         });
 
-    if let Some(point_light_0) = game_state.point_lights.get_mut(0) {
-        let t = game_state
+    if let Some(point_light_0) = engine_state.point_lights.get_mut(0) {
+        let t = engine_state
             .scene
             .animations
             .iter_mut()
@@ -1532,7 +1524,7 @@ pub fn update_game_state(
         //     LIGHT_COLOR_B,
         //     (global_time_seconds * 2.0).sin(),
         // );
-        if let Some(node) = game_state.scene.get_node_mut(point_light_0.node_id) {
+        if let Some(node) = engine_state.scene.get_node_mut(point_light_0.node_id) {
             // let t = game_state.player_controller.speed;
             node.transform.set_position(
                 Vec3::new(0.0, 6.5, 0.0)
@@ -1545,7 +1537,7 @@ pub fn update_game_state(
         }
     }
 
-    if let Some(_point_light_1) = game_state.point_lights.get_mut(1) {
+    if let Some(_point_light_1) = engine_state.point_lights.get_mut(1) {
         // _point_light_1.color = lerp_vec(
         //     LIGHT_COLOR_B,
         //     LIGHT_COLOR_A,
@@ -1557,12 +1549,12 @@ pub fn update_game_state(
     game_state
         .point_light_node_ids
         .iter()
-        .zip(game_state.point_lights.iter())
+        .zip(engine_state.point_lights.iter())
         .for_each(|(node_id, point_light)| {
             if let Some(GameNodeMesh {
                 mesh_type: GameNodeMeshType::Unlit { ref mut color },
                 ..
-            }) = game_state
+            }) = engine_state
                 .scene
                 .get_node_mut(*node_id)
                 .and_then(|node| node.mesh.as_mut())
@@ -1571,7 +1563,7 @@ pub fn update_game_state(
             }
         });
 
-    let directional_light_0 = game_state
+    let directional_light_0 = engine_state
         .directional_lights
         .get(0)
         .map(|directional_light_0| {
@@ -1589,13 +1581,13 @@ pub fn update_game_state(
             }
         });
     if let Some(directional_light_0) = directional_light_0 {
-        game_state.directional_lights[0] = directional_light_0;
+        engine_state.directional_lights[0] = directional_light_0;
     }
 
     // rotate the test object
     let rotational_displacement =
-        make_quat_from_axis_angle(Vec3::new(0.0, 1.0, 0.0), frame_time_seconds as f32 / 5.0);
-    if let Some(node) = game_state
+        Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), frame_time_seconds as f32 / 5.0);
+    if let Some(node) = engine_state
         .scene
         .get_node_mut(game_state.test_object_node_id)
     {
@@ -1617,7 +1609,7 @@ pub fn update_game_state(
         // let new_ball = BallComponent::rand();
         // let new_ball_transform = new_ball.transform;
         // game_state.next_balls.push(new_ball);
-        // game_state.scene.nodes.push(
+        // engine_state.scene.nodes.push(
         //     GameNodeBuilder::new()
         //         .mesh(Some(GameNodeMesh::Pbr {
         //             mesh_indices: vec![game_state.ball_pbr_mesh_index],
@@ -1628,12 +1620,12 @@ pub fn update_game_state(
         // );
         // game_state
         //     .ball_node_indices
-        //     .push(game_state.scene.nodes.len() - 1);
+        //     .push(engine_state.scene.nodes.len() - 1);
         // if let Some(physics_ball) = game_state.physics_balls.pop() {
-        //     physics_ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
+        //     physics_ball.destroy(&mut engine_state.scene, &mut game_state.physics_state);
         // }
         // game_state.physics_balls.push(PhysicsBall::new_random(
-        //     &mut game_state.scene,
+        //     &mut engine_state.scene,
         //     &mut game_state.physics_state,
         //     GameNodeMesh::from_pbr_mesh_index(game_state.ball_pbr_mesh_index),
         // ));
@@ -1647,9 +1639,9 @@ pub fn update_game_state(
     // let physics_time_step_start = Instant::now();
 
     // logger_log(&format!("Physics step time: {:?}", physics_time_step_start.elapsed()));
-    let physics_state = &mut game_state.physics_state;
+    let physics_state = &mut engine_state.physics_state;
     let ball_body = &physics_state.rigid_body_set[game_state.bouncing_ball_body_handle];
-    if let Some(node) = game_state
+    if let Some(node) = engine_state
         .scene
         .get_node_mut(game_state.bouncing_ball_node_id)
     {
@@ -1660,16 +1652,16 @@ pub fn update_game_state(
     game_state
         .physics_balls
         .iter()
-        .for_each(|physics_ball| physics_ball.update(&mut game_state.scene, physics_state));
+        .for_each(|physics_ball| physics_ball.update(&mut engine_state.scene, physics_state));
 
     if let Some(crosshair_node) = game_state
         .crosshair_node_id
-        .and_then(|crosshair_node_id| game_state.scene.get_node_mut(crosshair_node_id))
+        .and_then(|crosshair_node_id| engine_state.scene.get_node_mut(crosshair_node_id))
     {
         crosshair_node.transform = new_player_transform
             * TransformBuilder::new()
                 .position(Vec3::new(0.0, 0.0, -1.0))
-                .rotation(make_quat_from_axis_angle(
+                .rotation(Quat::from_axis_angle(
                     Vec3::new(0.0, 1.0, 0.0),
                     deg_to_rad(90.0),
                 ))
@@ -1683,11 +1675,12 @@ pub fn update_game_state(
 
     if let Some(revolver) = game_state.revolver.as_mut() {
         revolver.update(
-            game_state.player_controller.view_direction,
-            &mut game_state.scene,
+            engine_state.player_controller.view_direction,
+            &mut engine_state.scene,
         );
 
-        if game_state.player_controller.mouse_button_pressed && revolver.fire(&mut game_state.scene)
+        if engine_state.player_controller.mouse_button_pressed
+            && revolver.fire(&mut engine_state.scene)
         {
             /* if let Some(bgm_sound_index) = game_state.bgm_sound_index {
                 if time_tracker.global_time_seconds() > 30.0 {
@@ -1702,7 +1695,7 @@ pub fn update_game_state(
 
             if let Some(gunshot_sound_index) = game_state.gunshot_sound_index {
                 {
-                    let mut audio_manager_guard = game_state.audio_manager.lock().unwrap();
+                    let mut audio_manager_guard = engine_state.audio_manager.lock().unwrap();
                     audio_manager_guard.play_sound(gunshot_sound_index);
                     audio_manager_guard.reload_sound(
                         gunshot_sound_index,
@@ -1717,10 +1710,10 @@ pub fn update_game_state(
             }
 
             // logger_log("Fired!");
-            let player_position = game_state
+            let player_position = engine_state
                 .player_controller
-                .position(&game_state.physics_state);
-            let direction_vec = game_state.player_controller.view_direction.to_vector();
+                .position(&engine_state.physics_state);
+            let direction_vec = engine_state.player_controller.view_direction.to_vector();
             let ray = Ray::new(
                 point![
                     player_position.x as f64,
@@ -1736,9 +1729,9 @@ pub fn update_game_state(
             let max_distance = ARENA_SIDE_LENGTH as f64 * 10.0;
             let solid = true;
             if let Some((collider_handle, collision_point_distance)) =
-                game_state.physics_state.query_pipeline.cast_ray(
-                    &game_state.physics_state.rigid_body_set,
-                    &game_state.physics_state.collider_set,
+                engine_state.physics_state.query_pipeline.cast_ray(
+                    &engine_state.physics_state.rigid_body_set,
+                    &engine_state.physics_state.collider_set,
                     &ray,
                     max_distance,
                     solid,
@@ -1755,7 +1748,7 @@ pub fn update_game_state(
                 //     "Collider {:?} hit at point {}",
                 //     collider_handle, _hit_point
                 // ));
-                if let Some(rigid_body_handle) = game_state
+                if let Some(rigid_body_handle) = engine_state
                     .physics_state
                     .collider_set
                     .get(collider_handle)
@@ -1772,25 +1765,101 @@ pub fn update_game_state(
                         //     "Hit physics ball {:?} hit at point {}",
                         //     ball_index, hit_point
                         // ));
-                        // ball.toggle_wireframe(&mut game_state.scene);
-                        ball.destroy(&mut game_state.scene, &mut game_state.physics_state);
+                        // ball.toggle_wireframe(&mut engine_state.scene);
+                        ball.destroy(&mut engine_state.scene, &mut engine_state.physics_state);
                         game_state.physics_balls.remove(ball_index);
                     }
                 }
                 if let Some(character) = game_state.character.as_mut() {
-                    character.handle_hit(&mut game_state.scene, collider_handle);
+                    character.handle_hit(&mut engine_state.scene, collider_handle);
                 }
             }
         }
     }
 
     // step animatons
-    let scene = &mut game_state.scene;
+    // TODO: move this into the engine?
+    let scene = &mut engine_state.scene;
     if game_state.is_playing_animations {
         step_animations(scene, frame_time_seconds)
     }
 
     if let Some(character) = game_state.character.as_mut() {
-        character.update(scene, &mut game_state.physics_state);
+        character.update(scene, &mut engine_state.physics_state);
+    }
+}
+
+fn add_static_box(
+    physics_state: &mut PhysicsState,
+    scene: &Scene,
+    renderer_data: &RendererData,
+    node_id: GameNodeId,
+) {
+    let collider_handles = physics_state
+        .static_box_set
+        .entry(node_id)
+        .or_insert(vec![]);
+
+    if let Some(node) = scene.get_node(node_id) {
+        if let Some(mesh) = node.mesh.as_ref() {
+            let transform: Transform = scene.get_global_transform_for_node(node_id);
+            let transform_decomposed = transform.decompose();
+            for mesh_index in mesh.mesh_indices.iter() {
+                let bounding_box = match mesh.mesh_type {
+                    GameNodeMeshType::Pbr { .. } => {
+                        renderer_data.binded_pbr_meshes[*mesh_index]
+                            .geometry_buffers
+                            .bounding_box
+                    }
+                    GameNodeMeshType::Unlit { .. } => {
+                        renderer_data.binded_unlit_meshes[*mesh_index].bounding_box
+                    }
+                    GameNodeMeshType::Transparent { .. } => {
+                        renderer_data.binded_transparent_meshes[*mesh_index].bounding_box
+                    }
+                };
+                let base_scale = (bounding_box.max - bounding_box.min) / 2.0;
+                let base_position = (bounding_box.max + bounding_box.min) / 2.0;
+                let scale = Vec3::new(
+                    base_scale.x * transform_decomposed.scale.x,
+                    base_scale.y * transform_decomposed.scale.y,
+                    base_scale.z * transform_decomposed.scale.z,
+                );
+                let position_rotated = {
+                    let rotated = Mat4::from_quat(transform_decomposed.rotation)
+                        * Vec4::new(base_position.x, base_position.y, base_position.z, 1.0);
+                    Vec3::new(rotated.x, rotated.y, rotated.z)
+                };
+                let position = Vec3::new(
+                    position_rotated.x + transform_decomposed.position.x,
+                    position_rotated.y + transform_decomposed.position.y,
+                    position_rotated.z + transform_decomposed.position.z,
+                );
+                let rotation = transform_decomposed.rotation;
+                let mut collider =
+                    ColliderBuilder::cuboid(scale.x as f64, scale.y as f64, scale.z as f64)
+                        .collision_groups(
+                            InteractionGroups::all()
+                                .with_memberships(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
+                        )
+                        .friction(1.0)
+                        .restitution(1.0)
+                        .build();
+                collider.set_position(Isometry::from_parts(
+                    nalgebra::Translation3::new(
+                        position.x as f64,
+                        position.y as f64,
+                        position.z as f64,
+                    ),
+                    nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
+                        rotation.w as f64,
+                        rotation.x as f64,
+                        rotation.y as f64,
+                        rotation.z as f64,
+                    )),
+                ));
+                collider_handles.push(physics_state.collider_set.insert(collider));
+            }
+        }
     }
 }

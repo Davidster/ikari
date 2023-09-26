@@ -1,11 +1,10 @@
 use crate::buffer::*;
 use crate::camera::*;
 use crate::collisions::*;
+use crate::engine_state::EngineState;
 use crate::file_loader::FileLoader;
 use crate::file_loader::GameFilePath;
 use crate::file_loader::IKARI_PATH_MAKER;
-use crate::game::*;
-use crate::game_state::*;
 use crate::light::*;
 use crate::math::*;
 use crate::mesh::*;
@@ -68,15 +67,15 @@ impl Default for PointLightUniform {
     }
 }
 
-fn make_point_light_uniform_buffer(game_state: &GameState) -> Vec<PointLightUniform> {
+fn make_point_light_uniform_buffer(engine_state: &EngineState) -> Vec<PointLightUniform> {
     let mut light_uniforms = Vec::new();
 
-    let active_light_count = game_state.point_lights.len();
-    let mut active_lights = game_state
+    let active_light_count = engine_state.point_lights.len();
+    let mut active_lights = engine_state
         .point_lights
         .iter()
         .flat_map(|point_light| {
-            game_state
+            engine_state
                 .scene
                 .get_node(point_light.node_id)
                 .map(|light_node| {
@@ -1931,7 +1930,7 @@ impl Renderer {
             .device
             .create_render_pipeline(&directional_shadow_map_pipeline_descriptor);
 
-        let initial_render_scale = INITIAL_RENDER_SCALE;
+        let initial_render_scale = 1.0;
 
         let cube_mesh = BasicMesh::new(&IKARI_PATH_MAKER.make("src/models/cube.obj")).await?;
 
@@ -2528,11 +2527,11 @@ impl Renderer {
             binded_wireframe_meshes: vec![],
             textures: vec![],
 
-            tone_mapping_exposure: INITIAL_TONE_MAPPING_EXPOSURE,
-            bloom_threshold: INITIAL_BLOOM_THRESHOLD,
-            bloom_ramp_size: INITIAL_BLOOM_RAMP_SIZE,
+            tone_mapping_exposure: 1.0,
+            bloom_threshold: 0.8,
+            bloom_ramp_size: 0.2,
             render_scale: initial_render_scale,
-            enable_bloom: INITIAL_ENABLE_BLOOM,
+            enable_bloom: true,
             enable_shadows: true,
             enable_wireframe_mode: false,
             draw_node_bounding_spheres: false,
@@ -3080,11 +3079,11 @@ impl Renderer {
         &self,
         data: &mut RendererData,
         private_data: &mut RendererPrivateData,
-        game_state: &mut GameState,
+        engine_state: &mut EngineState,
         main_culling_frustum: &Frustum,
         main_culling_frustum_desc: &CameraFrustumDescriptor,
     ) {
-        let scene = &mut game_state.scene;
+        let scene = &mut engine_state.scene;
 
         for node_id in private_data
             .debug_node_bounding_spheres_nodes
@@ -3209,7 +3208,7 @@ impl Renderer {
         }
 
         if data.draw_point_light_culling_frusta {
-            for point_light in &game_state.point_lights {
+            for point_light in &engine_state.point_lights {
                 for controlled_direction in build_cubemap_face_camera_view_directions() {
                     let frustum_descriptor = CameraFrustumDescriptor {
                         focal_point: scene
@@ -3285,7 +3284,7 @@ impl Renderer {
 
     pub fn set_culling_frustum_lock(
         &self,
-        game_state: &GameState,
+        engine_state: &EngineState,
         framebuffer_size: (u32, u32),
         lock_mode: CullingFrustumLockMode,
     ) {
@@ -3303,14 +3302,14 @@ impl Renderer {
         let position = match private_data_guard.frustum_culling_lock {
             CullingFrustumLock::Full(desc) => desc.focal_point,
             CullingFrustumLock::FocalPoint(locked_focal_point) => locked_focal_point,
-            CullingFrustumLock::None => game_state
+            CullingFrustumLock::None => engine_state
                 .player_controller
-                .position(&game_state.physics_state),
+                .position(&engine_state.physics_state),
         };
 
         private_data_guard.frustum_culling_lock = match lock_mode {
             CullingFrustumLockMode::Full => CullingFrustumLock::Full(
-                game_state
+                engine_state
                     .player_controller
                     .view_frustum_with_position(aspect_ratio, position),
             ),
@@ -3321,18 +3320,18 @@ impl Renderer {
 
     pub fn render(
         &mut self,
-        game_state: &mut GameState,
+        engine_state: &mut EngineState,
         surface_data: &SurfaceData,
     ) -> anyhow::Result<()> {
         self.update_internal(
-            game_state,
+            engine_state,
             surface_data.surface_config.format,
             (
                 surface_data.surface_config.width,
                 surface_data.surface_config.height,
             ),
         );
-        self.render_internal(game_state, surface_data.surface.get_current_texture()?)
+        self.render_internal(engine_state, surface_data.surface.get_current_texture()?)
     }
 
     fn get_node_cam_intersection_result(
@@ -3367,11 +3366,11 @@ impl Renderer {
     fn get_node_culling_mask(
         node: &GameNode,
         data: &RendererData,
-        game_state: &GameState,
+        engine_state: &EngineState,
         camera_culling_frustum: &Frustum,
         point_lights_frusta: &PointLightFrustaWithCullingInfo,
     ) -> u32 {
-        assert!(1 + game_state.directional_lights.len() + game_state.point_lights.len() * 6 <= 32,
+        assert!(1 + engine_state.directional_lights.len() + engine_state.point_lights.len() * 6 <= 32,
             "u32 can only store a max of 5 point lights, might be worth using a larger, might be worth using a larger bitvec or a Vec<bool> or something"
         );
 
@@ -3384,7 +3383,7 @@ impl Renderer {
             return u32::MAX;
         }
 
-        let node_bounding_sphere = game_state
+        let node_bounding_sphere = engine_state
             .scene
             .get_node_bounding_sphere_opt(node.id(), data);
 
@@ -3412,7 +3411,7 @@ impl Renderer {
 
         mask_pos += 1;
 
-        for _ in &game_state.directional_lights {
+        for _ in &engine_state.directional_lights {
             // TODO: add support for frustum culling directional lights shadow map gen?
             culling_mask |= 2u32.pow(mask_pos);
 
@@ -3569,7 +3568,7 @@ impl Renderer {
     #[profiling::function]
     fn update_internal(
         &mut self,
-        game_state: &mut GameState,
+        engine_state: &mut EngineState,
         framebuffer_format: wgpu::TextureFormat,
         framebuffer_size: (u32, u32),
     ) {
@@ -3581,15 +3580,15 @@ impl Renderer {
 
         let (framebuffer_width, framebuffer_height) = framebuffer_size;
         let aspect_ratio = framebuffer_width as f32 / framebuffer_height as f32;
-        let camera_position = game_state
+        let camera_position = engine_state
             .player_controller
-            .position(&game_state.physics_state);
+            .position(&engine_state.physics_state);
         let culling_frustum_desc = match private_data.frustum_culling_lock {
             CullingFrustumLock::Full(locked) => locked,
-            CullingFrustumLock::FocalPoint(locked_position) => game_state
+            CullingFrustumLock::FocalPoint(locked_position) => engine_state
                 .player_controller
                 .view_frustum_with_position(aspect_ratio, locked_position),
-            CullingFrustumLock::None => game_state
+            CullingFrustumLock::None => engine_state
                 .player_controller
                 .view_frustum_with_position(aspect_ratio, camera_position),
         };
@@ -3599,13 +3598,13 @@ impl Renderer {
         self.add_debug_nodes(
             data,
             private_data,
-            game_state,
+            engine_state,
             &culling_frustum,
             &culling_frustum_desc,
         );
 
         // TODO: compute node bounding spheres here too?
-        game_state.scene.recompute_global_node_transforms();
+        engine_state.scene.recompute_global_node_transforms();
 
         let limits = &self.base.limits;
         let queue = &self.base.queue;
@@ -3614,7 +3613,7 @@ impl Renderer {
             &self.base.bones_and_instances_bind_group_layout;
 
         private_data.all_bone_transforms = get_all_bone_data(
-            &game_state.scene,
+            &engine_state.scene,
             limits.min_storage_buffer_offset_alignment,
         );
         let previous_bones_buffer_capacity_bytes = private_data.bones_buffer.capacity_bytes();
@@ -3631,11 +3630,11 @@ impl Renderer {
         let mut transparent_meshes: Vec<(usize, GpuTransparentMeshInstance, f32)> = Vec::new();
 
         // list of 6 frusta for each point light including culling information
-        let point_lights_frusta: PointLightFrustaWithCullingInfo = game_state
+        let point_lights_frusta: PointLightFrustaWithCullingInfo = engine_state
             .point_lights
             .iter()
             .map(|point_light| {
-                game_state
+                engine_state
                     .scene
                     .get_node(point_light.node_id)
                     .map(|point_light_node| {
@@ -3680,9 +3679,9 @@ impl Renderer {
         {
             profiling::scope!("Prepare/cull instance lists");
 
-            for node in game_state.scene.nodes() {
+            for node in engine_state.scene.nodes() {
                 let transform = Mat4::from(
-                    game_state
+                    engine_state
                         .scene
                         .get_global_transform_for_node_opt(node.id()),
                 );
@@ -3699,7 +3698,7 @@ impl Renderer {
                                 let culling_mask = Self::get_node_culling_mask(
                                     node,
                                     data,
-                                    game_state,
+                                    engine_state,
                                     &culling_frustum,
                                     &point_lights_frusta,
                                 );
@@ -4126,9 +4125,9 @@ impl Renderer {
         // collect all camera data
 
         // main camera
-        let player_transform = game_state
+        let player_transform = engine_state
             .scene
-            .get_global_transform_for_node(game_state.player_node_id);
+            .get_global_transform_for_node(engine_state.player_node_id);
         all_camera_data.push(ShaderCameraData::from_mat4(
             player_transform.into(),
             aspect_ratio,
@@ -4139,7 +4138,7 @@ impl Renderer {
         ));
 
         // directional lights
-        for directional_light in &game_state.directional_lights {
+        for directional_light in &engine_state.directional_lights {
             all_camera_data.push(build_directional_light_camera_view(
                 -directional_light.direction,
                 100.0,
@@ -4149,8 +4148,8 @@ impl Renderer {
         }
 
         // point lights
-        for point_light in &game_state.point_lights {
-            let light_position = game_state
+        for point_light in &engine_state.point_lights {
+            let light_position = engine_state
                 .scene
                 .get_node(point_light.node_id)
                 .map(|node| node.transform.position())
@@ -4265,13 +4264,13 @@ impl Renderer {
         queue.write_buffer(
             &private_data.point_lights_buffer,
             0,
-            bytemuck::cast_slice(&make_point_light_uniform_buffer(game_state)),
+            bytemuck::cast_slice(&make_point_light_uniform_buffer(engine_state)),
         );
         queue.write_buffer(
             &private_data.directional_lights_buffer,
             0,
             bytemuck::cast_slice(&make_directional_light_uniform_buffer(
-                &game_state.directional_lights,
+                &engine_state.directional_lights,
             )),
         );
         queue.write_buffer(
@@ -4324,7 +4323,7 @@ impl Renderer {
     #[profiling::function]
     pub fn render_internal(
         &mut self,
-        game_state: &mut GameState,
+        engine_state: &mut EngineState,
         surface_texture: wgpu::SurfaceTexture,
     ) -> anyhow::Result<()> {
         let mut data_guard = self.data.lock().unwrap();
@@ -4346,7 +4345,7 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         if data.enable_shadows {
-            game_state
+            engine_state
                 .directional_lights
                 .iter()
                 .enumerate()
@@ -4389,10 +4388,10 @@ impl Renderer {
                         None,
                     );
                 });
-            (0..game_state.point_lights.len()).for_each(|light_index| {
-                if let Some(light_node) = game_state
+            (0..engine_state.point_lights.len()).for_each(|light_index| {
+                if let Some(light_node) = engine_state
                     .scene
-                    .get_node(game_state.point_lights[light_index].node_id)
+                    .get_node(engine_state.point_lights[light_index].node_id)
                 {
                     build_cubemap_face_camera_views(
                         light_node.transform.position(),
@@ -4405,7 +4404,7 @@ impl Renderer {
                     .enumerate()
                     .for_each(|(face_index, _face_view_proj_matrices)| {
                         let culling_mask = 2u32.pow(
-                            (1 + game_state.directional_lights.len()
+                            (1 + engine_state.directional_lights.len()
                                 + light_index * 6
                                 + face_index)
                                 .try_into()
@@ -4448,7 +4447,7 @@ impl Renderer {
                             &shadow_render_pass_desc,
                             &self.constant_data.point_shadow_map_pipeline,
                             &private_data.camera_lights_and_pbr_shader_options_bind_groups[1
-                                + game_state.directional_lights.len()
+                                + engine_state.directional_lights.len()
                                 + light_index * 6
                                 + face_index],
                             true,
@@ -4883,7 +4882,7 @@ impl Renderer {
             }
 
             // TODO: pass a separate encoder to the ui overlay so it can be profiled
-            game_state.ui_overlay.render(
+            engine_state.ui_overlay.render(
                 &self.base.device,
                 &self.base.queue,
                 &mut encoder,
@@ -4929,7 +4928,7 @@ impl Renderer {
 
         if private_data.pre_gamma_fb.is_none() {
             // TODO: pass a separate encoder to the ui overlay so it can be profiled
-            game_state.ui_overlay.render(
+            engine_state.ui_overlay.render(
                 &self.base.device,
                 &self.base.queue,
                 &mut encoder,

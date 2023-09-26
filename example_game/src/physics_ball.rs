@@ -1,9 +1,11 @@
-use crate::game::*;
-use crate::physics::*;
-use crate::scene::*;
-use crate::transform::*;
-
 use glam::f32::Vec3;
+use ikari::physics::PhysicsState;
+use ikari::scene::{GameNodeDescBuilder, GameNodeId, GameNodeMesh, Scene};
+
+use ikari::physics::rapier3d_f64::prelude::*;
+use ikari::transform::TransformBuilder;
+
+use crate::game::{ARENA_SIDE_LENGTH, COLLISION_GROUP_PLAYER_UNSHOOTABLE};
 
 const RESTITUTION: f64 = 0.1;
 

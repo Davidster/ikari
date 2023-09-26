@@ -1,4 +1,4 @@
-use crate::physics::*;
+use rapier3d_f64::prelude::*;
 
 use glam::{
     f32::{Mat3, Mat4, Quat, Vec3},
@@ -235,10 +235,6 @@ impl Default for TransformBuilder {
     fn default() -> Self {
         Self::new()
     }
-}
-
-pub fn make_quat_from_axis_angle(axis: Vec3, angle: f32) -> Quat {
-    Quat::from_axis_angle(axis, angle)
 }
 
 /// from https://vincent-p.github.io/posts/vulkan_perspective_matrix/ and https://thxforthefish.com/posts/reverse_z/

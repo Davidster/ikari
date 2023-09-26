@@ -54,9 +54,9 @@ wgpu.workspace = true
 winit.workspace = true
 
 # math
-rand = { version = "0.8", features = ["small_rng"] }
+rand.workspace = true
 rapier3d-f64 = "0.17.2"
-glam = { version = "0.24.1", features = ["approx", "bytemuck"] }
+glam.workspace = true
 approx = "0.5"
 
 # audio
