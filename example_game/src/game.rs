@@ -3,6 +3,11 @@ use crate::character::*;
 use crate::game_state::*;
 use crate::physics_ball::*;
 use crate::revolver::*;
+use crate::ui_overlay::AudioSoundStats;
+use crate::ui_overlay::Message;
+use crate::ui_overlay::UiOverlay;
+use crate::ui_overlay::DEFAULT_FONT_BYTES;
+use crate::ui_overlay::DEFAULT_FONT_NAME;
 
 use std::{collections::hash_map::Entry, sync::Arc};
 
@@ -18,7 +23,7 @@ use ikari::audio::AudioFileFormat;
 use ikari::audio::SoundParams;
 use ikari::engine_state::EngineState;
 use ikari::file_loader::{FileLoader, GamePathMaker};
-use ikari::gameloop::resize_window;
+use ikari::gameloop::GameContext;
 use ikari::light::DirectionalLightComponent;
 use ikari::light::PointLightComponent;
 use ikari::math::deg_to_rad;
@@ -45,8 +50,9 @@ use ikari::scene::Scene;
 use ikari::texture::Texture;
 use ikari::transform::Transform;
 use ikari::transform::TransformBuilder;
-use ikari::ui_overlay::IkariUiOverlay;
+use ikari::ui::IkariUiContainer;
 use ikari::wasm_not_sync::WasmNotArc;
+use winit::event::MouseButton;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
 pub const INITIAL_ENABLE_VSYNC: bool = true;
@@ -253,8 +259,8 @@ pub fn init_player_controller(physics_state: &mut PhysicsState) -> PlayerControl
 pub async fn init_game_state(
     engine_state: &mut EngineState,
     renderer: &mut Renderer,
-    // surface_data: &SurfaceData,
-    // window: &winit::window::Window,
+    surface_data: &mut SurfaceData,
+    window: &winit::window::Window,
 ) -> Result<GameState> {
     log::info!("Controls:");
     [
@@ -276,6 +282,22 @@ pub async fn init_game_state(
     .for_each(|line| {
         log::info!("  {line}");
     });
+
+    {
+        let mut renderer_data_guard = renderer.data.lock().unwrap();
+        renderer_data_guard.enable_bloom = INITIAL_ENABLE_BLOOM;
+        renderer_data_guard.bloom_threshold = INITIAL_BLOOM_THRESHOLD;
+        renderer_data_guard.bloom_ramp_size = INITIAL_BLOOM_RAMP_SIZE;
+        renderer_data_guard.tone_mapping_exposure = INITIAL_TONE_MAPPING_EXPOSURE;
+        renderer_data_guard.render_scale = INITIAL_RENDER_SCALE;
+    }
+
+    let unscaled_framebuffer_size = winit::dpi::PhysicalSize::new(
+        surface_data.surface_config.width,
+        surface_data.surface_config.height,
+    );
+    // must call this after changing the render scale
+    renderer.resize_surface(surface_data, unscaled_framebuffer_size);
 
     // TODO: move asset loader into the engine
     let asset_loader = Arc::new(AssetLoader::new(engine_state.audio_manager.clone()));
@@ -1026,6 +1048,24 @@ pub async fn init_game_state(
             .id(),
     );
 
+    let ui_overlay = {
+        let surface_format = surface_data.surface_config.format;
+        IkariUiContainer::new(
+            window,
+            &renderer.base.device,
+            &renderer.base.queue,
+            // TODO: can I just pass surface_format here? seems it should be ok even if the surface is not srgb,
+            // the renderer will take care of that contingency..? this code would be really ugly for the user.
+            if surface_format.is_srgb() {
+                surface_format
+            } else {
+                wgpu::TextureFormat::Rgba16Float
+            },
+            UiOverlay::new(&window),
+            Some((DEFAULT_FONT_NAME, DEFAULT_FONT_BYTES)),
+        )
+    };
+
     // logger_log(&format!("{:?}", &revolver));
 
     // anyhow::bail!("suhh dude");
@@ -1062,94 +1102,165 @@ pub async fn init_game_state(
 
         asset_loader: asset_loader_clone,
         asset_binder,
+
+        ui_overlay,
     })
 }
 
 pub fn process_window_input(
-    game_state: &mut GameState,
-    engine_state: &mut EngineState,
-    renderer: &mut Renderer,
-    surface_data: &mut SurfaceData,
-    event: &winit::event::WindowEvent,
-    window: &winit::window::Window,
-) {
-    if let WindowEvent::KeyboardInput {
-        input:
-            KeyboardInput {
-                state,
-                virtual_keycode: Some(keycode),
-                ..
-            },
+    GameContext {
+        game_state,
+        engine_state,
+        renderer,
+        surface_data,
+        window,
+        control_flow,
         ..
-    } = event
-    {
-        if *state == ElementState::Released {
-            let mut render_data_guard = renderer.data.lock().unwrap();
+    }: GameContext<GameState>,
+    event: &winit::event::WindowEvent,
+) {
+    match event {
+        WindowEvent::KeyboardInput {
+            input:
+                KeyboardInput {
+                    state,
+                    virtual_keycode: Some(keycode),
+                    ..
+                },
+            ..
+        } => {
+            if *state == ElementState::Pressed && *keycode == VirtualKeyCode::Tab {
+                let new_is_showing_options_menu =
+                    !game_state.ui_overlay.get_state().is_showing_options_menu;
+                let is_showing_cursor_marker =
+                    !game_state.ui_overlay.get_state().is_showing_cursor_marker;
+                engine_state.player_controller.update_cursor_grab(
+                    !new_is_showing_options_menu && !is_showing_cursor_marker,
+                    window,
+                );
+                engine_state
+                    .player_controller
+                    .set_is_controlling_game(!new_is_showing_options_menu);
 
-            match keycode {
-                VirtualKeyCode::Z => {
-                    drop(render_data_guard);
-                    increment_render_scale(
-                        renderer,
-                        surface_data,
-                        false,
-                        window,
-                        &mut engine_state.ui_overlay,
-                    );
-                }
-                VirtualKeyCode::X => {
-                    drop(render_data_guard);
-                    increment_render_scale(
-                        renderer,
-                        surface_data,
-                        true,
-                        window,
-                        &mut engine_state.ui_overlay,
-                    );
-                }
-                VirtualKeyCode::R => {
-                    increment_exposure(&mut render_data_guard, false);
-                }
-                VirtualKeyCode::T => {
-                    increment_exposure(&mut render_data_guard, true);
-                }
-                VirtualKeyCode::Y => {
-                    increment_bloom_threshold(&mut render_data_guard, false);
-                }
-                VirtualKeyCode::U => {
-                    increment_bloom_threshold(&mut render_data_guard, true);
-                }
-                VirtualKeyCode::P => {
-                    game_state.is_playing_animations = !game_state.is_playing_animations;
-                }
-                VirtualKeyCode::M => {
-                    render_data_guard.enable_shadows = !render_data_guard.enable_shadows;
-                }
-                VirtualKeyCode::B => {
-                    render_data_guard.enable_bloom = !render_data_guard.enable_bloom;
-                }
-                VirtualKeyCode::F => {
-                    render_data_guard.enable_wireframe_mode =
-                        !render_data_guard.enable_wireframe_mode;
-                }
-                VirtualKeyCode::J => {
-                    render_data_guard.draw_node_bounding_spheres =
-                        !render_data_guard.draw_node_bounding_spheres;
-                }
-                VirtualKeyCode::C => {
-                    if let Some(character) = game_state.character.as_mut() {
-                        character.toggle_collision_box_display(&mut engine_state.scene);
+                game_state
+                    .ui_overlay
+                    .queue_message(Message::TogglePopupMenu);
+            }
+
+            if *state == ElementState::Released {
+                let mut render_data_guard = renderer.data.lock().unwrap();
+
+                match keycode {
+                    VirtualKeyCode::Z => {
+                        drop(render_data_guard);
+                        increment_render_scale(
+                            renderer,
+                            surface_data,
+                            false,
+                            window,
+                            &mut game_state.ui_overlay,
+                        );
                     }
+                    VirtualKeyCode::X => {
+                        drop(render_data_guard);
+                        increment_render_scale(
+                            renderer,
+                            surface_data,
+                            true,
+                            window,
+                            &mut game_state.ui_overlay,
+                        );
+                    }
+                    VirtualKeyCode::R => {
+                        increment_exposure(&mut render_data_guard, false);
+                    }
+                    VirtualKeyCode::T => {
+                        increment_exposure(&mut render_data_guard, true);
+                    }
+                    VirtualKeyCode::Y => {
+                        increment_bloom_threshold(&mut render_data_guard, false);
+                    }
+                    VirtualKeyCode::U => {
+                        increment_bloom_threshold(&mut render_data_guard, true);
+                    }
+                    VirtualKeyCode::P => {
+                        game_state.is_playing_animations = !game_state.is_playing_animations;
+                    }
+                    VirtualKeyCode::M => {
+                        render_data_guard.enable_shadows = !render_data_guard.enable_shadows;
+                    }
+                    VirtualKeyCode::B => {
+                        render_data_guard.enable_bloom = !render_data_guard.enable_bloom;
+                    }
+                    VirtualKeyCode::F => {
+                        render_data_guard.enable_wireframe_mode =
+                            !render_data_guard.enable_wireframe_mode;
+                    }
+                    VirtualKeyCode::J => {
+                        render_data_guard.draw_node_bounding_spheres =
+                            !render_data_guard.draw_node_bounding_spheres;
+                    }
+                    VirtualKeyCode::C => {
+                        if let Some(character) = game_state.character.as_mut() {
+                            character.toggle_collision_box_display(&mut engine_state.scene);
+                        }
+                    }
+                    VirtualKeyCode::Escape => {
+                        *control_flow = winit::event_loop::ControlFlow::Exit;
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
-    }
-    engine_state.player_controller.process_window_events(
-        event,
-        window,
-        &mut engine_state.ui_overlay,
-    );
+        WindowEvent::Focused(focused) => {
+            let new_is_showing_options_menu =
+                !game_state.ui_overlay.get_state().is_showing_options_menu;
+            let is_showing_cursor_marker =
+                !game_state.ui_overlay.get_state().is_showing_cursor_marker;
+            engine_state.player_controller.update_cursor_grab(
+                !new_is_showing_options_menu && !is_showing_cursor_marker,
+                window,
+            );
+        }
+        WindowEvent::MouseInput {
+            state,
+            button: MouseButton::Left,
+            ..
+        } => {
+            let new_is_showing_options_menu =
+                !game_state.ui_overlay.get_state().is_showing_options_menu;
+            let is_showing_cursor_marker =
+                !game_state.ui_overlay.get_state().is_showing_cursor_marker;
+            engine_state.player_controller.update_cursor_grab(
+                !new_is_showing_options_menu && !is_showing_cursor_marker,
+                window,
+            );
+        }
+        _ => {}
+    };
+
+    engine_state
+        .player_controller
+        .process_window_events(event, window);
+
+    game_state.ui_overlay.handle_window_event(&window, &event);
+}
+
+pub fn handle_window_resize(
+    GameContext {
+        game_state, window, ..
+    }: GameContext<GameState>,
+    new_size: winit::dpi::PhysicalSize<u32>,
+) {
+    resize_ui_overlay(&mut game_state.ui_overlay, window, new_size);
+}
+
+pub fn resize_ui_overlay(
+    ui_overlay: &mut IkariUiContainer<UiOverlay>,
+    window: &winit::window::Window,
+    new_size: winit::dpi::PhysicalSize<u32>,
+) {
+    ui_overlay.resize(new_size, window.scale_factor());
 }
 
 pub fn increment_render_scale(
@@ -1157,7 +1268,7 @@ pub fn increment_render_scale(
     surface_data: &mut SurfaceData,
     increase: bool,
     window: &winit::window::Window,
-    ui_overlay: &mut IkariUiOverlay,
+    ui_overlay: &mut IkariUiContainer<UiOverlay>,
 ) {
     let delta = 0.1;
     let change = if increase { delta } else { -delta };
@@ -1177,16 +1288,13 @@ pub fn increment_render_scale(
         );
     }
 
-    resize_window(
-        renderer,
-        ui_overlay,
-        surface_data,
-        window,
-        (
-            surface_data.surface_config.width,
-            surface_data.surface_config.height,
-        ),
+    let unscaled_framebuffer_size = winit::dpi::PhysicalSize::new(
+        surface_data.surface_config.width,
+        surface_data.surface_config.height,
     );
+    // must call this after changing the render scale
+    renderer.resize_surface(surface_data, unscaled_framebuffer_size);
+    ui_overlay.resize(unscaled_framebuffer_size, window.scale_factor());
 }
 
 pub fn increment_exposure(renderer_data: &mut RendererData, increase: bool) {
@@ -1206,10 +1314,15 @@ pub fn increment_bloom_threshold(renderer_data: &mut RendererData, increase: boo
 
 #[profiling::function]
 pub fn update_game_state(
-    game_state: &mut GameState,
-    engine_state: &mut EngineState,
-    renderer: &mut Renderer,
-    surface_data: &SurfaceData,
+    GameContext {
+        game_state,
+        engine_state,
+        renderer,
+        surface_data,
+        window,
+        control_flow,
+        ..
+    }: GameContext<GameState>,
 ) {
     let base_renderer = renderer.base.clone();
     let renderer_data = renderer.data.clone();
@@ -1786,6 +1899,116 @@ pub fn update_game_state(
 
     if let Some(character) = game_state.character.as_mut() {
         character.update(scene, &mut engine_state.physics_state);
+    }
+
+    {
+        profiling::scope!("Sync UI");
+        // sync UI
+        // TODO: move this into a function in game module?
+
+        let mut renderer_data_guard = renderer.data.lock().unwrap();
+
+        let frame_duration = engine_state.time().last_frame_time();
+        {
+            profiling::scope!("GPU Profiler");
+
+            game_state
+                .ui_overlay
+                .queue_message(Message::FrameCompleted(frame_duration));
+            if let Some(gpu_timing_info) = renderer.process_profiler_frame() {
+                game_state
+                    .ui_overlay
+                    .queue_message(Message::GpuFrameCompleted(gpu_timing_info));
+            }
+        }
+
+        {
+            profiling::scope!("Audio");
+
+            let audio_manager_guard = engine_state.audio_manager.lock().unwrap();
+            for sound_index in audio_manager_guard.sound_indices() {
+                let file_path = audio_manager_guard
+                    .get_sound_file_path(sound_index)
+                    .unwrap();
+                let length_seconds = audio_manager_guard
+                    .get_sound_length_seconds(sound_index)
+                    .unwrap();
+                let pos_seconds = audio_manager_guard
+                    .get_sound_pos_seconds(sound_index)
+                    .unwrap();
+                let buffered_to_pos_seconds = audio_manager_guard
+                    .get_sound_buffered_to_pos_seconds(sound_index)
+                    .unwrap();
+
+                game_state
+                    .ui_overlay
+                    .queue_message(Message::AudioSoundStatsChanged((
+                        file_path.clone(),
+                        AudioSoundStats {
+                            length_seconds,
+                            pos_seconds,
+                            buffered_to_pos_seconds,
+                        },
+                    )));
+            }
+        }
+
+        let camera_position = engine_state
+            .player_controller
+            .position(&engine_state.physics_state);
+        let camera_view_direction = engine_state.player_controller.view_direction;
+        game_state
+            .ui_overlay
+            .queue_message(Message::CameraPoseChanged((
+                camera_position,
+                camera_view_direction,
+            )));
+
+        let ui_state = game_state.ui_overlay.get_state();
+
+        if ui_state.was_exit_button_pressed {
+            *control_flow = winit::event_loop::ControlFlow::Exit;
+        }
+
+        renderer_data_guard.enable_soft_shadows = ui_state.enable_soft_shadows;
+        renderer_data_guard.soft_shadow_factor = ui_state.soft_shadow_factor;
+        renderer_data_guard.shadow_bias = ui_state.shadow_bias;
+        renderer_data_guard.enable_shadow_debug = ui_state.enable_shadow_debug;
+        renderer_data_guard.soft_shadow_grid_dims = ui_state.soft_shadow_grid_dims;
+        renderer_data_guard.draw_culling_frustum = ui_state.draw_culling_frustum;
+        renderer_data_guard.draw_point_light_culling_frusta =
+            ui_state.draw_point_light_culling_frusta;
+        renderer.set_skybox_weights([1.0 - ui_state.skybox_weight, ui_state.skybox_weight]);
+        renderer.set_vsync(ui_state.enable_vsync, surface_data);
+
+        renderer.set_culling_frustum_lock(
+            &engine_state,
+            (
+                surface_data.surface_config.width,
+                surface_data.surface_config.height,
+            ),
+            ui_state.culling_frustum_lock_mode,
+        );
+    }
+
+    game_state.ui_overlay.update(&window, control_flow);
+
+    {
+        let viewport_dims = (
+            (window.inner_size().width as f64 / window.scale_factor()) as u32,
+            (window.inner_size().height as f64 / window.scale_factor()) as u32,
+        );
+        game_state
+            .ui_overlay
+            .queue_message(Message::ViewportDimsChanged(viewport_dims));
+
+        let cursor_pos = winit::dpi::PhysicalPosition::new(
+            game_state.ui_overlay.cursor_position.x / window.inner_size().width as f64,
+            game_state.ui_overlay.cursor_position.y / window.inner_size().height as f64,
+        );
+        game_state
+            .ui_overlay
+            .queue_message(Message::CursorPosChanged(cursor_pos));
     }
 }
 

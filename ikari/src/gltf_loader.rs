@@ -124,7 +124,7 @@ pub async fn build_scene(
                 gltf::material::AlphaMode::Opaque => crate::renderer::AlphaMode::Opaque,
                 gltf::material::AlphaMode::Mask => crate::renderer::AlphaMode::Mask,
                 gltf::material::AlphaMode::Blend => {
-                    todo!("Alpha blending isn't yet supported")
+                    todo!("Alpha blending isn't yet supported by gltf loader")
                 }
             };
 

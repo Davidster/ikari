@@ -54,16 +54,27 @@ web-sys = { version = "0.3.64", features = [
 wasm-bindgen = { version = "0.2.87", features = ["serde-serialize"] }
 wasm-bindgen-futures = "0.4.37"
 
+iced = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb", features = [
+  "canvas",
+] }
+iced_wgpu = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
+iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
+
+plotters-iced = "0.9"
+plotters = { version = "0.3", default-features = false, features = [
+  "line_series",
+] }
+iced_aw = { version = "0.7", default-features = false, features = [
+  "modal",
+  "card",
+  "floating_element",
+] }
+
 [patch.crates-io]
 iced_core = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
 iced_style = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
 iced_renderer = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
 iced_graphics = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
-# iced_core = { path = "../iced-fork/core" }
-# iced_style = { path = "../iced-fork/style" }
-# iced_renderer = { path = "../iced-fork/renderer" }
-# iced_graphics = { path = "../iced-fork/graphics" }
-# cosmic-text = { path = "../cosmic-text" }
 
 [profile.dev]
 opt-level = 1

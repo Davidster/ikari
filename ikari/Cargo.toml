@@ -65,27 +65,15 @@ oddio = "0.6"
 symphonia = { version = "0.5.3", features = ["mp3", "wav"] }
 
 # UI
-iced = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb", features = [
-    "canvas",
-] }
-iced_wgpu = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
-iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
-# iced = { version = "0.10" }
-# iced_wgpu = "0.11"
-# iced_winit = "0.10"
-# iced = { path = "../../iced-fork" }
-# iced_wgpu = { path = "../../iced-fork/wgpu", features = ["geometry"] }
-# iced_winit = { path = "../../iced-fork/winit" }
+iced.workspace = true
+iced_wgpu.workspace = true
+iced_winit.workspace = true
 
-plotters-iced = "0.9"
-plotters = { version = "0.3", default-features = false, features = [
-    "line_series",
-] }
-iced_aw = { version = "0.7", default-features = false, features = [
-    "modal",
-    "card",
-    "floating_element",
-] }
+# TODO: remove!
+plotters-iced.workspace = true
+plotters.workspace = true
+iced_aw.workspace = true
+
 wasm_thread = { version = "0.2.0", features = ["es_modules"] }
 futures-intrusive = "0.5.0"
 rmp-serde = "1.1.2"

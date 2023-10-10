@@ -4,11 +4,14 @@ mod game;
 mod game_state;
 mod physics_ball;
 mod revolver;
+mod ui_overlay;
 
+use crate::game::handle_window_resize;
 use crate::game::init_game_state;
 use crate::game::init_player_controller;
 use crate::game::process_window_input;
 use crate::game::update_game_state;
+use crate::ui_overlay::UiOverlay;
 
 use ikari::engine_state::EngineState;
 use ikari::renderer::BaseRenderer;
@@ -65,7 +68,7 @@ async fn start() {
 
         log::debug!("window: {:?}", application_start_time.elapsed());
 
-        let (base_renderer, surface_data) = {
+        let (base_renderer, mut surface_data) = {
             let backends = if cfg!(target_os = "windows") {
                 wgpu::Backends::from(wgpu::Backend::Vulkan)
                 // wgpu::Backends::PRIMARY
@@ -96,7 +99,8 @@ async fn start() {
             &window,
         )?;
 
-        let mut game_state = init_game_state(&mut engine_state, &mut renderer).await?;
+        let mut game_state =
+            init_game_state(&mut engine_state, &mut renderer, &mut surface_data, &window).await?;
 
         log::debug!("game state: {:?}", application_start_time.elapsed());
 
@@ -105,18 +109,14 @@ async fn start() {
             event_loop,
             game_state,
             engine_state,
-            |game_state, engine_state, renderer, surface_data| {
-                update_game_state(game_state, engine_state, renderer, surface_data);
+            |game_context| {
+                update_game_state(game_context);
             },
-            |game_state, engine_state, renderer, surface_data, event, window| {
-                process_window_input(
-                    game_state,
-                    engine_state,
-                    renderer,
-                    surface_data,
-                    event,
-                    window,
-                );
+            |game_context, event| {
+                process_window_input(game_context, event);
+            },
+            |game_context, new_size| {
+                handle_window_resize(game_context, new_size);
             },
             renderer,
             surface_data,

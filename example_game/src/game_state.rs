@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 use ikari::asset_loader::{AssetBinder, AssetLoader};
 use ikari::scene::GameNodeId;
+use ikari::ui::IkariUiContainer;
 use ikari::wasm_not_sync::WasmNotArc;
 use ikari::{mesh::BasicMesh, physics::rapier3d_f64::prelude::*};
 
+use crate::ui_overlay::UiOverlay;
 use crate::{
     ball::BallComponent, character::Character, physics_ball::PhysicsBall, revolver::Revolver,
 };
@@ -42,4 +44,12 @@ pub struct GameState {
 
     pub asset_loader: Arc<AssetLoader>,
     pub asset_binder: WasmNotArc<AssetBinder>,
+
+    pub ui_overlay: IkariUiContainer<UiOverlay>,
+}
+
+impl ikari::gameloop::GameState<UiOverlay> for GameState {
+    fn get_ui_container(&mut self) -> &mut IkariUiContainer<UiOverlay> {
+        &mut self.ui_overlay
+    }
 }

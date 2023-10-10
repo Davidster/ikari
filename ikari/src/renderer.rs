@@ -13,7 +13,7 @@ use crate::scene::*;
 use crate::skinning::*;
 use crate::texture::*;
 use crate::transform::*;
-use crate::ui_overlay::*;
+use crate::ui::*;
 use crate::wasm_not_sync::WasmNotArc;
 
 use std::collections::{hash_map::Entry, HashMap};
@@ -2860,8 +2860,16 @@ impl Renderer {
             .configure(&self.base.device, &surface_data.surface_config);
     }
 
-    pub fn resize_surface(&mut self, new_size: (u32, u32), surface_data: &mut SurfaceData) {
-        let (new_width, new_height) = new_size;
+    pub fn resize_surface(
+        &mut self,
+        surface_data: &mut SurfaceData,
+        unscaled_framebuffer_size: winit::dpi::PhysicalSize<u32>,
+    ) {
+        let unscaled_framebuffer_size = (
+            unscaled_framebuffer_size.width,
+            unscaled_framebuffer_size.height,
+        );
+        let (new_width, new_height) = unscaled_framebuffer_size;
 
         surface_data.surface_config.width = new_width;
         surface_data.surface_config.height = new_height;
@@ -2869,9 +2877,7 @@ impl Renderer {
         surface_data
             .surface
             .configure(&self.base.device, &surface_data.surface_config);
-    }
 
-    pub fn resize(&mut self, new_framebuffer_size: (u32, u32)) {
         let data_guard = self.data.lock().unwrap();
         let mut private_data_guard = self.private_data.lock().unwrap();
         let render_scale = data_guard.render_scale;
@@ -2879,40 +2885,40 @@ impl Renderer {
         private_data_guard.pre_gamma_fb = private_data_guard.pre_gamma_fb.is_some().then(|| {
             Texture::create_scaled_surface_texture(
                 &self.base,
-                new_framebuffer_size,
+                unscaled_framebuffer_size,
                 1.0,
                 "pre_gamma_fb",
             )
         });
         private_data_guard.shading_texture = Texture::create_scaled_surface_texture(
             &self.base,
-            new_framebuffer_size,
+            unscaled_framebuffer_size,
             render_scale,
             "shading_texture",
         );
         private_data_guard.bloom_pingpong_textures = [
             Texture::create_scaled_surface_texture(
                 &self.base,
-                new_framebuffer_size,
+                unscaled_framebuffer_size,
                 render_scale,
                 "bloom_texture_1",
             ),
             Texture::create_scaled_surface_texture(
                 &self.base,
-                new_framebuffer_size,
+                unscaled_framebuffer_size,
                 render_scale,
                 "bloom_texture_2",
             ),
         ];
         private_data_guard.tone_mapping_texture = Texture::create_scaled_surface_texture(
             &self.base,
-            new_framebuffer_size,
+            unscaled_framebuffer_size,
             render_scale,
             "tone_mapping_texture",
         );
         private_data_guard.depth_texture = Texture::create_depth_texture(
             &self.base,
-            new_framebuffer_size,
+            unscaled_framebuffer_size,
             render_scale,
             "depth_texture",
         );
@@ -3318,11 +3324,15 @@ impl Renderer {
         };
     }
 
-    pub fn render(
+    pub fn render<UiOverlay>(
         &mut self,
         engine_state: &mut EngineState,
         surface_data: &SurfaceData,
-    ) -> anyhow::Result<()> {
+        ui_overlay: &mut IkariUiContainer<UiOverlay>,
+    ) -> anyhow::Result<()>
+    where
+        UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + 'static,
+    {
         self.update_internal(
             engine_state,
             surface_data.surface_config.format,
@@ -3331,7 +3341,11 @@ impl Renderer {
                 surface_data.surface_config.height,
             ),
         );
-        self.render_internal(engine_state, surface_data.surface.get_current_texture()?)
+        self.render_internal(
+            engine_state,
+            surface_data.surface.get_current_texture()?,
+            ui_overlay,
+        )
     }
 
     fn get_node_cam_intersection_result(
@@ -4321,11 +4335,15 @@ impl Renderer {
     }
 
     #[profiling::function]
-    pub fn render_internal(
+    pub fn render_internal<UiOverlay>(
         &mut self,
         engine_state: &mut EngineState,
         surface_texture: wgpu::SurfaceTexture,
-    ) -> anyhow::Result<()> {
+        ui_overlay: &mut IkariUiContainer<UiOverlay>,
+    ) -> anyhow::Result<()>
+    where
+        UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + 'static,
+    {
         let mut data_guard = self.data.lock().unwrap();
         let data: &mut RendererData = &mut data_guard;
 
@@ -4882,7 +4900,7 @@ impl Renderer {
             }
 
             // TODO: pass a separate encoder to the ui overlay so it can be profiled
-            engine_state.ui_overlay.render(
+            ui_overlay.render(
                 &self.base.device,
                 &self.base.queue,
                 &mut encoder,
@@ -4928,7 +4946,7 @@ impl Renderer {
 
         if private_data.pre_gamma_fb.is_none() {
             // TODO: pass a separate encoder to the ui overlay so it can be profiled
-            engine_state.ui_overlay.render(
+            ui_overlay.render(
                 &self.base.device,
                 &self.base.queue,
                 &mut encoder,

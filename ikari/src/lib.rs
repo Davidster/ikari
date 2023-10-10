@@ -30,5 +30,5 @@ pub mod thread;
 pub mod time;
 pub mod time_tracker;
 pub mod transform;
-pub mod ui_overlay;
+pub mod ui;
 pub mod wasm_not_sync;

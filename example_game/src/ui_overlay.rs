@@ -13,20 +13,37 @@ use iced::widget::{
 use iced::{mouse, Background, Command, Element, Font, Length, Rectangle, Size, Theme};
 use iced_aw::{floating_element, Modal};
 use iced_winit::{runtime, Clipboard, Viewport};
+use ikari::file_loader::GameFilePath;
+use ikari::math::rad_to_deg;
+use ikari::player_controller::ControlledViewDirection;
+use ikari::profile_dump::can_generate_profile_dump;
+use ikari::profile_dump::generate_profile_dump;
+use ikari::profile_dump::PendingPerfDump;
+use ikari::time::Instant;
+use ikari::ui::collect_frame_time_ms;
+use ikari::ui::CullingFrustumLockMode;
+use ikari::ui::GpuTimerScopeResultWrapper;
 use plotters::prelude::*;
 use plotters::style::RED;
 use plotters_iced::{Chart, ChartWidget, DrawingBackend};
 use winit::{event::WindowEvent, window::Window};
 
-use crate::file_loader::GameFilePath;
-use crate::math::*;
-use crate::player_controller::*;
-use crate::profile_dump::*;
-use crate::renderer::CullingFrustumLock;
-use crate::time::*;
+use ikari::time::Duration;
 
-const DEFAULT_FONT_BYTES: &[u8] = include_bytes!("./fonts/Lato-Regular.ttf");
-const DEFAULT_FONT_NAME: &str = "Lato";
+use crate::game::INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG;
+use crate::game::INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG;
+use crate::game::INITIAL_ENABLE_SHADOW_DEBUG;
+use crate::game::INITIAL_ENABLE_SOFT_SHADOWS;
+use crate::game::INITIAL_ENABLE_VSYNC;
+use crate::game::INITIAL_IS_SHOWING_CAMERA_POSE;
+use crate::game::INITIAL_IS_SHOWING_CURSOR_MARKER;
+use crate::game::INITIAL_SHADOW_BIAS;
+use crate::game::INITIAL_SKYBOX_WEIGHT;
+use crate::game::INITIAL_SOFT_SHADOW_FACTOR;
+use crate::game::INITIAL_SOFT_SHADOW_GRID_DIMS;
+
+pub const DEFAULT_FONT_BYTES: &[u8] = include_bytes!("./fonts/Lato-Regular.ttf");
+pub const DEFAULT_FONT_NAME: &str = "Lato";
 
 const FRAME_TIME_HISTORY_SIZE: usize = 720;
 
@@ -35,38 +52,6 @@ pub struct AudioSoundStats {
     pub length_seconds: Option<f32>,
     pub pos_seconds: f32,
     pub buffered_to_pos_seconds: f32,
-}
-
-#[derive(Debug)]
-pub struct UiOverlay {
-    clock: canvas::Cache,
-    viewport_dims: (u32, u32),
-    cursor_position: winit::dpi::PhysicalPosition<f64>,
-    fps_chart: FpsChart,
-    is_showing_fps_chart: bool,
-    is_showing_gpu_spans: bool,
-    is_showing_audio_stats: bool,
-    pub is_showing_options_menu: bool,
-    was_exit_button_pressed: bool,
-    camera_pose: Option<(Vec3, ControlledViewDirection)>, // position, direction
-
-    audio_sound_stats: BTreeMap<String, AudioSoundStats>,
-
-    pub enable_vsync: bool,
-    pub enable_soft_shadows: bool,
-    pub skybox_weight: f32,
-    pub shadow_bias: f32,
-    pub soft_shadow_factor: f32,
-    pub enable_shadow_debug: bool,
-    pub draw_culling_frustum: bool,
-    pub draw_point_light_culling_frusta: bool,
-    pub culling_frustum_lock_mode: CullingFrustumLockMode,
-    pub soft_shadow_grid_dims: u32,
-    pub is_showing_camera_pose: bool,
-    pub is_showing_cursor_marker: bool,
-
-    pub pending_perf_dump: Option<PendingPerfDump>,
-    perf_dump_completion_time: Option<Instant>,
 }
 
 #[derive(Debug, Clone)]
@@ -98,44 +83,36 @@ pub enum Message {
     GenerateProfileDump,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
-pub enum CullingFrustumLockMode {
-    Full,
-    FocalPoint,
-    #[default]
-    None,
-}
+#[derive(Debug)]
+pub struct UiOverlay {
+    clock: canvas::Cache,
+    viewport_dims: (u32, u32),
+    pub cursor_position: winit::dpi::PhysicalPosition<f64>,
+    fps_chart: FpsChart,
+    is_showing_fps_chart: bool,
+    is_showing_gpu_spans: bool,
+    is_showing_audio_stats: bool,
+    pub is_showing_options_menu: bool,
+    pub was_exit_button_pressed: bool,
+    camera_pose: Option<(Vec3, ControlledViewDirection)>, // position, direction
 
-impl CullingFrustumLockMode {
-    const ALL: [CullingFrustumLockMode; 3] = [
-        CullingFrustumLockMode::None,
-        CullingFrustumLockMode::Full,
-        CullingFrustumLockMode::FocalPoint,
-    ];
-}
+    audio_sound_stats: BTreeMap<String, AudioSoundStats>,
 
-impl From<CullingFrustumLock> for CullingFrustumLockMode {
-    fn from(value: CullingFrustumLock) -> Self {
-        match value {
-            CullingFrustumLock::Full(_) => CullingFrustumLockMode::Full,
-            CullingFrustumLock::FocalPoint(_) => CullingFrustumLockMode::FocalPoint,
-            CullingFrustumLock::None => CullingFrustumLockMode::None,
-        }
-    }
-}
+    pub enable_vsync: bool,
+    pub enable_soft_shadows: bool,
+    pub skybox_weight: f32,
+    pub shadow_bias: f32,
+    pub soft_shadow_factor: f32,
+    pub enable_shadow_debug: bool,
+    pub draw_culling_frustum: bool,
+    pub draw_point_light_culling_frusta: bool,
+    pub culling_frustum_lock_mode: CullingFrustumLockMode,
+    pub soft_shadow_grid_dims: u32,
+    pub is_showing_camera_pose: bool,
+    pub is_showing_cursor_marker: bool,
 
-impl std::fmt::Display for CullingFrustumLockMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                CullingFrustumLockMode::Full => "On",
-                CullingFrustumLockMode::FocalPoint => "Only FocalPoint",
-                CullingFrustumLockMode::None => "Off",
-            }
-        )
-    }
+    pub pending_perf_dump: Option<PendingPerfDump>,
+    perf_dump_completion_time: Option<Instant>,
 }
 
 pub struct ContainerStyle;
@@ -264,6 +241,47 @@ impl FpsChart {
             .width(Length::Fixed(400.0))
             .height(Length::Fixed(300.0))
             .into()
+    }
+}
+
+impl UiOverlay {
+    pub fn new(window: &winit::window::Window) -> Self {
+        let cursor_position = winit::dpi::PhysicalPosition::new(-1.0, -1.0);
+
+        Self {
+            clock: Default::default(),
+            viewport_dims: (window.inner_size().width, window.inner_size().height),
+            cursor_position,
+            fps_chart: FpsChart {
+                recent_frame_times: vec![],
+                recent_gpu_frame_times: vec![],
+                avg_frame_time_millis: None,
+                avg_gpu_frame_time_millis: None,
+            },
+
+            audio_sound_stats: BTreeMap::new(),
+
+            camera_pose: None,
+            is_showing_camera_pose: INITIAL_IS_SHOWING_CAMERA_POSE,
+            is_showing_cursor_marker: INITIAL_IS_SHOWING_CURSOR_MARKER,
+            is_showing_fps_chart: true,
+            is_showing_gpu_spans: false,
+            is_showing_options_menu: false,
+            was_exit_button_pressed: false,
+            is_showing_audio_stats: false,
+            enable_vsync: INITIAL_ENABLE_VSYNC,
+            enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
+            skybox_weight: INITIAL_SKYBOX_WEIGHT,
+            shadow_bias: INITIAL_SHADOW_BIAS,
+            soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
+            enable_shadow_debug: INITIAL_ENABLE_SHADOW_DEBUG,
+            draw_culling_frustum: INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG,
+            draw_point_light_culling_frusta: INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG,
+            culling_frustum_lock_mode: CullingFrustumLockMode::None,
+            soft_shadow_grid_dims: INITIAL_SOFT_SHADOW_GRID_DIMS,
+            pending_perf_dump: None,
+            perf_dump_completion_time: None,
+        }
     }
 }
 
@@ -802,285 +820,5 @@ impl runtime::Program for UiOverlay {
         } else {
             Modal::new(background_content, modal_content).into()
         }
-    }
-}
-
-pub struct GpuTimerScopeResultWrapper(pub wgpu_profiler::GpuTimerScopeResult);
-
-impl std::ops::Deref for GpuTimerScopeResultWrapper {
-    type Target = wgpu_profiler::GpuTimerScopeResult;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::fmt::Debug for GpuTimerScopeResultWrapper {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "(TODO implement better formatter for type) {:?} -> {:?}",
-            self.label, self.time
-        )
-    }
-}
-
-impl Clone for GpuTimerScopeResultWrapper {
-    fn clone(&self) -> Self {
-        Self(wgpu_profiler::GpuTimerScopeResult {
-            label: self.label.clone(),
-            time: self.time.clone(),
-            nested_scopes: clone_nested_scopes(&self.nested_scopes),
-            pid: self.pid,
-            tid: self.tid,
-        })
-    }
-}
-
-fn clone_nested_scopes(
-    nested_scopes: &[wgpu_profiler::GpuTimerScopeResult],
-) -> Vec<wgpu_profiler::GpuTimerScopeResult> {
-    nested_scopes
-        .iter()
-        .map(|nested_scope| wgpu_profiler::GpuTimerScopeResult {
-            label: nested_scope.label.clone(),
-            time: nested_scope.time.clone(),
-            nested_scopes: clone_nested_scopes(&nested_scope.nested_scopes),
-            pid: nested_scope.pid,
-            tid: nested_scope.tid,
-        })
-        .collect()
-}
-
-fn collect_frame_time_ms(frame_times: &Vec<GpuTimerScopeResultWrapper>) -> f64 {
-    let mut result = 0.0;
-    for frame_time in frame_times {
-        result += (frame_time.time.end - frame_time.time.start) * 1000.0;
-    }
-    result
-}
-
-// integrates iced into ikari
-// based off of https://github.com/iced-rs/iced/tree/master/examples/integration_wgpu
-pub struct IkariUiOverlay {
-    debug: runtime::Debug,
-    renderer: iced::Renderer,
-    viewport: Viewport,
-    clipboard: Clipboard,
-    program_container: runtime::program::State<UiOverlay>,
-    cursor_position: winit::dpi::PhysicalPosition<f64>,
-    modifiers: winit::event::ModifiersState,
-    last_cursor_icon: Option<winit::window::CursorIcon>,
-}
-
-impl IkariUiOverlay {
-    pub fn new(
-        window: &Window,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        output_texture_format: wgpu::TextureFormat,
-    ) -> Self {
-        let viewport = Viewport::with_physical_size(
-            Size::new(window.inner_size().width, window.inner_size().height),
-            window.scale_factor(),
-        );
-
-        let cursor_position = winit::dpi::PhysicalPosition::new(-1.0, -1.0);
-
-        let state = UiOverlay {
-            clock: Default::default(),
-            viewport_dims: (window.inner_size().width, window.inner_size().height),
-            cursor_position,
-            fps_chart: FpsChart {
-                recent_frame_times: vec![],
-                recent_gpu_frame_times: vec![],
-                avg_frame_time_millis: None,
-                avg_gpu_frame_time_millis: None,
-            },
-
-            audio_sound_stats: BTreeMap::new(),
-
-            camera_pose: None,
-            // is_showing_camera_pose: INITIAL_IS_SHOWING_CAMERA_POSE,
-            // is_showing_cursor_marker: INITIAL_IS_SHOWING_CURSOR_MARKER,
-            is_showing_camera_pose: false,
-            is_showing_cursor_marker: false,
-            is_showing_fps_chart: true,
-            is_showing_gpu_spans: false,
-            is_showing_options_menu: false,
-            was_exit_button_pressed: false,
-            is_showing_audio_stats: false,
-            // enable_vsync: INITIAL_ENABLE_VSYNC,
-            // enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
-            // skybox_weight: INITIAL_SKYBOX_WEIGHT,
-            // shadow_bias: INITIAL_SHADOW_BIAS,
-            // soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
-            // enable_shadow_debug: INITIAL_ENABLE_SHADOW_DEBUG,
-            // draw_culling_frustum: INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG,
-            // draw_point_light_culling_frusta: INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG,
-            enable_vsync: false,
-            enable_soft_shadows: true,
-            skybox_weight: 1.0,
-            shadow_bias: 0.0005,
-            soft_shadow_factor: 0.0015,
-            enable_shadow_debug: false,
-            draw_culling_frustum: false,
-            draw_point_light_culling_frusta: false,
-            culling_frustum_lock_mode: CullingFrustumLockMode::None,
-            // soft_shadow_grid_dims: INITIAL_SOFT_SHADOW_GRID_DIMS,
-            soft_shadow_grid_dims: 4,
-            pending_perf_dump: None,
-            perf_dump_completion_time: None,
-        };
-
-        let mut debug = runtime::Debug::new();
-        let wgpu_renderer = iced_wgpu::Renderer::new(iced_wgpu::Backend::new(
-            device,
-            queue,
-            iced_wgpu::Settings {
-                default_font: Font {
-                    family: Family::Name(DEFAULT_FONT_NAME),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            output_texture_format,
-        ));
-
-        let mut renderer = iced::Renderer::Wgpu(wgpu_renderer);
-
-        {
-            use iced_wgpu::core::text::Renderer;
-
-            renderer.load_font(Cow::from(DEFAULT_FONT_BYTES));
-            renderer.load_font(Cow::from(iced_aw::graphics::icons::ICON_FONT_BYTES));
-        }
-
-        let program_container =
-            runtime::program::State::new(state, viewport.logical_size(), &mut renderer, &mut debug);
-
-        let modifiers = winit::event::ModifiersState::default();
-        let clipboard = Clipboard::connect(window);
-
-        Self {
-            debug,
-            renderer,
-            program_container,
-            cursor_position,
-            modifiers,
-            viewport,
-            clipboard,
-            last_cursor_icon: None,
-        }
-    }
-
-    pub fn resize(
-        &mut self,
-        (framebuffer_width, framebuffer_height): (u32, u32),
-        scale_factor: f64,
-    ) {
-        self.viewport = Viewport::with_physical_size(
-            Size::new(framebuffer_width, framebuffer_height),
-            scale_factor,
-        );
-    }
-
-    pub fn handle_window_event(&mut self, window: &Window, event: &WindowEvent) {
-        match event {
-            WindowEvent::CursorMoved { position, .. } => {
-                self.cursor_position = *position;
-            }
-            WindowEvent::ModifiersChanged(new_modifiers) => {
-                self.modifiers = *new_modifiers;
-            }
-            _ => {}
-        }
-
-        if let Some(event) =
-            iced_winit::conversion::window_event(event, window.scale_factor(), self.modifiers)
-        {
-            self.program_container.queue_event(event);
-        }
-    }
-
-    #[profiling::function]
-    pub fn update(&mut self, window: &Window, control_flow: &mut winit::event_loop::ControlFlow) {
-        if !self.program_container.is_queue_empty() {
-            let _ = self.program_container.update(
-                self.viewport.logical_size(),
-                iced_winit::core::mouse::Cursor::Available(
-                    iced_winit::conversion::cursor_position(
-                        self.cursor_position,
-                        self.viewport.scale_factor(),
-                    ),
-                ),
-                &mut self.renderer,
-                &Theme::Dark,
-                &iced_winit::core::renderer::Style {
-                    text_color: iced::Color::WHITE,
-                },
-                &mut self.clipboard,
-                &mut self.debug,
-            );
-        }
-
-        let viewport_dims = (
-            (window.inner_size().width as f64 / window.scale_factor()) as u32,
-            (window.inner_size().height as f64 / window.scale_factor()) as u32,
-        );
-
-        self.program_container
-            .queue_message(Message::ViewportDimsChanged(viewport_dims));
-
-        let cursor_pos = winit::dpi::PhysicalPosition::new(
-            self.cursor_position.x / window.inner_size().width as f64,
-            self.cursor_position.y / window.inner_size().height as f64,
-        );
-
-        self.program_container
-            .queue_message(Message::CursorPosChanged(cursor_pos));
-
-        let cursor_icon =
-            iced_winit::conversion::mouse_interaction(self.program_container.mouse_interaction());
-        if self.last_cursor_icon != Some(cursor_icon) {
-            window.set_cursor_icon(cursor_icon);
-            self.last_cursor_icon = Some(cursor_icon);
-        }
-
-        // TODO: does this logic belong in IkariUiOverlay?
-        if self.program_container.program().was_exit_button_pressed {
-            *control_flow = winit::event_loop::ControlFlow::Exit;
-        }
-    }
-
-    pub fn render(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        texture_view: &wgpu::TextureView,
-    ) {
-        if let iced::Renderer::Wgpu(renderer) = &mut self.renderer {
-            renderer.with_primitives(|backend, primitive| {
-                backend.present(
-                    device,
-                    queue,
-                    encoder,
-                    None,
-                    texture_view,
-                    primitive,
-                    &self.viewport,
-                    &self.debug.overlay(),
-                );
-            });
-        }
-    }
-
-    pub fn send_message(&mut self, message: Message) {
-        self.program_container.queue_message(message);
-    }
-
-    pub fn get_state(&self) -> &UiOverlay {
-        self.program_container.program()
     }
 }

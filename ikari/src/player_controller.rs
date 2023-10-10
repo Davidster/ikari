@@ -4,7 +4,7 @@ use crate::physics::*;
 use crate::renderer::*;
 use crate::time::*;
 use crate::transform::*;
-use crate::ui_overlay::*;
+use crate::ui::*;
 
 use rapier3d_f64::prelude::*;
 
@@ -25,6 +25,7 @@ pub struct PlayerController {
     unprocessed_delta: Option<(f64, f64)>,
     window_focused: bool,
     is_window_focused_and_clicked: bool,
+    is_enabled: bool,
 
     is_forward_pressed: bool,
     is_backward_pressed: bool,
@@ -93,6 +94,7 @@ impl PlayerController {
             unprocessed_delta: None,
             window_focused: false,
             is_window_focused_and_clicked: false,
+            is_enabled: true,
 
             mouse_button_pressed: false,
 
@@ -111,8 +113,22 @@ impl PlayerController {
         }
     }
 
-    pub fn is_controlling_game(&self, ui_overlay: &IkariUiOverlay) -> bool {
-        self.is_window_focused_and_clicked && !ui_overlay.get_state().is_showing_options_menu
+    pub fn set_is_controlling_game(&mut self, value: bool) {
+        self.is_enabled = value;
+
+        if !value {
+            self.is_forward_pressed = false;
+            self.is_left_pressed = false;
+            self.is_backward_pressed = false;
+            self.is_right_pressed = false;
+            self.is_jump_pressed = false;
+            self.is_down_pressed = false;
+            self.mouse_button_pressed = false;
+        }
+    }
+
+    fn is_controlling_game(&self) -> bool {
+        self.is_window_focused_and_clicked && self.is_enabled
     }
 
     fn increment_speed(&mut self, increase: bool) {
@@ -121,8 +137,8 @@ impl PlayerController {
         self.speed = (self.speed + (direction * amount)).clamp(0.5, 300.0);
     }
 
-    pub fn process_device_events(&mut self, event: &DeviceEvent, ui_overlay: &IkariUiOverlay) {
-        if !self.is_controlling_game(ui_overlay) {
+    pub fn process_device_events(&mut self, event: &DeviceEvent) {
+        if !self.is_controlling_game() {
             return;
         }
         match event {
@@ -143,44 +159,15 @@ impl PlayerController {
         };
     }
 
-    fn update_cursor_grab(
-        &mut self,
-        is_showing_options_menu: bool,
-        is_showing_cursor_marker: bool,
-        window: &Window,
-    ) {
-        let grab = self.is_window_focused_and_clicked
-            && !is_showing_options_menu
-            && !is_showing_cursor_marker;
-
-        let new_grab_mode = if !grab {
-            CursorGrabMode::None
-        } else if cfg!(target_arch = "wasm32") || cfg!(target_os = "macos") {
-            CursorGrabMode::Locked
-        } else {
-            CursorGrabMode::Confined
-        };
-
-        if let Err(err) = window.set_cursor_grab(new_grab_mode) {
-            log::error!(
-                "Couldn't {:?} cursor: {:?}",
-                if grab { "grab" } else { "release" },
-                err
-            )
-        }
-
-        window.set_cursor_visible(!grab);
-    }
-
     pub fn process_window_events(
         &mut self,
         event: &WindowEvent,
         window: &Window,
-        ui_overlay: &mut IkariUiOverlay,
+        // ui_overlay: &mut IkariUiContainer,
     ) {
-        let is_showing_options_menu = ui_overlay.get_state().is_showing_options_menu;
-        let is_showing_cursor_marker = ui_overlay.get_state().is_showing_cursor_marker;
-        let is_controlling_game = self.is_controlling_game(ui_overlay);
+        // let is_showing_options_menu = ui_overlay.get_state().is_showing_options_menu;
+        // let is_showing_cursor_marker = ui_overlay.get_state().is_showing_cursor_marker;
+        // let is_controlling_game = self.is_controlling_game(ui_overlay);
 
         match event {
             WindowEvent::KeyboardInput {
@@ -192,21 +179,6 @@ impl PlayerController {
                     },
                 ..
             } => {
-                if *state == ElementState::Pressed && *keycode == VirtualKeyCode::Tab {
-                    let new_is_showing_options_menu = !is_showing_options_menu;
-                    self.update_cursor_grab(
-                        new_is_showing_options_menu,
-                        is_showing_cursor_marker,
-                        window,
-                    );
-
-                    if new_is_showing_options_menu {
-                        self.mouse_button_pressed = false;
-                    }
-
-                    ui_overlay.send_message(Message::TogglePopupMenu);
-                }
-
                 if *state == ElementState::Pressed && *keycode == VirtualKeyCode::Up {
                     self.increment_speed(true);
                 }
@@ -215,7 +187,7 @@ impl PlayerController {
                     self.increment_speed(false);
                 }
 
-                if is_controlling_game {
+                if self.is_enabled {
                     let is_pressed = *state == ElementState::Pressed;
                     match keycode {
                         VirtualKeyCode::W => {
@@ -241,13 +213,6 @@ impl PlayerController {
                         }
                         _ => {}
                     }
-                } else {
-                    self.is_forward_pressed = false;
-                    self.is_left_pressed = false;
-                    self.is_backward_pressed = false;
-                    self.is_right_pressed = false;
-                    self.is_jump_pressed = false;
-                    self.is_down_pressed = false;
                 }
             }
             WindowEvent::Focused(focused) => {
@@ -260,7 +225,6 @@ impl PlayerController {
                 if !self.window_focused {
                     self.is_window_focused_and_clicked = false;
                 }
-                self.update_cursor_grab(is_showing_options_menu, is_showing_cursor_marker, window);
             }
             WindowEvent::MouseInput {
                 state,
@@ -268,16 +232,36 @@ impl PlayerController {
                 ..
             } => {
                 let is_pressed = *state == ElementState::Pressed;
-                self.mouse_button_pressed = is_controlling_game && is_pressed;
+                self.mouse_button_pressed = self.is_enabled && is_pressed;
 
                 if self.window_focused && is_pressed {
                     self.is_window_focused_and_clicked = true;
                 }
-
-                self.update_cursor_grab(is_showing_options_menu, is_showing_cursor_marker, window);
             }
             _ => {}
         };
+    }
+
+    pub fn update_cursor_grab(&mut self, grab: bool, window: &Window) {
+        let grab = self.is_window_focused_and_clicked && grab;
+
+        let new_grab_mode = if !grab {
+            CursorGrabMode::None
+        } else if cfg!(target_arch = "wasm32") || cfg!(target_os = "macos") {
+            CursorGrabMode::Locked
+        } else {
+            CursorGrabMode::Confined
+        };
+
+        if let Err(err) = window.set_cursor_grab(new_grab_mode) {
+            log::error!(
+                "Couldn't {:?} cursor: {:?}",
+                if grab { "grab" } else { "release" },
+                err
+            )
+        }
+
+        window.set_cursor_visible(!grab);
     }
 
     pub fn update(&mut self, physics_state: &mut PhysicsState) {

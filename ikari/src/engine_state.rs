@@ -1,5 +1,8 @@
 use std::sync::{Arc, Mutex};
 
+// TODO: don't leak iced outside of the ui.rs file?
+use iced_winit::runtime;
+
 use crate::{
     audio::{AudioManager, AudioStreams},
     light::DirectionalLightComponent,
@@ -9,15 +12,14 @@ use crate::{
     renderer::{Renderer, SurfaceData},
     scene::{GameNodeDesc, GameNodeId, Scene},
     time_tracker::TimeTracker,
-    ui_overlay::IkariUiOverlay,
+    ui::IkariUiContainer,
 };
 
 pub struct EngineState {
     pub scene: Scene,
-    pub time_tracker: Option<TimeTracker>,
-    pub ui_overlay: IkariUiOverlay,
+    pub(crate) time_tracker: Option<TimeTracker>,
     pub player_node_id: GameNodeId,
-    pub player_controller: PlayerController,
+    pub player_controller: PlayerController, // TODO: move into game_state.rs, but leave the implementation in ikari
     pub physics_state: PhysicsState,
     pub audio_streams: AudioStreams,
     pub audio_manager: Arc<Mutex<AudioManager>>,
@@ -45,22 +47,6 @@ impl EngineState {
 
         let audio_manager_mutex = Arc::new(Mutex::new(audio_manager));
 
-        let ui_overlay = {
-            let surface_format = surface_data.surface_config.format;
-            IkariUiOverlay::new(
-                window,
-                &renderer.base.device,
-                &renderer.base.queue,
-                // TODO: can I just pass surface_format here? seems it should be ok even if the surface is not srgb,
-                // the renderer will take care of that contingency..? this code would be really bad for the user.
-                if surface_format.is_srgb() {
-                    surface_format
-                } else {
-                    wgpu::TextureFormat::Rgba16Float
-                },
-            )
-        };
-
         Ok(EngineState {
             scene,
             audio_streams,
@@ -71,11 +57,10 @@ impl EngineState {
             physics_state,
             player_node_id,
             player_controller,
-            ui_overlay,
         })
     }
 
-    pub fn on_frame_started(&mut self) {
+    pub(crate) fn on_frame_started(&mut self) {
         self.time_tracker = self.time_tracker.or_else(|| TimeTracker::new().into());
         if let Some(time_tracker) = &mut self.time_tracker {
             time_tracker.on_frame_started();
