@@ -21,9 +21,6 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-// TODO: replace with log::debug and use RUST_LOG module filter to view logs?
-const DEBUG_AUDIO_STREAMING: bool = false;
-
 type PendingSkybox = (
     String,
     SkyboxBackgroundPath,
@@ -271,16 +268,12 @@ impl AssetLoader {
             } else {
                 let deficit_seconds: f32 =
                     target_max_buffer_length_seconds - buffered_amount_seconds;
-                if DEBUG_AUDIO_STREAMING {
-                    log::info!(
+                log::debug!(
                         "buffered_amount_seconds={buffered_amount_seconds:?}, deficit_seconds={deficit_seconds:?}",
                     );
-                }
                 (max_chunk_size_length_seconds + deficit_seconds).max(0.0)
             };
-            if DEBUG_AUDIO_STREAMING {
-                log::info!("requested_chunk_size_seconds={requested_chunk_size_seconds:?}");
-            }
+            log::debug!("requested_chunk_size_seconds={requested_chunk_size_seconds:?}");
             is_first_chunk = false;
             match audio_file_streamer
                 .read_chunk((device_sample_rate as f32 * requested_chunk_size_seconds) as usize)
@@ -294,14 +287,12 @@ impl AssetLoader {
                         .unwrap_or(0.0);
                     buffered_amount_seconds += added_buffer_seconds - removed_buffer_seconds;
 
-                    if DEBUG_AUDIO_STREAMING {
-                        log::info!(
-                            "Streamed in {:?} samples ({:?} seconds) from file: {:?}",
-                            sample_count,
-                            sample_count as f32 / device_sample_rate as f32,
-                            audio_file_streamer.file_path(),
-                        );
-                    }
+                    log::debug!(
+                        "Streamed in {:?} samples ({:?} seconds) from file: {:?}",
+                        sample_count,
+                        sample_count as f32 / device_sample_rate as f32,
+                        audio_file_streamer.file_path(),
+                    );
 
                     audio_manager
                         .lock()
