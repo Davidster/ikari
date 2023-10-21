@@ -5,7 +5,6 @@ use crate::renderer::*;
 use crate::time::*;
 use crate::transform::*;
 
-
 use rapier3d_f64::prelude::*;
 
 use glam::f32::{Quat, Vec3};

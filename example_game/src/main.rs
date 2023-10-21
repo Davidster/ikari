@@ -12,7 +12,6 @@ use crate::game::init_player_controller;
 use crate::game::process_window_input;
 use crate::game::update_game_state;
 
-
 use ikari::engine_state::EngineState;
 use ikari::renderer::BaseRenderer;
 use ikari::renderer::Renderer;
@@ -92,23 +91,22 @@ async fn start() {
 
         log::debug!("renderer: {:?}", application_start_time.elapsed());
 
-        let mut engine_state = EngineState::new(
-            init_player_controller,
-            &renderer,
-            &surface_data,
-            &window,
-        )?;
+        let mut engine_state =
+            EngineState::new(init_player_controller, &renderer, &surface_data, &window)?;
 
         let game_state =
             init_game_state(&mut engine_state, &mut renderer, &mut surface_data, &window).await?;
 
         log::debug!("game state: {:?}", application_start_time.elapsed());
 
+        // this will block while the game is running
         ikari::gameloop::run(
             window,
             event_loop,
             game_state,
             engine_state,
+            renderer,
+            surface_data,
             |game_context| {
                 update_game_state(game_context);
             },
@@ -118,10 +116,9 @@ async fn start() {
             |game_context, new_size| {
                 handle_window_resize(game_context, new_size);
             },
-            renderer,
-            surface_data,
             application_start_time,
-        ); // this will block while the game is running
+        );
+
         anyhow::Ok(())
     }
     .await;

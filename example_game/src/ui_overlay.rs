@@ -1,4 +1,3 @@
-
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -12,7 +11,7 @@ use iced::widget::{
 };
 use iced::{mouse, Background, Command, Element, Length, Rectangle, Theme};
 use iced_aw::{floating_element, Modal};
-use iced_winit::{runtime};
+use iced_winit::runtime;
 use ikari::file_loader::GameFilePath;
 use ikari::math::rad_to_deg;
 use ikari::player_controller::ControlledViewDirection;
@@ -26,7 +25,6 @@ use ikari::ui::GpuTimerScopeResultWrapper;
 use plotters::prelude::*;
 use plotters::style::RED;
 use plotters_iced::{Chart, ChartWidget, DrawingBackend};
-
 
 use ikari::time::Duration;
 

@@ -80,7 +80,7 @@ pub const REMOVE_LARGE_OBJECTS_FROM_FOREST: bool = false;
 // pub const LIGHT_COLOR_B: Vec3 = Vec3::new(0.25, 0.973, 0.663);
 
 // linear colors, not srgb
-pub const DIRECTIONAL_LIGHT_COLOR_A: Vec3 = Vec3::new(0.84922975, 0.81581426, 0.8832506);
+pub const _DIRECTIONAL_LIGHT_COLOR_A: Vec3 = Vec3::new(0.84922975, 0.81581426, 0.8832506);
 pub const DIRECTIONAL_LIGHT_COLOR_B: Vec3 = Vec3::new(0.81115574, 0.77142686, 0.8088144);
 pub const POINT_LIGHT_COLOR: Vec3 = Vec3::new(0.93126976, 0.7402633, 0.49407062);
 // pub const LIGHT_COLOR_C: Vec3 =

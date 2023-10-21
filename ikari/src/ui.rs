@@ -1,28 +1,14 @@
 use std::borrow::Cow;
 
-
-
-
-
-
 use iced::font::Family;
-use iced::widget::{
-    Row,
-};
+use iced::widget::Row;
 use iced::{Command, Element, Font, Size, Theme};
 
 use iced_winit::{runtime, Clipboard, Viewport};
-use plotters::prelude::*;
 
-use plotters_iced::{Chart, DrawingBackend};
 use winit::{event::WindowEvent, window::Window};
 
-
-
-
-
 use crate::renderer::CullingFrustumLock;
-
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EmptyUiOverlay;

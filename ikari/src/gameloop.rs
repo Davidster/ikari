@@ -6,7 +6,6 @@ use crate::ui::IkariUiContainer;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -29,6 +28,7 @@ pub struct GameContext<'a, GameState> {
     pub control_flow: &'a mut winit::event_loop::ControlFlow,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run<
     OnUpdateFunction,
     OnWindowEventFunction,
@@ -40,11 +40,11 @@ pub fn run<
     event_loop: EventLoop<()>,
     mut game_state: GameStateType,
     mut engine_state: EngineState,
+    mut renderer: Renderer,
+    mut surface_data: SurfaceData,
     mut on_update: OnUpdateFunction,
     mut on_window_event: OnWindowEventFunction,
     mut on_window_resize: OnWindowResizeFunction,
-    mut renderer: Renderer,
-    mut surface_data: SurfaceData,
     application_start_time: Instant,
 ) where
     OnUpdateFunction: FnMut(GameContext<GameStateType>) + 'static,

@@ -2,7 +2,6 @@ use std::sync::{Arc, Mutex};
 
 // TODO: don't leak iced outside of the ui.rs file?
 
-
 use crate::{
     audio::{AudioManager, AudioStreams},
     light::DirectionalLightComponent,
