@@ -1051,21 +1051,13 @@ pub async fn init_game_state(
             window,
             &renderer.base.device,
             &renderer.base.queue,
-            // TODO: can I just pass surface_format here? seems it should be ok even if the surface is not srgb,
-            // the renderer will take care of that contingency..? this code would be really ugly for the user.
-            if surface_format.is_srgb() {
-                surface_format
-            } else {
-                wgpu::TextureFormat::Rgba16Float
-            },
+            surface_format,
             UiOverlay::new(window),
             Some((DEFAULT_FONT_NAME, DEFAULT_FONT_BYTES)),
         )
     };
 
     // logger_log(&format!("{:?}", &revolver));
-
-    // anyhow::bail!("suhh dude");
 
     Ok(GameState {
         state_update_time_accumulator: 0.0,

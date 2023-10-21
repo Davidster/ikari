@@ -134,10 +134,6 @@ where
     last_cursor_icon: Option<winit::window::CursorIcon>,
 }
 
-// pub trait IkariUiProgram: runtime::Program {
-//     fn update()
-// }
-
 impl<UiOverlay> IkariUiContainer<UiOverlay>
 where
     UiOverlay: runtime::Program<Renderer = iced::Renderer>,
@@ -146,7 +142,7 @@ where
         window: &Window,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        output_texture_format: wgpu::TextureFormat,
+        surface_format: wgpu::TextureFormat,
         state: UiOverlay,
         default_font: Option<(&'static str, &'static [u8])>,
     ) -> Self {
@@ -170,7 +166,13 @@ where
                 },
                 ..Default::default()
             },
-            output_texture_format,
+            // we need to output to Rgba16Float format when not srgb since the renderer will render the ui overlay into
+            // an intermediate Rgba16Float framebuffer and perform the gamma correction there manually. see pre_gamma_fb
+            if surface_format.is_srgb() {
+                surface_format
+            } else {
+                wgpu::TextureFormat::Rgba16Float
+            },
         ));
 
         let mut renderer = iced::Renderer::Wgpu(wgpu_renderer);
