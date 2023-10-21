@@ -1,7 +1,7 @@
 use rmp_serde::Serializer;
 use serde::Serialize;
 
-use crate::{file_loader::GameFilePath, texture::RawImage};
+use crate::{file_manager::GameFilePath, texture::RawImage};
 
 #[cfg(not(target_arch = "wasm32"))]
 const BASISU_COMPRESSION_FORMAT: basis_universal::BasisTextureFormat =

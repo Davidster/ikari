@@ -20,7 +20,7 @@ tracy-profile-dumps = ["profiling/profile-with-tracy"]
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
 half = { version = "2.3.1" }
-pollster = "0.3"
+pollster.workspace = true
 twox-hash = "1.6"
 lazy_static.workspace = true
 smallvec = { version = "1.11", features = ["union", "const_generics"] }

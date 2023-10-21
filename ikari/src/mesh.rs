@@ -1,5 +1,5 @@
 use crate::{
-    file_loader::{FileLoader, GameFilePath},
+    file_manager::{FileManager, GameFilePath},
     texture::*,
 };
 
@@ -171,7 +171,7 @@ pub struct BasicMesh {
 impl BasicMesh {
     pub async fn new(obj_file_path: &GameFilePath) -> Result<Self> {
         let obj = parse_obj(BufReader::new(Cursor::new(
-            FileLoader::read(obj_file_path).await?,
+            FileManager::read(obj_file_path).await?,
         )))?;
 
         let mut triangles: Vec<[(usize, usize, usize); 3]> = vec![];

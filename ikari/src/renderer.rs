@@ -2,9 +2,9 @@ use crate::buffer::*;
 use crate::camera::*;
 use crate::collisions::*;
 use crate::engine_state::EngineState;
-use crate::file_loader::FileLoader;
-use crate::file_loader::GameFilePath;
-use crate::file_loader::IKARI_PATH_MAKER;
+use crate::file_manager::FileManager;
+use crate::file_manager::GameFilePath;
+use crate::file_manager::IKARI_PATH_MAKER;
 use crate::light::*;
 use crate::math::*;
 use crate::mesh::*;
@@ -1215,7 +1215,7 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: USE_LABELS.then_some("Unlit Mesh Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    FileLoader::read_to_string(
+                    FileManager::read_to_string(
                         &IKARI_PATH_MAKER.make("src/shaders/unlit_mesh.wgsl"),
                     )
                     .await?
@@ -1228,7 +1228,7 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: USE_LABELS.then_some("Blit Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    FileLoader::read_to_string(&IKARI_PATH_MAKER.make("src/shaders/blit.wgsl"))
+                    FileManager::read_to_string(&IKARI_PATH_MAKER.make("src/shaders/blit.wgsl"))
                         .await?
                         .into(),
                 ),
@@ -1239,7 +1239,7 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: USE_LABELS.then_some("Textured Mesh Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    FileLoader::read_to_string(
+                    FileManager::read_to_string(
                         &IKARI_PATH_MAKER.make("src/shaders/textured_mesh.wgsl"),
                     )
                     .await?
@@ -1252,7 +1252,7 @@ impl Renderer {
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: USE_LABELS.then_some("Skybox Shader"),
                 source: wgpu::ShaderSource::Wgsl(
-                    FileLoader::read_to_string(&IKARI_PATH_MAKER.make("src/shaders/skybox.wgsl"))
+                    FileManager::read_to_string(&IKARI_PATH_MAKER.make("src/shaders/skybox.wgsl"))
                         .await?
                         .into(),
                 ),

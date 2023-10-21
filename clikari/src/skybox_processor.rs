@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use ikari::{
+    file_manager::native_fs,
     renderer::{
         BaseRenderer, BindedSkybox, Renderer, SkyboxBackgroundPath, SkyboxHDREnvironmentPath,
     },
@@ -18,8 +19,8 @@ pub struct SkyboxProcessorArgs {
     pub out_folder: PathBuf,
 }
 
-pub fn run(args: SkyboxProcessorArgs) {
-    if let Err(err) = ikari::block_on(run_internal(args)) {
+pub async fn run(args: SkyboxProcessorArgs) {
+    if let Err(err) = run_internal(args).await {
         log::error!("Error: {err}\n{}", err.backtrace());
     }
 }
@@ -59,12 +60,11 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
 
     let compressor = ikari::texture_compression::TextureCompressor;
 
-    std::fs::create_dir_all(&args.out_folder)?;
+    native_fs::create_dir_all(&args.out_folder)?;
 
     {
-        // TODO: join into a single file like with diffuse/spec env maps
         let folder = std::path::Path::join(&args.out_folder, "background");
-        std::fs::create_dir_all(&folder)?;
+        native_fs::create_dir_all(&folder)?;
 
         let texture = background;
 
@@ -103,7 +103,7 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
             let gpu_compressed_file_path =
                 std::path::Path::join(&folder, format!("{file_name}_compressed.bin"));
 
-            std::fs::write(&gpu_compressed_file_path, gpu_compressed_img_bytes)?;
+            native_fs::write(&gpu_compressed_file_path, gpu_compressed_img_bytes)?;
             log::info!("Done compressing: {:?}", png_file_path.canonicalize()?);
         }
     }
@@ -123,7 +123,7 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
         let full_file_path =
             std::path::Path::join(&args.out_folder, "diffuse_environment_map_compressed.bin");
 
-        std::fs::write(&full_file_path, compressed_img_bytes)?;
+        native_fs::write(&full_file_path, compressed_img_bytes)?;
         log::info!("Done compressing: {:?}", full_file_path.canonicalize()?);
     }
 
@@ -142,7 +142,7 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
         let full_file_path =
             std::path::Path::join(&args.out_folder, "specular_environment_map_compressed.bin");
 
-        std::fs::write(&full_file_path, compressed_img_bytes)?;
+        native_fs::write(&full_file_path, compressed_img_bytes)?;
         log::info!("Done compressing: {:?}", full_file_path.canonicalize()?);
     }
 

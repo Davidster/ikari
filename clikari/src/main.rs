@@ -3,7 +3,8 @@ mod texture_compressor;
 
 use std::str::FromStr;
 
-use ikari::file_loader::GamePathMaker;
+use ikari::block_on;
+use ikari::file_manager::GamePathMaker;
 use skybox_processor::SkyboxProcessorArgs;
 use texture_compressor::TextureCompressorArgs;
 
@@ -160,10 +161,10 @@ fn main() {
 
     match Command::from_env() {
         Ok(Command::CompressTextures(args)) => {
-            texture_compressor::run(args);
+            block_on(texture_compressor::run(args));
         }
         Ok(Command::ProcessSkybox(args)) => {
-            skybox_processor::run(args);
+            block_on(skybox_processor::run(args));
         }
         Ok(Command::Help) => {
             println!("{HELP}");

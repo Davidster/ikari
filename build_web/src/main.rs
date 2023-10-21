@@ -131,7 +131,6 @@ Remove one flag or the other to continue."#
 }
 
 /// Adapted from cargo-run-wasm v0.3.2
-/// TODO: exit with code 1 on failures?
 fn main() {
     env_logger::init();
 
@@ -139,7 +138,7 @@ fn main() {
         Ok(args) => args,
         Err(err) => {
             println!("{err}\n\n{HELP}");
-            return;
+            std::process::exit(1);
         }
     };
     if args.help {
@@ -199,8 +198,8 @@ fn main() {
         .status()
         .unwrap();
     if !status.success() {
-        // We can return without printing anything because cargo will have already displayed an appropriate error.
-        return;
+        // We can exit without printing anything because cargo will have already displayed an appropriate error.
+        std::process::exit(1);
     }
 
     let binary_name = args.binary_name;
@@ -218,7 +217,7 @@ fn main() {
 
     if !wasm_source.exists() {
         println!("There is no binary at {wasm_source:?}, maybe you used `--package NAME` on a package that has no binary?");
-        return;
+        std::process::exit(1);
     }
 
     let examples_dir_name = "wasm-examples";

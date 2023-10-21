@@ -42,13 +42,17 @@ impl GamePathMaker {
     }
 }
 
-pub struct FileLoader;
+pub struct FileManager;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
-    use crate::file_loader::{FileLoader, GameFilePath};
+    pub mod native_fs {
+        pub use std::fs::*;
+    }
 
-    impl FileLoader {
+    use crate::file_manager::{FileManager, GameFilePath};
+
+    impl FileManager {
         pub async fn read(path: &GameFilePath) -> anyhow::Result<Vec<u8>> {
             let path = path.resolve();
             std::fs::read(&path).map_err(|err| anyhow::anyhow!("{err} ({})", path.display()))
@@ -59,11 +63,6 @@ mod native {
             std::fs::read_to_string(&path)
                 .map_err(|err| anyhow::anyhow!("{err} ({})", path.display()))
         }
-
-        pub fn open_file(path: &GameFilePath) -> anyhow::Result<std::fs::File> {
-            let path = path.resolve();
-            std::fs::File::open(&path).map_err(|err| anyhow::anyhow!("{err} ({})", path.display()))
-        }
     }
 }
 
@@ -71,7 +70,7 @@ mod native {
 mod web {
     use wasm_bindgen::prelude::*;
 
-    use crate::file_loader::{FileLoader, GameFilePath};
+    use crate::file_manager::{FileManager, GameFilePath};
 
     #[wasm_bindgen]
     extern "C" {
@@ -93,7 +92,7 @@ mod web {
     }
 
     // TODO: add the path to all error messages here?
-    impl FileLoader {
+    impl FileManager {
         pub async fn read(path: &GameFilePath) -> anyhow::Result<Vec<u8>> {
             const ASSET_SERVER: &str = "http://localhost:8000";
 
@@ -133,7 +132,7 @@ mod web {
         }
 
         pub async fn read_to_string(path: &GameFilePath) -> anyhow::Result<String> {
-            let bytes = FileLoader::read(path).await?;
+            let bytes = FileManager::read(path).await?;
             Ok(std::str::from_utf8(&bytes)?.to_string())
         }
     }

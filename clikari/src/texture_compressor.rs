@@ -7,7 +7,11 @@ use std::{
 use threadpool::ThreadPool;
 use walkdir::WalkDir;
 
-use ikari::texture_compression::{texture_path_to_compressed_path, TextureCompressionArgs};
+use ikari::{
+    block_on,
+    file_manager::{native_fs, FileManager},
+    texture_compression::{texture_path_to_compressed_path, TextureCompressionArgs},
+};
 
 use crate::PATH_MAKER;
 
@@ -19,7 +23,7 @@ pub struct TextureCompressorArgs {
     pub force: bool,
 }
 
-pub fn run(args: TextureCompressorArgs) {
+pub async fn run(args: TextureCompressorArgs) {
     if !args.search_folder.exists() {
         log::error!(
             "Error: search folder {:?} does not exist",
@@ -84,13 +88,19 @@ pub fn run(args: TextureCompressorArgs) {
         pool.execute(move || {
             let (path, is_srgb, is_normal_map) = &texture_paths[texture_index];
             log::info!("start {path:?} (srgb={is_srgb:?}, is_normal_map={is_normal_map:?})");
-            compress_file(
-                path.as_path(),
-                *is_srgb,
-                *is_normal_map,
-                threads_per_texture,
-            )
-            .unwrap();
+            block_on(async {
+                if let Err(error) = compress_file(
+                    path.as_path(),
+                    *is_srgb,
+                    *is_normal_map,
+                    threads_per_texture,
+                )
+                .await
+                {
+                    log::error!("Failed to compress texture: {path:?}\n{error:?}");
+                }
+            });
+
             tx.send(texture_index).unwrap();
         });
     }
@@ -169,13 +179,13 @@ fn find_dangling_texture_paths(
         .collect())
 }
 
-fn compress_file(
+async fn compress_file(
     img_path: &Path,
     is_srgb: bool,
     is_normal_map: bool,
     threads: u32,
 ) -> anyhow::Result<()> {
-    let img_bytes = std::fs::read(img_path)?;
+    let img_bytes = FileManager::read(&PATH_MAKER.make(img_path)).await?;
     let img_decoded = image::load_from_memory(&img_bytes)?.to_rgba8();
     let (img_width, img_height) = img_decoded.dimensions();
     let img_channel_count = 4;
@@ -200,10 +210,9 @@ fn compress_file(
         compressed_img_bytes.len()
     );
 
-    // TODO: wrap fs::write in FileLoader?
-    std::fs::write(
-        texture_path_to_compressed_path(&PATH_MAKER.make(img_path)).resolve(),
-        compressed_img_bytes,
+    native_fs::write(
+        &texture_path_to_compressed_path(&PATH_MAKER.make(img_path)).resolve(),
+        &compressed_img_bytes,
     )?;
 
     Ok(())

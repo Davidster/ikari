@@ -1,7 +1,7 @@
 use crate::audio::*;
 use crate::buffer::*;
-use crate::file_loader::FileLoader;
-use crate::file_loader::GameFilePath;
+use crate::file_manager::FileManager;
+use crate::file_manager::GameFilePath;
 use crate::gltf_loader::*;
 use crate::mesh::*;
 use crate::renderer::*;
@@ -128,7 +128,7 @@ impl AssetLoader {
                             let gltf_slice;
                             {
                                 profiling::scope!("Read root file");
-                                gltf_slice = FileLoader::read(&next_scene_path).await?;
+                                gltf_slice = FileManager::read(&next_scene_path).await?;
                             }
 
                             let (document, buffers, images);
@@ -455,16 +455,18 @@ pub async fn make_bindable_skybox(
     let background = match background {
         SkyboxBackgroundPath::Equirectangular(image_path) => {
             BindableSkyboxBackground::Equirectangular(
-                image::load_from_memory(&FileLoader::read(image_path).await?)?
+                image::load_from_memory(&FileManager::read(image_path).await?)?
                     .to_rgba8()
                     .into(),
             )
         }
         SkyboxBackgroundPath::Cube(face_image_paths) => {
             async fn to_img(img_path: &GameFilePath) -> Result<image::DynamicImage> {
-                Ok(image::load_from_memory(&FileLoader::read(img_path).await?)?
-                    .to_rgba8()
-                    .into())
+                Ok(
+                    image::load_from_memory(&FileManager::read(img_path).await?)?
+                        .to_rgba8()
+                        .into(),
+                )
             }
 
             let first_img = to_img(&face_image_paths[0]).await?;
@@ -489,7 +491,7 @@ pub async fn make_bindable_skybox(
                 img_path: &GameFilePath,
             ) -> Result<crate::texture_compression::CompressedTexture> {
                 TextureCompressor.transcode_image(
-                    &FileLoader::read(
+                    &FileManager::read(
                         &crate::texture_compression::texture_path_to_compressed_path(img_path),
                     )
                     .await?,
@@ -515,7 +517,7 @@ pub async fn make_bindable_skybox(
         #[cfg(target_arch = "wasm32")]
         SkyboxBackgroundPath::ProcessedCube(face_image_paths) => {
             async fn to_img(img_path: &GameFilePath) -> Result<image::RgbaImage> {
-                Ok(image::load_from_memory(&FileLoader::read(img_path).await?)?.to_rgba8())
+                Ok(image::load_from_memory(&FileManager::read(img_path).await?)?.to_rgba8())
             }
 
             let first_img = to_img(&face_image_paths[0]).await?;
@@ -538,7 +540,7 @@ pub async fn make_bindable_skybox(
     let mut bindable_environment_hdr = None;
     match environment_hdr {
         Some(SkyboxHDREnvironmentPath::Equirectangular(image_path)) => {
-            let image_bytes = FileLoader::read(image_path).await?;
+            let image_bytes = FileManager::read(image_path).await?;
             let skybox_rad_texture_decoder =
                 image::codecs::hdr::HdrDecoder::new(image_bytes.as_slice())?;
             let (width, height) = {
@@ -571,9 +573,9 @@ pub async fn make_bindable_skybox(
         Some(SkyboxHDREnvironmentPath::ProcessedCube { diffuse, specular }) => {
             bindable_environment_hdr = Some(BindableSkyboxHDREnvironment::ProcessedCube {
                 diffuse: TextureCompressor
-                    .transcode_float_image(&FileLoader::read(diffuse).await?)?,
+                    .transcode_float_image(&FileManager::read(diffuse).await?)?,
                 specular: TextureCompressor
-                    .transcode_float_image(&FileLoader::read(specular).await?)?,
+                    .transcode_float_image(&FileManager::read(specular).await?)?,
             });
         }
         None => {}

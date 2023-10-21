@@ -12,7 +12,7 @@ use iced::widget::{
 use iced::{mouse, Background, Command, Element, Length, Rectangle, Theme};
 use iced_aw::{floating_element, Modal};
 use iced_winit::runtime;
-use ikari::file_loader::GameFilePath;
+use ikari::file_manager::GameFilePath;
 use ikari::math::rad_to_deg;
 use ikari::player_controller::ControlledViewDirection;
 use ikari::profile_dump::can_generate_profile_dump;
@@ -60,6 +60,7 @@ pub enum Message {
     GpuFrameCompleted(Vec<GpuTimerScopeResultWrapper>),
     CameraPoseChanged((Vec3, ControlledViewDirection)),
     AudioSoundStatsChanged((GameFilePath, AudioSoundStats)),
+    #[allow(dead_code)]
     ToggleVSync(bool),
     ToggleCameraPose(bool),
     ToggleCursorMarker(bool),

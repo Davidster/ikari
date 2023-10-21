@@ -10,7 +10,7 @@ pub mod buffer;
 pub mod camera;
 pub mod collisions;
 pub mod engine_state;
-pub mod file_loader;
+pub mod file_manager;
 pub mod gameloop;
 pub mod gltf_loader;
 pub mod light;

@@ -1,4 +1,4 @@
-use crate::file_loader::GameFilePath;
+use crate::file_manager::GameFilePath;
 use crate::mesh::*;
 use crate::renderer::*;
 use crate::sampler_cache::*;
@@ -546,7 +546,7 @@ async fn get_image_pixels(
     is_srgb: bool,
     is_normal_map: bool,
 ) -> Result<(Vec<u8>, wgpu::TextureFormat, u32, (u32, u32), bool)> {
-    use crate::file_loader::FileLoader;
+    use crate::file_manager::FileManager;
 
     let compressed_image_data = match texture.source().source() {
         gltf::image::Source::Uri { uri, .. } => {
@@ -561,7 +561,7 @@ async fn get_image_pixels(
             });
             if compressed_texture_path.resolve().try_exists()? {
                 let texture_compressor = TextureCompressor;
-                let texture_bytes = FileLoader::read(&compressed_texture_path).await?;
+                let texture_bytes = FileManager::read(&compressed_texture_path).await?;
                 Some(texture_compressor.transcode_image(&texture_bytes, is_normal_map)?)
             } else {
                 None

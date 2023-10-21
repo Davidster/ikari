@@ -22,7 +22,7 @@ use ikari::asset_loader::AssetLoader;
 use ikari::audio::AudioFileFormat;
 use ikari::audio::SoundParams;
 use ikari::engine_state::EngineState;
-use ikari::file_loader::{FileLoader, GamePathMaker};
+use ikari::file_manager::{FileManager, GamePathMaker};
 use ikari::gameloop::GameContext;
 use ikari::light::DirectionalLightComponent;
 use ikari::light::PointLightComponent;
@@ -202,7 +202,7 @@ async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
     let texture_compressor = ikari::texture_compression::TextureCompressor;
     let rainbow_texture_path = "src/textures/rainbow_gradient_vertical_compressed.bin";
     let rainbow_texture_bytes =
-        FileLoader::read(&GAME_PATH_MAKER.make(rainbow_texture_path)).await?;
+        FileManager::read(&GAME_PATH_MAKER.make(rainbow_texture_path)).await?;
     let rainbow_texture_decompressed =
         texture_compressor.transcode_image(&rainbow_texture_bytes, false)?;
     Texture::from_decoded_image(
@@ -224,7 +224,7 @@ async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
 async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
     let rainbow_texture_path = "src/textures/rainbow_gradient_vertical.jpg";
     let rainbow_texture_bytes =
-        FileLoader::read(&GAME_PATH_MAKER.make(rainbow_texture_path)).await?;
+        FileManager::read(&GAME_PATH_MAKER.make(rainbow_texture_path)).await?;
     Texture::from_encoded_image(
         renderer_base,
         &rainbow_texture_bytes,
@@ -448,7 +448,7 @@ pub async fn init_game_state(
 
     let brick_normal_map_path = "src/textures/brick_normal_map.jpg";
     let brick_normal_map_bytes =
-        FileLoader::read(&GAME_PATH_MAKER.make(brick_normal_map_path)).await?;
+        FileManager::read(&GAME_PATH_MAKER.make(brick_normal_map_path)).await?;
     let brick_normal_map = Texture::from_encoded_image(
         &renderer.base,
         &brick_normal_map_bytes,

@@ -26,8 +26,7 @@ env_logger = { version = "0.10", default-features = false, features = [
   "auto-color",
   "humantime",
 ] }
-# The version should be the one used by wgpu-core/hal TODO: does this version number need updating?
-profiling = "1.0.10"
+profiling = "1.0.11"
 image = { version = "0.24", default-features = false, features = [
   "hdr",
   "jpeg",
@@ -37,6 +36,7 @@ pico-args = "0.5.0"
 lazy_static = "1.4"
 glam = { version = "0.24.1", features = ["approx", "bytemuck"] }
 rand = { version = "0.8", features = ["small_rng"] }
+pollster = "0.3"
 
 # wasm32 depdendencies
 web-sys = { version = "0.3.64", features = [
