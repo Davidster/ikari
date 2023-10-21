@@ -31,8 +31,8 @@ use wgpu::InstanceDescriptor;
 use wgpu_profiler::wgpu_profiler;
 use wgpu_profiler::GpuProfiler;
 
-pub const USE_LABELS: bool = true;
-pub const USE_EXTRA_SHADOW_MAP_CULLING: bool = true;
+pub(crate) const USE_LABELS: bool = true;
+pub(crate) const USE_EXTRA_SHADOW_MAP_CULLING: bool = true;
 
 pub const MAX_LIGHT_COUNT: usize = 32;
 pub const NEAR_PLANE_DISTANCE: f32 = 0.001;

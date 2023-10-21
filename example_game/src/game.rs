@@ -37,7 +37,6 @@ use ikari::player_controller::ControlledViewDirection;
 use ikari::player_controller::PlayerController;
 use ikari::renderer::RendererData;
 use ikari::renderer::SkyboxSlot;
-use ikari::renderer::USE_LABELS;
 use ikari::renderer::{
     BaseRenderer, Renderer, SkyboxBackgroundPath, SkyboxHDREnvironmentPath, SurfaceData,
 };
@@ -299,7 +298,6 @@ pub async fn init_game_state(
     // must call this after changing the render scale
     renderer.resize_surface(surface_data, unscaled_framebuffer_size);
 
-    // TODO: move asset loader into the engine
     let asset_loader = Arc::new(AssetLoader::new(engine_state.audio_manager.clone()));
 
     let asset_loader_clone = asset_loader.clone();
@@ -522,8 +520,7 @@ pub async fn init_game_state(
         &checkerboard_texture_img,
         checkerboard_texture_img.dimensions(),
         1,
-        // TODO: check USE_LABELS flag internally inside the engine
-        USE_LABELS.then_some("checkerboard_texture"),
+        Some("checkerboard_texture"),
         None,
         true,
         &SamplerDescriptor {

@@ -181,7 +181,7 @@ impl Texture {
             base_renderer.device.create_texture_with_data(
                 &base_renderer.queue,
                 &wgpu::TextureDescriptor {
-                    label,
+                    label: if USE_LABELS { label } else { None },
                     size,
                     mip_level_count: baked_mip_levels,
                     sample_count: 1,
@@ -478,7 +478,7 @@ impl Texture {
         let texture = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
-                label,
+                label: if USE_LABELS { label } else { None },
                 size,
                 mip_level_count: 1,
                 sample_count: 1,
@@ -535,7 +535,7 @@ impl Texture {
         let texture = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
-                label,
+                label: if USE_LABELS { label } else { None },
                 size,
                 mip_level_count: 1,
                 sample_count: 1,
@@ -613,7 +613,7 @@ impl Texture {
         let cubemap_texture = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
-                label,
+                label: if USE_LABELS { label } else { None },
                 size,
                 mip_level_count,
                 sample_count: 1,
@@ -810,7 +810,7 @@ impl Texture {
         let texture = base_renderer.device.create_texture_with_data(
             &base_renderer.queue,
             &wgpu::TextureDescriptor {
-                label,
+                label: if USE_LABELS { label } else { None },
                 size,
                 mip_level_count: image.mip_count,
                 sample_count: 1,
@@ -869,7 +869,7 @@ impl Texture {
         let env_map = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
-                label,
+                label: if USE_LABELS { label } else { None },
                 size,
                 mip_level_count: 1,
                 sample_count: 1,
@@ -1054,7 +1054,7 @@ impl Texture {
         let env_map = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
-                label,
+                label: if USE_LABELS { label } else { None },
                 size,
                 mip_level_count,
                 sample_count: 1,
