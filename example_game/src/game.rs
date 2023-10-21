@@ -56,11 +56,11 @@ use winit::event::MouseButton;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
 pub const INITIAL_ENABLE_VSYNC: bool = true;
-pub const INITIAL_RENDER_SCALE: f32 = 1.0; // TODO: set this after the first frame?
-pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0; // TODO: set this after the first frame?
-pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8; // TODO: set this after the first frame?
-pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2; // TODO: set this after the first frame?
-pub const INITIAL_ENABLE_BLOOM: bool = true; // TODO: set this after the first frame?
+pub const INITIAL_RENDER_SCALE: f32 = 2.0;
+pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
+pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
+pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
+pub const INITIAL_ENABLE_BLOOM: bool = true;
 pub const ARENA_SIDE_LENGTH: f32 = 500.0;
 pub const INITIAL_IS_SHOWING_CAMERA_POSE: bool = true;
 pub const INITIAL_IS_SHOWING_CURSOR_MARKER: bool = false;
