@@ -60,16 +60,6 @@ iced = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_su
 iced_wgpu = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
 iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
 
-plotters-iced = "0.9"
-plotters = { version = "0.3", default-features = false, features = [
-  "line_series",
-] }
-iced_aw = { version = "0.7", default-features = false, features = [
-  "modal",
-  "card",
-  "floating_element",
-] }
-
 [patch.crates-io]
 iced_core = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
 iced_style = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }

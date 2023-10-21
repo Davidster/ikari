@@ -32,10 +32,17 @@ image.workspace = true
 iced.workspace = true
 iced_wgpu.workspace = true
 iced_winit.workspace = true
-plotters-iced.workspace = true
-plotters.workspace = true
-iced_aw.workspace = true
 tracing-tracy = { version = "0.10.3", features = ["ondemand"], optional = true }
+
+plotters-iced = "0.9"
+plotters = { version = "0.3", default-features = false, features = [
+  "line_series",
+] }
+iced_aw = { version = "0.7", default-features = false, features = [
+  "modal",
+  "card",
+  "floating_element",
+] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys.workspace = true
