@@ -1055,8 +1055,12 @@ pub async fn init_game_state(
             &renderer.base.queue,
             surface_format,
             UiOverlay::new(window),
-            Some((DEFAULT_FONT_NAME, DEFAULT_FONT_BYTES)),
-            vec![(KOOKY_FONT_NAME, KOOKY_FONT_BYTES)],
+            Some(DEFAULT_FONT_NAME),
+            vec![
+                DEFAULT_FONT_BYTES,
+                KOOKY_FONT_BYTES,
+                iced_aw::graphics::icons::ICON_FONT_BYTES,
+            ],
         )
     };
 

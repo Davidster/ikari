@@ -69,11 +69,6 @@ iced.workspace = true
 iced_wgpu.workspace = true
 iced_winit.workspace = true
 
-# TODO: remove!
-plotters-iced.workspace = true
-plotters.workspace = true
-iced_aw.workspace = true
-
 wasm_thread = { version = "0.2.0", features = ["es_modules"] }
 futures-intrusive = "0.5.0"
 rmp-serde = "1.1.2"
