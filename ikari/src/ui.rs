@@ -163,7 +163,7 @@ where
             iced_wgpu::Settings {
                 default_font: Font {
                     family: default_font_name
-                        .map(|font_name| Family::Name(font_name))
+                        .map(Family::Name)
                         .unwrap_or(Font::DEFAULT.family),
                     ..Default::default()
                 },

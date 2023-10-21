@@ -9,7 +9,7 @@ use crate::ui_overlay::UiOverlay;
 use crate::ui_overlay::DEFAULT_FONT_BYTES;
 use crate::ui_overlay::DEFAULT_FONT_NAME;
 use crate::ui_overlay::KOOKY_FONT_BYTES;
-use crate::ui_overlay::KOOKY_FONT_NAME;
+
 
 use std::{collections::hash_map::Entry, sync::Arc};
 

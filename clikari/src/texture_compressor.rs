@@ -211,7 +211,7 @@ async fn compress_file(
     );
 
     native_fs::write(
-        &texture_path_to_compressed_path(&PATH_MAKER.make(img_path)).resolve(),
+        texture_path_to_compressed_path(&PATH_MAKER.make(img_path)).resolve(),
         &compressed_img_bytes,
     )?;
 
