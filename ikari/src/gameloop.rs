@@ -6,7 +6,7 @@ use crate::ui::IkariUiContainer;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-use winit::dpi::PhysicalSize;
+
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -55,7 +55,7 @@ pub fn run<
     GameStateType: GameState<UiOverlay> + 'static,
 {
     let mut logged_start_time = false;
-    let mut last_frame_start_time: Option<Instant> = None;
+    let _last_frame_start_time: Option<Instant> = None;
 
     #[cfg(target_arch = "wasm32")]
     let canvas_container;
@@ -117,7 +117,7 @@ pub fn run<
                         Some(wgpu::SurfaceError::Lost) => {
                             let size = window.inner_size();
 
-                            renderer.resize_surface(&mut surface_data, size.into());
+                            renderer.resize_surface(&mut surface_data, size);
                             on_window_resize(
                                 GameContext {
                                     game_state: &mut game_state,
@@ -164,7 +164,7 @@ pub fn run<
                 match &event {
                     WindowEvent::Resized(size) => {
                         if size.width > 0 && size.height > 0 {
-                            renderer.resize_surface(&mut surface_data, (*size).into());
+                            renderer.resize_surface(&mut surface_data, *size);
                             on_window_resize(
                                 GameContext {
                                     game_state: &mut game_state,
@@ -180,7 +180,7 @@ pub fn run<
                     }
                     WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                         if new_inner_size.width > 0 && new_inner_size.height > 0 {
-                            renderer.resize_surface(&mut surface_data, (**new_inner_size).into());
+                            renderer.resize_surface(&mut surface_data, **new_inner_size);
                             on_window_resize(
                                 GameContext {
                                     game_state: &mut game_state,

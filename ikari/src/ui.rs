@@ -1,29 +1,28 @@
 use std::borrow::Cow;
-use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::collections::HashSet;
 
-use glam::Vec3;
-use iced::alignment::Horizontal;
+
+
+
+
+
 use iced::font::Family;
 use iced::widget::{
-    canvas, checkbox, container, radio, scrollable, slider, text, Button, Column, Container, Row,
-    Text,
+    Row,
 };
-use iced::{mouse, Background, Command, Element, Font, Length, Rectangle, Size, Theme};
-use iced_aw::{floating_element, Modal};
+use iced::{Command, Element, Font, Size, Theme};
+
 use iced_winit::{runtime, Clipboard, Viewport};
 use plotters::prelude::*;
-use plotters::style::RED;
-use plotters_iced::{Chart, ChartWidget, DrawingBackend};
+
+use plotters_iced::{Chart, DrawingBackend};
 use winit::{event::WindowEvent, window::Window};
 
-use crate::file_loader::GameFilePath;
-use crate::math::*;
-use crate::player_controller::*;
-use crate::profile_dump::*;
+
+
+
+
 use crate::renderer::CullingFrustumLock;
-use crate::time::*;
+
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EmptyUiOverlay;
@@ -244,7 +243,7 @@ where
     }
 
     #[profiling::function]
-    pub fn update(&mut self, window: &Window, control_flow: &mut winit::event_loop::ControlFlow) {
+    pub fn update(&mut self, window: &Window, _control_flow: &mut winit::event_loop::ControlFlow) {
         if !self.program_container.is_queue_empty() {
             let _ = self.program_container.update(
                 self.viewport.logical_size(),
@@ -308,7 +307,7 @@ impl runtime::Program for EmptyUiOverlay {
     type Renderer = iced::Renderer;
     type Message = ();
 
-    fn update(&mut self, message: Self::Message) -> Command<Self::Message> {
+    fn update(&mut self, _message: Self::Message) -> Command<Self::Message> {
         Command::none()
     }
 

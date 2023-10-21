@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 // TODO: don't leak iced outside of the ui.rs file?
-use iced_winit::runtime;
+
 
 use crate::{
     audio::{AudioManager, AudioStreams},
@@ -12,7 +12,6 @@ use crate::{
     renderer::{Renderer, SurfaceData},
     scene::{GameNodeDesc, GameNodeId, Scene},
     time_tracker::TimeTracker,
-    ui::IkariUiContainer,
 };
 
 pub struct EngineState {
@@ -30,9 +29,9 @@ pub struct EngineState {
 impl EngineState {
     pub fn new<F>(
         init_player_controller: F,
-        renderer: &Renderer,
-        surface_data: &SurfaceData,
-        window: &winit::window::Window,
+        _renderer: &Renderer,
+        _surface_data: &SurfaceData,
+        _window: &winit::window::Window,
     ) -> anyhow::Result<Self>
     where
         F: FnOnce(&mut PhysicsState) -> PlayerController,

@@ -1061,7 +1061,7 @@ pub async fn init_game_state(
             } else {
                 wgpu::TextureFormat::Rgba16Float
             },
-            UiOverlay::new(&window),
+            UiOverlay::new(window),
             Some((DEFAULT_FONT_NAME, DEFAULT_FONT_BYTES)),
         )
     };
@@ -1212,7 +1212,7 @@ pub fn process_window_input(
                 }
             }
         }
-        WindowEvent::Focused(focused) => {
+        WindowEvent::Focused(_focused) => {
             let new_is_showing_options_menu =
                 !game_state.ui_overlay.get_state().is_showing_options_menu;
             let is_showing_cursor_marker =
@@ -1223,7 +1223,7 @@ pub fn process_window_input(
             );
         }
         WindowEvent::MouseInput {
-            state,
+            state: _,
             button: MouseButton::Left,
             ..
         } => {
@@ -1243,7 +1243,7 @@ pub fn process_window_input(
         .player_controller
         .process_window_events(event, window);
 
-    game_state.ui_overlay.handle_window_event(&window, &event);
+    game_state.ui_overlay.handle_window_event(window, event);
 }
 
 pub fn handle_window_resize(
@@ -1982,7 +1982,7 @@ pub fn update_game_state(
         renderer.set_vsync(ui_state.enable_vsync, surface_data);
 
         renderer.set_culling_frustum_lock(
-            &engine_state,
+            engine_state,
             (
                 surface_data.surface_config.width,
                 surface_data.surface_config.height,
@@ -1991,7 +1991,7 @@ pub fn update_game_state(
         );
     }
 
-    game_state.ui_overlay.update(&window, control_flow);
+    game_state.ui_overlay.update(window, control_flow);
 
     {
         let viewport_dims = (

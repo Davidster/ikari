@@ -1,18 +1,18 @@
-use std::borrow::Cow;
+
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
 use glam::Vec3;
 use iced::alignment::Horizontal;
-use iced::font::Family;
+
 use iced::widget::{
     canvas, checkbox, container, radio, scrollable, slider, text, Button, Column, Container, Row,
     Text,
 };
-use iced::{mouse, Background, Command, Element, Font, Length, Rectangle, Size, Theme};
+use iced::{mouse, Background, Command, Element, Length, Rectangle, Theme};
 use iced_aw::{floating_element, Modal};
-use iced_winit::{runtime, Clipboard, Viewport};
+use iced_winit::{runtime};
 use ikari::file_loader::GameFilePath;
 use ikari::math::rad_to_deg;
 use ikari::player_controller::ControlledViewDirection;
@@ -26,7 +26,7 @@ use ikari::ui::GpuTimerScopeResultWrapper;
 use plotters::prelude::*;
 use plotters::style::RED;
 use plotters_iced::{Chart, ChartWidget, DrawingBackend};
-use winit::{event::WindowEvent, window::Window};
+
 
 use ikari::time::Duration;
 

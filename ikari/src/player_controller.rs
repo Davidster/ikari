@@ -4,7 +4,7 @@ use crate::physics::*;
 use crate::renderer::*;
 use crate::time::*;
 use crate::transform::*;
-use crate::ui::*;
+
 
 use rapier3d_f64::prelude::*;
 
@@ -162,7 +162,7 @@ impl PlayerController {
     pub fn process_window_events(
         &mut self,
         event: &WindowEvent,
-        window: &Window,
+        _window: &Window,
         // ui_overlay: &mut IkariUiContainer,
     ) {
         // let is_showing_options_menu = ui_overlay.get_state().is_showing_options_menu;
