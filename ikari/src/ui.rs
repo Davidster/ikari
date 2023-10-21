@@ -144,7 +144,10 @@ where
         queue: &wgpu::Queue,
         surface_format: wgpu::TextureFormat,
         state: UiOverlay,
+        // TODO: this only works if the font matches the weight, stretch, style and monospacedness of
+        // iced_core::Font::DEFAULT
         default_font: Option<(&'static str, &'static [u8])>,
+        extra_fonts: Vec<(&'static str, &'static [u8])>,
     ) -> Self {
         let viewport = Viewport::with_physical_size(
             Size::new(window.inner_size().width, window.inner_size().height),
@@ -183,6 +186,11 @@ where
             if let Some((_, font_bytes)) = default_font {
                 renderer.load_font(Cow::from(font_bytes));
             }
+
+            for (_, font_bytes) in extra_fonts {
+                renderer.load_font(Cow::from(font_bytes));
+            }
+
             // TODO: this should be supplied by the user. ikari shouldn't depend on iced_aw.
             renderer.load_font(Cow::from(iced_aw::graphics::icons::ICON_FONT_BYTES));
         }

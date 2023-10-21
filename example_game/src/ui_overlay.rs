@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 use glam::Vec3;
 use iced::alignment::Horizontal;
+use iced::Font;
 
 use iced::widget::{
     canvas, checkbox, container, radio, scrollable, slider, text, Button, Column, Container, Row,
@@ -42,6 +43,9 @@ use crate::game::INITIAL_SOFT_SHADOW_GRID_DIMS;
 
 pub const DEFAULT_FONT_BYTES: &[u8] = include_bytes!("./fonts/Lato-Regular.ttf");
 pub const DEFAULT_FONT_NAME: &str = "Lato";
+
+pub const KOOKY_FONT_BYTES: &[u8] = include_bytes!("./fonts/Pacifico-Regular.ttf");
+pub const KOOKY_FONT_NAME: &str = "Pacifico";
 
 const FRAME_TIME_HISTORY_SIZE: usize = 720;
 
@@ -193,7 +197,6 @@ impl Chart<Message> for FpsChart {
                 filled: false,
                 stroke_width: 2,
             };
-            // TODO: verify that it's actually using the correct font here
             let axis_labels_style = (DEFAULT_FONT_NAME, 16, &WHITE);
 
             chart
@@ -787,7 +790,7 @@ impl runtime::Program for UiOverlay {
             );
 
             iced_aw::Card::new(
-                Text::new("Options"),
+                Text::new("Options").font(Font::with_name(KOOKY_FONT_NAME)),
                 scrollable(options)
                     .height(Length::Fixed(self.viewport_dims.1 as f32 * 0.75 - 50.0)),
             )

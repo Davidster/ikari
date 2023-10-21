@@ -8,6 +8,8 @@ use crate::ui_overlay::Message;
 use crate::ui_overlay::UiOverlay;
 use crate::ui_overlay::DEFAULT_FONT_BYTES;
 use crate::ui_overlay::DEFAULT_FONT_NAME;
+use crate::ui_overlay::KOOKY_FONT_BYTES;
+use crate::ui_overlay::KOOKY_FONT_NAME;
 
 use std::{collections::hash_map::Entry, sync::Arc};
 
@@ -1054,6 +1056,7 @@ pub async fn init_game_state(
             surface_format,
             UiOverlay::new(window),
             Some((DEFAULT_FONT_NAME, DEFAULT_FONT_BYTES)),
+            vec![(KOOKY_FONT_NAME, KOOKY_FONT_BYTES)],
         )
     };
 
@@ -1880,7 +1883,6 @@ pub fn update_game_state(
     }
 
     // step animatons
-    // TODO: move this into the engine?
     let scene = &mut engine_state.scene;
     if game_state.is_playing_animations {
         step_animations(scene, frame_time_seconds)
@@ -1892,8 +1894,6 @@ pub fn update_game_state(
 
     {
         profiling::scope!("Sync UI");
-        // sync UI
-        // TODO: move this into a function in game module?
 
         let mut renderer_data_guard = renderer.data.lock().unwrap();
 
