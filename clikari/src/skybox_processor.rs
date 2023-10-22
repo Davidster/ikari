@@ -4,6 +4,7 @@ use ikari::{
     file_manager::native_fs,
     renderer::{
         BaseRenderer, BindedSkybox, Renderer, SkyboxBackgroundPath, SkyboxEnvironmentHDRPath,
+        SkyboxPaths,
     },
     texture::RawImage,
     texture_compression::TextureCompressionArgs,
@@ -36,15 +37,12 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
     let base_renderer = BaseRenderer::offscreen(backends, Some(DXC_PATH.into())).await?;
     let renderer = Renderer::new(base_renderer, wgpu::TextureFormat::Bgra8Unorm, (1, 1)).await?;
 
-    let bindable_skybox = ikari::asset_loader::make_bindable_skybox(
-        &SkyboxBackgroundPath::Equirectangular(PATH_MAKER.make(args.background_path)),
-        args.environment_hdr_path
-            .as_ref()
-            .map(|environment_hdr_path| {
-                SkyboxEnvironmentHDRPath::Equirectangular(PATH_MAKER.make(environment_hdr_path))
-            })
-            .as_ref(),
-    )
+    let bindable_skybox = ikari::asset_loader::make_bindable_skybox(&SkyboxPaths {
+        background: SkyboxBackgroundPath::Equirectangular(PATH_MAKER.make(args.background_path)),
+        environment_hdr: args.environment_hdr_path.map(|environment_hdr_path| {
+            SkyboxEnvironmentHDRPath::Equirectangular(PATH_MAKER.make(environment_hdr_path))
+        }),
+    })
     .await?;
 
     let binded_skybox =

@@ -321,7 +321,7 @@ pub async fn init_game_state(
 
             let mut asset_id_map_guard = asset_id_map.lock().unwrap();
 
-            let mut gltf_paths = vec![];
+            let mut gltf_paths = Vec::new();
 
             // player's revolver
             // https://done3d.com/colt-python-8-inch/
@@ -348,7 +348,7 @@ pub async fn init_game_state(
                 );
             }
 
-            let mut audio_load_params = vec![];
+            let mut audio_load_params = Vec::new();
 
             audio_load_params.push(AudioAssetLoadParams {
                 path: GAME_PATH_MAKER.make("src/sounds/bgm.mp3"),

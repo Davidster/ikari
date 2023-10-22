@@ -18,7 +18,7 @@ use anyhow::bail;
 use anyhow::Result;
 use image::Pixel;
 use std::collections::{hash_map::Entry, HashMap};
-use std::path::PathBuf;
+
 use std::sync::{Arc, Mutex};
 
 #[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -696,7 +696,7 @@ impl TimeSlicedSceneBinder {
         {
             let staged_scene =
                 staged_scenes
-                    .entry(scene_id.clone())
+                    .entry(scene_id)
                     .or_insert_with(|| BindedSceneData {
                         binded_pbr_meshes: Vec::with_capacity(
                             bindable_scene.bindable_pbr_meshes.len(),
@@ -764,7 +764,7 @@ impl BindScene for TimeSlicedSceneBinder {
         let scene_ids: Vec<_> = bindable_scenes_guard.keys().cloned().collect();
         for scene_id in scene_ids {
             while start_time.elapsed().as_secs_f32() < SLICE_BUDGET_SECONDS {
-                let scene_id = scene_id.clone();
+                let scene_id = scene_id;
 
                 let (scene, bindable_scene) = bindable_scenes_guard.remove(&scene_id).unwrap();
 
@@ -772,7 +772,7 @@ impl BindScene for TimeSlicedSceneBinder {
                     &base_renderer,
                     &mut self.texture_bind_group_cache.lock().unwrap(),
                     &mut self.staged_scenes.lock().unwrap(),
-                    scene_id.clone(),
+                    scene_id,
                     &bindable_scene,
                 );
                 match binded_scene_result {
@@ -971,7 +971,7 @@ impl BindSkybox for TimeSlicedSkyboxBinder {
                             .loaded_skyboxes
                             .lock()
                             .unwrap()
-                            .insert(next_skybox_id.clone(), result);
+                            .insert(next_skybox_id, result);
                     }
                     Err(err) => {
                         log::error!(
