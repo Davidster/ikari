@@ -314,6 +314,7 @@ pub async fn init_game_state(
     let asset_id_map_clone = asset_id_map.clone();
 
     ikari::thread::spawn(move || {
+        #[allow(clippy::vec_init_then_push)]
         ikari::block_on(async move {
             // ikari::thread::sleep_async(ikari::time::Duration::from_secs_f32(5.0)).await;
 
