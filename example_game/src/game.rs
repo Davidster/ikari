@@ -10,7 +10,8 @@ use crate::ui_overlay::DEFAULT_FONT_BYTES;
 use crate::ui_overlay::DEFAULT_FONT_NAME;
 use crate::ui_overlay::KOOKY_FONT_BYTES;
 
-
+use std::collections::HashMap;
+use std::sync::Mutex;
 use std::{collections::hash_map::Entry, sync::Arc};
 
 use anyhow::Result;
@@ -21,6 +22,7 @@ use ikari::animation::step_animations;
 use ikari::animation::LoopType;
 use ikari::asset_loader::AssetBinder;
 use ikari::asset_loader::AssetLoader;
+use ikari::asset_loader::AudioAssetLoadParams;
 use ikari::audio::AudioFileFormat;
 use ikari::audio::SoundParams;
 use ikari::engine_state::EngineState;
@@ -38,9 +40,10 @@ use ikari::physics::PhysicsState;
 use ikari::player_controller::ControlledViewDirection;
 use ikari::player_controller::PlayerController;
 use ikari::renderer::RendererData;
+use ikari::renderer::SkyboxPaths;
 use ikari::renderer::SkyboxSlot;
 use ikari::renderer::{
-    BaseRenderer, Renderer, SkyboxBackgroundPath, SkyboxHDREnvironmentPath, SurfaceData,
+    BaseRenderer, Renderer, SkyboxBackgroundPath, SkyboxEnvironmentHDRPath, SurfaceData,
 };
 use ikari::sampler_cache::SamplerDescriptor;
 use ikari::scene::GameNodeDescBuilder;
@@ -95,10 +98,10 @@ lazy_static::lazy_static! {
 
 // order of the images for a cubemap is documented here:
 // https://www.khronos.org/opengl/wiki/Cubemap_Texture
-pub fn get_skybox_path() -> (SkyboxBackgroundPath, Option<SkyboxHDREnvironmentPath>) {
+pub fn get_skybox_path() -> SkyboxPaths {
     // Mountains
     // src: https://github.com/JoeyDeVries/LearnOpenGL/tree/master/resources/textures/skybox
-    let _skybox_background = SkyboxBackgroundPath::Cube([
+    let _background = SkyboxBackgroundPath::Cube([
         GAME_PATH_MAKER.make("src/textures/skybox/right.jpg"),
         GAME_PATH_MAKER.make("src/textures/skybox/left.jpg"),
         GAME_PATH_MAKER.make("src/textures/skybox/top.jpg"),
@@ -106,32 +109,32 @@ pub fn get_skybox_path() -> (SkyboxBackgroundPath, Option<SkyboxHDREnvironmentPa
         GAME_PATH_MAKER.make("src/textures/skybox/front.jpg"),
         GAME_PATH_MAKER.make("src/textures/skybox/back.jpg"),
     ]);
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> = None;
+    let _environment_hdr: Option<SkyboxEnvironmentHDRPath> = None;
 
     // Newport Loft
     // src: http://www.hdrlabs.com/sibl/archive/
-    let _skybox_background = SkyboxBackgroundPath::Equirectangular(
+    let _background = SkyboxBackgroundPath::Equirectangular(
         GAME_PATH_MAKER.make("src/textures/newport_loft/background.jpg"),
     );
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> =
-        Some(SkyboxHDREnvironmentPath::Equirectangular(
+    let _environment_hdr: Option<SkyboxEnvironmentHDRPath> =
+        Some(SkyboxEnvironmentHDRPath::Equirectangular(
             GAME_PATH_MAKER.make("src/textures/newport_loft/radiance.hdr"),
         ));
 
     // Milkyway
     // src: http://www.hdrlabs.com/sibl/archive/
-    let _skybox_background = SkyboxBackgroundPath::Equirectangular(
+    let _background = SkyboxBackgroundPath::Equirectangular(
         GAME_PATH_MAKER.make("src/textures/milkyway/background.jpg"),
     );
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> =
-        Some(SkyboxHDREnvironmentPath::Equirectangular(
+    let _environment_hdr: Option<SkyboxEnvironmentHDRPath> =
+        Some(SkyboxEnvironmentHDRPath::Equirectangular(
             GAME_PATH_MAKER.make("src/textures/milkyway/radiance.hdr"),
         ));
 
     let preprocessed_skybox_folder = "milkyway";
     // let preprocessed_skybox_folder = "photosphere_small";
 
-    let skybox_background = SkyboxBackgroundPath::ProcessedCube([
+    let background = SkyboxBackgroundPath::ProcessedCube([
         GAME_PATH_MAKER.make(format!(
             "src/skyboxes/{preprocessed_skybox_folder}/background/pos_x.png"
         )),
@@ -151,8 +154,8 @@ pub fn get_skybox_path() -> (SkyboxBackgroundPath, Option<SkyboxHDREnvironmentPa
             "src/skyboxes/{preprocessed_skybox_folder}/background/neg_z.png"
         )),
     ]);
-    let skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> =
-        Some(SkyboxHDREnvironmentPath::ProcessedCube {
+    let environment_hdr: Option<SkyboxEnvironmentHDRPath> =
+        Some(SkyboxEnvironmentHDRPath::ProcessedCube {
             diffuse: GAME_PATH_MAKER.make(format!(
                 "src/skyboxes/{preprocessed_skybox_folder}/diffuse_environment_map_compressed.bin"
             )),
@@ -163,12 +166,15 @@ pub fn get_skybox_path() -> (SkyboxBackgroundPath, Option<SkyboxHDREnvironmentPa
 
     // My photosphere pic
     // src: me
-    let _skybox_background = SkyboxBackgroundPath::Equirectangular(
+    let _background = SkyboxBackgroundPath::Equirectangular(
         GAME_PATH_MAKER.make("src/textures/photosphere_skybox_small.jpg"),
     );
-    let _skybox_hdr_environment: Option<SkyboxHDREnvironmentPath> = None;
+    let _environment_hdr: Option<SkyboxEnvironmentHDRPath> = None;
 
-    (skybox_background, skybox_hdr_environment)
+    SkyboxPaths {
+        background,
+        environment_hdr,
+    }
 }
 
 fn get_misc_gltf_path() -> &'static str {
@@ -304,58 +310,85 @@ pub async fn init_game_state(
 
     let asset_loader_clone = asset_loader.clone();
     let asset_binder = WasmNotArc::new(AssetBinder::new());
+    let asset_id_map = Arc::new(Mutex::new(HashMap::new()));
+    let asset_id_map_clone = asset_id_map.clone();
 
     ikari::thread::spawn(move || {
         ikari::block_on(async move {
-            // crate::thread::sleep_async(crate::time::Duration::from_secs_f32(5.0)).await;
+            // ikari::thread::sleep_async(ikari::time::Duration::from_secs_f32(5.0)).await;
 
             // load in gltf files
 
+            let mut asset_id_map_guard = asset_id_map.lock().unwrap();
+
+            let mut gltf_paths = vec![];
+
             // player's revolver
             // https://done3d.com/colt-python-8-inch/
-            asset_loader.load_gltf_scene(
-                GAME_PATH_MAKER.make("src/models/gltf/ColtPython/colt_python.glb"),
-            );
+            gltf_paths.push("src/models/gltf/ColtPython/colt_python.glb");
+
             // forest
             // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
-            asset_loader.load_gltf_scene(
-                GAME_PATH_MAKER.make("src/models/gltf/free_low_poly_forest/scene.glb"),
-            );
+            gltf_paths.push("src/models/gltf/free_low_poly_forest/scene.glb");
+
             // legendary robot
             // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-            asset_loader.load_gltf_scene(
-                GAME_PATH_MAKER.make("src/models/gltf/LegendaryRobot/Legendary_Robot.glb"),
-            );
-            // maze
-            asset_loader
-                .load_gltf_scene(GAME_PATH_MAKER.make("src/models/gltf/TestLevel/test_level.glb"));
-            // other
-            // asset_loader.load_gltf_scene(get_misc_gltf_path());
+            gltf_paths.push("src/models/gltf/LegendaryRobot/Legendary_Robot.glb");
 
-            asset_loader.load_audio(
-                GAME_PATH_MAKER.make("src/sounds/bgm.mp3"),
-                AudioFileFormat::Mp3,
-                SoundParams {
+            // maze
+            gltf_paths.push("src/models/gltf/TestLevel/test_level.glb");
+
+            // other
+            // gltf_paths.push(get_misc_gltf_path());
+
+            for path in gltf_paths {
+                asset_id_map_guard.insert(
+                    path.to_string(),
+                    asset_loader.load_gltf_scene(GAME_PATH_MAKER.make(path)),
+                );
+            }
+
+            let mut audio_load_params = vec![];
+
+            audio_load_params.push(AudioAssetLoadParams {
+                path: GAME_PATH_MAKER.make("src/sounds/bgm.mp3"),
+                format: AudioFileFormat::Mp3,
+                sound_params: SoundParams {
                     initial_volume: 0.3,
                     fixed_volume: false,
                     spacial_params: None,
                     stream: !cfg!(target_arch = "wasm32"),
                 },
-            );
-            asset_loader.load_audio(
-                GAME_PATH_MAKER.make("src/sounds/gunshot.wav"),
-                AudioFileFormat::Wav,
-                SoundParams {
+            });
+
+            audio_load_params.push(AudioAssetLoadParams {
+                path: GAME_PATH_MAKER.make("src/sounds/gunshot.wav"),
+                format: AudioFileFormat::Wav,
+                sound_params: SoundParams {
                     initial_volume: 0.4,
                     fixed_volume: true,
                     spacial_params: None,
                     stream: false,
                 },
-            );
+            });
 
-            // crate::thread::sleep_async(crate::time::Duration::from_secs_f32(4.0)).await;
-            let (background, environment_hdr) = get_skybox_path();
-            asset_loader.load_skybox("skybox".to_string(), background, environment_hdr);
+            for audio_load_param in audio_load_params {
+                asset_id_map_guard.insert(
+                    audio_load_param
+                        .path
+                        .relative_path
+                        .to_str()
+                        .unwrap()
+                        .to_string(),
+                    asset_loader.load_audio(audio_load_param),
+                );
+            }
+
+            // ikari::thread::sleep_async(ikari::time::Duration::from_secs_f32(4.0)).await;
+            asset_id_map_guard.insert(
+                "skybox".to_string(),
+                asset_loader.load_skybox(get_skybox_path()),
+            );
         })
     });
 
@@ -398,7 +431,7 @@ pub async fn init_game_state(
         //     1.0,
         // ),
     ];
-    // let point_lights: Vec<(crate::transform::Transform, Vec3, f32)> = vec![];
+    // let point_lights: Vec<(ikari::transform::Transform, Vec3, f32)> = vec![];
 
     let physics_state = &mut engine_state.physics_state;
     let scene = &mut engine_state.scene;
@@ -1098,6 +1131,7 @@ pub async fn init_game_state(
 
         asset_loader: asset_loader_clone,
         asset_binder,
+        asset_id_map: asset_id_map_clone,
 
         ui_overlay,
     })
@@ -1333,198 +1367,211 @@ pub fn update_game_state(
     {
         let loaded_skyboxes = game_state.asset_binder.loaded_skyboxes();
         let mut loaded_skyboxes_guard = loaded_skyboxes.lock().unwrap();
+        let asset_id_map_guard = game_state.asset_id_map.lock().unwrap();
 
-        if let Entry::Occupied(entry) = loaded_skyboxes_guard.entry("skybox".to_string()) {
-            let (_, skybox) = entry.remove_entry();
-            renderer.set_skybox(SkyboxSlot::Two, skybox);
+        if let Some(asset_id) = asset_id_map_guard.get(&"skybox".to_string()) {
+            if let Entry::Occupied(entry) = loaded_skyboxes_guard.entry(*asset_id) {
+                let (_, skybox) = entry.remove_entry();
+                renderer.set_skybox(SkyboxSlot::Two, skybox);
+            }
         }
     }
 
     {
         let loaded_scenes = game_state.asset_binder.loaded_scenes();
         let mut loaded_assets_guard = loaded_scenes.lock().unwrap();
+        let asset_id_map_guard = game_state.asset_id_map.lock().unwrap();
         let mut renderer_data_guard = renderer_data.lock().unwrap();
+
         if game_state.gunshot_sound_index.is_some() {
-            if let Entry::Occupied(entry) =
-                loaded_assets_guard.entry("src/models/gltf/ColtPython/colt_python.glb".into())
+            if let Some(asset_id) =
+                asset_id_map_guard.get(&"src/models/gltf/ColtPython/colt_python.glb".to_string())
             {
-                let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
+                if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
+                    let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
+                    engine_state.scene.merge_scene(
+                        &mut renderer_data_guard,
+                        other_scene,
+                        other_render_buffers,
+                    );
+
+                    let node_id = engine_state.scene.nodes().last().unwrap().id();
+                    let animation_index = engine_state.scene.animations.len() - 1;
+                    // revolver_indices = Some((revolver_model_node_id, animation_index));
+                    game_state.revolver = Some(Revolver::new(
+                        &mut engine_state.scene,
+                        engine_state.player_node_id,
+                        node_id,
+                        animation_index,
+                        // revolver model
+                        // TransformBuilder::new()
+                        //     .position(Vec3::new(0.21, -0.09, -1.0))
+                        //     .rotation(Quat::from_axis_angle(
+                        //         Vec3::new(0.0, 1.0, 0.0),
+                        //         deg_to_rad(180.0).into(),
+                        //     ))
+                        //     .scale(0.17f32 * Vec3::new(1.0, 1.0, 1.0))
+                        //     .build(),
+                        // colt python model
+                        TransformBuilder::new()
+                            .position(Vec3::new(0.21, -0.13, -1.0))
+                            .rotation(
+                                Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), deg_to_rad(180.0))
+                                    * Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.1),
+                            )
+                            .scale(2.0f32 * Vec3::new(1.0, 1.0, 1.0))
+                            .build(),
+                    ));
+                }
+            }
+        }
+
+        if let Some(asset_id) =
+            asset_id_map_guard.get(&"src/models/gltf/free_low_poly_forest/scene.glb".to_string())
+        {
+            if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
+                let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
+                // hack to get the terrain to be at the same height as the ground.
+                let node_has_parent: Vec<_> = other_scene
+                    .nodes()
+                    .map(|node| node.parent_id.is_some())
+                    .collect();
+                for (i, node) in other_scene.nodes_mut().enumerate() {
+                    if node_has_parent[i] {
+                        continue;
+                    }
+                    node.transform
+                        .set_position(node.transform.position() + Vec3::new(0.0, 29.0, 0.0));
+                }
                 engine_state.scene.merge_scene(
                     &mut renderer_data_guard,
                     other_scene,
                     other_render_buffers,
                 );
 
-                let node_id = engine_state.scene.nodes().last().unwrap().id();
-                let animation_index = engine_state.scene.animations.len() - 1;
-                // revolver_indices = Some((revolver_model_node_id, animation_index));
-                game_state.revolver = Some(Revolver::new(
-                    &mut engine_state.scene,
-                    engine_state.player_node_id,
-                    node_id,
-                    animation_index,
-                    // revolver model
-                    // TransformBuilder::new()
-                    //     .position(Vec3::new(0.21, -0.09, -1.0))
-                    //     .rotation(Quat::from_axis_angle(
-                    //         Vec3::new(0.0, 1.0, 0.0),
-                    //         deg_to_rad(180.0).into(),
-                    //     ))
-                    //     .scale(0.17f32 * Vec3::new(1.0, 1.0, 1.0))
-                    //     .build(),
-                    // colt python model
-                    TransformBuilder::new()
-                        .position(Vec3::new(0.21, -0.13, -1.0))
-                        .rotation(
-                            Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), deg_to_rad(180.0))
-                                * Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.1),
-                        )
-                        .scale(2.0f32 * Vec3::new(1.0, 1.0, 1.0))
-                        .build(),
-                ));
-            }
-        }
-
-        if let Entry::Occupied(entry) =
-            loaded_assets_guard.entry("src/models/gltf/free_low_poly_forest/scene.glb".into())
-        {
-            let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
-            // hack to get the terrain to be at the same height as the ground.
-            let node_has_parent: Vec<_> = other_scene
-                .nodes()
-                .map(|node| node.parent_id.is_some())
-                .collect();
-            for (i, node) in other_scene.nodes_mut().enumerate() {
-                if node_has_parent[i] {
-                    continue;
-                }
-                node.transform
-                    .set_position(node.transform.position() + Vec3::new(0.0, 29.0, 0.0));
-            }
-            engine_state.scene.merge_scene(
-                &mut renderer_data_guard,
-                other_scene,
-                other_render_buffers,
-            );
-
-            if REMOVE_LARGE_OBJECTS_FROM_FOREST {
-                let node_ids: Vec<_> = engine_state.scene.nodes().map(|node| node.id()).collect();
-                for node_id in node_ids {
-                    if let Some(sphere) = engine_state
-                        .scene
-                        .get_node_bounding_sphere(node_id, &renderer_data_guard)
-                    {
-                        if sphere.radius > 10.0 {
-                            engine_state.scene.remove_node(node_id);
+                if REMOVE_LARGE_OBJECTS_FROM_FOREST {
+                    let node_ids: Vec<_> =
+                        engine_state.scene.nodes().map(|node| node.id()).collect();
+                    for node_id in node_ids {
+                        if let Some(sphere) = engine_state
+                            .scene
+                            .get_node_bounding_sphere(node_id, &renderer_data_guard)
+                        {
+                            if sphere.radius > 10.0 {
+                                engine_state.scene.remove_node(node_id);
+                            }
                         }
                     }
                 }
             }
         }
 
-        if let Entry::Occupied(entry) =
-            loaded_assets_guard.entry("src/models/gltf/LegendaryRobot/Legendary_Robot.glb".into())
+        if let Some(asset_id) = asset_id_map_guard
+            .get(&"src/models/gltf/LegendaryRobot/Legendary_Robot.glb".to_string())
         {
-            let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
-            if let Some(jump_up_animation) = other_scene
-                .animations
-                .iter_mut()
-                .find(|animation| animation.name == Some(String::from("jump_up_root_motion")))
-            {
-                jump_up_animation.speed = 0.25;
-                jump_up_animation.state.is_playing = true;
-                jump_up_animation.state.loop_type = LoopType::Wrap;
-            }
-            engine_state.scene.merge_scene(
-                &mut renderer_data_guard,
-                other_scene,
-                other_render_buffers,
-            );
-        }
-
-        if let Entry::Occupied(entry) =
-            loaded_assets_guard.entry("src/models/gltf/TestLevel/test_level.glb".into())
-        {
-            let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
-            let skip_nodes = engine_state.scene.node_count();
-            engine_state.scene.merge_scene(
-                &mut renderer_data_guard,
-                other_scene,
-                other_render_buffers,
-            );
-
-            let test_level_node_ids: Vec<_> = engine_state
-                .scene
-                .nodes()
-                .skip(skip_nodes)
-                .map(|node| node.id())
-                .collect();
-            for node_id in test_level_node_ids {
-                if let Some(_mesh) = engine_state
-                    .scene
-                    .get_node_mut(node_id)
-                    .unwrap()
-                    .mesh
-                    .as_mut()
+            if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
+                let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
+                if let Some(jump_up_animation) = other_scene
+                    .animations
+                    .iter_mut()
+                    .find(|animation| animation.name == Some(String::from("jump_up_root_motion")))
                 {
-                    // mesh.wireframe = true;
+                    jump_up_animation.speed = 0.25;
+                    jump_up_animation.state.is_playing = true;
+                    jump_up_animation.state.loop_type = LoopType::Wrap;
                 }
-                // let transform = &mut engine_state.scene.get_node_mut(node_id).unwrap().transform;
-                // transform.set_position(transform.position() + Vec3::new(0.0, 25.0, 0.0));
-                add_static_box(
-                    &mut engine_state.physics_state,
-                    &engine_state.scene,
-                    &renderer_data_guard,
-                    node_id,
+                engine_state.scene.merge_scene(
+                    &mut renderer_data_guard,
+                    other_scene,
+                    other_render_buffers,
                 );
             }
         }
 
-        if let Entry::Occupied(entry) = loaded_assets_guard.entry(get_misc_gltf_path().into()) {
-            let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
-            for animation in other_scene.animations.iter_mut() {
-                animation.state.is_playing = true;
-                animation.state.loop_type = LoopType::Wrap;
+        if let Some(asset_id) =
+            asset_id_map_guard.get(&"src/models/gltf/TestLevel/test_level.glb".to_string())
+        {
+            if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
+                let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
+                let skip_nodes = engine_state.scene.node_count();
+                engine_state.scene.merge_scene(
+                    &mut renderer_data_guard,
+                    other_scene,
+                    other_render_buffers,
+                );
+
+                let test_level_node_ids: Vec<_> = engine_state
+                    .scene
+                    .nodes()
+                    .skip(skip_nodes)
+                    .map(|node| node.id())
+                    .collect();
+                for node_id in test_level_node_ids {
+                    if let Some(_mesh) = engine_state
+                        .scene
+                        .get_node_mut(node_id)
+                        .unwrap()
+                        .mesh
+                        .as_mut()
+                    {
+                        // mesh.wireframe = true;
+                    }
+                    // let transform = &mut engine_state.scene.get_node_mut(node_id).unwrap().transform;
+                    // transform.set_position(transform.position() + Vec3::new(0.0, 25.0, 0.0));
+                    add_static_box(
+                        &mut engine_state.physics_state,
+                        &engine_state.scene,
+                        &renderer_data_guard,
+                        node_id,
+                    );
+                }
             }
-            engine_state.scene.merge_scene(
-                &mut renderer_data_guard,
-                other_scene,
-                other_render_buffers,
-            );
+        }
+
+        if let Some(asset_id) = asset_id_map_guard.get(&get_misc_gltf_path().to_string()) {
+            if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
+                let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
+                for animation in other_scene.animations.iter_mut() {
+                    animation.state.is_playing = true;
+                    animation.state.loop_type = LoopType::Wrap;
+                }
+                engine_state.scene.merge_scene(
+                    &mut renderer_data_guard,
+                    other_scene,
+                    other_render_buffers,
+                );
+            }
         }
     }
 
-    // if game_state
-    //     .asset_loader
-    //     .pending_gltf_scenes
-    //     .lock()
-    //     .unwrap()
-    //     .is_empty()
     {
         let mut loaded_audio_guard = game_state.asset_loader.loaded_audio.lock().unwrap();
-        // let mut audio_manager_guard = game_state.audio_manager.lock().unwrap();
+        let asset_id_map_guard = game_state.asset_id_map.lock().unwrap();
 
-        if let Entry::Occupied(entry) = loaded_audio_guard.entry("src/sounds/bgm.mp3".into()) {
-            let (_, bgm_sound_index) = entry.remove_entry();
-            game_state.bgm_sound_index = Some(bgm_sound_index);
+        if let Some(asset_id) = asset_id_map_guard.get(&"src/sounds/bgm.mp3".to_string()) {
+            if let Entry::Occupied(entry) = loaded_audio_guard.entry(*asset_id) {
+                let (_, bgm_sound_index) = entry.remove_entry();
+                game_state.bgm_sound_index = Some(bgm_sound_index);
 
-            let audio_manager_clone = engine_state.audio_manager.clone();
-            let bgm_sound_index_clone = bgm_sound_index;
-            ikari::thread::spawn(move || {
-                // #[cfg(not(target_arch = "wasm32"))]
-                // crate::thread::sleep(crate::time::Duration::from_secs_f32(5.0));
+                let audio_manager_clone = engine_state.audio_manager.clone();
+                let bgm_sound_index_clone = bgm_sound_index;
+                ikari::thread::spawn(move || {
+                    // #[cfg(not(target_arch = "wasm32"))]
+                    // ikari::thread::sleep(ikari::time::Duration::from_secs_f32(5.0));
 
-                let mut audio_manager_guard = audio_manager_clone.lock().unwrap();
-                audio_manager_guard.play_sound(bgm_sound_index_clone);
-            });
-            // logger_log("loaded bgm sound");
+                    let mut audio_manager_guard = audio_manager_clone.lock().unwrap();
+                    audio_manager_guard.play_sound(bgm_sound_index_clone);
+                });
+                // logger_log("loaded bgm sound");
+            }
         }
-
-        if let Entry::Occupied(entry) = loaded_audio_guard.entry("src/sounds/gunshot.wav".into()) {
-            let (_, gunshot_sound_index) = entry.remove_entry();
-            game_state.gunshot_sound_index = Some(gunshot_sound_index);
-            // logger_log("loaded gunshot sound");
-            // audio_manager_guard.set_sound_volume(gunshot_sound_index, 0.001);
+        if let Some(asset_id) = asset_id_map_guard.get(&"src/sounds/gunshot.wav".to_string()) {
+            if let Entry::Occupied(entry) = loaded_audio_guard.entry(*asset_id) {
+                let (_, gunshot_sound_index) = entry.remove_entry();
+                game_state.gunshot_sound_index = Some(gunshot_sound_index);
+                // logger_log("loaded gunshot sound");
+                // audio_manager_guard.set_sound_volume(gunshot_sound_index, 0.001);
+            }
         }
     }
 

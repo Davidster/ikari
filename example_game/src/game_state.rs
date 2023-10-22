@@ -1,6 +1,7 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
-use ikari::asset_loader::{AssetBinder, AssetLoader};
+use ikari::asset_loader::{AssetBinder, AssetId, AssetLoader};
 use ikari::scene::GameNodeId;
 use ikari::ui::IkariUiContainer;
 use ikari::wasm_not_sync::WasmNotArc;
@@ -46,6 +47,8 @@ pub struct GameState {
     pub asset_binder: WasmNotArc<AssetBinder>,
 
     pub ui_overlay: IkariUiContainer<UiOverlay>,
+
+    pub asset_id_map: Arc<Mutex<HashMap<String, AssetId>>>,
 }
 
 impl ikari::gameloop::GameState<UiOverlay> for GameState {

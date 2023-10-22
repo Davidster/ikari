@@ -1074,20 +1074,26 @@ pub struct BindedSceneData {
     pub textures: Vec<Texture>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SkyboxBackgroundPath {
     Cube([GameFilePath; 6]),
     ProcessedCube([GameFilePath; 6]),
     Equirectangular(GameFilePath),
 }
 
-#[derive(Debug)]
-pub enum SkyboxHDREnvironmentPath {
+#[derive(Debug, Clone)]
+pub enum SkyboxEnvironmentHDRPath {
     Equirectangular(GameFilePath),
     ProcessedCube {
         diffuse: GameFilePath,
         specular: GameFilePath,
     },
+}
+
+#[derive(Debug, Clone)]
+pub struct SkyboxPaths {
+    pub background: SkyboxBackgroundPath,
+    pub environment_hdr: Option<SkyboxEnvironmentHDRPath>,
 }
 
 #[derive(Debug)]
@@ -1108,6 +1114,7 @@ pub enum BindableSkyboxHDREnvironment {
 
 #[derive(Debug)]
 pub struct BindableSkybox {
+    pub paths: SkyboxPaths,
     pub background: BindableSkyboxBackground,
     pub environment_hdr: Option<BindableSkyboxHDREnvironment>,
 }

@@ -373,6 +373,7 @@ impl AudioManager {
         })
     }
 
+    // TODO: return a SoundId type instead of usize once we can handle the unloading of sounds?
     pub fn add_sound(
         &mut self,
         file_path: GameFilePath,

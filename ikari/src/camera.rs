@@ -147,7 +147,6 @@ pub fn build_cubemap_face_camera_view_directions() -> impl Iterator<Item = Contr
     )
 }
 
-// TODO: use arrays instead of vecs
 pub fn build_cubemap_face_camera_views(
     position: Vec3,
     near_plane_distance: f32,

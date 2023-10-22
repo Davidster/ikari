@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use ikari::{
     file_manager::native_fs,
     renderer::{
-        BaseRenderer, BindedSkybox, Renderer, SkyboxBackgroundPath, SkyboxHDREnvironmentPath,
+        BaseRenderer, BindedSkybox, Renderer, SkyboxBackgroundPath, SkyboxEnvironmentHDRPath,
     },
     texture::RawImage,
     texture_compression::TextureCompressionArgs,
@@ -41,7 +41,7 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
         args.environment_hdr_path
             .as_ref()
             .map(|environment_hdr_path| {
-                SkyboxHDREnvironmentPath::Equirectangular(PATH_MAKER.make(environment_hdr_path))
+                SkyboxEnvironmentHDRPath::Equirectangular(PATH_MAKER.make(environment_hdr_path))
             })
             .as_ref(),
     )
