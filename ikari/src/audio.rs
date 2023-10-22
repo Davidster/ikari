@@ -372,7 +372,6 @@ impl AudioManager {
         })
     }
 
-    // TODO: return a SoundId type instead of usize once we can handle the unloading of sounds?
     pub fn add_sound(
         &mut self,
         file_path: GameFilePath,
@@ -398,7 +397,6 @@ impl AudioManager {
         }
     }
 
-    // TODO: can't reload music. should probably separate sound and music.
     pub fn reload_sound(&mut self, sound_index: usize, params: SoundParams) {
         if let Some(sound) = self.sounds[sound_index].take() {
             let signal = Self::get_signal(&sound.data, params.clone(), self.device_sample_rate);
