@@ -32,6 +32,7 @@ pub struct GameContext<'a, GameState> {
 pub fn run<
     OnUpdateFunction,
     OnWindowEventFunction,
+    OnDeviceEventFunction,
     OnWindowResizeFunction,
     GameStateType,
     UiOverlay,
@@ -44,11 +45,13 @@ pub fn run<
     mut surface_data: SurfaceData,
     mut on_update: OnUpdateFunction,
     mut on_window_event: OnWindowEventFunction,
+    mut on_device_event: OnDeviceEventFunction,
     mut on_window_resize: OnWindowResizeFunction,
     application_start_time: Instant,
 ) where
     OnUpdateFunction: FnMut(GameContext<GameStateType>) + 'static,
     OnWindowEventFunction: FnMut(GameContext<GameStateType>, &winit::event::WindowEvent) + 'static,
+    OnDeviceEventFunction: FnMut(GameContext<GameStateType>, &winit::event::DeviceEvent) + 'static,
     OnWindowResizeFunction:
         FnMut(GameContext<GameStateType>, winit::dpi::PhysicalSize<u32>) + 'static,
     UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + 'static,
@@ -155,8 +158,17 @@ pub fn run<
                 window.request_redraw();
             }
             Event::DeviceEvent { event, .. } => {
-                // TODO: add callback for game to process device events
-                engine_state.player_controller.process_device_events(&event);
+                on_device_event(
+                    GameContext {
+                        game_state: &mut game_state,
+                        engine_state: &mut engine_state,
+                        renderer: &mut renderer,
+                        surface_data: &mut surface_data,
+                        window: &mut window,
+                        control_flow,
+                    },
+                    &event,
+                );
             }
             Event::WindowEvent {
                 event, window_id, ..

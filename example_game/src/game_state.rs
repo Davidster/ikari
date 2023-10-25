@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use ikari::asset_loader::{AssetBinder, AssetId, AssetLoader};
+use ikari::player_controller::PlayerController;
 use ikari::scene::GameNodeId;
 use ikari::ui::IkariUiContainer;
 use ikari::wasm_not_sync::WasmNotArc;
@@ -39,6 +40,7 @@ pub struct GameState {
 
     pub physics_balls: Vec<PhysicsBall>,
 
+    pub player_controller: PlayerController,
     pub character: Option<Character>,
 
     pub cube_mesh: BasicMesh,

@@ -5,17 +5,13 @@ use crate::{
     light::DirectionalLightComponent,
     light::PointLightComponent,
     physics::PhysicsState,
-    player_controller::PlayerController,
-    renderer::{Renderer, SurfaceData},
-    scene::{GameNodeDesc, GameNodeId, Scene},
+    scene::Scene,
     time_tracker::TimeTracker,
 };
 
 pub struct EngineState {
     pub scene: Scene,
     pub(crate) time_tracker: Option<TimeTracker>,
-    pub player_node_id: GameNodeId,
-    pub player_controller: PlayerController, // TODO: move into game_state.rs, but leave the implementation in ikari
     pub physics_state: PhysicsState,
     pub audio_streams: AudioStreams,
     pub audio_manager: Arc<Mutex<AudioManager>>,
@@ -24,35 +20,19 @@ pub struct EngineState {
 }
 
 impl EngineState {
-    pub fn new<F>(
-        init_player_controller: F,
-        _renderer: &Renderer,
-        _surface_data: &SurfaceData,
-        _window: &winit::window::Window,
-    ) -> anyhow::Result<Self>
-    where
-        F: FnOnce(&mut PhysicsState) -> PlayerController,
-    {
-        let mut scene = Scene::default();
-        let mut physics_state = PhysicsState::new();
-
-        let player_node_id = scene.add_node(GameNodeDesc::default()).id();
-        let player_controller = init_player_controller(&mut physics_state);
-
+    pub fn new() -> anyhow::Result<Self> {
         let (audio_manager, audio_streams) = AudioManager::new()?;
 
         let audio_manager_mutex = Arc::new(Mutex::new(audio_manager));
 
         Ok(EngineState {
-            scene,
+            scene: Scene::default(),
             audio_streams,
             audio_manager: audio_manager_mutex,
             point_lights: vec![],
             directional_lights: vec![],
             time_tracker: None,
-            physics_state,
-            player_node_id,
-            player_controller,
+            physics_state: PhysicsState::new(),
         })
     }
 

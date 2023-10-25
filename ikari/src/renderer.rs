@@ -1163,6 +1163,7 @@ pub struct RendererData {
     pub soft_shadow_factor: f32,
     pub enable_shadow_debug: bool,
     pub soft_shadow_grid_dims: u32,
+    pub camera_node_id: Option<GameNodeId>,
 }
 
 pub struct RendererConstantData {
@@ -2544,12 +2545,12 @@ impl Renderer {
             draw_node_bounding_spheres: false,
             draw_culling_frustum: false,
             draw_point_light_culling_frusta: false,
-
             enable_soft_shadows,
             shadow_bias,
             soft_shadow_factor,
             enable_shadow_debug,
             soft_shadow_grid_dims,
+            camera_node_id: None,
         };
 
         let box_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &cube_mesh)
@@ -3298,9 +3299,12 @@ impl Renderer {
     pub fn set_culling_frustum_lock(
         &self,
         engine_state: &EngineState,
-        framebuffer_size: (u32, u32),
+        framebuffer_size: (u32, u32), // TODO: create an engine type (e.g. https://docs.rs/bevy/0.11.3/bevy/window/struct.WindowResolution.html) for window size
         lock_mode: CullingFrustumLockMode,
     ) {
+        let (framebuffer_width, framebuffer_height) = framebuffer_size;
+        let aspect_ratio = framebuffer_width as f32 / framebuffer_height as f32;
+
         let mut private_data_guard = self.private_data.lock().unwrap();
 
         if CullingFrustumLockMode::from(private_data_guard.frustum_culling_lock.clone())
@@ -3309,23 +3313,36 @@ impl Renderer {
             return;
         }
 
-        let (framebuffer_width, framebuffer_height) = framebuffer_size;
-        let aspect_ratio = framebuffer_width as f32 / framebuffer_height as f32;
+        let camera_transform = self
+            .data
+            .lock()
+            .unwrap()
+            .camera_node_id
+            .and_then(|camera_node_id| engine_state.scene.get_node(camera_node_id))
+            .map(|camera_node| camera_node.transform);
+
+        if camera_transform.is_none() {
+            log::error!("Couldn't set the frustum culling lock as there is currently no camera");
+            return;
+        }
+
+        let camera_transform = camera_transform.unwrap();
 
         let position = match private_data_guard.frustum_culling_lock {
             CullingFrustumLock::Full(desc) => desc.focal_point,
             CullingFrustumLock::FocalPoint(locked_focal_point) => locked_focal_point,
-            CullingFrustumLock::None => engine_state
-                .player_controller
-                .position(&engine_state.physics_state),
+            CullingFrustumLock::None => camera_transform.position(),
         };
 
         private_data_guard.frustum_culling_lock = match lock_mode {
-            CullingFrustumLockMode::Full => CullingFrustumLock::Full(
-                engine_state
-                    .player_controller
-                    .view_frustum_with_position(aspect_ratio, position),
-            ),
+            CullingFrustumLockMode::Full => CullingFrustumLock::Full(CameraFrustumDescriptor {
+                focal_point: camera_transform.position(),
+                forward_vector: (-camera_transform.z_axis).into(),
+                aspect_ratio,
+                near_plane_distance: NEAR_PLANE_DISTANCE,
+                far_plane_distance: FAR_PLANE_DISTANCE,
+                fov_y_rad: deg_to_rad(FOV_Y_DEG),
+            }),
             CullingFrustumLockMode::FocalPoint => CullingFrustumLock::FocalPoint(position),
             CullingFrustumLockMode::None => CullingFrustumLock::None,
         };
@@ -3601,17 +3618,31 @@ impl Renderer {
 
         let (framebuffer_width, framebuffer_height) = framebuffer_size;
         let aspect_ratio = framebuffer_width as f32 / framebuffer_height as f32;
-        let camera_position = engine_state
-            .player_controller
-            .position(&engine_state.physics_state);
+
+        let camera_transform = data
+            .camera_node_id
+            .and_then(|camera_node_id| engine_state.scene.get_node(camera_node_id))
+            .map(|camera_node| camera_node.transform)
+            .unwrap_or_default();
+
+        let camera_position = camera_transform.position();
+
+        let camera_frustum_desc = CameraFrustumDescriptor {
+            focal_point: camera_position,
+            forward_vector: (-camera_transform.z_axis).into(),
+            aspect_ratio,
+            near_plane_distance: NEAR_PLANE_DISTANCE,
+            far_plane_distance: FAR_PLANE_DISTANCE,
+            fov_y_rad: deg_to_rad(FOV_Y_DEG),
+        };
+
         let culling_frustum_desc = match private_data.frustum_culling_lock {
             CullingFrustumLock::Full(locked) => locked,
-            CullingFrustumLock::FocalPoint(locked_position) => engine_state
-                .player_controller
-                .view_frustum_with_position(aspect_ratio, locked_position),
-            CullingFrustumLock::None => engine_state
-                .player_controller
-                .view_frustum_with_position(aspect_ratio, camera_position),
+            CullingFrustumLock::FocalPoint(locked_position) => CameraFrustumDescriptor {
+                focal_point: locked_position,
+                ..camera_frustum_desc
+            },
+            CullingFrustumLock::None => camera_frustum_desc,
         };
 
         let culling_frustum = Frustum::from(culling_frustum_desc);
@@ -4146,11 +4177,8 @@ impl Renderer {
         // collect all camera data
 
         // main camera
-        let player_transform = engine_state
-            .scene
-            .get_global_transform_for_node(engine_state.player_node_id);
         all_camera_data.push(ShaderCameraData::from_mat4(
-            player_transform.into(),
+            camera_transform.into(),
             aspect_ratio,
             NEAR_PLANE_DISTANCE,
             FAR_PLANE_DISTANCE,

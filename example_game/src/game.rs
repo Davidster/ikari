@@ -46,6 +46,7 @@ use ikari::renderer::{
     BaseRenderer, Renderer, SkyboxBackgroundPath, SkyboxEnvironmentHDRPath, SurfaceData,
 };
 use ikari::sampler_cache::SamplerDescriptor;
+use ikari::scene::GameNodeDesc;
 use ikari::scene::GameNodeDescBuilder;
 use ikari::scene::GameNodeId;
 use ikari::scene::GameNodeMesh;
@@ -242,27 +243,6 @@ async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
     )
 }
 
-pub fn init_player_controller(physics_state: &mut PhysicsState) -> PlayerController {
-    PlayerController::new(
-        physics_state,
-        6.0,
-        Vec3::new(8.0, 30.0, -13.0),
-        ControlledViewDirection {
-            horizontal: deg_to_rad(180.0),
-            vertical: 0.0,
-        },
-        ColliderBuilder::capsule_y(0.5, 0.25)
-            .restitution_combine_rule(CoefficientCombineRule::Min)
-            .friction_combine_rule(CoefficientCombineRule::Min)
-            .collision_groups(
-                InteractionGroups::all().with_memberships(COLLISION_GROUP_PLAYER_UNSHOOTABLE),
-            )
-            .friction(0.0)
-            .restitution(0.0)
-            .build(),
-    )
-}
-
 pub async fn init_game_state(
     engine_state: &mut EngineState,
     renderer: &mut Renderer,
@@ -436,6 +416,28 @@ pub async fn init_game_state(
 
     let physics_state = &mut engine_state.physics_state;
     let scene = &mut engine_state.scene;
+
+    let player_node_id = scene.add_node(GameNodeDesc::default()).id();
+    let player_controller = PlayerController::new(
+        physics_state,
+        6.0,
+        Vec3::new(8.0, 30.0, -13.0),
+        ControlledViewDirection {
+            horizontal: deg_to_rad(180.0),
+            vertical: 0.0,
+        },
+        ColliderBuilder::capsule_y(0.5, 0.25)
+            .restitution_combine_rule(CoefficientCombineRule::Min)
+            .friction_combine_rule(CoefficientCombineRule::Min)
+            .collision_groups(
+                InteractionGroups::all().with_memberships(COLLISION_GROUP_PLAYER_UNSHOOTABLE),
+            )
+            .friction(0.0)
+            .restitution(0.0)
+            .build(),
+    );
+
+    renderer.data.lock().unwrap().camera_node_id = Some(player_node_id);
 
     let point_light_unlit_mesh_index = Renderer::bind_basic_unlit_mesh(
         &renderer.base,
@@ -1126,6 +1128,8 @@ pub async fn init_game_state(
 
         physics_balls,
 
+        // player_node_id,
+        player_controller,
         character: None,
 
         cube_mesh,
@@ -1165,11 +1169,11 @@ pub fn process_window_input(
                     !game_state.ui_overlay.get_state().is_showing_options_menu;
                 let is_showing_cursor_marker =
                     !game_state.ui_overlay.get_state().is_showing_cursor_marker;
-                engine_state.player_controller.update_cursor_grab(
+                game_state.player_controller.update_cursor_grab(
                     !new_is_showing_options_menu && !is_showing_cursor_marker,
                     window,
                 );
-                engine_state
+                game_state
                     .player_controller
                     .set_is_controlling_game(!new_is_showing_options_menu);
 
@@ -1248,7 +1252,7 @@ pub fn process_window_input(
                 !game_state.ui_overlay.get_state().is_showing_options_menu;
             let is_showing_cursor_marker =
                 !game_state.ui_overlay.get_state().is_showing_cursor_marker;
-            engine_state.player_controller.update_cursor_grab(
+            game_state.player_controller.update_cursor_grab(
                 !new_is_showing_options_menu && !is_showing_cursor_marker,
                 window,
             );
@@ -1262,7 +1266,7 @@ pub fn process_window_input(
                 !game_state.ui_overlay.get_state().is_showing_options_menu;
             let is_showing_cursor_marker =
                 !game_state.ui_overlay.get_state().is_showing_cursor_marker;
-            engine_state.player_controller.update_cursor_grab(
+            game_state.player_controller.update_cursor_grab(
                 !new_is_showing_options_menu && !is_showing_cursor_marker,
                 window,
             );
@@ -1270,11 +1274,18 @@ pub fn process_window_input(
         _ => {}
     };
 
-    engine_state
+    game_state
         .player_controller
-        .process_window_events(event, window);
+        .process_window_event(event, window);
 
     game_state.ui_overlay.handle_window_event(window, event);
+}
+
+pub fn process_device_input(
+    GameContext { game_state, .. }: GameContext<GameState>,
+    event: &winit::event::DeviceEvent,
+) {
+    game_state.player_controller.process_device_event(event);
 }
 
 pub fn handle_window_resize(
@@ -1384,7 +1395,10 @@ pub fn update_game_state(
         let asset_id_map_guard = game_state.asset_id_map.lock().unwrap();
         let mut renderer_data_guard = renderer_data.lock().unwrap();
 
-        if game_state.gunshot_sound_index.is_some() {
+        if let (Some(_gunshot_sound_index), Some(camera_node_id)) = (
+            game_state.gunshot_sound_index,
+            renderer_data_guard.camera_node_id,
+        ) {
             if let Some(asset_id) =
                 asset_id_map_guard.get(&"src/models/gltf/ColtPython/colt_python.glb".to_string())
             {
@@ -1401,7 +1415,7 @@ pub fn update_game_state(
                     // revolver_indices = Some((revolver_model_node_id, animation_index));
                     game_state.revolver = Some(Revolver::new(
                         &mut engine_state.scene,
-                        engine_state.player_node_id,
+                        camera_node_id,
                         node_id,
                         animation_index,
                         // revolver model
@@ -1623,7 +1637,7 @@ pub fn update_game_state(
 
     engine_state.physics_state.step();
 
-    engine_state
+    game_state
         .player_controller
         .update(&mut engine_state.physics_state);
     // logger_log(&format!(
@@ -1631,11 +1645,13 @@ pub fn update_game_state(
     //     game_state.camera_controller.current_pose
     // ));
 
-    let new_player_transform = engine_state
+    let new_player_transform = game_state
         .player_controller
         .transform(&engine_state.physics_state);
-    if let Some(player_transform) = engine_state.scene.get_node_mut(engine_state.player_node_id) {
-        player_transform.transform = new_player_transform;
+    if let Some(camera_node_id) = renderer_data.lock().unwrap().camera_node_id {
+        if let Some(player_transform) = engine_state.scene.get_node_mut(camera_node_id) {
+            player_transform.transform = new_player_transform;
+        }
     }
 
     // update ball positions
@@ -1832,11 +1848,11 @@ pub fn update_game_state(
 
     if let Some(revolver) = game_state.revolver.as_mut() {
         revolver.update(
-            engine_state.player_controller.view_direction,
+            game_state.player_controller.view_direction,
             &mut engine_state.scene,
         );
 
-        if engine_state.player_controller.mouse_button_pressed
+        if game_state.player_controller.mouse_button_pressed
             && revolver.fire(&mut engine_state.scene)
         {
             /* if let Some(bgm_sound_index) = game_state.bgm_sound_index {
@@ -1867,10 +1883,10 @@ pub fn update_game_state(
             }
 
             // logger_log("Fired!");
-            let player_position = engine_state
+            let player_position = game_state
                 .player_controller
                 .position(&engine_state.physics_state);
-            let direction_vec = engine_state.player_controller.view_direction.to_vector();
+            let direction_vec = game_state.player_controller.view_direction.to_vector();
             let ray = Ray::new(
                 point![
                     player_position.x as f64,
@@ -1994,10 +2010,10 @@ pub fn update_game_state(
             }
         }
 
-        let camera_position = engine_state
+        let camera_position = game_state
             .player_controller
             .position(&engine_state.physics_state);
-        let camera_view_direction = engine_state.player_controller.view_direction;
+        let camera_view_direction = game_state.player_controller.view_direction;
         game_state
             .ui_overlay
             .queue_message(Message::CameraPoseChanged((
@@ -2021,6 +2037,8 @@ pub fn update_game_state(
             ui_state.draw_point_light_culling_frusta;
         renderer.set_skybox_weights([1.0 - ui_state.skybox_weight, ui_state.skybox_weight]);
         renderer.set_vsync(ui_state.enable_vsync, surface_data);
+
+        drop(renderer_data_guard);
 
         renderer.set_culling_frustum_lock(
             engine_state,

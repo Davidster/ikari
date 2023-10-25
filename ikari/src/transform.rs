@@ -14,7 +14,7 @@ pub struct SimpleTransform {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Default)]
 pub struct Transform(pub Affine3A);
 
 impl Deref for Transform {

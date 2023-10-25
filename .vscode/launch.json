@@ -12,8 +12,7 @@
         "args": [
           "build",
           "--release",
-          "--bin=example_game",
-          "--package=ikari"
+          "--bin=example_game"
         ],
         "filter": {
           "name": "example_game",

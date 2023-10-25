@@ -136,7 +136,7 @@ impl PlayerController {
         self.speed = (self.speed + (direction * amount)).clamp(0.5, 300.0);
     }
 
-    pub fn process_device_events(&mut self, event: &DeviceEvent) {
+    pub fn process_device_event(&mut self, event: &DeviceEvent) {
         if !self.is_controlling_game() {
             return;
         }
@@ -158,7 +158,7 @@ impl PlayerController {
         };
     }
 
-    pub fn process_window_events(
+    pub fn process_window_event(
         &mut self,
         event: &WindowEvent,
         _window: &Window,
