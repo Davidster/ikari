@@ -211,8 +211,6 @@ pub struct BindablePbrMesh {
     pub primitive_mode: PrimitiveMode,
 }
 
-// TODO: store a global list of GeometryBuffers, and store indices into them in BindedPbrMesh and BindedUnlitMesh.
-//       this would not work if the Vertex attributes / format every becomes different between these two shaders
 #[derive(Debug)]
 pub struct BindedPbrMesh {
     pub geometry_buffers: BindedGeometryBuffers,
