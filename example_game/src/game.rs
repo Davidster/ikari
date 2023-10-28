@@ -57,7 +57,6 @@ use ikari::transform::Transform;
 use ikari::transform::TransformBuilder;
 use ikari::ui::IkariUiContainer;
 use ikari::wasm_not_sync::WasmNotArc;
-use winit::event::MouseButton;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
 pub const INITIAL_ENABLE_VSYNC: bool = true;
@@ -1163,6 +1162,7 @@ pub fn process_window_input(
     }: GameContext<GameState>,
     event: &winit::event::WindowEvent,
 ) {
+    #[allow(clippy::single_match)]
     match event {
         WindowEvent::KeyboardInput {
             input:
@@ -1174,18 +1174,6 @@ pub fn process_window_input(
             ..
         } => {
             if *state == ElementState::Pressed && *keycode == VirtualKeyCode::Tab {
-                let new_is_showing_options_menu =
-                    !game_state.ui_overlay.get_state().is_showing_options_menu;
-                let is_showing_cursor_marker =
-                    !game_state.ui_overlay.get_state().is_showing_cursor_marker;
-                game_state.player_controller.update_cursor_grab(
-                    !new_is_showing_options_menu && !is_showing_cursor_marker,
-                    window,
-                );
-                game_state
-                    .player_controller
-                    .set_is_controlling_game(!new_is_showing_options_menu);
-
                 game_state
                     .ui_overlay
                     .queue_message(Message::TogglePopupMenu);
@@ -1255,30 +1243,6 @@ pub fn process_window_input(
                     _ => {}
                 }
             }
-        }
-        WindowEvent::Focused(_focused) => {
-            let new_is_showing_options_menu =
-                !game_state.ui_overlay.get_state().is_showing_options_menu;
-            let is_showing_cursor_marker =
-                !game_state.ui_overlay.get_state().is_showing_cursor_marker;
-            game_state.player_controller.update_cursor_grab(
-                !new_is_showing_options_menu && !is_showing_cursor_marker,
-                window,
-            );
-        }
-        WindowEvent::MouseInput {
-            state: _,
-            button: MouseButton::Left,
-            ..
-        } => {
-            let new_is_showing_options_menu =
-                !game_state.ui_overlay.get_state().is_showing_options_menu;
-            let is_showing_cursor_marker =
-                !game_state.ui_overlay.get_state().is_showing_cursor_marker;
-            game_state.player_controller.update_cursor_grab(
-                !new_is_showing_options_menu && !is_showing_cursor_marker,
-                window,
-            );
         }
         _ => {}
     };
@@ -2078,6 +2042,16 @@ pub fn update_game_state(
             .ui_overlay
             .queue_message(Message::CursorPosChanged(cursor_pos));
     }
+
+    let is_showing_options_menu = game_state.ui_overlay.get_state().is_showing_options_menu;
+    let is_showing_cursor_marker = game_state.ui_overlay.get_state().is_showing_cursor_marker;
+    game_state.player_controller.update_cursor_grab(
+        !is_showing_options_menu && !is_showing_cursor_marker,
+        window,
+    );
+    game_state
+        .player_controller
+        .set_is_controlling_game(!is_showing_options_menu);
 }
 
 fn add_static_box(

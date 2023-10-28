@@ -25,6 +25,7 @@ pub struct PlayerController {
     window_focused: bool,
     is_window_focused_and_clicked: bool,
     is_enabled: bool,
+    cached_cursor_grab: bool,
 
     is_forward_pressed: bool,
     is_backward_pressed: bool,
@@ -94,6 +95,7 @@ impl PlayerController {
             window_focused: false,
             is_window_focused_and_clicked: false,
             is_enabled: true,
+            cached_cursor_grab: false,
 
             mouse_button_pressed: false,
 
@@ -243,6 +245,12 @@ impl PlayerController {
 
     pub fn update_cursor_grab(&mut self, grab: bool, window: &Window) {
         let grab = self.is_window_focused_and_clicked && grab;
+
+        if grab == self.cached_cursor_grab {
+            return;
+        }
+
+        self.cached_cursor_grab = grab;
 
         let new_grab_mode = if !grab {
             CursorGrabMode::None
