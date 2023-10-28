@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct GameFilePath {

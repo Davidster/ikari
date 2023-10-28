@@ -2,7 +2,6 @@ use crate::buffer::*;
 use crate::camera::*;
 use crate::collisions::*;
 use crate::engine_state::EngineState;
-use crate::file_manager::FileManager;
 use crate::file_manager::GameFilePath;
 use crate::light::*;
 use crate::math::*;
