@@ -208,7 +208,6 @@ pub struct BindablePbrMesh {
     pub geometry: BindableGeometryBuffers,
     pub material: IndexedPbrMaterial,
     pub dynamic_pbr_params: DynamicPbrParams,
-    pub alpha_mode: AlphaMode,
     pub primitive_mode: PrimitiveMode,
 }
 
@@ -219,7 +218,6 @@ pub struct BindedPbrMesh {
     pub geometry_buffers: BindedGeometryBuffers,
     pub textures_bind_group: WasmNotArc<wgpu::BindGroup>,
     pub dynamic_pbr_params: DynamicPbrParams,
-    pub alpha_mode: AlphaMode,
     pub primitive_mode: PrimitiveMode,
 }
 
@@ -295,12 +293,6 @@ pub struct BindedWireframeMesh {
     pub source_mesh_type: MeshType,
     pub source_mesh_index: usize,
     pub index_buffer: BindedIndexBuffer,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum AlphaMode {
-    Opaque,
-    Mask,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -2718,7 +2710,6 @@ impl Renderer {
             geometry_buffers,
             dynamic_pbr_params,
             textures_bind_group,
-            alpha_mode: AlphaMode::Opaque,
             primitive_mode: PrimitiveMode::Triangles,
         });
         let pbr_mesh_index = data.binded_pbr_meshes.len() - 1;

@@ -15,9 +15,6 @@ use anyhow::{bail, Result};
 use approx::abs_diff_eq;
 use glam::f32::{Mat4, Vec2, Vec3, Vec4};
 
-// TODO: replace with log::debug and use RUST_LOG module filter to view logs?
-const SCENE_LOAD_DEBUG: bool = false;
-
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct ChannelPropertyStr<'a>(&'a str);
 
@@ -87,30 +84,42 @@ pub async fn build_scene(
 
     let meshes: Vec<_> = document.meshes().collect();
 
-    let make_supported_mesh_iterator = || {
-        meshes
-            .iter()
-            .flat_map(|mesh| mesh.primitives().map(|prim| (&meshes[mesh.index()], prim)))
-            .filter(|(_, prim)| {
-                prim.mode() == gltf::mesh::Mode::Triangles
-                    && (prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
-                        || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask)
-            })
-    };
+    let mut supported_meshes = vec![];
 
-    let supported_mesh_count = make_supported_mesh_iterator().count();
+    for mesh in meshes.iter() {
+        for primitive in mesh.primitives() {
+            if primitive.mode() != gltf::mesh::Mode::Triangles {
+                log::warn!(
+                    "{:?}: Primitive mode {:?} is not currently supported. Mesh {:?} will be skipped.",
+                    gltf_path.relative_path,
+                    primitive.mode(),
+                    mesh.index(),
+                );
+                continue;
+            }
 
-    let mut bindable_pbr_meshes: Vec<BindablePbrMesh> = Vec::with_capacity(supported_mesh_count);
+            if primitive.material().alpha_mode() == gltf::material::AlphaMode::Blend {
+                log::warn!(
+                    "{:?}: Loading gltf materials in alpha blending mode is not current supported. Material {:?} will be rendered as opaque.",
+                    gltf_path.relative_path,
+                    primitive.material().index()
+                );
+            }
+
+            supported_meshes.push((mesh, primitive));
+        }
+    }
+
+    let mut bindable_pbr_meshes: Vec<BindablePbrMesh> = Vec::with_capacity(supported_meshes.len());
     let mut bindable_wireframe_meshes: Vec<BindableWireframeMesh> =
-        Vec::with_capacity(supported_mesh_count);
+        Vec::with_capacity(supported_meshes.len());
     // gltf node index -> game node
     let mut node_mesh_links: HashMap<usize, Vec<usize>> = HashMap::new();
 
     {
         profiling::scope!("meshes");
 
-        for (binded_pbr_mesh_index, (mesh, primitive_group)) in
-            make_supported_mesh_iterator().enumerate()
+        for (binded_pbr_mesh_index, (mesh, primitive_group)) in supported_meshes.iter().enumerate()
         {
             let dynamic_pbr_params = get_dynamic_pbr_params(&primitive_group.material());
 
@@ -119,14 +128,6 @@ pub async fn build_scene(
             let (geometry, wireframe_indices) = build_geometry(&primitive_group, buffers)?;
 
             let primitive_mode = crate::renderer::PrimitiveMode::Triangles;
-
-            let alpha_mode = match primitive_group.material().alpha_mode() {
-                gltf::material::AlphaMode::Opaque => crate::renderer::AlphaMode::Opaque,
-                gltf::material::AlphaMode::Mask => crate::renderer::AlphaMode::Mask,
-                gltf::material::AlphaMode::Blend => {
-                    todo!("Alpha blending isn't yet supported by gltf loader")
-                }
-            };
 
             if let Some(gltf_node_indices) = mesh_node_map.get(&mesh.index()) {
                 for gltf_node_index in gltf_node_indices {
@@ -147,7 +148,6 @@ pub async fn build_scene(
                 material,
                 dynamic_pbr_params,
                 primitive_mode,
-                alpha_mode,
             });
         }
     }
@@ -284,34 +284,32 @@ pub async fn build_scene(
         textures,
     };
 
-    if SCENE_LOAD_DEBUG {
-        log::info!("Scene loaded:");
+    log::debug!("Scene loaded ({:?}):", gltf_path.relative_path);
 
-        log::info!("  - node count: {:?}", nodes.len());
-        log::info!("  - skin count: {:?}", skins.len());
-        log::info!("  - animation count: {:?}", animations.len());
-        log::info!("  Render buffers:");
-        log::info!(
-            "    - PBR mesh count: {:?}",
-            bindable_scene_data.bindable_pbr_meshes.len()
-        );
-        log::info!(
-            "    - Unlit mesh count: {:?}",
-            bindable_scene_data.bindable_unlit_meshes.len()
-        );
-        log::info!(
-            "    - Transparent mesh count: {:?}",
-            bindable_scene_data.bindable_transparent_meshes.len()
-        );
-        log::info!(
-            "    - Wireframe mesh count: {:?}",
-            bindable_scene_data.bindable_transparent_meshes.len()
-        );
-        log::info!(
-            "    - Texture count: {:?}",
-            bindable_scene_data.textures.len()
-        );
-    }
+    log::debug!("  - node count: {:?}", nodes.len());
+    log::debug!("  - skin count: {:?}", skins.len());
+    log::debug!("  - animation count: {:?}", animations.len());
+    log::debug!("  Render buffers:");
+    log::debug!(
+        "    - PBR mesh count: {:?}",
+        bindable_scene_data.bindable_pbr_meshes.len()
+    );
+    log::debug!(
+        "    - Unlit mesh count: {:?}",
+        bindable_scene_data.bindable_unlit_meshes.len()
+    );
+    log::debug!(
+        "    - Transparent mesh count: {:?}",
+        bindable_scene_data.bindable_transparent_meshes.len()
+    );
+    log::debug!(
+        "    - Wireframe mesh count: {:?}",
+        bindable_scene_data.bindable_transparent_meshes.len()
+    );
+    log::debug!(
+        "    - Texture count: {:?}",
+        bindable_scene_data.textures.len()
+    );
 
     let scene = Scene::new(nodes, skins, animations);
 
