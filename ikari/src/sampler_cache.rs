@@ -54,15 +54,12 @@ impl SamplerDescriptor {
     }
 }
 
+#[derive(Default, Debug)]
 pub struct SamplerCache {
     samplers: Vec<(SamplerDescriptor, Sampler)>,
 }
 
 impl SamplerCache {
-    pub fn new() -> Self {
-        Self { samplers: vec![] }
-    }
-
     pub fn get_sampler_index(
         &mut self,
         device: &Device,
@@ -90,11 +87,5 @@ impl SamplerCache {
     pub fn get_sampler(&mut self, device: &Device, a_descriptor: &SamplerDescriptor) -> &Sampler {
         let sampler_index = self.get_sampler_index(device, a_descriptor);
         self.get_sampler_by_index(sampler_index)
-    }
-}
-
-impl Default for SamplerCache {
-    fn default() -> Self {
-        Self::new()
     }
 }

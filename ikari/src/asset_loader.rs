@@ -57,7 +57,12 @@ pub struct AssetBinder {
 /// This is because step 2) can only be done on the main thread on the web due to the fact that the webgpu device
 /// can't be used on a thread other than the one where it was created
 trait BindScene: WasmNotSend + WasmNotSync {
-    fn update(&self, base_renderer: WasmNotArc<BaseRenderer>, asset_loader: Arc<AssetLoader>);
+    fn update(
+        &self,
+        base_renderer: WasmNotArc<BaseRenderer>,
+        renderer_constant_data: Arc<RendererConstantData>,
+        asset_loader: Arc<AssetLoader>,
+    );
     fn loaded_scenes(&self)
         -> WasmNotArc<WasmNotMutex<HashMap<AssetId, (Scene, BindedSceneData)>>>;
 }
@@ -417,11 +422,14 @@ impl AssetBinder {
         renderer_constant_data: WasmNotArc<RendererConstantData>,
         asset_loader: Arc<AssetLoader>,
     ) {
-        self.scene_binder
-            .update(base_renderer.clone(), asset_loader.clone());
+        self.scene_binder.update(
+            base_renderer.clone(),
+            renderer_constant_data.clone(),
+            asset_loader.clone(),
+        );
         self.skybox_binder.update(
             base_renderer.clone(),
-            renderer_constant_data,
+            renderer_constant_data.clone(),
             asset_loader.clone(),
         );
     }
@@ -593,6 +601,7 @@ impl ThreadedSceneBinder {
 
     fn bind_scene(
         base_renderer: &BaseRenderer,
+        renderer_constant_data: &RendererConstantData,
         bindable_scene: BindableSceneData,
     ) -> Result<BindedSceneData> {
         let mut textures: Vec<Texture> = Vec::with_capacity(bindable_scene.textures.len());
@@ -607,6 +616,7 @@ impl ThreadedSceneBinder {
         for pbr_mesh in bindable_scene.bindable_pbr_meshes.iter() {
             binded_pbr_meshes.push(bind_pbr_mesh(
                 base_renderer,
+                renderer_constant_data,
                 pbr_mesh,
                 &textures,
                 &mut textures_bind_group_cache,
@@ -631,7 +641,12 @@ impl ThreadedSceneBinder {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl BindScene for ThreadedSceneBinder {
-    fn update(&self, base_renderer: Arc<BaseRenderer>, asset_loader: Arc<AssetLoader>) {
+    fn update(
+        &self,
+        base_renderer: Arc<BaseRenderer>,
+        renderer_constant_data: Arc<RendererConstantData>,
+        asset_loader: Arc<AssetLoader>,
+    ) {
         let loaded_scenes_clone = self.loaded_scenes.clone();
 
         let mut bindable_scenes: Vec<_> = vec![];
@@ -648,7 +663,11 @@ impl BindScene for ThreadedSceneBinder {
 
         crate::thread::spawn(move || {
             for (scene_id, (scene, bindable_scene)) in bindable_scenes {
-                let binded_scene_result = Self::bind_scene(&base_renderer.clone(), bindable_scene);
+                let binded_scene_result = Self::bind_scene(
+                    &base_renderer.clone(),
+                    &renderer_constant_data.clone(),
+                    bindable_scene,
+                );
                 match binded_scene_result {
                     Ok(result) => {
                         let _replaced_ignored = loaded_scenes_clone
@@ -688,6 +707,7 @@ impl TimeSlicedSceneBinder {
 
     fn bind_scene_slice(
         base_renderer: &BaseRenderer,
+        renderer_constant_data: &RendererConstantData,
         textures_bind_group_cache: &mut HashMap<IndexedPbrMaterial, WasmNotArc<wgpu::BindGroup>>,
         staged_scenes: &mut HashMap<AssetId, BindedSceneData>,
         scene_id: AssetId,
@@ -720,6 +740,7 @@ impl TimeSlicedSceneBinder {
             if staged_pbr_mesh_count < bindable_scene.bindable_pbr_meshes.len() {
                 staged_scene.binded_pbr_meshes.push(bind_pbr_mesh(
                     base_renderer,
+                    renderer_constant_data,
                     &bindable_scene.bindable_pbr_meshes[staged_pbr_mesh_count],
                     &staged_scene.textures,
                     textures_bind_group_cache,
@@ -751,7 +772,12 @@ impl TimeSlicedSceneBinder {
 }
 
 impl BindScene for TimeSlicedSceneBinder {
-    fn update(&self, base_renderer: WasmNotArc<BaseRenderer>, asset_loader: Arc<AssetLoader>) {
+    fn update(
+        &self,
+        base_renderer: WasmNotArc<BaseRenderer>,
+        renderer_constant_data: WasmNotArc<RendererConstantData>,
+        asset_loader: Arc<AssetLoader>,
+    ) {
         const SLICE_BUDGET_SECONDS: f32 = 0.001;
 
         let start_time = crate::time::Instant::now();
@@ -767,6 +793,7 @@ impl BindScene for TimeSlicedSceneBinder {
 
                 let binded_scene_result = Self::bind_scene_slice(
                     &base_renderer,
+                    &renderer_constant_data,
                     &mut self.texture_bind_group_cache.lock().unwrap(),
                     &mut self.staged_scenes.lock().unwrap(),
                     scene_id,
@@ -1015,6 +1042,7 @@ fn bind_texture(
 
 fn bind_pbr_mesh(
     base_renderer: &BaseRenderer,
+    renderer_constant_data: &RendererConstantData,
     mesh: &BindablePbrMesh,
     textures: &[Texture],
     textures_bind_group_cache: &mut HashMap<IndexedPbrMaterial, WasmNotArc<wgpu::BindGroup>>,
@@ -1034,8 +1062,12 @@ fn bind_pbr_mesh(
                 ambient_occlusion: get_texture(material.ambient_occlusion),
                 metallic_roughness: get_texture(material.metallic_roughness),
             };
-            let textures_bind_group =
-                WasmNotArc::new(base_renderer.make_pbr_textures_bind_group(&pbr_material, true)?);
+            let textures_bind_group = WasmNotArc::new(Renderer::make_pbr_textures_bind_group(
+                base_renderer,
+                renderer_constant_data,
+                &pbr_material,
+                true,
+            )?);
             vacant_entry.insert(textures_bind_group.clone());
             textures_bind_group
         }

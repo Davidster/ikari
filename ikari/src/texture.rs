@@ -637,7 +637,7 @@ impl Texture {
             base_renderer
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &base_renderer.single_uniform_bind_group_layout,
+                    layout: &renderer_constant_data.single_uniform_bind_group_layout,
                     entries: &[wgpu::BindGroupEntry {
                         binding: 0,
                         resource: camera_buffer.as_entire_binding(),
@@ -694,7 +694,7 @@ impl Texture {
                     base_renderer
                         .device
                         .create_bind_group(&wgpu::BindGroupDescriptor {
-                            layout: &base_renderer.single_texture_bind_group_layout,
+                            layout: &renderer_constant_data.single_texture_bind_group_layout,
                             entries: &[
                                 wgpu::BindGroupEntry {
                                     binding: 0,
@@ -893,7 +893,7 @@ impl Texture {
             base_renderer
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &base_renderer.single_uniform_bind_group_layout,
+                    layout: &renderer_constant_data.single_uniform_bind_group_layout,
                     entries: &[wgpu::BindGroupEntry {
                         binding: 0,
                         resource: camera_buffer.as_entire_binding(),
@@ -934,7 +934,7 @@ impl Texture {
                 base_renderer
                     .device
                     .create_bind_group(&wgpu::BindGroupDescriptor {
-                        layout: &base_renderer.single_cube_texture_bind_group_layout,
+                        layout: &renderer_constant_data.single_cube_texture_bind_group_layout,
                         entries: &[
                             wgpu::BindGroupEntry {
                                 binding: 0,
@@ -1087,7 +1087,7 @@ impl Texture {
             base_renderer
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &base_renderer.two_uniform_bind_group_layout,
+                    layout: &renderer_constant_data.two_uniform_bind_group_layout,
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
@@ -1140,7 +1140,8 @@ impl Texture {
                             base_renderer
                                 .device
                                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                                    layout: &base_renderer.single_cube_texture_bind_group_layout,
+                                    layout: &renderer_constant_data
+                                        .single_cube_texture_bind_group_layout,
                                     entries: &[
                                         wgpu::BindGroupEntry {
                                             binding: 0,

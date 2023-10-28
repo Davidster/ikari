@@ -125,7 +125,7 @@ pub async fn build_scene(
 
             let material = get_indexed_pbr_material(&primitive_group.material());
 
-            let (geometry, wireframe_indices) = build_geometry(&primitive_group, buffers)?;
+            let (geometry, wireframe_indices) = build_geometry(primitive_group, buffers)?;
 
             let primitive_mode = crate::renderer::PrimitiveMode::Triangles;
 

@@ -614,6 +614,7 @@ pub async fn init_game_state(
 
     let test_object_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
         &renderer.base,
+        &renderer.constant_data,
         &mut renderer.data.lock().unwrap(),
         &sphere_mesh,
         &PbrMaterial {
@@ -648,6 +649,7 @@ pub async fn init_game_state(
 
     let ball_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
         &renderer.base,
+        &renderer.constant_data,
         &mut renderer.data.lock().unwrap(),
         &sphere_mesh,
         &PbrMaterial {
@@ -694,6 +696,7 @@ pub async fn init_game_state(
         )?;
         let ball_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
             &renderer.base,
+            &renderer.constant_data,
             &mut renderer.data.lock().unwrap(),
             &sphere_mesh,
             &PbrMaterial {
@@ -720,6 +723,7 @@ pub async fn init_game_state(
 
         let wall_mesh_index = Renderer::bind_basic_pbr_mesh(
             &renderer.base,
+            &renderer.constant_data,
             &mut renderer.data.lock().unwrap(),
             &plane_mesh,
             &PbrMaterial {
@@ -877,6 +881,7 @@ pub async fn init_game_state(
     // create the floor and add it to the scene
     let floor_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
         &renderer.base,
+        &renderer.constant_data,
         &mut renderer.data.lock().unwrap(),
         &plane_mesh,
         &PbrMaterial {
@@ -936,6 +941,7 @@ pub async fn init_game_state(
     let (bouncing_ball_node_id, bouncing_ball_body_handle) = {
         let bouncing_ball_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
             &renderer.base,
+            &renderer.constant_data,
             &mut renderer.data.lock().unwrap(),
             &sphere_mesh,
             &PbrMaterial {
@@ -1057,6 +1063,7 @@ pub async fn init_game_state(
     let crosshair_metallic_roughness = Texture::from_color(&renderer.base, [0, 0, 255, 0])?;
     let crosshair_mesh_index = Renderer::bind_basic_pbr_mesh(
         &renderer.base,
+        &renderer.constant_data,
         &mut renderer.data.lock().unwrap(),
         &crosshair_quad,
         &PbrMaterial {
