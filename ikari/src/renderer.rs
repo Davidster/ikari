@@ -613,6 +613,9 @@ impl SkyboxSlot {
 }
 
 pub struct RendererData {
+    // TODO: separate meshes and materials. meshes don't care about pbr, unlit or transparent. only materials do.. right?
+    //       then the gamecode could reuse the cube, sphere and plane mesh from the engine and just construct its own materials
+    //       this feels like an important todo!
     pub binded_pbr_meshes: Vec<BindedPbrMesh>,
     pub binded_unlit_meshes: Vec<BindedUnlitMesh>,
     pub binded_transparent_meshes: Vec<BindedTransparentMesh>,
@@ -665,6 +668,12 @@ pub struct RendererConstantData {
     pub equirectangular_to_cubemap_hdr_pipeline: wgpu::RenderPipeline,
     pub diffuse_env_map_gen_pipeline: wgpu::RenderPipeline,
     pub specular_env_map_gen_pipeline: wgpu::RenderPipeline,
+
+    // TODO: re-add transparent mesh index members to fix the crash when pressing 'J'
+    //       OR (much better): fix the above todo about separating meshes and materials.
+    pub box_mesh_index: usize,
+    pub sphere_mesh_index: usize,
+    pub plane_mesh_index: usize,
 }
 
 // TODO: store the framebuffer texture format and size, then remove it from a bunch of the function arguments
@@ -673,21 +682,7 @@ pub struct Renderer {
     pub data: WasmNotArc<Mutex<RendererData>>,
     pub constant_data: WasmNotArc<RendererConstantData>,
     private_data: Mutex<RendererPrivateData>,
-
     profiler: Mutex<wgpu_profiler::GpuProfiler>,
-
-    // TODO: move these into constant_data
-    #[allow(dead_code)]
-    box_mesh_index: i32,
-    #[allow(dead_code)]
-    transparent_box_mesh_index: i32,
-    // TODO: since unlit and transparent share the same shader, these don't reaaaally need to be stored in different lists.
-    #[allow(dead_code)]
-    sphere_mesh_index: i32,
-    #[allow(dead_code)]
-    transparent_sphere_mesh_index: i32,
-    #[allow(dead_code)]
-    plane_mesh_index: i32,
 }
 
 type PointLightFrustaWithCullingInfo = Vec<Option<(Vec<(Frustum, bool)>, bool)>>;
@@ -1763,7 +1758,7 @@ impl Renderer {
 
         let skybox_mesh = Self::bind_geometry_buffers_for_basic_mesh_impl(&base.device, &cube_mesh);
 
-        let constant_data = RendererConstantData {
+        let mut constant_data = RendererConstantData {
             skybox_mesh,
 
             single_texture_bind_group_layout,
@@ -1791,6 +1786,10 @@ impl Renderer {
             equirectangular_to_cubemap_hdr_pipeline,
             diffuse_env_map_gen_pipeline,
             specular_env_map_gen_pipeline,
+
+            box_mesh_index: 0,
+            sphere_mesh_index: 0,
+            plane_mesh_index: 0,
         };
 
         let pre_gamma_fb = (!framebuffer_format.is_srgb()).then(|| {
@@ -2384,25 +2383,18 @@ impl Renderer {
             camera_node_id: None,
         };
 
-        let box_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &cube_mesh)
+        constant_data.box_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &cube_mesh)
             .try_into()
             .unwrap();
-        let transparent_box_mesh_index =
-            Self::bind_basic_transparent_mesh(&base, &mut data, &cube_mesh)
-                .try_into()
-                .unwrap();
 
         let sphere_mesh = BasicMesh::new(include_bytes!("models/sphere.obj"))?;
-        let sphere_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &sphere_mesh)
-            .try_into()
-            .unwrap();
-        let transparent_sphere_mesh_index =
-            Self::bind_basic_transparent_mesh(&base, &mut data, &sphere_mesh)
+        constant_data.sphere_mesh_index =
+            Self::bind_basic_unlit_mesh(&base, &mut data, &sphere_mesh)
                 .try_into()
                 .unwrap();
 
         let plane_mesh = BasicMesh::new(include_bytes!("models/plane.obj"))?;
-        let plane_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &plane_mesh)
+        constant_data.plane_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &plane_mesh)
             .try_into()
             .unwrap();
 
@@ -2476,12 +2468,6 @@ impl Renderer {
             }),
 
             profiler: Mutex::new(profiler),
-
-            box_mesh_index,
-            transparent_box_mesh_index,
-            sphere_mesh_index,
-            transparent_sphere_mesh_index,
-            plane_mesh_index,
         };
 
         Ok(renderer)
@@ -3112,7 +3098,8 @@ impl Renderer {
                                             premultiplied_alpha: false,
                                         },
                                         mesh_indices: vec![self
-                                            .transparent_sphere_mesh_index
+                                            .constant_data
+                                            .sphere_mesh_index
                                             .try_into()
                                             .unwrap()],
                                         wireframe: false,
