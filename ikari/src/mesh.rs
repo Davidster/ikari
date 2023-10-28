@@ -1,7 +1,4 @@
-use crate::{
-    file_manager::{FileManager, GameFilePath},
-    texture::*,
-};
+use crate::texture::*;
 
 use std::{
     collections::{hash_map, HashMap},
@@ -169,10 +166,8 @@ pub struct BasicMesh {
 }
 
 impl BasicMesh {
-    pub async fn new(obj_file_path: &GameFilePath) -> Result<Self> {
-        let obj = parse_obj(BufReader::new(Cursor::new(
-            FileManager::read(obj_file_path).await?,
-        )))?;
+    pub fn new(obj_file_bytes: &[u8]) -> Result<Self> {
+        let obj = parse_obj(BufReader::new(Cursor::new(obj_file_bytes)))?;
 
         let mut triangles: Vec<[(usize, usize, usize); 3]> = vec![];
 

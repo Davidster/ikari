@@ -373,9 +373,12 @@ pub async fn init_game_state(
         })
     });
 
-    let sphere_mesh = BasicMesh::new(&GAME_PATH_MAKER.make("src/models/sphere.obj")).await?;
-    let plane_mesh = BasicMesh::new(&GAME_PATH_MAKER.make("src/models/plane.obj")).await?;
-    let cube_mesh = BasicMesh::new(&GAME_PATH_MAKER.make("src/models/cube.obj")).await?;
+    let sphere_mesh =
+        BasicMesh::new(&FileManager::read(&GAME_PATH_MAKER.make("src/models/sphere.obj")).await?)?;
+    let plane_mesh =
+        BasicMesh::new(&FileManager::read(&GAME_PATH_MAKER.make("src/models/plane.obj")).await?)?;
+    let cube_mesh =
+        BasicMesh::new(&FileManager::read(&GAME_PATH_MAKER.make("src/models/cube.obj")).await?)?;
 
     // add lights to the scene
     engine_state.directional_lights = vec![
