@@ -93,8 +93,14 @@ pub const POINT_LIGHT_COLOR: Vec3 = Vec3::new(0.93126976, 0.7402633, 0.49407062)
 
 pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: Group = Group::GROUP_1;
 
+#[cfg(not(target_arch = "wasm32"))]
 lazy_static::lazy_static! {
     pub static ref GAME_PATH_MAKER: GamePathMaker = GamePathMaker::new(Some("ikari".into()));
+}
+
+#[cfg(target_arch = "wasm32")]
+lazy_static::lazy_static! {
+    pub static ref GAME_PATH_MAKER: GamePathMaker = GamePathMaker::new(Some("ikari".into()), String::from("http://localhost:8000"));
 }
 
 // order of the images for a cubemap is documented here:

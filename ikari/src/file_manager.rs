@@ -1,56 +1,54 @@
 use std::path::{Path, PathBuf};
 
-lazy_static::lazy_static! {
-    pub static ref IKARI_PATH_MAKER: GamePathMaker = GamePathMaker::new(Some(PathBuf::from("ikari")));
-}
-
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct GameFilePath {
-    root: PathBuf,
+    pub root: PathBuf,
     pub relative_path: PathBuf,
-}
-
-impl GameFilePath {
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
-
-    pub fn resolve(&self) -> PathBuf {
-        self.root.join(&self.relative_path)
-    }
+    #[cfg(target_arch = "wasm32")]
+    pub asset_server: String, // e.g. "http://localhost:8000"
 }
 
 pub struct GamePathMaker {
     root: PathBuf,
-}
-
-impl GamePathMaker {
-    pub fn new(root: Option<PathBuf>) -> Self {
-        Self {
-            root: root.unwrap_or_else(|| "".into()),
-        }
-    }
-
-    pub fn make<T>(&self, relative_path: T) -> GameFilePath
-    where
-        T: Into<PathBuf>,
-    {
-        GameFilePath {
-            root: self.root.clone(),
-            relative_path: relative_path.into(),
-        }
-    }
+    #[cfg(target_arch = "wasm32")]
+    pub asset_server: String, // e.g. "http://localhost:8000"
 }
 
 pub struct FileManager;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
+    use std::path::PathBuf;
+
+    use super::{FileManager, GameFilePath, GamePathMaker};
+
     pub mod native_fs {
         pub use std::fs::*;
     }
 
-    use crate::file_manager::{FileManager, GameFilePath};
+    impl GameFilePath {
+        pub fn resolve(&self) -> PathBuf {
+            self.root.join(&self.relative_path)
+        }
+    }
+
+    impl GamePathMaker {
+        pub fn new(root: Option<PathBuf>) -> Self {
+            Self {
+                root: root.unwrap_or_else(|| "".into()),
+            }
+        }
+
+        pub fn make<T>(&self, relative_path: T) -> GameFilePath
+        where
+            T: Into<PathBuf>,
+        {
+            GameFilePath {
+                root: self.root.clone(),
+                relative_path: relative_path.into(),
+            }
+        }
+    }
 
     impl FileManager {
         pub async fn read(path: &GameFilePath) -> anyhow::Result<Vec<u8>> {
@@ -68,12 +66,41 @@ mod native {
 
 #[cfg(target_arch = "wasm32")]
 mod web {
+    use std::path::PathBuf;
     use wasm_bindgen::prelude::*;
     use wasm_bindgen_futures::JsFuture;
 
-    use crate::file_manager::{FileManager, GameFilePath};
+    use super::{FileManager, GameFilePath, GamePathMaker};
 
-    const ASSET_SERVER: &str = "http://localhost:8000"; // TODO: make the asset server be configurable by the game
+    impl GameFilePath {
+        pub fn resolve(&self) -> String {
+            format!(
+                "{}/{}",
+                self.asset_server,
+                self.root.join(&self.relative_path).display()
+            )
+        }
+    }
+
+    impl GamePathMaker {
+        pub fn new(root: Option<PathBuf>, asset_server: String) -> Self {
+            Self {
+                root: root.unwrap_or_else(|| "".into()),
+                asset_server,
+            }
+        }
+
+        pub fn make<T>(&self, relative_path: T) -> GameFilePath
+        where
+            T: Into<PathBuf>,
+        {
+            GameFilePath {
+                root: self.root.clone(),
+                relative_path: relative_path.into(),
+                asset_server: self.asset_server.clone(),
+            }
+        }
+    }
 
     #[wasm_bindgen]
     extern "C" {
@@ -89,25 +116,24 @@ mod web {
     impl FileManager {
         pub async fn read(path: &GameFilePath) -> anyhow::Result<Vec<u8>> {
             let resolved_path = path.resolve();
-            let get_request_url = || format!("{ASSET_SERVER}/{}", resolved_path.display());
-            Self::read_internal(get_request_url())
+            Self::read_internal(&resolved_path)
                 .await
                 .map(|js_value| js_sys::Uint8Array::new(&js_value).to_vec())
                 .map_err(|err| {
                     anyhow::anyhow!(
                         "Error reading from url {}:\n{}",
-                        get_request_url(),
+                        resolved_path,
                         err.as_string().unwrap_or_default()
                     )
                 })
         }
 
-        async fn read_internal(url: String) -> std::result::Result<JsValue, JsValue> {
+        async fn read_internal(url: &str) -> std::result::Result<JsValue, JsValue> {
             use web_sys::{Blob, RequestInit, Response};
 
             let mut opts = RequestInit::new();
             opts.method("GET");
-            let request = web_sys::Request::new_with_str_and_init(&url, &opts)?;
+            let request = web_sys::Request::new_with_str_and_init(url, &opts)?;
 
             let global: Global = js_sys::global().unchecked_into();
             let resp_value = JsFuture::from(if !global.window().is_undefined() {
@@ -139,7 +165,7 @@ mod web {
         }
 
         pub async fn read_to_string(path: &GameFilePath) -> anyhow::Result<String> {
-            let bytes = FileManager::read(path).await?;
+            let bytes = Self::read(path).await?;
             Ok(std::str::from_utf8(&bytes)?.to_string())
         }
     }

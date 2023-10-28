@@ -4,7 +4,6 @@ use crate::collisions::*;
 use crate::engine_state::EngineState;
 use crate::file_manager::FileManager;
 use crate::file_manager::GameFilePath;
-use crate::file_manager::IKARI_PATH_MAKER;
 use crate::light::*;
 use crate::math::*;
 use crate::mesh::*;
@@ -1222,48 +1221,28 @@ impl Renderer {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: USE_LABELS.then_some("Unlit Mesh Shader"),
-                source: wgpu::ShaderSource::Wgsl(
-                    FileManager::read_to_string(
-                        &IKARI_PATH_MAKER.make("src/shaders/unlit_mesh.wgsl"),
-                    )
-                    .await?
-                    .into(),
-                ),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/unlit_mesh.wgsl").into()),
             });
 
         let blit_shader = base
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: USE_LABELS.then_some("Blit Shader"),
-                source: wgpu::ShaderSource::Wgsl(
-                    FileManager::read_to_string(&IKARI_PATH_MAKER.make("src/shaders/blit.wgsl"))
-                        .await?
-                        .into(),
-                ),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/blit.wgsl").into()),
             });
 
         let textured_mesh_shader = base
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: USE_LABELS.then_some("Textured Mesh Shader"),
-                source: wgpu::ShaderSource::Wgsl(
-                    FileManager::read_to_string(
-                        &IKARI_PATH_MAKER.make("src/shaders/textured_mesh.wgsl"),
-                    )
-                    .await?
-                    .into(),
-                ),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/textured_mesh.wgsl").into()),
             });
 
         let skybox_shader = base
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: USE_LABELS.then_some("Skybox Shader"),
-                source: wgpu::ShaderSource::Wgsl(
-                    FileManager::read_to_string(&IKARI_PATH_MAKER.make("src/shaders/skybox.wgsl"))
-                        .await?
-                        .into(),
-                ),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/skybox.wgsl").into()),
             });
 
         let two_uniform_bind_group_layout =
@@ -1940,9 +1919,7 @@ impl Renderer {
 
         let initial_render_scale = 1.0;
 
-        let cube_mesh = BasicMesh::new(
-            &FileManager::read(&IKARI_PATH_MAKER.make("src/models/cube.obj")).await?,
-        )?;
+        let cube_mesh = BasicMesh::new(include_bytes!("models/cube.obj"))?;
 
         let skybox_mesh = Self::bind_geometry_buffers_for_basic_mesh_impl(&base.device, &cube_mesh);
 
@@ -2563,9 +2540,7 @@ impl Renderer {
                 .try_into()
                 .unwrap();
 
-        let sphere_mesh = BasicMesh::new(
-            &FileManager::read(&IKARI_PATH_MAKER.make("src/models/sphere.obj")).await?,
-        )?;
+        let sphere_mesh = BasicMesh::new(include_bytes!("models/sphere.obj"))?;
         let sphere_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &sphere_mesh)
             .try_into()
             .unwrap();
@@ -2574,9 +2549,7 @@ impl Renderer {
                 .try_into()
                 .unwrap();
 
-        let plane_mesh = BasicMesh::new(
-            &FileManager::read(&IKARI_PATH_MAKER.make("src/models/plane.obj")).await?,
-        )?;
+        let plane_mesh = BasicMesh::new(include_bytes!("models/plane.obj"))?;
         let plane_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &plane_mesh)
             .try_into()
             .unwrap();
