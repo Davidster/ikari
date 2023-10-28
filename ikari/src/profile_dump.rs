@@ -34,7 +34,6 @@ pub fn generate_profile_dump() -> PendingPerfDump {
     result_clone
 }
 
-// TODO: implement a timeout, could catch some failure cases
 fn generate_profile_dump_internal() -> anyhow::Result<String> {
     let time_string = Utc::now().format("%Y-%m-%d_%H-%M-%S_utc").to_string();
     let dump_size_seconds = 5;
@@ -63,7 +62,7 @@ fn generate_profile_dump_internal() -> anyhow::Result<String> {
         let mut lines: Vec<String> = vec![];
         let stdout = child_process.stdout.as_mut().unwrap();
 
-        // TODO: why does this block??
+        // why does this block?? the lines don't come in one at a time, they come all at once
         for line_result in BufReader::new(stdout).lines() {
             lines.push(line_result?);
         }
