@@ -694,20 +694,17 @@ impl TimeSlicedSceneBinder {
         bindable_scene: &BindableSceneData,
     ) -> Result<Option<BindedSceneData>> {
         {
-            let staged_scene =
-                staged_scenes
-                    .entry(scene_id)
-                    .or_insert_with(|| BindedSceneData {
-                        binded_pbr_meshes: Vec::with_capacity(
-                            bindable_scene.bindable_pbr_meshes.len(),
-                        ),
-                        binded_unlit_meshes: vec![],
-                        binded_transparent_meshes: vec![],
-                        binded_wireframe_meshes: Vec::with_capacity(
-                            bindable_scene.bindable_wireframe_meshes.len(),
-                        ),
-                        textures: Vec::with_capacity(bindable_scene.textures.len()),
-                    });
+            let staged_scene = staged_scenes
+                .entry(scene_id)
+                .or_insert_with(|| BindedSceneData {
+                    binded_pbr_meshes: Vec::with_capacity(bindable_scene.bindable_pbr_meshes.len()),
+                    binded_unlit_meshes: vec![],
+                    binded_transparent_meshes: vec![],
+                    binded_wireframe_meshes: Vec::with_capacity(
+                        bindable_scene.bindable_wireframe_meshes.len(),
+                    ),
+                    textures: Vec::with_capacity(bindable_scene.textures.len()),
+                });
 
             let staged_texture_count = staged_scene.textures.len();
             if staged_texture_count < bindable_scene.textures.len() {
