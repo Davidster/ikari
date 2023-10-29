@@ -208,7 +208,6 @@ pub struct BindablePbrMesh {
     pub geometry: BindableGeometryBuffers,
     pub material: IndexedPbrMaterial,
     pub dynamic_pbr_params: DynamicPbrParams,
-    pub primitive_mode: PrimitiveMode,
 }
 
 #[derive(Debug)]
@@ -216,7 +215,6 @@ pub struct BindedPbrMesh {
     pub geometry_buffers: BindedGeometryBuffers,
     pub textures_bind_group: WasmNotArc<wgpu::BindGroup>,
     pub dynamic_pbr_params: DynamicPbrParams,
-    pub primitive_mode: PrimitiveMode,
 }
 
 #[derive(Debug, Clone)]
@@ -291,11 +289,6 @@ pub struct BindedWireframeMesh {
     pub source_mesh_type: MeshType,
     pub source_mesh_index: usize,
     pub index_buffer: BindedIndexBuffer,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum PrimitiveMode {
-    Triangles,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -2383,20 +2376,14 @@ impl Renderer {
             camera_node_id: None,
         };
 
-        constant_data.box_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &cube_mesh)
-            .try_into()
-            .unwrap();
+        constant_data.box_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &cube_mesh);
 
         let sphere_mesh = BasicMesh::new(include_bytes!("models/sphere.obj"))?;
         constant_data.sphere_mesh_index =
-            Self::bind_basic_unlit_mesh(&base, &mut data, &sphere_mesh)
-                .try_into()
-                .unwrap();
+            Self::bind_basic_unlit_mesh(&base, &mut data, &sphere_mesh);
 
         let plane_mesh = BasicMesh::new(include_bytes!("models/plane.obj"))?;
-        constant_data.plane_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &plane_mesh)
-            .try_into()
-            .unwrap();
+        constant_data.plane_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &plane_mesh);
 
         // buffer up to 4 frames
         let profiler = wgpu_profiler::GpuProfiler::new(&base.adapter, &base.device, &base.queue, 4);
@@ -2685,7 +2672,6 @@ impl Renderer {
             geometry_buffers,
             dynamic_pbr_params,
             textures_bind_group,
-            primitive_mode: PrimitiveMode::Triangles,
         });
         let pbr_mesh_index = data.binded_pbr_meshes.len() - 1;
 
@@ -3097,11 +3083,7 @@ impl Renderer {
                                             color: debug_sphere_color.into(),
                                             premultiplied_alpha: false,
                                         },
-                                        mesh_indices: vec![self
-                                            .constant_data
-                                            .sphere_mesh_index
-                                            .try_into()
-                                            .unwrap()],
+                                        mesh_indices: vec![self.constant_data.sphere_mesh_index],
                                         wireframe: false,
                                         cullable: false,
                                     }))

@@ -1099,7 +1099,6 @@ fn bind_pbr_mesh(
         geometry_buffers,
         textures_bind_group,
         dynamic_pbr_params: mesh.dynamic_pbr_params,
-        primitive_mode: mesh.primitive_mode,
     })
 }
 

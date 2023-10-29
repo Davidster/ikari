@@ -127,8 +127,6 @@ pub async fn build_scene(
 
             let (geometry, wireframe_indices) = build_geometry(primitive_group, buffers)?;
 
-            let primitive_mode = crate::renderer::PrimitiveMode::Triangles;
-
             if let Some(gltf_node_indices) = mesh_node_map.get(&mesh.index()) {
                 for gltf_node_index in gltf_node_indices {
                     let binded_pbr_mesh_indices =
@@ -147,7 +145,6 @@ pub async fn build_scene(
                 geometry,
                 material,
                 dynamic_pbr_params,
-                primitive_mode,
             });
         }
     }
