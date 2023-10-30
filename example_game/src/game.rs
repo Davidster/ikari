@@ -331,7 +331,7 @@ pub async fn init_game_state(
                     path.to_string(),
                     asset_loader.load_gltf_scene(SceneAssetLoadParams {
                         path: GAME_PATH_MAKER.make(path),
-                        generate_wireframe_meshes: false,
+                        generate_wireframe_meshes: true,
                     }),
                 );
             }

@@ -4180,33 +4180,38 @@ impl Renderer {
             }
         }
 
-        // TODO: try actually running in debug to see how annoying this is
-        //       ALSO, remove all assets from the scene to see how much memory an 'empty' level is using.
+        let fmt_bytes = |bytes: usize| {
+            byte_unit::Byte::from_bytes(bytes.try_into().unwrap())
+                .get_appropriate_unit(false)
+                .to_string()
+        };
         log::debug!(
-            "total_instance_buffer_memory_usage={:?}",
-            private_data.pbr_instances_buffer.length_bytes()
-                + private_data.unlit_instances_buffer.length_bytes()
-                + private_data.transparent_instances_buffer.length_bytes()
-                + private_data.wireframe_instances_buffer.length_bytes()
-        );
-        log::debug!(
-            "total_index_buffer_memory_usage={:?}",
-            data.binded_meshes
-                .iter()
-                .map(|mesh| mesh.index_buffer.buffer.length_bytes())
-                .chain(
-                    data.binded_wireframe_meshes
-                        .iter()
-                        .map(|mesh| mesh.index_buffer.buffer.length_bytes()),
-                )
-                .reduce(|acc, val| acc + val)
-        );
-        log::debug!(
-            "total_vertex_buffer_memory_usage={:?}",
-            data.binded_meshes
-                .iter()
-                .map(|mesh| mesh.vertex_buffer.length_bytes())
-                .reduce(|acc, val| acc + val)
+            "Memory usage:\n  Instance buffers: {}\n  Index buffers: {}\n  Vertex buffers: {}",
+            fmt_bytes(
+                private_data.pbr_instances_buffer.length_bytes()
+                    + private_data.unlit_instances_buffer.length_bytes()
+                    + private_data.transparent_instances_buffer.length_bytes()
+                    + private_data.wireframe_instances_buffer.length_bytes()
+            ),
+            fmt_bytes(
+                data.binded_meshes
+                    .iter()
+                    .map(|mesh| mesh.index_buffer.buffer.length_bytes())
+                    .chain(
+                        data.binded_wireframe_meshes
+                            .iter()
+                            .map(|mesh| mesh.index_buffer.buffer.length_bytes()),
+                    )
+                    .reduce(|acc, val| acc + val)
+                    .unwrap_or(0)
+            ),
+            fmt_bytes(
+                data.binded_meshes
+                    .iter()
+                    .map(|mesh| mesh.vertex_buffer.length_bytes())
+                    .reduce(|acc, val| acc + val)
+                    .unwrap_or(0)
+            ),
         );
 
         queue.write_buffer(
