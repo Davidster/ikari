@@ -50,7 +50,7 @@ pub struct GameNodeVisual {
     pub material: Material,
     pub mesh_index: usize,
     pub wireframe: bool,
-    pub cullable: bool, // TODO: it's annoying for the user to constantly specify this value.. can we find a way to generate a "Default" game node visual
+    pub cullable: bool,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -681,6 +681,15 @@ impl GameNodeVisual {
                 binded_material_index: binded_pbr_material_index,
                 dynamic_pbr_params: None,
             },
+            wireframe: false,
+            cullable: true,
+        }
+    }
+
+    pub fn from_mesh_mat(mesh_index: usize, material: Material) -> Self {
+        Self {
+            mesh_index,
+            material,
             wireframe: false,
             cullable: true,
         }

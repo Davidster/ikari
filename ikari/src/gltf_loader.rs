@@ -177,15 +177,13 @@ pub async fn build_scene(
     for gltf_node in document.nodes() {
         if let Some(visuals) = node_visual_map.get(&gltf_node.index()) {
             for (i, (mesh_index, pbr_material_index)) in visuals.iter().enumerate() {
-                let visual = GameNodeVisual {
-                    material: Material::Pbr {
+                let visual = GameNodeVisual::from_mesh_mat(
+                    *mesh_index,
+                    Material::Pbr {
                         binded_material_index: *pbr_material_index,
                         dynamic_pbr_params: None,
                     },
-                    mesh_index: *mesh_index,
-                    wireframe: false,
-                    cullable: true,
-                };
+                );
 
                 if visuals.len() == 1 {
                     // don't bother adding 'auto-child' nodes, just put the visual on the 'parent' node.

@@ -128,15 +128,13 @@ impl Character {
             },
         ) {
             if let Some(node) = scene.get_node_mut(self.collision_box_nodes[bone_index]) {
-                node.visual = Some(GameNodeVisual {
-                    mesh_index: self.collision_debug_mesh_index,
-                    material: Material::Transparent {
+                node.visual = Some(GameNodeVisual::from_mesh_mat(
+                    self.collision_debug_mesh_index,
+                    Material::Transparent {
                         color: Vec4::new(1.0, 0.0, 0.0, 0.3),
                         premultiplied_alpha: false,
                     },
-                    wireframe: false,
-                    cullable: true,
-                })
+                ));
             }
         }
     }
@@ -144,15 +142,13 @@ impl Character {
     fn enable_collision_box_display(&mut self, scene: &mut Scene) {
         for node_id in self.collision_box_nodes.iter().cloned() {
             if let Some(node) = scene.get_node_mut(node_id) {
-                node.visual = Some(GameNodeVisual {
-                    mesh_index: self.collision_debug_mesh_index,
-                    material: Material::Transparent {
+                node.visual = Some(GameNodeVisual::from_mesh_mat(
+                    self.collision_debug_mesh_index,
+                    Material::Transparent {
                         color: Vec4::new(rand::random(), rand::random(), rand::random(), 0.3),
                         premultiplied_alpha: false,
                     },
-                    wireframe: false,
-                    cullable: true,
-                })
+                ));
             }
         }
         self.is_displaying_collision_boxes = true;

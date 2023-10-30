@@ -447,14 +447,12 @@ pub async fn init_game_state(
         let node_id = scene
             .add_node(
                 GameNodeDescBuilder::new()
-                    .visual(Some(GameNodeVisual {
-                        mesh_index: renderer.constant_data.sphere_mesh_index,
-                        material: Material::Unlit {
+                    .visual(Some(GameNodeVisual::from_mesh_mat(
+                        renderer.constant_data.sphere_mesh_index,
+                        Material::Unlit {
                             color: color * intensity,
                         },
-                        wireframe: false,
-                        cullable: true,
-                    }))
+                    )))
                     .transform(transform)
                     .build(),
             )
@@ -1090,9 +1088,9 @@ pub async fn init_game_state(
         scene
             .add_node(
                 GameNodeDescBuilder::new()
-                    .visual(Some(GameNodeVisual {
-                        mesh_index: crosshair_mesh_index,
-                        material: Material::Pbr {
+                    .visual(Some(GameNodeVisual::from_mesh_mat(
+                        crosshair_mesh_index,
+                        Material::Pbr {
                             binded_material_index: crosshair_material_index,
                             dynamic_pbr_params: Some(DynamicPbrParams {
                                 emissive_factor: crosshair_color,
@@ -1101,9 +1099,7 @@ pub async fn init_game_state(
                                 ..Default::default()
                             }),
                         },
-                        wireframe: false,
-                        cullable: true,
-                    }))
+                    )))
                     .build(),
             )
             .id(),
