@@ -1,6 +1,6 @@
 use glam::f32::Vec3;
 use ikari::physics::PhysicsState;
-use ikari::scene::{GameNodeDescBuilder, GameNodeId, GameNodeMesh, Scene};
+use ikari::scene::{GameNodeDescBuilder, GameNodeId, GameNodeVisual, Scene};
 
 use ikari::physics::rapier3d_f64::prelude::*;
 use ikari::transform::TransformBuilder;
@@ -19,7 +19,7 @@ impl PhysicsBall {
     pub fn new(
         scene: &mut Scene,
         physics_state: &mut PhysicsState,
-        mesh: GameNodeMesh,
+        mesh: GameNodeVisual,
         position: Vec3,
         radius: f32,
     ) -> Self {
@@ -30,7 +30,7 @@ impl PhysicsBall {
 
         let node = scene.add_node(
             GameNodeDescBuilder::new()
-                .mesh(Some(mesh))
+                .visual(Some(mesh))
                 .transform(transform)
                 .name(Some("physics_ball".to_string()))
                 .build(),
@@ -68,7 +68,7 @@ impl PhysicsBall {
     pub fn new_random(
         scene: &mut Scene,
         physics_state: &mut PhysicsState,
-        mesh: GameNodeMesh,
+        mesh: GameNodeVisual,
     ) -> Self {
         let radius = 0.2 + (rand::random::<f32>() * 0.4);
         let position = Vec3::new(
@@ -96,7 +96,7 @@ impl PhysicsBall {
 
     pub fn _toggle_wireframe(&self, scene: &mut Scene) {
         if let Some(node) = scene.get_node_mut(self.node_id) {
-            if let Some(mesh) = node.mesh.as_mut() {
+            if let Some(mesh) = node.visual.as_mut() {
                 mesh.wireframe = !mesh.wireframe;
             }
         }

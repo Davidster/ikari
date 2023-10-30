@@ -68,8 +68,6 @@ trait BindScene: WasmNotSend + WasmNotSync {
 }
 
 struct TimeSlicedSceneBinder {
-    texture_bind_group_cache:
-        WasmNotMutex<HashMap<IndexedPbrMaterial, WasmNotArc<wgpu::BindGroup>>>,
     staged_scenes: WasmNotMutex<HashMap<AssetId, BindedSceneData>>,
     loaded_scenes: WasmNotArc<WasmNotMutex<HashMap<AssetId, (Scene, BindedSceneData)>>>,
 }
@@ -150,19 +148,6 @@ impl AssetLoader {
                             let (other_scene, other_scene_bindable_data) =
                                 build_scene((&document, &buffers, &images), &next_scene_path)
                                     .await?;
-
-                            if !other_scene_bindable_data.bindable_unlit_meshes.is_empty() {
-                                log::warn!("Warning: loading unlit meshes is not yet supported in the asset loader");
-                            }
-
-                            if !other_scene_bindable_data
-                                .bindable_transparent_meshes
-                                .is_empty()
-                            {
-                                log::warn!(
-                                    "Warning: loading transparent meshes is not yet supported in the asset loader",
-                                );
-                            }
 
                             anyhow::Ok((other_scene, other_scene_bindable_data))
                         };
@@ -609,17 +594,24 @@ impl ThreadedSceneBinder {
             textures.push(bind_texture(base_renderer, bindable_texture)?);
         }
 
-        let mut binded_pbr_meshes: Vec<BindedPbrMesh> =
-            Vec::with_capacity(bindable_scene.bindable_pbr_meshes.len());
-        let mut textures_bind_group_cache: HashMap<IndexedPbrMaterial, Arc<wgpu::BindGroup>> =
-            HashMap::new();
-        for pbr_mesh in bindable_scene.bindable_pbr_meshes.iter() {
-            binded_pbr_meshes.push(bind_pbr_mesh(
+        let mut binded_meshes: Vec<BindedGeometryBuffers> =
+            Vec::with_capacity(bindable_scene.bindable_meshes.len());
+        let mut binded_pbr_materials: Vec<BindedPbrMaterial> =
+            Vec::with_capacity(bindable_scene.bindable_pbr_materials.len());
+        for bindable_mesh in bindable_scene.bindable_meshes.iter() {
+            binded_meshes.push(bind_mesh(
                 base_renderer,
                 renderer_constant_data,
-                pbr_mesh,
+                bindable_mesh,
+            )?);
+        }
+
+        for bindable_pbr_material in bindable_scene.bindable_pbr_materials.iter() {
+            binded_pbr_materials.push(bind_pbr_material(
+                base_renderer,
+                renderer_constant_data,
                 &textures,
-                &mut textures_bind_group_cache,
+                bindable_pbr_material,
             )?);
         }
 
@@ -630,10 +622,9 @@ impl ThreadedSceneBinder {
         }
 
         Ok(BindedSceneData {
-            binded_pbr_meshes,
-            binded_unlit_meshes: vec![],
-            binded_transparent_meshes: vec![],
+            binded_meshes,
             binded_wireframe_meshes,
+            binded_pbr_materials,
             textures,
         })
     }
@@ -699,7 +690,6 @@ impl TimeSlicedSceneBinder {
         loaded_scenes: WasmNotArc<WasmNotMutex<HashMap<AssetId, (Scene, BindedSceneData)>>>,
     ) -> Self {
         Self {
-            texture_bind_group_cache: WasmNotMutex::new(HashMap::new()),
             loaded_scenes,
             staged_scenes: WasmNotMutex::new(HashMap::new()),
         }
@@ -708,7 +698,6 @@ impl TimeSlicedSceneBinder {
     fn bind_scene_slice(
         base_renderer: &BaseRenderer,
         renderer_constant_data: &RendererConstantData,
-        textures_bind_group_cache: &mut HashMap<IndexedPbrMaterial, WasmNotArc<wgpu::BindGroup>>,
         staged_scenes: &mut HashMap<AssetId, BindedSceneData>,
         scene_id: AssetId,
         bindable_scene: &BindableSceneData,
@@ -717,11 +706,12 @@ impl TimeSlicedSceneBinder {
             let staged_scene = staged_scenes
                 .entry(scene_id)
                 .or_insert_with(|| BindedSceneData {
-                    binded_pbr_meshes: Vec::with_capacity(bindable_scene.bindable_pbr_meshes.len()),
-                    binded_unlit_meshes: vec![],
-                    binded_transparent_meshes: vec![],
+                    binded_meshes: Vec::with_capacity(bindable_scene.bindable_meshes.len()),
                     binded_wireframe_meshes: Vec::with_capacity(
                         bindable_scene.bindable_wireframe_meshes.len(),
+                    ),
+                    binded_pbr_materials: Vec::with_capacity(
+                        bindable_scene.bindable_pbr_materials.len(),
                     ),
                     textures: Vec::with_capacity(bindable_scene.textures.len()),
                 });
@@ -736,14 +726,12 @@ impl TimeSlicedSceneBinder {
                 return Ok(None);
             }
 
-            let staged_pbr_mesh_count = staged_scene.binded_pbr_meshes.len();
-            if staged_pbr_mesh_count < bindable_scene.bindable_pbr_meshes.len() {
-                staged_scene.binded_pbr_meshes.push(bind_pbr_mesh(
+            let staged_mesh_count = staged_scene.binded_meshes.len();
+            if staged_mesh_count < bindable_scene.bindable_meshes.len() {
+                staged_scene.binded_meshes.push(bind_mesh(
                     base_renderer,
                     renderer_constant_data,
-                    &bindable_scene.bindable_pbr_meshes[staged_pbr_mesh_count],
-                    &staged_scene.textures,
-                    textures_bind_group_cache,
+                    &bindable_scene.bindable_meshes[staged_mesh_count],
                 )?);
 
                 return Ok(None);
@@ -763,6 +751,16 @@ impl TimeSlicedSceneBinder {
                 {
                     return Ok(None);
                 }
+            }
+
+            let staged_pbr_mat_count = staged_scene.binded_pbr_materials.len();
+            if staged_pbr_mat_count < bindable_scene.bindable_pbr_materials.len() {
+                staged_scene.binded_pbr_materials.push(bind_pbr_material(
+                    base_renderer,
+                    renderer_constant_data,
+                    &staged_scene.textures,
+                    &bindable_scene.bindable_pbr_materials[staged_pbr_mat_count],
+                )?);
             }
         }
 
@@ -794,16 +792,12 @@ impl BindScene for TimeSlicedSceneBinder {
                 let binded_scene_result = Self::bind_scene_slice(
                     &base_renderer,
                     &renderer_constant_data,
-                    &mut self.texture_bind_group_cache.lock().unwrap(),
                     &mut self.staged_scenes.lock().unwrap(),
                     scene_id,
                     &bindable_scene,
                 );
                 match binded_scene_result {
                     Ok(Some(result)) => {
-                        // make sure we don't accidentally keep stale references to those bind groups so they may be unloaded later
-                        self.texture_bind_group_cache.lock().unwrap().clear();
-
                         let _replaced_ignored = loaded_scenes_clone
                             .lock()
                             .unwrap()
@@ -1040,40 +1034,12 @@ fn bind_texture(
     )
 }
 
-fn bind_pbr_mesh(
+fn bind_mesh(
     base_renderer: &BaseRenderer,
     renderer_constant_data: &RendererConstantData,
-    mesh: &BindablePbrMesh,
-    textures: &[Texture],
-    textures_bind_group_cache: &mut HashMap<IndexedPbrMaterial, WasmNotArc<wgpu::BindGroup>>,
-) -> Result<BindedPbrMesh> {
-    let material = &mesh.material;
-    let textures_bind_group = match textures_bind_group_cache.entry(material.clone()) {
-        Entry::Occupied(entry) => entry.get().clone(),
-        Entry::Vacant(vacant_entry) => {
-            let get_texture = |texture_index: Option<usize>| {
-                texture_index.map(|texture_index| &textures[texture_index])
-            };
-
-            let pbr_material = PbrMaterial {
-                base_color: get_texture(material.base_color),
-                normal: get_texture(material.normal),
-                emissive: get_texture(material.emissive),
-                ambient_occlusion: get_texture(material.ambient_occlusion),
-                metallic_roughness: get_texture(material.metallic_roughness),
-            };
-            let textures_bind_group = WasmNotArc::new(Renderer::make_pbr_textures_bind_group(
-                base_renderer,
-                renderer_constant_data,
-                &pbr_material,
-                true,
-            )?);
-            vacant_entry.insert(textures_bind_group.clone());
-            textures_bind_group
-        }
-    };
-
-    let vertex_buffer_bytes = bytemuck::cast_slice(&mesh.geometry.vertices);
+    mesh: &BindableGeometryBuffers,
+) -> Result<BindedGeometryBuffers> {
+    let vertex_buffer_bytes = bytemuck::cast_slice(&mesh.vertices);
 
     if vertex_buffer_bytes.len() as u64 > base_renderer.limits.max_buffer_size {
         bail!(
@@ -1091,14 +1057,39 @@ fn bind_pbr_mesh(
 
     let geometry_buffers = BindedGeometryBuffers {
         vertex_buffer,
-        index_buffer: bind_index_buffer(base_renderer, &mesh.geometry.indices)?,
-        bounding_box: mesh.geometry.bounding_box,
+        index_buffer: bind_index_buffer(base_renderer, &mesh.indices)?,
+        bounding_box: mesh.bounding_box,
     };
 
-    Ok(BindedPbrMesh {
-        geometry_buffers,
+    Ok(geometry_buffers)
+}
+
+fn bind_pbr_material(
+    base_renderer: &BaseRenderer,
+    renderer_constant_data: &RendererConstantData,
+    textures: &[Texture],
+    material: &BindablePbrMaterial,
+) -> Result<BindedPbrMaterial> {
+    let get_texture =
+        |texture_index: Option<usize>| texture_index.map(|texture_index| &textures[texture_index]);
+
+    let pbr_textures = PbrTextures {
+        base_color: get_texture(material.textures.base_color),
+        normal: get_texture(material.textures.normal),
+        emissive: get_texture(material.textures.emissive),
+        ambient_occlusion: get_texture(material.textures.ambient_occlusion),
+        metallic_roughness: get_texture(material.textures.metallic_roughness),
+    };
+    let textures_bind_group = Renderer::make_pbr_textures_bind_group(
+        base_renderer,
+        renderer_constant_data,
+        &pbr_textures,
+        true,
+    )?;
+
+    Ok(BindedPbrMaterial {
         textures_bind_group,
-        dynamic_pbr_params: mesh.dynamic_pbr_params,
+        dynamic_pbr_params: material.dynamic_pbr_params,
     })
 }
 
@@ -1107,7 +1098,6 @@ fn bind_wireframe_mesh(
     wireframe_mesh: &BindableWireframeMesh,
 ) -> Result<BindedWireframeMesh> {
     Ok(BindedWireframeMesh {
-        source_mesh_type: wireframe_mesh.source_mesh_type,
         source_mesh_index: wireframe_mesh.source_mesh_index,
         index_buffer: bind_index_buffer(base_renderer, &wireframe_mesh.indices)?,
     })

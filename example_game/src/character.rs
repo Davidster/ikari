@@ -1,8 +1,8 @@
 use glam::Vec4;
 use ikari::mesh::BasicMesh;
 use ikari::physics::PhysicsState;
-use ikari::renderer::{BaseRenderer, Renderer, RendererData};
-use ikari::scene::{GameNodeId, GameNodeMesh, GameNodeMeshType, Scene};
+use ikari::renderer::{BaseRenderer, Renderer, RendererConstantData, RendererData};
+use ikari::scene::{GameNodeId, GameNodeVisual, Material, Scene};
 
 use ikari::physics::rapier3d_f64::prelude::*;
 use ikari::transform::Transform;
@@ -23,19 +23,17 @@ impl Character {
         scene: &mut Scene,
         physics_state: &mut PhysicsState,
         renderer_base: &BaseRenderer,
+        renderer_constant_data: &RendererConstantData,
         renderer_data: &mut RendererData,
         root_node_id: GameNodeId,
         skin_index: usize,
-        cube_mesh: &BasicMesh,
     ) -> Self {
-        let collision_debug_mesh_index =
-            Renderer::bind_basic_transparent_mesh(renderer_base, renderer_data, cube_mesh);
         let mut res = Self {
             root_node_id,
             skin_index,
             collision_box_nodes: vec![],
             collision_box_colliders: vec![],
-            collision_debug_mesh_index,
+            collision_debug_mesh_index: renderer_constant_data.cube_mesh_index,
             is_displaying_collision_boxes: false,
         };
         res.update(scene, physics_state);
@@ -132,25 +130,14 @@ impl Character {
             },
         ) {
             if let Some(node) = scene.get_node_mut(self.collision_box_nodes[bone_index]) {
-                node.mesh = Some(GameNodeMesh {
-                    mesh_indices: node
-                        .mesh
-                        .as_mut()
-                        .map(|mesh| {
-                            if mesh.mesh_indices.contains(&self.collision_debug_mesh_index) {
-                                mesh.mesh_indices.clone()
-                            } else {
-                                let mut res = mesh.mesh_indices.clone();
-                                res.push(self.collision_debug_mesh_index);
-                                res
-                            }
-                        })
-                        .unwrap_or_else(|| vec![self.collision_debug_mesh_index]),
-                    mesh_type: GameNodeMeshType::Transparent {
+                node.visual = Some(GameNodeVisual {
+                    mesh_index: self.collision_debug_mesh_index,
+                    material: Material::Transparent {
                         color: Vec4::new(1.0, 0.0, 0.0, 0.3),
                         premultiplied_alpha: false,
                     },
-                    ..Default::default()
+                    wireframe: false,
+                    cullable: true,
                 })
             }
         }
@@ -159,25 +146,14 @@ impl Character {
     fn enable_collision_box_display(&mut self, scene: &mut Scene) {
         for node_id in self.collision_box_nodes.iter().cloned() {
             if let Some(node) = scene.get_node_mut(node_id) {
-                node.mesh = Some(GameNodeMesh {
-                    mesh_indices: node
-                        .mesh
-                        .as_mut()
-                        .map(|mesh| {
-                            if mesh.mesh_indices.contains(&self.collision_debug_mesh_index) {
-                                mesh.mesh_indices.clone()
-                            } else {
-                                let mut res = mesh.mesh_indices.clone();
-                                res.push(self.collision_debug_mesh_index);
-                                res
-                            }
-                        })
-                        .unwrap_or_else(|| vec![self.collision_debug_mesh_index]),
-                    mesh_type: GameNodeMeshType::Transparent {
+                node.visual = Some(GameNodeVisual {
+                    mesh_index: self.collision_debug_mesh_index,
+                    material: Material::Transparent {
                         color: Vec4::new(rand::random(), rand::random(), rand::random(), 0.3),
                         premultiplied_alpha: false,
                     },
-                    ..Default::default()
+                    wireframe: false,
+                    cullable: true,
                 })
             }
         }
@@ -187,7 +163,7 @@ impl Character {
     fn disable_collision_box_display(&mut self, scene: &mut Scene) {
         for node_id in self.collision_box_nodes.iter().cloned() {
             if let Some(node) = scene.get_node_mut(node_id) {
-                node.mesh = None;
+                node.visual = None;
             }
         }
         self.is_displaying_collision_boxes = false;

@@ -204,16 +204,14 @@ pub struct BindableTexture {
 }
 
 #[derive(Debug)]
-pub struct BindablePbrMesh {
-    pub geometry: BindableGeometryBuffers,
-    pub material: IndexedPbrMaterial,
+pub struct BindablePbrMaterial {
+    pub textures: IndexedPbrTextures,
     pub dynamic_pbr_params: DynamicPbrParams,
 }
 
 #[derive(Debug)]
-pub struct BindedPbrMesh {
-    pub geometry_buffers: BindedGeometryBuffers,
-    pub textures_bind_group: WasmNotArc<wgpu::BindGroup>,
+pub struct BindedPbrMaterial {
+    pub textures_bind_group: wgpu::BindGroup,
     pub dynamic_pbr_params: DynamicPbrParams,
 }
 
@@ -252,41 +250,31 @@ pub struct BindedGeometryBuffers {
     pub bounding_box: crate::collisions::Aabb,
 }
 
-pub type BindableUnlitMesh = BindableGeometryBuffers;
-
-pub type BindableTransparentMesh = BindableGeometryBuffers;
-
-pub type BindedUnlitMesh = BindedGeometryBuffers;
-
-pub type BindedTransparentMesh = BindedGeometryBuffers;
-
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub enum MeshType {
+pub enum MaterialType {
     Pbr,
     Unlit,
     Transparent,
 }
 
-impl From<GameNodeMeshType> for MeshType {
-    fn from(game_node_mesh_type: GameNodeMeshType) -> Self {
-        match game_node_mesh_type {
-            GameNodeMeshType::Pbr { .. } => MeshType::Pbr,
-            GameNodeMeshType::Unlit { .. } => MeshType::Unlit,
-            GameNodeMeshType::Transparent { .. } => MeshType::Transparent,
+impl From<Material> for MaterialType {
+    fn from(material: Material) -> Self {
+        match material {
+            Material::Pbr { .. } => MaterialType::Pbr,
+            Material::Unlit { .. } => MaterialType::Unlit,
+            Material::Transparent { .. } => MaterialType::Transparent,
         }
     }
 }
 
 #[derive(Debug)]
 pub struct BindableWireframeMesh {
-    pub source_mesh_type: MeshType,
     pub source_mesh_index: usize,
     pub indices: BindableIndices,
 }
 
 #[derive(Debug)]
 pub struct BindedWireframeMesh {
-    pub source_mesh_type: MeshType,
     pub source_mesh_index: usize,
     pub index_buffer: BindedIndexBuffer,
 }
@@ -463,11 +451,11 @@ pub enum CullingFrustumLock {
 pub struct RendererPrivateData {
     // cpu
     all_bone_transforms: AllBoneTransforms,
-    all_pbr_instances: ChunkedBuffer<GpuPbrMeshInstance>,
+    all_pbr_instances: ChunkedBuffer<GpuPbrMeshInstance, (usize, usize)>,
     all_pbr_instances_culling_masks: Vec<u32>,
-    all_unlit_instances: ChunkedBuffer<GpuUnlitMeshInstance>,
-    all_transparent_instances: ChunkedBuffer<GpuUnlitMeshInstance>,
-    all_wireframe_instances: ChunkedBuffer<GpuWireframeMeshInstance>,
+    all_unlit_instances: ChunkedBuffer<GpuUnlitMeshInstance, usize>,
+    all_transparent_instances: ChunkedBuffer<GpuUnlitMeshInstance, usize>,
+    all_wireframe_instances: ChunkedBuffer<GpuWireframeMeshInstance, usize>,
     debug_node_bounding_spheres_nodes: Vec<GameNodeId>,
     debug_culling_frustum_nodes: Vec<GameNodeId>,
     debug_culling_frustum_mesh_index: Option<usize>,
@@ -522,19 +510,17 @@ pub struct RendererPrivateData {
 
 #[derive(Debug)]
 pub struct BindableSceneData {
-    pub bindable_pbr_meshes: Vec<BindablePbrMesh>,
-    pub bindable_unlit_meshes: Vec<BindableUnlitMesh>,
-    pub bindable_transparent_meshes: Vec<BindableTransparentMesh>,
+    pub bindable_meshes: Vec<BindableGeometryBuffers>,
     pub bindable_wireframe_meshes: Vec<BindableWireframeMesh>,
+    pub bindable_pbr_materials: Vec<BindablePbrMaterial>,
     pub textures: Vec<BindableTexture>,
 }
 
 #[derive(Debug, Default)]
 pub struct BindedSceneData {
-    pub binded_pbr_meshes: Vec<BindedPbrMesh>,
-    pub binded_unlit_meshes: Vec<BindedUnlitMesh>,
-    pub binded_transparent_meshes: Vec<BindedTransparentMesh>,
+    pub binded_meshes: Vec<BindedGeometryBuffers>,
     pub binded_wireframe_meshes: Vec<BindedWireframeMesh>,
+    pub binded_pbr_materials: Vec<BindedPbrMaterial>,
     pub textures: Vec<Texture>,
 }
 
@@ -606,13 +592,9 @@ impl SkyboxSlot {
 }
 
 pub struct RendererData {
-    // TODO: separate meshes and materials. meshes don't care about pbr, unlit or transparent. only materials do.. right?
-    //       then the gamecode could reuse the cube, sphere and plane mesh from the engine and just construct its own materials
-    //       this feels like an important todo!
-    pub binded_pbr_meshes: Vec<BindedPbrMesh>,
-    pub binded_unlit_meshes: Vec<BindedUnlitMesh>,
-    pub binded_transparent_meshes: Vec<BindedTransparentMesh>,
+    pub binded_meshes: Vec<BindedGeometryBuffers>,
     pub binded_wireframe_meshes: Vec<BindedWireframeMesh>,
+    pub binded_pbr_materials: Vec<BindedPbrMaterial>,
     pub textures: Vec<Texture>,
 
     pub tone_mapping_exposure: f32,
@@ -662,9 +644,7 @@ pub struct RendererConstantData {
     pub diffuse_env_map_gen_pipeline: wgpu::RenderPipeline,
     pub specular_env_map_gen_pipeline: wgpu::RenderPipeline,
 
-    // TODO: re-add transparent mesh index members to fix the crash when pressing 'J'
-    //       OR (much better): fix the above todo about separating meshes and materials.
-    pub box_mesh_index: usize,
+    pub cube_mesh_index: usize,
     pub sphere_mesh_index: usize,
     pub plane_mesh_index: usize,
 }
@@ -1780,7 +1760,7 @@ impl Renderer {
             diffuse_env_map_gen_pipeline,
             specular_env_map_gen_pipeline,
 
-            box_mesh_index: 0,
+            cube_mesh_index: 0,
             sphere_mesh_index: 0,
             plane_mesh_index: 0,
         };
@@ -2352,10 +2332,9 @@ impl Renderer {
         );
 
         let mut data = RendererData {
-            binded_pbr_meshes: vec![],
-            binded_unlit_meshes: vec![],
-            binded_transparent_meshes: vec![],
+            binded_meshes: vec![],
             binded_wireframe_meshes: vec![],
+            binded_pbr_materials: vec![],
             textures: vec![],
 
             tone_mapping_exposure: 1.0,
@@ -2376,14 +2355,13 @@ impl Renderer {
             camera_node_id: None,
         };
 
-        constant_data.box_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &cube_mesh);
+        constant_data.cube_mesh_index = Self::bind_basic_mesh(&base, &mut data, &cube_mesh);
 
         let sphere_mesh = BasicMesh::new(include_bytes!("models/sphere.obj"))?;
-        constant_data.sphere_mesh_index =
-            Self::bind_basic_unlit_mesh(&base, &mut data, &sphere_mesh);
+        constant_data.sphere_mesh_index = Self::bind_basic_mesh(&base, &mut data, &sphere_mesh);
 
         let plane_mesh = BasicMesh::new(include_bytes!("models/plane.obj"))?;
-        constant_data.plane_mesh_index = Self::bind_basic_unlit_mesh(&base, &mut data, &plane_mesh);
+        constant_data.plane_mesh_index = Self::bind_basic_mesh(&base, &mut data, &plane_mesh);
 
         // buffer up to 4 frames
         let profiler = wgpu_profiler::GpuProfiler::new(&base.adapter, &base.device, &base.queue, 4);
@@ -2464,11 +2442,11 @@ impl Renderer {
     pub fn make_pbr_textures_bind_group(
         base: &BaseRenderer,
         constant_data: &RendererConstantData,
-        material: &PbrMaterial,
+        pbr_textures: &PbrTextures,
         use_gltf_defaults: bool,
     ) -> Result<wgpu::BindGroup> {
         let auto_generated_diffuse_texture;
-        let diffuse_texture = match material.base_color {
+        let diffuse_texture = match pbr_textures.base_color {
             Some(diffuse_texture) => diffuse_texture,
             None => {
                 auto_generated_diffuse_texture =
@@ -2477,7 +2455,7 @@ impl Renderer {
             }
         };
         let auto_generated_normal_map;
-        let normal_map = match material.normal {
+        let normal_map = match pbr_textures.normal {
             Some(normal_map) => normal_map,
             None => {
                 auto_generated_normal_map = base.get_default_texture(DefaultTextureType::Normal)?;
@@ -2485,7 +2463,7 @@ impl Renderer {
             }
         };
         let auto_generated_metallic_roughness_map;
-        let metallic_roughness_map = match material.metallic_roughness {
+        let metallic_roughness_map = match pbr_textures.metallic_roughness {
             Some(metallic_roughness_map) => metallic_roughness_map,
             None => {
                 auto_generated_metallic_roughness_map =
@@ -2498,7 +2476,7 @@ impl Renderer {
             }
         };
         let auto_generated_emissive_map;
-        let emissive_map = match material.emissive {
+        let emissive_map = match pbr_textures.emissive {
             Some(emissive_map) => emissive_map,
             None => {
                 auto_generated_emissive_map = base.get_default_texture(if use_gltf_defaults {
@@ -2510,7 +2488,7 @@ impl Renderer {
             }
         };
         let auto_generated_ambient_occlusion_map;
-        let ambient_occlusion_map = match material.ambient_occlusion {
+        let ambient_occlusion_map = match pbr_textures.ambient_occlusion {
             Some(ambient_occlusion_map) => ambient_occlusion_map,
             None => {
                 auto_generated_ambient_occlusion_map =
@@ -2583,66 +2561,36 @@ impl Renderer {
         Ok(textures_bind_group)
     }
 
-    pub fn bind_basic_unlit_mesh(
+    pub fn bind_basic_mesh(
         base: &BaseRenderer,
         data: &mut RendererData,
         mesh: &BasicMesh,
     ) -> usize {
         let geometry_buffers = Self::bind_geometry_buffers_for_basic_mesh(base, mesh);
 
-        data.binded_unlit_meshes.push(geometry_buffers);
-        let unlit_mesh_index = data.binded_unlit_meshes.len() - 1;
+        data.binded_meshes.push(geometry_buffers);
+        let mesh_index = data.binded_meshes.len() - 1;
 
+        // TODO: these wireframe meshes waste memory. make sure it can be disabled
+        //       might be a good use case for a crate feature?
         let wireframe_index_buffer = Self::make_wireframe_index_buffer_for_basic_mesh(base, mesh);
         data.binded_wireframe_meshes.push(BindedWireframeMesh {
-            source_mesh_type: MeshType::Unlit,
-            source_mesh_index: unlit_mesh_index,
+            source_mesh_index: mesh_index,
             index_buffer: BindedIndexBuffer {
                 buffer: wireframe_index_buffer,
                 format: wgpu::IndexFormat::Uint16,
             },
         });
 
-        unlit_mesh_index
+        mesh_index
     }
 
-    pub fn bind_basic_transparent_mesh(
-        base: &BaseRenderer,
-        data: &mut RendererData,
-        mesh: &BasicMesh,
-    ) -> usize {
-        let geometry_buffers = Self::bind_geometry_buffers_for_basic_mesh(base, mesh);
-
-        data.binded_transparent_meshes.push(geometry_buffers);
-        let transparent_mesh_index = data.binded_transparent_meshes.len() - 1;
-
-        let wireframe_index_buffer = Self::make_wireframe_index_buffer_for_basic_mesh(base, mesh);
-        data.binded_wireframe_meshes.push(BindedWireframeMesh {
-            source_mesh_type: MeshType::Transparent,
-            source_mesh_index: transparent_mesh_index,
-            index_buffer: BindedIndexBuffer {
-                buffer: wireframe_index_buffer,
-                format: wgpu::IndexFormat::Uint16,
-            },
-        });
-
-        transparent_mesh_index
-    }
-
-    pub fn unbind_transparent_mesh(data: &RendererData, mesh_index: usize) {
-        let geometry_buffers = &data.binded_transparent_meshes[mesh_index];
+    pub fn unbind_mesh(data: &RendererData, mesh_index: usize) {
+        let geometry_buffers = &data.binded_meshes[mesh_index];
         let wireframe_mesh = data
             .binded_wireframe_meshes
             .iter()
-            .find(
-                |BindedWireframeMesh {
-                     source_mesh_type,
-                     source_mesh_index,
-                     ..
-                 }| {
-                    *source_mesh_type == MeshType::Transparent && *source_mesh_index == mesh_index
-                },
-            )
+            .find(|wireframe_mesh| wireframe_mesh.source_mesh_index == mesh_index)
             .unwrap();
 
         geometry_buffers.vertex_buffer.destroy();
@@ -2651,41 +2599,23 @@ impl Renderer {
     }
 
     // returns index of mesh in the RenderScene::binded_pbr_meshes list
-    pub fn bind_basic_pbr_mesh(
+    pub fn bind_pbr_material(
         base: &BaseRenderer,
         constant_data: &RendererConstantData,
         data: &mut RendererData,
-        mesh: &BasicMesh,
-        material: &PbrMaterial,
+        pbr_textures: &PbrTextures,
         dynamic_pbr_params: DynamicPbrParams,
     ) -> Result<usize> {
-        let geometry_buffers = Self::bind_geometry_buffers_for_basic_mesh(base, mesh);
+        let textures_bind_group =
+            Self::make_pbr_textures_bind_group(base, constant_data, pbr_textures, false)?;
 
-        let textures_bind_group = WasmNotArc::new(Self::make_pbr_textures_bind_group(
-            base,
-            constant_data,
-            material,
-            false,
-        )?);
-
-        data.binded_pbr_meshes.push(BindedPbrMesh {
-            geometry_buffers,
+        data.binded_pbr_materials.push(BindedPbrMaterial {
             dynamic_pbr_params,
             textures_bind_group,
         });
-        let pbr_mesh_index = data.binded_pbr_meshes.len() - 1;
+        let material_index = data.binded_pbr_materials.len() - 1;
 
-        let wireframe_index_buffer = Self::make_wireframe_index_buffer_for_basic_mesh(base, mesh);
-        data.binded_wireframe_meshes.push(BindedWireframeMesh {
-            source_mesh_type: MeshType::Pbr,
-            source_mesh_index: pbr_mesh_index,
-            index_buffer: BindedIndexBuffer {
-                buffer: wireframe_index_buffer,
-                format: wgpu::IndexFormat::Uint16,
-            },
-        });
-
-        Ok(pbr_mesh_index)
+        Ok(material_index)
     }
 
     fn bind_geometry_buffers_for_basic_mesh(
@@ -3044,7 +2974,7 @@ impl Renderer {
         private_data.debug_culling_frustum_nodes.clear();
 
         if let Some(mesh_index) = private_data.debug_culling_frustum_mesh_index.take() {
-            Self::unbind_transparent_mesh(data, mesh_index);
+            Self::unbind_mesh(data, mesh_index);
         }
 
         if data.draw_node_bounding_spheres {
@@ -3078,12 +3008,12 @@ impl Renderer {
                                             .position(bounding_sphere.center)
                                             .build(),
                                     )
-                                    .mesh(Some(GameNodeMesh {
-                                        mesh_type: GameNodeMeshType::Transparent {
+                                    .visual(Some(GameNodeVisual {
+                                        material: Material::Transparent {
                                             color: debug_sphere_color.into(),
                                             premultiplied_alpha: false,
                                         },
-                                        mesh_indices: vec![self.constant_data.sphere_mesh_index],
+                                        mesh_index: self.constant_data.sphere_mesh_index,
                                         wireframe: false,
                                         cullable: false,
                                     }))
@@ -3106,24 +3036,25 @@ impl Renderer {
             let debug_main_camera_frustum_mesh =
                 debug_main_camera_frustum_descriptor.to_basic_mesh();
 
-            private_data.debug_culling_frustum_mesh_index =
-                Some(Self::bind_basic_transparent_mesh(
-                    &self.base,
-                    data,
-                    &debug_main_camera_frustum_mesh,
-                ));
+            private_data.debug_culling_frustum_mesh_index = Some(Self::bind_basic_mesh(
+                &self.base,
+                data,
+                &debug_main_camera_frustum_mesh,
+            ));
 
-            let culling_frustum_mesh = GameNodeMesh {
-                mesh_type: GameNodeMeshType::Transparent {
+            let culling_frustum_mesh = GameNodeVisual {
+                material: Material::Transparent {
                     color: Vec4::new(1.0, 0.0, 0.0, 0.1),
                     premultiplied_alpha: false,
                 },
-                mesh_indices: vec![private_data.debug_culling_frustum_mesh_index.unwrap()],
+                mesh_index: private_data
+                    .debug_culling_frustum_mesh_index
+                    .expect("Mesh index should have just been set above"),
                 wireframe: false,
                 cullable: false,
             };
 
-            let culling_frustum_mesh_wf = GameNodeMesh {
+            let culling_frustum_mesh_wf = GameNodeVisual {
                 wireframe: true,
                 ..culling_frustum_mesh.clone()
             };
@@ -3132,7 +3063,7 @@ impl Renderer {
                 scene
                     .add_node(
                         GameNodeDescBuilder::new()
-                            .mesh(Some(culling_frustum_mesh))
+                            .visual(Some(culling_frustum_mesh))
                             .build(),
                     )
                     .id(),
@@ -3141,7 +3072,7 @@ impl Renderer {
                 scene
                     .add_node(
                         GameNodeDescBuilder::new()
-                            .mesh(Some(culling_frustum_mesh_wf))
+                            .visual(Some(culling_frustum_mesh_wf))
                             .build(),
                     )
                     .id(),
@@ -3178,24 +3109,25 @@ impl Renderer {
                         Vec4::new(1.0, 0.0, 0.0, 0.1)
                     };
 
-                    private_data.debug_culling_frustum_mesh_index =
-                        Some(Self::bind_basic_transparent_mesh(
-                            &self.base,
-                            data,
-                            &debug_culling_frustum_mesh,
-                        ));
+                    private_data.debug_culling_frustum_mesh_index = Some(Self::bind_basic_mesh(
+                        &self.base,
+                        data,
+                        &debug_culling_frustum_mesh,
+                    ));
 
-                    let culling_frustum_mesh = GameNodeMesh {
-                        mesh_type: GameNodeMeshType::Transparent {
+                    let culling_frustum_mesh = GameNodeVisual {
+                        material: Material::Transparent {
                             color: collision_based_color,
                             premultiplied_alpha: false,
                         },
-                        mesh_indices: vec![private_data.debug_culling_frustum_mesh_index.unwrap()],
+                        mesh_index: private_data
+                            .debug_culling_frustum_mesh_index
+                            .expect("Mesh index should have just been set above"),
                         wireframe: false,
                         cullable: false,
                     };
 
-                    let culling_frustum_mesh_wf = GameNodeMesh {
+                    let culling_frustum_mesh_wf = GameNodeVisual {
                         wireframe: true,
                         ..culling_frustum_mesh.clone()
                     };
@@ -3204,7 +3136,7 @@ impl Renderer {
                         scene
                             .add_node(
                                 GameNodeDescBuilder::new()
-                                    .mesh(Some(culling_frustum_mesh))
+                                    .visual(Some(culling_frustum_mesh))
                                     .build(),
                             )
                             .id(),
@@ -3213,7 +3145,7 @@ impl Renderer {
                         scene
                             .add_node(
                                 GameNodeDescBuilder::new()
-                                    .mesh(Some(culling_frustum_mesh_wf))
+                                    .visual(Some(culling_frustum_mesh_wf))
                                     .build(),
                             )
                             .id(),
@@ -3305,10 +3237,10 @@ impl Renderer {
         scene: &Scene,
         camera_culling_frustum: &Frustum,
     ) -> Option<IntersectionResult> {
-        node.mesh.as_ref()?;
+        node.visual.as_ref()?;
 
         /* bounding boxes will be wrong for skinned meshes so we currently can't cull them */
-        if node.skin_index.is_some() || !node.mesh.as_ref().unwrap().cullable {
+        if node.skin_index.is_some() || !node.visual.as_ref().unwrap().cullable {
             return None;
         }
 
@@ -3339,12 +3271,12 @@ impl Renderer {
             "u32 can only store a max of 5 point lights, might be worth using a larger, might be worth using a larger bitvec or a Vec<bool> or something"
         );
 
-        if node.mesh.is_none() {
+        if node.visual.is_none() {
             return 0;
         }
 
         /* bounding boxes will be wrong for skinned meshes so we currently can't cull them */
-        if node.skin_index.is_some() || !node.mesh.as_ref().unwrap().cullable {
+        if node.skin_index.is_some() || !node.visual.as_ref().unwrap().cullable {
             return u32::MAX;
         }
 
@@ -3599,7 +3531,8 @@ impl Renderer {
         );
         let previous_bones_buffer_capacity_bytes = private_data.bones_buffer.capacity_bytes();
 
-        let mut pbr_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuPbrMeshInstance>> =
+        // composite index (mesh_index, material_index)
+        let mut pbr_mesh_index_to_gpu_instances: HashMap<(usize, usize), Vec<GpuPbrMeshInstance>> =
             HashMap::new();
         let mut unlit_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuUnlitMeshInstance>> =
             HashMap::new();
@@ -3666,31 +3599,133 @@ impl Renderer {
                         .scene
                         .get_global_transform_for_node_opt(node.id()),
                 );
-                if let Some(GameNodeMesh {
-                    mesh_indices,
-                    mesh_type,
+                if let Some(GameNodeVisual {
+                    mesh_index,
+                    material,
                     wireframe,
                     ..
-                }) = &node.mesh
+                }) = node.visual.clone()
                 {
-                    for mesh_index in mesh_indices.iter().copied() {
-                        match (mesh_type, data.enable_wireframe_mode, *wireframe) {
-                            (GameNodeMeshType::Pbr { material_override }, false, false) => {
-                                let culling_mask = Self::get_node_culling_mask(
-                                    node,
-                                    data,
-                                    engine_state,
-                                    &culling_frustum,
-                                    &point_lights_frusta,
-                                );
-                                let gpu_instance = GpuPbrMeshInstance::new(
-                                    transform,
-                                    material_override.unwrap_or_else(|| {
-                                        data.binded_pbr_meshes[mesh_index].dynamic_pbr_params
-                                    }),
-                                    culling_mask,
-                                );
-                                match pbr_mesh_index_to_gpu_instances.entry(mesh_index) {
+                    match (material, data.enable_wireframe_mode, wireframe) {
+                        (
+                            Material::Pbr {
+                                binded_material_index,
+                                dynamic_pbr_params,
+                            },
+                            false,
+                            false,
+                        ) => {
+                            let culling_mask = Self::get_node_culling_mask(
+                                node,
+                                data,
+                                engine_state,
+                                &culling_frustum,
+                                &point_lights_frusta,
+                            );
+                            let gpu_instance = GpuPbrMeshInstance::new(
+                                transform,
+                                dynamic_pbr_params.unwrap_or_else(|| {
+                                    data.binded_pbr_materials[binded_material_index]
+                                        .dynamic_pbr_params
+                                }),
+                                culling_mask,
+                            );
+                            match pbr_mesh_index_to_gpu_instances
+                                .entry((mesh_index, binded_material_index))
+                            {
+                                Entry::Occupied(mut entry) => {
+                                    entry.get_mut().push(gpu_instance);
+                                }
+                                Entry::Vacant(entry) => {
+                                    entry.insert(vec![gpu_instance]);
+                                }
+                            }
+                        }
+                        (material, enable_wireframe_mode, is_node_wireframe) => {
+                            let (color, is_transparent) = match material {
+                                Material::Unlit { color } => {
+                                    ([color.x, color.y, color.z, 1.0], false)
+                                }
+                                Material::Transparent {
+                                    color,
+                                    premultiplied_alpha,
+                                } => {
+                                    (
+                                        if premultiplied_alpha {
+                                            [color.x, color.y, color.z, color.w]
+                                        } else {
+                                            // transparent pipeline requires alpha to be premultiplied.
+                                            [
+                                                color.w * color.x,
+                                                color.w * color.y,
+                                                color.w * color.z,
+                                                color.w,
+                                            ]
+                                        },
+                                        true,
+                                    )
+                                }
+                                Material::Pbr {
+                                    binded_material_index,
+                                    dynamic_pbr_params,
+                                } => {
+                                    // fancy logic for picking what the wireframe lines
+                                    // color will be by checking the pbr material
+                                    let DynamicPbrParams {
+                                        base_color_factor,
+                                        emissive_factor,
+                                        ..
+                                    } = dynamic_pbr_params.unwrap_or_else(|| {
+                                        data.binded_pbr_materials[binded_material_index]
+                                            .dynamic_pbr_params
+                                    });
+                                    let should_take_color = |as_slice: &[f32]| {
+                                        let is_all_zero = as_slice.iter().all(|&x| x == 0.0);
+                                        let is_all_one = as_slice.iter().all(|&x| x == 1.0);
+                                        !is_all_zero && !is_all_one
+                                    };
+                                    let base_color_factor_arr: [f32; 4] = base_color_factor.into();
+                                    let emissive_factor_arr: [f32; 3] = emissive_factor.into();
+                                    (
+                                        if should_take_color(&base_color_factor_arr[0..3]) {
+                                            [
+                                                base_color_factor.x,
+                                                base_color_factor.y,
+                                                base_color_factor.z,
+                                                base_color_factor.w,
+                                            ]
+                                        } else if should_take_color(&emissive_factor_arr) {
+                                            [
+                                                emissive_factor.x,
+                                                emissive_factor.y,
+                                                emissive_factor.z,
+                                                1.0,
+                                            ]
+                                        } else {
+                                            DEFAULT_WIREFRAME_COLOR
+                                        },
+                                        false,
+                                    )
+                                }
+                            };
+
+                            if enable_wireframe_mode || is_node_wireframe {
+                                let wireframe_mesh_index = data
+                                        .binded_wireframe_meshes
+                                        .iter()
+                                        .enumerate()
+                                        .find(|(_, wireframe_mesh)| {
+                                            wireframe_mesh.source_mesh_index == mesh_index
+                                        })
+                                        .unwrap_or_else(|| panic!("Attempted to draw mesh {mesh_index:?} in wireframe mode without a corresponding wireframe object")) // TODO: convert this panic to an error
+                                        .0;
+                                let gpu_instance = GpuWireframeMeshInstance {
+                                    color,
+                                    model_transform: transform,
+                                };
+                                match wireframe_mesh_index_to_gpu_instances
+                                    .entry(wireframe_mesh_index)
+                                {
                                     Entry::Occupied(mut entry) => {
                                         entry.get_mut().push(gpu_instance);
                                     }
@@ -3698,138 +3733,36 @@ impl Renderer {
                                         entry.insert(vec![gpu_instance]);
                                     }
                                 }
-                            }
-                            (mesh_type, is_wireframe_mode_on, is_node_wireframe) => {
-                                let (color, is_transparent) = match mesh_type {
-                                    GameNodeMeshType::Unlit { color } => {
-                                        ([color.x, color.y, color.z, 1.0], false)
-                                    }
-                                    GameNodeMeshType::Transparent {
-                                        color,
-                                        premultiplied_alpha,
-                                    } => {
-                                        (
-                                            if *premultiplied_alpha {
-                                                [color.x, color.y, color.z, color.w]
-                                            } else {
-                                                // transparent pipeline requires alpha to be premultiplied.
-                                                [
-                                                    color.w * color.x,
-                                                    color.w * color.y,
-                                                    color.w * color.z,
-                                                    color.w,
-                                                ]
-                                            },
-                                            true,
-                                        )
-                                    }
-                                    GameNodeMeshType::Pbr { material_override } => {
-                                        // fancy logic for picking what the wireframe lines
-                                        // color will be by checking the pbr material
-                                        let fallback_pbr_params =
-                                            data.binded_pbr_meshes[mesh_index].dynamic_pbr_params;
-                                        let (base_color_factor, emissive_factor) =
-                                            material_override
-                                                .map(|material_override| {
-                                                    (
-                                                        material_override.base_color_factor,
-                                                        material_override.emissive_factor,
-                                                    )
-                                                })
-                                                .unwrap_or((
-                                                    fallback_pbr_params.base_color_factor,
-                                                    fallback_pbr_params.emissive_factor,
-                                                ));
-                                        let should_take_color = |as_slice: &[f32]| {
-                                            let is_all_zero = as_slice.iter().all(|&x| x == 0.0);
-                                            let is_all_one = as_slice.iter().all(|&x| x == 1.0);
-                                            !is_all_zero && !is_all_one
-                                        };
-                                        let base_color_factor_arr: [f32; 4] =
-                                            base_color_factor.into();
-                                        let emissive_factor_arr: [f32; 3] = emissive_factor.into();
-                                        (
-                                            if should_take_color(&base_color_factor_arr[0..3]) {
-                                                [
-                                                    base_color_factor.x,
-                                                    base_color_factor.y,
-                                                    base_color_factor.z,
-                                                    base_color_factor.w,
-                                                ]
-                                            } else if should_take_color(&emissive_factor_arr) {
-                                                [
-                                                    emissive_factor.x,
-                                                    emissive_factor.y,
-                                                    emissive_factor.z,
-                                                    1.0,
-                                                ]
-                                            } else {
-                                                DEFAULT_WIREFRAME_COLOR
-                                            },
-                                            false,
-                                        )
-                                    }
+                            } else if is_transparent {
+                                let gpu_instance = GpuTransparentMeshInstance {
+                                    color,
+                                    model_transform: transform,
                                 };
-
-                                if is_wireframe_mode_on || is_node_wireframe {
-                                    // TODO: this search is slow.. but it's only for wireframe mode, so who cares.. ?
-                                    let wireframe_mesh_index = data
-                                        .binded_wireframe_meshes
-                                        .iter()
-                                        .enumerate()
-                                        .find(|(_, wireframe_mesh)| {
-                                            wireframe_mesh.source_mesh_index == mesh_index
-                                                && MeshType::from(*mesh_type)
-                                                    == wireframe_mesh.source_mesh_type
-                                        })
-                                        .unwrap_or_else(|| panic!("Attempted to draw mesh {mesh_index:?} in wireframe mode without a corresponding wireframe object"))
-                                        .0;
-                                    let gpu_instance = GpuWireframeMeshInstance {
-                                        color,
-                                        model_transform: transform,
-                                    };
-                                    match wireframe_mesh_index_to_gpu_instances
-                                        .entry(wireframe_mesh_index)
-                                    {
-                                        Entry::Occupied(mut entry) => {
-                                            entry.get_mut().push(gpu_instance);
-                                        }
-                                        Entry::Vacant(entry) => {
-                                            entry.insert(vec![gpu_instance]);
-                                        }
+                                let (scale, _, translation) =
+                                    transform.to_scale_rotation_translation();
+                                let aabb_world_space = data.binded_meshes[mesh_index]
+                                    .bounding_box
+                                    .scale_translate(scale, translation);
+                                let closest_point_to_player =
+                                    aabb_world_space.find_closest_surface_point(camera_position);
+                                let distance_from_player =
+                                    closest_point_to_player.distance(camera_position);
+                                transparent_meshes.push((
+                                    mesh_index,
+                                    gpu_instance,
+                                    distance_from_player,
+                                ));
+                            } else {
+                                let gpu_instance = GpuUnlitMeshInstance {
+                                    color,
+                                    model_transform: transform,
+                                };
+                                match unlit_mesh_index_to_gpu_instances.entry(mesh_index) {
+                                    Entry::Occupied(mut entry) => {
+                                        entry.get_mut().push(gpu_instance);
                                     }
-                                } else if is_transparent {
-                                    let gpu_instance = GpuTransparentMeshInstance {
-                                        color,
-                                        model_transform: transform,
-                                    };
-                                    let (scale, _, translation) =
-                                        transform.to_scale_rotation_translation();
-                                    let aabb_world_space = data.binded_transparent_meshes
-                                        [mesh_index]
-                                        .bounding_box
-                                        .scale_translate(scale, translation);
-                                    let closest_point_to_player = aabb_world_space
-                                        .find_closest_surface_point(camera_position);
-                                    let distance_from_player =
-                                        closest_point_to_player.distance(camera_position);
-                                    transparent_meshes.push((
-                                        mesh_index,
-                                        gpu_instance,
-                                        distance_from_player,
-                                    ));
-                                } else {
-                                    let gpu_instance = GpuUnlitMeshInstance {
-                                        color,
-                                        model_transform: transform,
-                                    };
-                                    match unlit_mesh_index_to_gpu_instances.entry(mesh_index) {
-                                        Entry::Occupied(mut entry) => {
-                                            entry.get_mut().push(gpu_instance);
-                                        }
-                                        Entry::Vacant(entry) => {
-                                            entry.insert(vec![gpu_instance]);
-                                        }
+                                    Entry::Vacant(entry) => {
+                                        entry.insert(vec![gpu_instance]);
                                     }
                                 }
                             }
@@ -3860,6 +3793,9 @@ impl Renderer {
             }
         }
 
+        // TODO: when drawing, sort these by mesh index so that instances of the same mesh are contiguous.
+        //       should be better for performance
+        //       I guess the sort would need to happen before combining those culling masks above
         private_data.all_pbr_instances.replace(
             pbr_mesh_index_to_gpu_instances.into_iter(),
             min_storage_buffer_offset_alignment as usize,
@@ -4204,40 +4140,33 @@ impl Renderer {
             }
         }
 
-        let _total_instance_buffer_memory_usage = private_data.pbr_instances_buffer.length_bytes()
-            + private_data.unlit_instances_buffer.length_bytes()
-            + private_data.transparent_instances_buffer.length_bytes()
-            + private_data.wireframe_instances_buffer.length_bytes();
-        let _total_index_buffer_memory_usage = data
-            .binded_pbr_meshes
-            .iter()
-            .map(|mesh| mesh.geometry_buffers.index_buffer.buffer.length_bytes())
-            .chain(
-                data.binded_unlit_meshes
-                    .iter()
-                    .map(|mesh| mesh.index_buffer.buffer.length_bytes()),
-            )
-            .chain(
-                data.binded_transparent_meshes
-                    .iter()
-                    .map(|mesh| mesh.index_buffer.buffer.length_bytes()),
-            )
-            .reduce(|acc, val| acc + val);
-        let _total_vertex_buffer_memory_usage = data
-            .binded_pbr_meshes
-            .iter()
-            .map(|mesh| mesh.geometry_buffers.vertex_buffer.length_bytes())
-            .chain(
-                data.binded_unlit_meshes
-                    .iter()
-                    .map(|mesh| mesh.vertex_buffer.length_bytes()),
-            )
-            .chain(
-                data.binded_transparent_meshes
-                    .iter()
-                    .map(|mesh| mesh.vertex_buffer.length_bytes()),
-            )
-            .reduce(|acc, val| acc + val);
+        // TODO: try actually running in debug to see how annoying this is
+        log::debug!(
+            "total_instance_buffer_memory_usage={:?}",
+            private_data.pbr_instances_buffer.length_bytes()
+                + private_data.unlit_instances_buffer.length_bytes()
+                + private_data.transparent_instances_buffer.length_bytes()
+                + private_data.wireframe_instances_buffer.length_bytes()
+        );
+        log::debug!(
+            "total_index_buffer_memory_usage={:?}",
+            data.binded_meshes
+                .iter()
+                .map(|mesh| mesh.index_buffer.buffer.length_bytes())
+                .chain(
+                    data.binded_wireframe_meshes
+                        .iter()
+                        .map(|mesh| mesh.index_buffer.buffer.length_bytes()),
+                )
+                .reduce(|acc, val| acc + val)
+        );
+        log::debug!(
+            "total_vertex_buffer_memory_usage={:?}",
+            data.binded_meshes
+                .iter()
+                .map(|mesh| mesh.vertex_buffer.length_bytes())
+                .reduce(|acc, val| acc + val)
+        );
 
         queue.write_buffer(
             &private_data.point_lights_buffer,
@@ -4519,7 +4448,7 @@ impl Renderer {
                         - unlit_instance_chunk.start_index)
                         / private_data.all_unlit_instances.stride();
 
-                    let geometry_buffers = &data.binded_unlit_meshes[binded_unlit_mesh_index];
+                    let geometry_buffers = &data.binded_meshes[binded_unlit_mesh_index];
 
                     render_pass.set_bind_group(
                         1,
@@ -4549,40 +4478,19 @@ impl Renderer {
                         / private_data.all_wireframe_instances.stride();
 
                     let BindedWireframeMesh {
-                        source_mesh_type,
                         source_mesh_index,
                         index_buffer,
                         ..
                     } = &data.binded_wireframe_meshes[binded_wireframe_mesh_index];
 
-                    let (vertex_buffer, bone_transforms_buffer_start_index) = match source_mesh_type
-                    {
-                        MeshType::Pbr => {
-                            let bone_transforms_buffer_start_index = private_data
-                                .all_bone_transforms
-                                .animated_bone_transforms
-                                .iter()
-                                .find(|bone_slice| {
-                                    bone_slice.binded_pbr_mesh_index == *source_mesh_index
-                                })
-                                .map(|bone_slice| bone_slice.start_index.try_into().unwrap())
-                                .unwrap_or(0);
-                            (
-                                &data.binded_pbr_meshes[*source_mesh_index]
-                                    .geometry_buffers
-                                    .vertex_buffer,
-                                bone_transforms_buffer_start_index,
-                            )
-                        }
-                        MeshType::Unlit => (
-                            &data.binded_unlit_meshes[*source_mesh_index].vertex_buffer,
-                            0,
-                        ),
-                        MeshType::Transparent => (
-                            &data.binded_transparent_meshes[*source_mesh_index].vertex_buffer,
-                            0,
-                        ),
-                    };
+                    let bone_transforms_buffer_start_index = private_data
+                        .all_bone_transforms
+                        .animated_bone_transforms
+                        .iter()
+                        .find(|bone_slice| bone_slice.mesh_index == *source_mesh_index)
+                        .map(|bone_slice| bone_slice.start_index.try_into().unwrap())
+                        .unwrap_or(0);
+
                     render_pass.set_bind_group(
                         1,
                         &private_data.bones_and_wireframe_instances_bind_group,
@@ -4591,7 +4499,13 @@ impl Renderer {
                             instances_buffer_start_index,
                         ],
                     );
-                    render_pass.set_vertex_buffer(0, vertex_buffer.src().slice(..));
+                    render_pass.set_vertex_buffer(
+                        0,
+                        data.binded_meshes[*source_mesh_index]
+                            .vertex_buffer
+                            .src()
+                            .slice(..),
+                    );
                     render_pass
                         .set_index_buffer(index_buffer.buffer.src().slice(..), index_buffer.format);
                     render_pass.draw_indexed(
@@ -4808,8 +4722,7 @@ impl Renderer {
                         - transparent_instance_chunk.start_index)
                         / private_data.all_transparent_instances.stride();
 
-                    let geometry_buffers =
-                        &data.binded_transparent_meshes[binded_transparent_mesh_index];
+                    let geometry_buffers = &data.binded_meshes[binded_transparent_mesh_index];
 
                     render_pass.set_bind_group(
                         1,
@@ -4991,14 +4904,12 @@ impl Renderer {
                         continue;
                     }
 
-                    let binded_pbr_mesh_index = pbr_instance_chunk.id;
+                    let (mesh_index, pbr_material_index) = pbr_instance_chunk.id;
                     let bone_transforms_buffer_start_index = private_data
                         .all_bone_transforms
                         .animated_bone_transforms
                         .iter()
-                        .find(|bone_slice| {
-                            bone_slice.binded_pbr_mesh_index == binded_pbr_mesh_index
-                        })
+                        .find(|bone_slice| bone_slice.mesh_index == mesh_index)
                         .map(|bone_slice| bone_slice.start_index.try_into().unwrap())
                         .unwrap_or(0);
                     let instances_buffer_start_index = pbr_instance_chunk.start_index as u32;
@@ -5006,11 +4917,9 @@ impl Renderer {
                         - pbr_instance_chunk.start_index)
                         / private_data.all_pbr_instances.stride();
 
-                    let BindedPbrMesh {
-                        geometry_buffers,
-                        textures_bind_group,
-                        ..
-                    } = &data.binded_pbr_meshes[binded_pbr_mesh_index];
+                    let geometry_buffers = &data.binded_meshes[mesh_index];
+
+                    let material = &data.binded_pbr_materials[pbr_material_index];
 
                     render_pass.set_bind_group(
                         if is_shadow { 1 } else { 2 },
@@ -5022,7 +4931,7 @@ impl Renderer {
                     );
                     render_pass.set_bind_group(
                         if is_shadow { 2 } else { 3 },
-                        textures_bind_group,
+                        &material.textures_bind_group,
                         &[],
                     );
                     render_pass

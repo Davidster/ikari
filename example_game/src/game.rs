@@ -33,7 +33,7 @@ use ikari::light::PointLightComponent;
 use ikari::math::deg_to_rad;
 use ikari::mesh::BasicMesh;
 use ikari::mesh::DynamicPbrParams;
-use ikari::mesh::PbrMaterial;
+use ikari::mesh::PbrTextures;
 use ikari::mesh::Vertex;
 use ikari::physics::rapier3d_f64::prelude::*;
 use ikari::physics::PhysicsState;
@@ -49,8 +49,8 @@ use ikari::sampler_cache::SamplerDescriptor;
 use ikari::scene::GameNodeDesc;
 use ikari::scene::GameNodeDescBuilder;
 use ikari::scene::GameNodeId;
-use ikari::scene::GameNodeMesh;
-use ikari::scene::GameNodeMeshType;
+use ikari::scene::GameNodeVisual;
+use ikari::scene::Material;
 use ikari::scene::Scene;
 use ikari::texture::Texture;
 use ikari::transform::Transform;
@@ -378,13 +378,6 @@ pub async fn init_game_state(
         })
     });
 
-    let sphere_mesh =
-        BasicMesh::new(&FileManager::read(&GAME_PATH_MAKER.make("src/models/sphere.obj")).await?)?;
-    let plane_mesh =
-        BasicMesh::new(&FileManager::read(&GAME_PATH_MAKER.make("src/models/plane.obj")).await?)?;
-    let cube_mesh =
-        BasicMesh::new(&FileManager::read(&GAME_PATH_MAKER.make("src/models/cube.obj")).await?)?;
-
     // add lights to the scene
     engine_state.directional_lights = vec![
         // DirectionalLightComponent {
@@ -447,22 +440,18 @@ pub async fn init_game_state(
 
     renderer.data.lock().unwrap().camera_node_id = Some(player_node_id);
 
-    let point_light_unlit_mesh_index = Renderer::bind_basic_unlit_mesh(
-        &renderer.base,
-        &mut renderer.data.lock().unwrap(),
-        &sphere_mesh,
-    );
     let mut point_light_node_ids: Vec<GameNodeId> = Vec::new();
     for (transform, color, intensity) in point_lights {
         let node_id = scene
             .add_node(
                 GameNodeDescBuilder::new()
-                    .mesh(Some(GameNodeMesh {
-                        mesh_indices: vec![point_light_unlit_mesh_index],
-                        mesh_type: GameNodeMeshType::Unlit {
+                    .visual(Some(GameNodeVisual {
+                        mesh_index: renderer.constant_data.sphere_mesh_index,
+                        material: Material::Unlit {
                             color: color * intensity,
                         },
-                        ..Default::default()
+                        wireframe: false,
+                        cullable: true,
                     }))
                     .transform(transform)
                     .build(),
@@ -612,12 +601,11 @@ pub async fn init_game_state(
         ],
     )?;
 
-    let test_object_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
+    let test_object_pbr_material_index = Renderer::bind_pbr_material(
         &renderer.base,
         &renderer.constant_data,
         &mut renderer.data.lock().unwrap(),
-        &sphere_mesh,
-        &PbrMaterial {
+        &PbrTextures {
             base_color: Some(&rainbow_texture),
             normal: Some(&brick_normal_map),
             metallic_roughness: Some(&test_object_metallic_roughness_map),
@@ -628,8 +616,9 @@ pub async fn init_game_state(
     let test_object_node_id = scene
         .add_node(
             GameNodeDescBuilder::new()
-                .mesh(Some(GameNodeMesh::from_pbr_mesh_index(
-                    test_object_pbr_mesh_index,
+                .visual(Some(GameNodeVisual::make_pbr(
+                    renderer.constant_data.sphere_mesh_index,
+                    test_object_pbr_material_index,
                 )))
                 .transform(
                     TransformBuilder::new()
@@ -647,12 +636,11 @@ pub async fn init_game_state(
     let ball_count = 0;
     let balls: Vec<_> = (0..ball_count).map(|_| BallComponent::rand()).collect();
 
-    let ball_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
+    let ball_pbr_material_index = Renderer::bind_pbr_material(
         &renderer.base,
         &renderer.constant_data,
         &mut renderer.data.lock().unwrap(),
-        &sphere_mesh,
-        &PbrMaterial {
+        &PbrTextures {
             base_color: Some(&rainbow_texture),
             ..Default::default()
         },
@@ -663,7 +651,10 @@ pub async fn init_game_state(
     for ball in &balls {
         let node = scene.add_node(
             GameNodeDescBuilder::new()
-                .mesh(Some(GameNodeMesh::from_pbr_mesh_index(ball_pbr_mesh_index)))
+                .visual(Some(GameNodeVisual::make_pbr(
+                    renderer.constant_data.sphere_mesh_index,
+                    ball_pbr_material_index,
+                )))
                 .transform(ball.transform)
                 .build(),
         );
@@ -676,7 +667,10 @@ pub async fn init_game_state(
             PhysicsBall::new_random(
                 scene,
                 physics_state,
-                GameNodeMesh::from_pbr_mesh_index(ball_pbr_mesh_index),
+                GameNodeVisual::make_pbr(
+                    renderer.constant_data.sphere_mesh_index,
+                    ball_pbr_material_index,
+                ),
             )
         })
         .collect();
@@ -694,12 +688,11 @@ pub async fn init_game_state(
                 255,
             ],
         )?;
-        let ball_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
+        let ball_pbr_mesh_index = Renderer::bind_pbr_material(
             &renderer.base,
             &renderer.constant_data,
             &mut renderer.data.lock().unwrap(),
-            &sphere_mesh,
-            &PbrMaterial {
+            &PbrTextures {
                 base_color: Some(&rainbow_texture),
                 normal: Some(&brick_normal_map),
                 metallic_roughness: Some(&ball_metallic_roughness_map),
@@ -710,7 +703,10 @@ pub async fn init_game_state(
         let _ball_node_id = scene
             .add_node(
                 GameNodeDescBuilder::new()
-                    .mesh(Some(GameNodeMesh::from_pbr_mesh_index(ball_pbr_mesh_index)))
+                    .visual(Some(GameNodeVisual::make_pbr(
+                        renderer.constant_data.sphere_mesh_index,
+                        ball_pbr_mesh_index,
+                    )))
                     .transform(
                         TransformBuilder::new()
                             .position(cube_center - Vec3::new(0.0, 1.0, 0.0))
@@ -721,18 +717,20 @@ pub async fn init_game_state(
             )
             .id();
 
-        let wall_mesh_index = Renderer::bind_basic_pbr_mesh(
+        let wall_pbr_material_index = Renderer::bind_pbr_material(
             &renderer.base,
             &renderer.constant_data,
             &mut renderer.data.lock().unwrap(),
-            &plane_mesh,
-            &PbrMaterial {
+            &PbrTextures {
                 base_color: Some(&checkerboard_texture),
                 ..Default::default()
             },
             Default::default(),
         )?;
-        let game_node_mesh = GameNodeMesh::from_pbr_mesh_index(wall_mesh_index);
+        let game_node_visual = GameNodeVisual::make_pbr(
+            renderer.constant_data.plane_mesh_index,
+            wall_pbr_material_index,
+        );
 
         let ceiling_transform = TransformBuilder::new()
             .position(cube_center + Vec3::new(0.0, cube_radius, 0.0))
@@ -742,30 +740,32 @@ pub async fn init_game_state(
                 deg_to_rad(180.0),
             ))
             .build();
-        let ceiling_game_node_mesh = GameNodeMesh {
-            mesh_type: GameNodeMeshType::Pbr {
-                material_override: Some(DynamicPbrParams {
+        let ceiling_game_node_mesh = GameNodeVisual {
+            material: Material::Pbr {
+                binded_material_index: wall_pbr_material_index,
+                dynamic_pbr_params: Some(DynamicPbrParams {
                     base_color_factor: Vec4::new(1.0, 0.5, 0.5, 1.0),
                     ..Default::default()
                 }),
             },
-            ..game_node_mesh.clone()
+            ..game_node_visual.clone()
         };
         let _ceiling_node = scene.add_node(
             GameNodeDescBuilder::new()
-                .mesh(Some(ceiling_game_node_mesh))
+                .visual(Some(ceiling_game_node_mesh))
                 .transform(ceiling_transform)
                 .build(),
         );
 
-        let wall_1_node_mesh = GameNodeMesh {
-            mesh_type: GameNodeMeshType::Pbr {
-                material_override: Some(DynamicPbrParams {
+        let wall_1_node_mesh = GameNodeVisual {
+            material: Material::Pbr {
+                binded_material_index: wall_pbr_material_index,
+                dynamic_pbr_params: Some(DynamicPbrParams {
                     base_color_factor: Vec4::new(0.5, 1.0, 0.5, 1.0),
                     ..Default::default()
                 }),
             },
-            ..game_node_mesh.clone()
+            ..game_node_visual.clone()
         };
         let wall_transform_1 = TransformBuilder::new()
             .position(cube_center + Vec3::new(0.0, 0.0, -cube_radius))
@@ -777,19 +777,20 @@ pub async fn init_game_state(
             .build();
         let _wall_1_node = scene.add_node(
             GameNodeDescBuilder::new()
-                .mesh(Some(wall_1_node_mesh))
+                .visual(Some(wall_1_node_mesh))
                 .transform(wall_transform_1)
                 .build(),
         );
 
-        let wall_2_node_mesh = GameNodeMesh {
-            mesh_type: GameNodeMeshType::Pbr {
-                material_override: Some(DynamicPbrParams {
+        let wall_2_node_mesh = GameNodeVisual {
+            material: Material::Pbr {
+                binded_material_index: wall_pbr_material_index,
+                dynamic_pbr_params: Some(DynamicPbrParams {
                     base_color_factor: Vec4::new(0.5, 0.5, 1.0, 1.0),
                     ..Default::default()
                 }),
             },
-            ..game_node_mesh.clone()
+            ..game_node_visual.clone()
         };
         let wall_transform_2 = TransformBuilder::new()
             .position(cube_center + Vec3::new(0.0, 0.0, cube_radius))
@@ -801,19 +802,20 @@ pub async fn init_game_state(
             .build();
         let _wall_2_node = scene.add_node(
             GameNodeDescBuilder::new()
-                .mesh(Some(wall_2_node_mesh))
+                .visual(Some(wall_2_node_mesh))
                 .transform(wall_transform_2)
                 .build(),
         );
 
-        let wall_3_node_mesh = GameNodeMesh {
-            mesh_type: GameNodeMeshType::Pbr {
-                material_override: Some(DynamicPbrParams {
+        let wall_3_node_mesh = GameNodeVisual {
+            material: Material::Pbr {
+                binded_material_index: wall_pbr_material_index,
+                dynamic_pbr_params: Some(DynamicPbrParams {
                     base_color_factor: Vec4::new(1.0, 0.5, 1.0, 1.0),
                     ..Default::default()
                 }),
             },
-            ..game_node_mesh.clone()
+            ..game_node_visual.clone()
         };
         let wall_transform_3 = TransformBuilder::new()
             .position(cube_center + Vec3::new(cube_radius, 0.0, 0.0))
@@ -825,19 +827,20 @@ pub async fn init_game_state(
             .build();
         let _wall_3_node = scene.add_node(
             GameNodeDescBuilder::new()
-                .mesh(Some(wall_3_node_mesh))
+                .visual(Some(wall_3_node_mesh))
                 .transform(wall_transform_3)
                 .build(),
         );
 
-        let wall_4_node_mesh = GameNodeMesh {
-            mesh_type: GameNodeMeshType::Pbr {
-                material_override: Some(DynamicPbrParams {
+        let wall_4_node_mesh = GameNodeVisual {
+            material: Material::Pbr {
+                binded_material_index: wall_pbr_material_index,
+                dynamic_pbr_params: Some(DynamicPbrParams {
                     base_color_factor: Vec4::new(1.0, 1.0, 0.5, 1.0),
                     ..Default::default()
                 }),
             },
-            ..game_node_mesh
+            ..game_node_visual
         };
         let wall_transform_4 = TransformBuilder::new()
             .position(cube_center + Vec3::new(-cube_radius, 0.0, 0.0))
@@ -849,7 +852,7 @@ pub async fn init_game_state(
             .build();
         let _wall_4_node = scene.add_node(
             GameNodeDescBuilder::new()
-                .mesh(Some(wall_4_node_mesh))
+                .visual(Some(wall_4_node_mesh))
                 .transform(wall_transform_4)
                 .build(),
         );
@@ -879,12 +882,11 @@ pub async fn init_game_state(
     // );
 
     // create the floor and add it to the scene
-    let floor_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
+    let floor_pbr_mesh_index = Renderer::bind_pbr_material(
         &renderer.base,
         &renderer.constant_data,
         &mut renderer.data.lock().unwrap(),
-        &plane_mesh,
-        &PbrMaterial {
+        &PbrTextures {
             base_color: Some(&checkerboard_texture),
             ..Default::default()
         },
@@ -896,7 +898,8 @@ pub async fn init_game_state(
         .build();
     let _floor_node = scene.add_node(
         GameNodeDescBuilder::new()
-            .mesh(Some(GameNodeMesh::from_pbr_mesh_index(
+            .visual(Some(GameNodeVisual::make_pbr(
+                renderer.constant_data.plane_mesh_index,
                 floor_pbr_mesh_index,
             )))
             .transform(floor_transform)
@@ -939,12 +942,11 @@ pub async fn init_game_state(
 
     // create the checkerboarded bouncing ball and add it to the scene
     let (bouncing_ball_node_id, bouncing_ball_body_handle) = {
-        let bouncing_ball_pbr_mesh_index = Renderer::bind_basic_pbr_mesh(
+        let bouncing_ball_pbr_mesh_index = Renderer::bind_pbr_material(
             &renderer.base,
             &renderer.constant_data,
             &mut renderer.data.lock().unwrap(),
-            &sphere_mesh,
-            &PbrMaterial {
+            &PbrTextures {
                 base_color: Some(&checkerboard_texture),
                 ..Default::default()
             },
@@ -953,7 +955,8 @@ pub async fn init_game_state(
         let bouncing_ball_radius = 0.5;
         let bouncing_ball_node = scene.add_node(
             GameNodeDescBuilder::new()
-                .mesh(Some(GameNodeMesh::from_pbr_mesh_index(
+                .visual(Some(GameNodeVisual::make_pbr(
+                    renderer.constant_data.sphere_mesh_index,
                     bouncing_ball_pbr_mesh_index,
                 )))
                 .transform(
@@ -1059,14 +1062,18 @@ pub async fn init_game_state(
             .collect(),
         indices: vec![0, 2, 1, 0, 3, 2],
     };
+    let crosshair_mesh_index = Renderer::bind_basic_mesh(
+        &renderer.base,
+        &mut renderer.data.lock().unwrap(),
+        &crosshair_quad,
+    );
     let crosshair_ambient_occlusion = Texture::from_color(&renderer.base, [0, 0, 0, 0])?;
     let crosshair_metallic_roughness = Texture::from_color(&renderer.base, [0, 0, 255, 0])?;
-    let crosshair_mesh_index = Renderer::bind_basic_pbr_mesh(
+    let crosshair_material_index = Renderer::bind_pbr_material(
         &renderer.base,
         &renderer.constant_data,
         &mut renderer.data.lock().unwrap(),
-        &crosshair_quad,
-        &PbrMaterial {
+        &PbrTextures {
             ambient_occlusion: Some(&crosshair_ambient_occlusion),
             metallic_roughness: Some(&crosshair_metallic_roughness),
             base_color: Some(&crosshair_texture),
@@ -1080,10 +1087,11 @@ pub async fn init_game_state(
         scene
             .add_node(
                 GameNodeDescBuilder::new()
-                    .mesh(Some(GameNodeMesh {
-                        mesh_indices: vec![crosshair_mesh_index],
-                        mesh_type: GameNodeMeshType::Pbr {
-                            material_override: Some(DynamicPbrParams {
+                    .visual(Some(GameNodeVisual {
+                        mesh_index: crosshair_mesh_index,
+                        material: Material::Pbr {
+                            binded_material_index: crosshair_material_index,
+                            dynamic_pbr_params: Some(DynamicPbrParams {
                                 emissive_factor: crosshair_color,
                                 base_color_factor: Vec4::new(0.0, 0.0, 0.0, 1.0),
                                 alpha_cutoff: 0.5,
@@ -1091,7 +1099,7 @@ pub async fn init_game_state(
                             }),
                         },
                         wireframe: false,
-                        ..Default::default()
+                        cullable: true,
                     }))
                     .build(),
             )
@@ -1130,7 +1138,7 @@ pub async fn init_game_state(
         prev_balls: balls.clone(),
         actual_balls: balls,
         ball_node_ids,
-        ball_pbr_mesh_index,
+        ball_pbr_mesh_index: ball_pbr_material_index,
 
         ball_spawner_acc: 0.0,
 
@@ -1146,8 +1154,6 @@ pub async fn init_game_state(
         // player_node_id,
         player_controller,
         character: None,
-
-        cube_mesh,
 
         asset_loader: asset_loader_clone,
         asset_binder,
@@ -1506,7 +1512,7 @@ pub fn update_game_state(
                         .scene
                         .get_node_mut(node_id)
                         .unwrap()
-                        .mesh
+                        .visual
                         .as_mut()
                     {
                         // mesh.wireframe = true;
@@ -1591,10 +1597,10 @@ pub fn update_game_state(
                 &mut engine_state.scene,
                 &mut engine_state.physics_state,
                 &base_renderer,
+                &renderer.constant_data,
                 &mut renderer_data.lock().unwrap(),
                 legendary_robot_root_node_id,
                 legendary_robot_skin_index,
-                &game_state.cube_mesh,
             )
         });
     }
@@ -1704,13 +1710,13 @@ pub fn update_game_state(
         .iter()
         .zip(engine_state.point_lights.iter())
         .for_each(|(node_id, point_light)| {
-            if let Some(GameNodeMesh {
-                mesh_type: GameNodeMeshType::Unlit { ref mut color },
+            if let Some(GameNodeVisual {
+                material: Material::Unlit { ref mut color },
                 ..
             }) = engine_state
                 .scene
                 .get_node_mut(*node_id)
-                .and_then(|node| node.mesh.as_mut())
+                .and_then(|node| node.visual.as_mut())
             {
                 *color = point_light.color * point_light.intensity;
             }
@@ -2073,65 +2079,51 @@ fn add_static_box(
         .or_insert(vec![]);
 
     if let Some(node) = scene.get_node(node_id) {
-        if let Some(mesh) = node.mesh.as_ref() {
+        if let Some(visual) = node.visual.as_ref() {
             let transform: Transform = scene.get_global_transform_for_node(node_id);
             let transform_decomposed = transform.decompose();
-            for mesh_index in mesh.mesh_indices.iter() {
-                let bounding_box = match mesh.mesh_type {
-                    GameNodeMeshType::Pbr { .. } => {
-                        renderer_data.binded_pbr_meshes[*mesh_index]
-                            .geometry_buffers
-                            .bounding_box
-                    }
-                    GameNodeMeshType::Unlit { .. } => {
-                        renderer_data.binded_unlit_meshes[*mesh_index].bounding_box
-                    }
-                    GameNodeMeshType::Transparent { .. } => {
-                        renderer_data.binded_transparent_meshes[*mesh_index].bounding_box
-                    }
-                };
-                let base_scale = (bounding_box.max - bounding_box.min) / 2.0;
-                let base_position = (bounding_box.max + bounding_box.min) / 2.0;
-                let scale = Vec3::new(
-                    base_scale.x * transform_decomposed.scale.x,
-                    base_scale.y * transform_decomposed.scale.y,
-                    base_scale.z * transform_decomposed.scale.z,
-                );
-                let position_rotated = {
-                    let rotated = Mat4::from_quat(transform_decomposed.rotation)
-                        * Vec4::new(base_position.x, base_position.y, base_position.z, 1.0);
-                    Vec3::new(rotated.x, rotated.y, rotated.z)
-                };
-                let position = Vec3::new(
-                    position_rotated.x + transform_decomposed.position.x,
-                    position_rotated.y + transform_decomposed.position.y,
-                    position_rotated.z + transform_decomposed.position.z,
-                );
-                let rotation = transform_decomposed.rotation;
-                let mut collider =
-                    ColliderBuilder::cuboid(scale.x as f64, scale.y as f64, scale.z as f64)
-                        .collision_groups(
-                            InteractionGroups::all()
-                                .with_memberships(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
-                        )
-                        .friction(1.0)
-                        .restitution(1.0)
-                        .build();
-                collider.set_position(Isometry::from_parts(
-                    nalgebra::Translation3::new(
-                        position.x as f64,
-                        position.y as f64,
-                        position.z as f64,
-                    ),
-                    nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
-                        rotation.w as f64,
-                        rotation.x as f64,
-                        rotation.y as f64,
-                        rotation.z as f64,
-                    )),
-                ));
-                collider_handles.push(physics_state.collider_set.insert(collider));
-            }
+            let bounding_box = renderer_data.binded_meshes[visual.mesh_index].bounding_box;
+            let base_scale = (bounding_box.max - bounding_box.min) / 2.0;
+            let base_position = (bounding_box.max + bounding_box.min) / 2.0;
+            let scale = Vec3::new(
+                base_scale.x * transform_decomposed.scale.x,
+                base_scale.y * transform_decomposed.scale.y,
+                base_scale.z * transform_decomposed.scale.z,
+            );
+            let position_rotated = {
+                let rotated = Mat4::from_quat(transform_decomposed.rotation)
+                    * Vec4::new(base_position.x, base_position.y, base_position.z, 1.0);
+                Vec3::new(rotated.x, rotated.y, rotated.z)
+            };
+            let position = Vec3::new(
+                position_rotated.x + transform_decomposed.position.x,
+                position_rotated.y + transform_decomposed.position.y,
+                position_rotated.z + transform_decomposed.position.z,
+            );
+            let rotation = transform_decomposed.rotation;
+            let mut collider =
+                ColliderBuilder::cuboid(scale.x as f64, scale.y as f64, scale.z as f64)
+                    .collision_groups(
+                        InteractionGroups::all()
+                            .with_memberships(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
+                    )
+                    .friction(1.0)
+                    .restitution(1.0)
+                    .build();
+            collider.set_position(Isometry::from_parts(
+                nalgebra::Translation3::new(
+                    position.x as f64,
+                    position.y as f64,
+                    position.z as f64,
+                ),
+                nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
+                    rotation.w as f64,
+                    rotation.x as f64,
+                    rotation.y as f64,
+                    rotation.z as f64,
+                )),
+            ));
+            collider_handles.push(physics_state.collider_set.insert(collider));
         }
     }
 }

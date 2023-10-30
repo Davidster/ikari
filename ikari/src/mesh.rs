@@ -143,7 +143,7 @@ impl Default for DynamicPbrParams {
 }
 
 #[derive(Debug, Default, Hash, PartialEq, Eq, Clone)]
-pub struct IndexedPbrMaterial {
+pub struct IndexedPbrTextures {
     pub base_color: Option<usize>,
     pub normal: Option<usize>,
     pub metallic_roughness: Option<usize>,
@@ -152,7 +152,7 @@ pub struct IndexedPbrMaterial {
 }
 
 #[derive(Default)]
-pub struct PbrMaterial<'a> {
+pub struct PbrTextures<'a> {
     pub base_color: Option<&'a Texture>,
     pub normal: Option<&'a Texture>,
     pub metallic_roughness: Option<&'a Texture>,

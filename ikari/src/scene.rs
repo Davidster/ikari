@@ -27,7 +27,7 @@ pub struct Scene {
 pub struct GameNodeDesc {
     pub transform: crate::transform::Transform,
     pub skin_index: Option<usize>,
-    pub mesh: Option<GameNodeMesh>,
+    pub visual: Option<GameNodeVisual>,
     pub name: Option<String>,
     pub parent_id: Option<GameNodeId>,
 }
@@ -36,7 +36,7 @@ pub struct GameNodeDesc {
 pub struct GameNode {
     pub transform: crate::transform::Transform,
     pub skin_index: Option<usize>,
-    pub mesh: Option<GameNodeMesh>,
+    pub visual: Option<GameNodeVisual>,
     pub name: Option<String>,
     pub parent_id: Option<GameNodeId>,
     id: GameNodeId,
@@ -46,17 +46,19 @@ pub struct GameNode {
 pub struct GameNodeId(u32, usize); // (index into GameScene::nodes array, generation num)
 
 #[derive(Debug, Clone)]
-pub struct GameNodeMesh {
-    pub mesh_type: GameNodeMeshType,
-    pub mesh_indices: Vec<usize>,
+pub struct GameNodeVisual {
+    pub material: Material,
+    pub mesh_index: usize,
     pub wireframe: bool,
-    pub cullable: bool,
+    pub cullable: bool, // TODO: it's annoying for the user to constantly specify this value.. can we find a way to generate a "Default" game node visual
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum GameNodeMeshType {
+pub enum Material {
     Pbr {
-        material_override: Option<DynamicPbrParams>,
+        binded_material_index: usize,
+        /// if set, takes precedence over the material's own params
+        dynamic_pbr_params: Option<DynamicPbrParams>,
     },
     Unlit {
         color: Vec3,
@@ -67,13 +69,21 @@ pub enum GameNodeMeshType {
     },
 }
 
+impl Default for Material {
+    fn default() -> Self {
+        Material::Unlit {
+            color: Vec3::new(1.0, 1.0, 1.0),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Skin {
     pub node_id: GameNodeId,
     pub bone_node_ids: Vec<GameNodeId>,
     pub bone_inverse_bind_matrices: Vec<Mat4>,
-    // each transform moves a 2x2x2 box centered at the origin
-    // such that it surrounds the bone's vertices in bone space
+    /// each transform moves a 2x2x2 box centered at the origin
+    /// such that it surrounds the bone's vertices in bone space
     pub bone_bounding_box_transforms: Vec<crate::transform::Transform>,
 }
 
@@ -81,7 +91,7 @@ pub struct Skin {
 pub struct IndexedGameNodeDesc {
     pub transform: crate::transform::Transform,
     pub skin_index: Option<usize>,
-    pub mesh: Option<GameNodeMesh>,
+    pub visual: Option<GameNodeVisual>,
     pub name: Option<String>,
     pub parent_index: Option<usize>,
 }
@@ -150,14 +160,14 @@ impl Scene {
             let IndexedGameNodeDesc {
                 transform,
                 skin_index,
-                mesh,
+                visual: mesh,
                 name,
                 parent_index,
             } = node_desc.clone();
             scene.add_node(GameNodeDesc {
                 transform,
                 skin_index,
-                mesh,
+                visual: mesh,
                 name,
                 parent_id: parent_index
                     .map(|parent_index| GameNodeId((parent_index).try_into().unwrap(), 0)),
@@ -241,39 +251,26 @@ impl Scene {
         mut other_scene: Scene,
         mut other_render_buffers: BindedSceneData,
     ) {
-        let pbr_mesh_index_offset = renderer_data.binded_pbr_meshes.len();
-        let unlit_mesh_index_offset = renderer_data.binded_unlit_meshes.len();
-        let transparent_mesh_index_offset = renderer_data.binded_transparent_meshes.len();
+        let mesh_index_offset = renderer_data.binded_meshes.len();
+        let material_index_offset = renderer_data.binded_pbr_materials.len();
 
         for binded_wireframe_mesh in &mut other_render_buffers.binded_wireframe_meshes {
-            match binded_wireframe_mesh.source_mesh_type {
-                MeshType::Pbr => {
-                    binded_wireframe_mesh.source_mesh_index += pbr_mesh_index_offset;
-                }
-                MeshType::Unlit => {
-                    binded_wireframe_mesh.source_mesh_index += unlit_mesh_index_offset;
-                }
-                MeshType::Transparent => {
-                    binded_wireframe_mesh.source_mesh_index += transparent_mesh_index_offset;
-                }
-            }
+            binded_wireframe_mesh.source_mesh_index += mesh_index_offset;
         }
 
         renderer_data
-            .binded_pbr_meshes
-            .append(&mut other_render_buffers.binded_pbr_meshes);
-        renderer_data
-            .binded_unlit_meshes
-            .append(&mut other_render_buffers.binded_unlit_meshes);
-        renderer_data
-            .binded_transparent_meshes
-            .append(&mut other_render_buffers.binded_transparent_meshes);
+            .binded_meshes
+            .append(&mut other_render_buffers.binded_meshes);
         renderer_data
             .binded_wireframe_meshes
             .append(&mut other_render_buffers.binded_wireframe_meshes);
         renderer_data
+            .binded_pbr_materials
+            .append(&mut other_render_buffers.binded_pbr_materials);
+        renderer_data
             .textures
             .append(&mut other_render_buffers.textures);
+
         let skin_index_offset = self.skins.len();
         let node_index_offset = self.nodes.len();
         let convert_node_id = |old_node_id| {
@@ -283,36 +280,20 @@ impl Scene {
         };
         for (node, _) in &mut other_scene.nodes {
             if let Some(ref mut node) = node {
-                match node.mesh {
-                    Some(GameNodeMesh {
-                        ref mut mesh_indices,
-                        mesh_type: GameNodeMeshType::Pbr { .. },
-                        ..
-                    }) => {
-                        *mesh_indices = mesh_indices
-                            .iter()
-                            .map(|mesh_index| mesh_index + pbr_mesh_index_offset)
-                            .collect();
-                    }
-                    Some(GameNodeMesh {
-                        ref mut mesh_indices,
-                        mesh_type: GameNodeMeshType::Unlit { .. },
-                        ..
-                    }) => {
-                        *mesh_indices = mesh_indices
-                            .iter()
-                            .map(|mesh_index| mesh_index + unlit_mesh_index_offset)
-                            .collect();
-                    }
-                    Some(GameNodeMesh {
-                        ref mut mesh_indices,
-                        mesh_type: GameNodeMeshType::Transparent { .. },
-                        ..
-                    }) => {
-                        *mesh_indices = mesh_indices
-                            .iter()
-                            .map(|mesh_index| mesh_index + transparent_mesh_index_offset)
-                            .collect();
+                match node.visual {
+                    Some(ref mut visuals) => {
+                        visuals.mesh_index += mesh_index_offset;
+
+                        match visuals.material {
+                            Material::Pbr {
+                                ref mut binded_material_index,
+                                ..
+                            } => {
+                                *binded_material_index += material_index_offset;
+                            }
+                            Material::Unlit { .. } => {}
+                            Material::Transparent { .. } => {}
+                        }
                     }
                     None => {}
                 }
@@ -352,10 +333,10 @@ impl Scene {
         renderer_data: &RendererData,
     ) -> Option<Sphere> {
         self.get_node(node_id)
-            .and_then(|node| node.mesh.as_ref())
-            .map(|mesh| {
-                build_node_bounding_sphere(
-                    mesh,
+            .and_then(|node| node.visual.as_ref())
+            .map(|visuals| {
+                build_mesh_bounding_sphere(
+                    visuals.mesh_index,
                     &self.get_global_transform_for_node(node_id),
                     renderer_data,
                 )
@@ -368,10 +349,10 @@ impl Scene {
         renderer_data: &RendererData,
     ) -> Option<Sphere> {
         self.get_node(node_id)
-            .and_then(|node| node.mesh.as_ref())
-            .map(|mesh| {
-                build_node_bounding_sphere(
-                    mesh,
+            .and_then(|node| node.visual.as_ref())
+            .map(|visuals| {
+                build_mesh_bounding_sphere(
+                    visuals.mesh_index,
                     &self.get_global_transform_for_node_opt(node_id),
                     renderer_data,
                 )
@@ -446,11 +427,13 @@ impl Scene {
         let mut node_ancestry_list: [u32; MAX_NODE_HIERARCHY_LEVELS] =
             [0; MAX_NODE_HIERARCHY_LEVELS];
         let mut ancestry_length = 0;
+
         for (i, node_id) in self.get_node_ancestry_list(node_id).enumerate() {
             let GameNodeId(node_index, _) = node_id;
             node_ancestry_list[i] = node_index;
             ancestry_length += 1;
         }
+
         let mut ancestry_transforms = (0..ancestry_length).rev().map(|ancestry_list_index| {
             let node_index = node_ancestry_list[ancestry_list_index];
             let (node, _) = &self.nodes[node_index as usize];
@@ -475,22 +458,15 @@ impl Scene {
         let GameNodeDesc {
             transform,
             skin_index,
-            mesh,
+            visual: visuals,
             name,
             parent_id,
         } = node;
 
-        if let Some(mesh) = &mesh {
-            assert!(
-                !mesh.mesh_indices.is_empty(),
-                "Mesh must have an associated binded mesh buffer"
-            );
-        }
-
         let make_new_node = |id| GameNode {
             transform,
             skin_index,
-            mesh,
+            visual: visuals,
             name,
             id,
             parent_id,
@@ -578,8 +554,8 @@ impl Scene {
     }
 }
 
-fn build_node_bounding_sphere(
-    mesh: &GameNodeMesh,
+fn build_mesh_bounding_sphere(
+    mesh_index: usize,
     global_transform: &crate::transform::Transform,
     renderer_data: &RendererData,
 ) -> Sphere {
@@ -589,31 +565,7 @@ fn build_node_bounding_sphere(
         .max(global_node_scale.y)
         .max(global_node_scale.z);
 
-    let mut mesh_aabbs = mesh
-        .mesh_indices
-        .iter()
-        .copied()
-        .map(|mesh_index| match mesh.mesh_type {
-            GameNodeMeshType::Pbr { .. } => {
-                renderer_data.binded_pbr_meshes[mesh_index]
-                    .geometry_buffers
-                    .bounding_box
-            }
-            GameNodeMeshType::Unlit { .. } => {
-                renderer_data.binded_unlit_meshes[mesh_index].bounding_box
-            }
-            GameNodeMeshType::Transparent { .. } => {
-                renderer_data.binded_transparent_meshes[mesh_index].bounding_box
-            }
-        });
-
-    let mut merged_aabb = mesh_aabbs.next().unwrap();
-    for aabb in mesh_aabbs {
-        for i in 0..3 {
-            merged_aabb.min[i] = aabb.min.x.min(merged_aabb.min[i]);
-            merged_aabb.max[i] = aabb.max.x.max(merged_aabb.max[i]);
-        }
-    }
+    let bounding_box = renderer_data.binded_meshes[mesh_index].bounding_box;
 
     let global_mat4 = Mat4::from(*global_transform);
 
@@ -622,15 +574,12 @@ fn build_node_bounding_sphere(
         Vec3::new(transformed.x, transformed.y, transformed.z)
     };
 
-    let origin = transform_point((merged_aabb.max + merged_aabb.min) / 2.0);
+    let center = transform_point((bounding_box.max + bounding_box.min) / 2.0);
 
-    let half_length = (merged_aabb.max - merged_aabb.min) / 2.0;
+    let half_length = (bounding_box.max - bounding_box.min) / 2.0;
     let radius = largest_axis_scale * half_length.length();
 
-    Sphere {
-        center: origin,
-        radius,
-    }
+    Sphere { center, radius }
 }
 
 impl GameNode {
@@ -650,22 +599,9 @@ impl Default for GameNodeDesc {
         Self {
             transform: crate::transform::Transform::IDENTITY,
             skin_index: None,
-            mesh: None,
+            visual: None,
             name: None,
             parent_id: None,
-        }
-    }
-}
-
-impl Default for GameNodeMesh {
-    fn default() -> Self {
-        Self {
-            mesh_type: GameNodeMeshType::Unlit {
-                color: Vec3::default(),
-            },
-            mesh_indices: vec![],
-            wireframe: false,
-            cullable: true,
         }
     }
 }
@@ -674,7 +610,7 @@ impl Default for GameNodeMesh {
 pub struct GameNodeDescBuilder {
     transform: crate::transform::Transform,
     skin_index: Option<usize>,
-    mesh: Option<GameNodeMesh>,
+    visual: Option<GameNodeVisual>,
     name: Option<String>,
     parent_id: Option<GameNodeId>,
 }
@@ -684,14 +620,14 @@ impl GameNodeDescBuilder {
         let GameNodeDesc {
             transform,
             skin_index,
-            mesh,
+            visual: visuals,
             name,
             parent_id,
         } = GameNodeDesc::default();
         Self {
             transform,
             skin_index,
-            mesh,
+            visual: visuals,
             name,
             parent_id,
         }
@@ -708,8 +644,8 @@ impl GameNodeDescBuilder {
         self
     }
 
-    pub fn mesh(mut self, mesh: Option<GameNodeMesh>) -> Self {
-        self.mesh = mesh;
+    pub fn visual(mut self, visual: Option<GameNodeVisual>) -> Self {
+        self.visual = visual;
         self
     }
 
@@ -727,7 +663,7 @@ impl GameNodeDescBuilder {
         GameNodeDesc {
             transform: self.transform,
             skin_index: self.skin_index,
-            mesh: self.mesh,
+            visual: self.visual,
             name: self.name,
             parent_id: self.parent_id,
         }
@@ -740,16 +676,16 @@ impl Default for GameNodeDescBuilder {
     }
 }
 
-// TODO: cache the merged aabb, make mesh_indices no longer public, update the aabb whenever mesh_indices changes
-impl GameNodeMesh {
-    pub fn from_pbr_mesh_index(pbr_mesh_index: usize) -> Self {
+impl GameNodeVisual {
+    pub fn make_pbr(mesh_index: usize, binded_pbr_material_index: usize) -> Self {
         Self {
-            mesh_indices: vec![pbr_mesh_index],
-            mesh_type: GameNodeMeshType::Pbr {
-                material_override: None,
+            mesh_index,
+            material: Material::Pbr {
+                binded_material_index: binded_pbr_material_index,
+                dynamic_pbr_params: None,
             },
             wireframe: false,
-            ..Default::default()
+            cullable: true,
         }
     }
 }

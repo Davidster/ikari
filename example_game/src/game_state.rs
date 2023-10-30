@@ -43,8 +43,6 @@ pub struct GameState {
     pub player_controller: PlayerController,
     pub character: Option<Character>,
 
-    pub cube_mesh: BasicMesh,
-
     pub asset_loader: Arc<AssetLoader>,
     pub asset_binder: WasmNotArc<AssetBinder>,
 
