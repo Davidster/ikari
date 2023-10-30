@@ -1,3 +1,4 @@
+use crate::asset_loader::SceneAssetLoadParams;
 use crate::file_manager::GameFilePath;
 use crate::mesh::*;
 use crate::renderer::*;
@@ -36,7 +37,7 @@ pub async fn build_scene(
         &Vec<gltf::buffer::Data>,
         &Vec<gltf::image::Data>,
     ),
-    gltf_path: &GameFilePath,
+    params: SceneAssetLoadParams,
 ) -> Result<(Scene, BindableSceneData)> {
     let scene_index = document
         .default_scene()
@@ -46,7 +47,7 @@ pub async fn build_scene(
     let materials: Vec<_> = document.materials().collect();
     let material_count = materials.len();
 
-    let textures = get_textures(document, images, materials, gltf_path).await?;
+    let textures = get_textures(document, images, materials, &params.path).await?;
 
     // gltf node index -> gltf parent node index
     let gltf_parent_index_map: HashMap<usize, usize> = document
@@ -93,7 +94,7 @@ pub async fn build_scene(
             if primitive.mode() != gltf::mesh::Mode::Triangles {
                 log::warn!(
                     "{:?}: Primitive mode {:?} is not currently supported. Primitive {:?} of mesh {:?} will be skipped.",
-                    gltf_path.relative_path,
+                    params.path.relative_path,
                     primitive.mode(),
                     primitive.index(),
                     mesh.index(),
@@ -104,7 +105,7 @@ pub async fn build_scene(
             if primitive.material().alpha_mode() == gltf::material::AlphaMode::Blend {
                 log::warn!(
                     "{:?}: Loading gltf materials in alpha blending mode is not current supported. Material {:?} will be rendered as opaque.",
-                    gltf_path.relative_path,
+                    params.path.relative_path,
                     primitive.material().index()
                 );
             }
@@ -134,10 +135,13 @@ pub async fn build_scene(
                 let (geometry, wireframe_indices) = build_geometry(primitive, buffers)?;
                 bindable_meshes.push(geometry);
                 let mesh_index = bindable_meshes.len() - 1;
-                bindable_wireframe_meshes.push(BindableWireframeMesh {
-                    source_mesh_index: mesh_index,
-                    indices: wireframe_indices,
-                });
+
+                if params.generate_wireframe_meshes {
+                    bindable_wireframe_meshes.push(BindableWireframeMesh {
+                        source_mesh_index: mesh_index,
+                        indices: wireframe_indices,
+                    });
+                }
 
                 bindable_pbr_materials.push(BindablePbrMaterial {
                     textures: get_indexed_pbr_material(&primitive.material()),
@@ -316,7 +320,7 @@ pub async fn build_scene(
         textures,
     };
 
-    log::debug!("Scene loaded ({:?}):", gltf_path.relative_path);
+    log::debug!("Scene loaded ({:?}):", params.path.relative_path);
 
     log::debug!("  - node count: {:?}", nodes.len());
     log::debug!("  - skin count: {:?}", skins.len());

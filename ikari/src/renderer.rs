@@ -2379,13 +2379,14 @@ impl Renderer {
             camera_node_id: None,
         };
 
-        constant_data.cube_mesh_index = Self::bind_basic_mesh(&base, &mut data, &cube_mesh);
+        constant_data.cube_mesh_index = Self::bind_basic_mesh(&base, &mut data, &cube_mesh, true);
 
         let sphere_mesh = BasicMesh::new(include_bytes!("models/sphere.obj"))?;
-        constant_data.sphere_mesh_index = Self::bind_basic_mesh(&base, &mut data, &sphere_mesh);
+        constant_data.sphere_mesh_index =
+            Self::bind_basic_mesh(&base, &mut data, &sphere_mesh, true);
 
         let plane_mesh = BasicMesh::new(include_bytes!("models/plane.obj"))?;
-        constant_data.plane_mesh_index = Self::bind_basic_mesh(&base, &mut data, &plane_mesh);
+        constant_data.plane_mesh_index = Self::bind_basic_mesh(&base, &mut data, &plane_mesh, true);
 
         // buffer up to 4 frames
         let profiler = wgpu_profiler::GpuProfiler::new(&base.adapter, &base.device, &base.queue, 4);
@@ -2585,26 +2586,29 @@ impl Renderer {
         Ok(textures_bind_group)
     }
 
+    /// generate_wireframe_mesh: generates wireframe counterpart, making the mesh renderable in wireframe mode
     pub fn bind_basic_mesh(
         base: &BaseRenderer,
         data: &mut RendererData,
         mesh: &BasicMesh,
+        generate_wireframe_mesh: bool,
     ) -> usize {
         let geometry_buffers = Self::bind_geometry_buffers_for_basic_mesh(base, mesh);
 
         data.binded_meshes.push(geometry_buffers);
         let mesh_index = data.binded_meshes.len() - 1;
 
-        // TODO: these wireframe meshes waste memory. make sure it can be disabled
-        //       might be a good use case for a crate feature?
-        let wireframe_index_buffer = Self::make_wireframe_index_buffer_for_basic_mesh(base, mesh);
-        data.binded_wireframe_meshes.push(BindedWireframeMesh {
-            source_mesh_index: mesh_index,
-            index_buffer: BindedIndexBuffer {
-                buffer: wireframe_index_buffer,
-                format: wgpu::IndexFormat::Uint16,
-            },
-        });
+        if generate_wireframe_mesh {
+            let wireframe_index_buffer =
+                Self::make_wireframe_index_buffer_for_basic_mesh(base, mesh);
+            data.binded_wireframe_meshes.push(BindedWireframeMesh {
+                source_mesh_index: mesh_index,
+                index_buffer: BindedIndexBuffer {
+                    buffer: wireframe_index_buffer,
+                    format: wgpu::IndexFormat::Uint16,
+                },
+            });
+        }
 
         mesh_index
     }
@@ -3064,6 +3068,7 @@ impl Renderer {
                 &self.base,
                 data,
                 &debug_main_camera_frustum_mesh,
+                true,
             ));
 
             let culling_frustum_mesh = GameNodeVisual {
@@ -3137,6 +3142,7 @@ impl Renderer {
                         &self.base,
                         data,
                         &debug_culling_frustum_mesh,
+                        true,
                     ));
 
                     let culling_frustum_mesh = GameNodeVisual {
@@ -3735,14 +3741,24 @@ impl Renderer {
 
                             if enable_wireframe_mode || is_node_wireframe {
                                 let wireframe_mesh_index = data
-                                        .binded_wireframe_meshes
-                                        .iter()
-                                        .enumerate()
-                                        .find(|(_, wireframe_mesh)| {
-                                            wireframe_mesh.source_mesh_index == mesh_index
-                                        })
-                                        .unwrap_or_else(|| panic!("Attempted to draw mesh {mesh_index:?} in wireframe mode without a corresponding wireframe object")) // TODO: convert this panic to an error
-                                        .0;
+                                    .binded_wireframe_meshes
+                                    .iter()
+                                    .enumerate()
+                                    .find(|(_, wireframe_mesh)| {
+                                        wireframe_mesh.source_mesh_index == mesh_index
+                                    })
+                                    .map(|(index, _)| index);
+
+                                if wireframe_mesh_index.is_none() {
+                                    if is_node_wireframe {
+                                        log::error!("Attempted to draw mesh in wireframe mode without binding a corresponding wireframe mesh. Mesh will not be draw. mesh_index={mesh_index:?} node={node:?}");
+                                    }
+                                    continue;
+                                }
+
+                                let wireframe_mesh_index = wireframe_mesh_index
+                                    .expect("Should have checked that it isn't None");
+
                                 let gpu_instance = GpuWireframeMeshInstance {
                                     color,
                                     model_transform: transform,
@@ -4165,6 +4181,7 @@ impl Renderer {
         }
 
         // TODO: try actually running in debug to see how annoying this is
+        //       ALSO, remove all assets from the scene to see how much memory an 'empty' level is using.
         log::debug!(
             "total_instance_buffer_memory_usage={:?}",
             private_data.pbr_instances_buffer.length_bytes()

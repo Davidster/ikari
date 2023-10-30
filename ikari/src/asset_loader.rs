@@ -25,6 +25,13 @@ use std::sync::{Arc, Mutex};
 pub struct AssetId(u64);
 
 #[derive(Clone, Debug)]
+pub struct SceneAssetLoadParams {
+    pub path: GameFilePath,
+    /// generates wireframe counterparts, making all meshes renderable in wireframe mode
+    pub generate_wireframe_meshes: bool,
+}
+
+#[derive(Clone, Debug)]
 pub struct AudioAssetLoadParams {
     pub path: GameFilePath,
     pub format: AudioFileFormat,
@@ -38,7 +45,7 @@ pub struct AssetLoader {
     pub loaded_audio: Arc<Mutex<HashMap<AssetId, usize>>>,
 
     audio_manager: Arc<Mutex<AudioManager>>,
-    pending_scenes: Arc<Mutex<Vec<(AssetId, GameFilePath)>>>,
+    pending_scenes: Arc<Mutex<Vec<(AssetId, SceneAssetLoadParams)>>>,
     bindable_scenes: Arc<Mutex<HashMap<AssetId, (Scene, BindableSceneData)>>>,
 
     pending_skyboxes: Arc<Mutex<Vec<(AssetId, SkyboxPaths)>>>,
@@ -111,12 +118,12 @@ impl AssetLoader {
         next_asset_id
     }
 
-    pub fn load_gltf_scene(&self, path: GameFilePath) -> AssetId {
+    pub fn load_gltf_scene(&self, params: SceneAssetLoadParams) -> AssetId {
         let asset_id = self.next_asset_id();
 
         let pending_scenes = self.pending_scenes.clone();
         let mut pending_scenes_guard = pending_scenes.lock().unwrap();
-        pending_scenes_guard.push((asset_id, path));
+        pending_scenes_guard.push((asset_id, params));
 
         if pending_scenes_guard.len() == 1 {
             let pending_scenes = self.pending_scenes.clone();
@@ -126,7 +133,7 @@ impl AssetLoader {
                 profiling::register_thread!("GLTF loader");
                 crate::block_on(async move {
                     while pending_scenes.lock().unwrap().len() > 0 {
-                        let (next_scene_id, next_scene_path) =
+                        let (next_scene_id, next_scene_params) =
                             pending_scenes.lock().unwrap().remove(0);
 
                         let do_load = || async {
@@ -137,7 +144,7 @@ impl AssetLoader {
                             let gltf_slice;
                             {
                                 profiling::scope!("Read root file");
-                                gltf_slice = FileManager::read(&next_scene_path).await?;
+                                gltf_slice = FileManager::read(&next_scene_params.path).await?;
                             }
 
                             let (document, buffers, images);
@@ -145,9 +152,11 @@ impl AssetLoader {
                                 profiling::scope!("Parse root & children");
                                 (document, buffers, images) = gltf::import_slice(&gltf_slice)?;
                             }
-                            let (other_scene, other_scene_bindable_data) =
-                                build_scene((&document, &buffers, &images), &next_scene_path)
-                                    .await?;
+                            let (other_scene, other_scene_bindable_data) = build_scene(
+                                (&document, &buffers, &images),
+                                next_scene_params.clone(),
+                            )
+                            .await?;
 
                             anyhow::Ok((other_scene, other_scene_bindable_data))
                         };
@@ -161,7 +170,7 @@ impl AssetLoader {
                             Err(err) => {
                                 log::error!(
                                     "Error loading scene asset {:?}: {}\n{}",
-                                    next_scene_path,
+                                    next_scene_params.path,
                                     err,
                                     err.backtrace()
                                 );

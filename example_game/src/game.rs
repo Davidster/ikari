@@ -23,6 +23,7 @@ use ikari::animation::LoopType;
 use ikari::asset_loader::AssetBinder;
 use ikari::asset_loader::AssetLoader;
 use ikari::asset_loader::AudioAssetLoadParams;
+use ikari::asset_loader::SceneAssetLoadParams;
 use ikari::audio::AudioFileFormat;
 use ikari::audio::SoundParams;
 use ikari::engine_state::EngineState;
@@ -328,7 +329,10 @@ pub async fn init_game_state(
             for path in gltf_paths {
                 asset_id_map.lock().unwrap().insert(
                     path.to_string(),
-                    asset_loader.load_gltf_scene(GAME_PATH_MAKER.make(path)),
+                    asset_loader.load_gltf_scene(SceneAssetLoadParams {
+                        path: GAME_PATH_MAKER.make(path),
+                        generate_wireframe_meshes: false,
+                    }),
                 );
             }
 
@@ -368,7 +372,7 @@ pub async fn init_game_state(
                 );
             }
 
-            ikari::thread::sleep_async(ikari::time::Duration::from_secs_f32(4.0)).await;
+            // ikari::thread::sleep_async(ikari::time::Duration::from_secs_f32(4.0)).await;
             asset_id_map.lock().unwrap().insert(
                 "skybox".to_string(),
                 asset_loader.load_skybox(get_skybox_path()),
@@ -1064,6 +1068,7 @@ pub async fn init_game_state(
         &renderer.base,
         &mut renderer.data.lock().unwrap(),
         &crosshair_quad,
+        false,
     );
     let crosshair_ambient_occlusion = Texture::from_color(&renderer.base, [0, 0, 0, 0])?;
     let crosshair_metallic_roughness = Texture::from_color(&renderer.base, [0, 0, 255, 0])?;
