@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use ikari::asset_loader::{AssetBinder, AssetId, AssetLoader};
+use ikari::physics::rapier3d_f64::prelude::*;
 use ikari::player_controller::PlayerController;
 use ikari::scene::GameNodeId;
 use ikari::ui::IkariUiContainer;
 use ikari::wasm_not_sync::WasmNotArc;
-use ikari::{physics::rapier3d_f64::prelude::*};
 
 use crate::ui_overlay::UiOverlay;
 use crate::{
