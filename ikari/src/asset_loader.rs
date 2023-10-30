@@ -139,7 +139,7 @@ impl AssetLoader {
                         let do_load = || async {
                             profiling::scope!(
                                 "Load scene",
-                                &next_scene_path.relative_path.to_string_lossy()
+                                &next_scene_params.path.relative_path.to_string_lossy()
                             );
                             let gltf_slice;
                             {
@@ -365,12 +365,7 @@ impl AssetLoader {
                             let mut result = next_skybox_paths
                                 .to_flattened_file_paths()
                                 .iter()
-                                .map(|path| {
-                                    path.relative_path
-                                        .to_str()
-                                        .expect("Skybox path should be convertible to a string")
-                                        .to_string()
-                                })
+                                .map(|path| path.relative_path.to_string_lossy().to_string())
                                 .collect::<Vec<_>>()
                                 .join(", ");
                             result.truncate(100);
