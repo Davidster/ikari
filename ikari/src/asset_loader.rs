@@ -60,7 +60,7 @@ trait BindScene: WasmNotSend + WasmNotSync {
     fn update(
         &self,
         base_renderer: WasmNotArc<BaseRenderer>,
-        renderer_constant_data: Arc<RendererConstantData>,
+        renderer_constant_data: WasmNotArc<RendererConstantData>,
         asset_loader: Arc<AssetLoader>,
     );
     fn loaded_scenes(&self)
