@@ -305,8 +305,6 @@ pub async fn init_game_state(
 
             // load in gltf files
 
-            let mut asset_id_map_guard = asset_id_map.lock().unwrap();
-
             let mut gltf_paths = Vec::new();
 
             // player's revolver
@@ -328,7 +326,7 @@ pub async fn init_game_state(
             // gltf_paths.push(get_misc_gltf_path());
 
             for path in gltf_paths {
-                asset_id_map_guard.insert(
+                asset_id_map.lock().unwrap().insert(
                     path.to_string(),
                     asset_loader.load_gltf_scene(GAME_PATH_MAKER.make(path)),
                 );
@@ -359,7 +357,7 @@ pub async fn init_game_state(
             });
 
             for audio_load_param in audio_load_params {
-                asset_id_map_guard.insert(
+                asset_id_map.lock().unwrap().insert(
                     audio_load_param
                         .path
                         .relative_path
@@ -370,8 +368,8 @@ pub async fn init_game_state(
                 );
             }
 
-            // ikari::thread::sleep_async(ikari::time::Duration::from_secs_f32(4.0)).await;
-            asset_id_map_guard.insert(
+            ikari::thread::sleep_async(ikari::time::Duration::from_secs_f32(4.0)).await;
+            asset_id_map.lock().unwrap().insert(
                 "skybox".to_string(),
                 asset_loader.load_skybox(get_skybox_path()),
             );
@@ -1596,9 +1594,7 @@ pub fn update_game_state(
             Character::new(
                 &mut engine_state.scene,
                 &mut engine_state.physics_state,
-                &base_renderer,
                 &renderer.constant_data,
-                &mut renderer_data.lock().unwrap(),
                 legendary_robot_root_node_id,
                 legendary_robot_skin_index,
             )

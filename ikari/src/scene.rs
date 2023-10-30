@@ -280,22 +280,19 @@ impl Scene {
         };
         for (node, _) in &mut other_scene.nodes {
             if let Some(ref mut node) = node {
-                match node.visual {
-                    Some(ref mut visuals) => {
-                        visuals.mesh_index += mesh_index_offset;
+                if let Some(ref mut visual) = node.visual {
+                    visual.mesh_index += mesh_index_offset;
 
-                        match visuals.material {
-                            Material::Pbr {
-                                ref mut binded_material_index,
-                                ..
-                            } => {
-                                *binded_material_index += material_index_offset;
-                            }
-                            Material::Unlit { .. } => {}
-                            Material::Transparent { .. } => {}
+                    match visual.material {
+                        Material::Pbr {
+                            ref mut binded_material_index,
+                            ..
+                        } => {
+                            *binded_material_index += material_index_offset;
                         }
+                        Material::Unlit { .. } => {}
+                        Material::Transparent { .. } => {}
                     }
-                    None => {}
                 }
                 if let Some(ref mut skin_index) = node.skin_index {
                     *skin_index += skin_index_offset;
@@ -334,9 +331,9 @@ impl Scene {
     ) -> Option<Sphere> {
         self.get_node(node_id)
             .and_then(|node| node.visual.as_ref())
-            .map(|visuals| {
+            .map(|visual| {
                 build_mesh_bounding_sphere(
-                    visuals.mesh_index,
+                    visual.mesh_index,
                     &self.get_global_transform_for_node(node_id),
                     renderer_data,
                 )
@@ -350,9 +347,9 @@ impl Scene {
     ) -> Option<Sphere> {
         self.get_node(node_id)
             .and_then(|node| node.visual.as_ref())
-            .map(|visuals| {
+            .map(|visual| {
                 build_mesh_bounding_sphere(
-                    visuals.mesh_index,
+                    visual.mesh_index,
                     &self.get_global_transform_for_node_opt(node_id),
                     renderer_data,
                 )
@@ -458,7 +455,7 @@ impl Scene {
         let GameNodeDesc {
             transform,
             skin_index,
-            visual: visuals,
+            visual,
             name,
             parent_id,
         } = node;
@@ -466,7 +463,7 @@ impl Scene {
         let make_new_node = |id| GameNode {
             transform,
             skin_index,
-            visual: visuals,
+            visual,
             name,
             id,
             parent_id,
@@ -620,14 +617,14 @@ impl GameNodeDescBuilder {
         let GameNodeDesc {
             transform,
             skin_index,
-            visual: visuals,
+            visual,
             name,
             parent_id,
         } = GameNodeDesc::default();
         Self {
             transform,
             skin_index,
-            visual: visuals,
+            visual,
             name,
             parent_id,
         }

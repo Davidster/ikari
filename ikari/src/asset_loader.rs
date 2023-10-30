@@ -17,7 +17,7 @@ use crate::wasm_not_sync::{WasmNotSend, WasmNotSync};
 use anyhow::bail;
 use anyhow::Result;
 use image::Pixel;
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::HashMap;
 
 use std::sync::{Arc, Mutex};
 
@@ -352,7 +352,22 @@ impl AssetLoader {
                         let (next_skybox_id, next_skybox_paths) =
                             pending_skyboxes.lock().unwrap().remove(0);
 
-                        profiling::scope!("Load skybox", &next_skybox_id);
+                        let _get_skybox_paths_str = || {
+                            let mut result = next_skybox_paths
+                                .to_flattened_file_paths()
+                                .iter()
+                                .map(|path| {
+                                    path.relative_path
+                                        .to_str()
+                                        .expect("Skybox path should be convertible to a string")
+                                        .to_string()
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            result.truncate(100);
+                            result
+                        };
+                        profiling::scope!("Load skybox", &_get_skybox_paths_str());
 
                         match make_bindable_skybox(&next_skybox_paths).await {
                             Ok(result) => {
@@ -599,11 +614,7 @@ impl ThreadedSceneBinder {
         let mut binded_pbr_materials: Vec<BindedPbrMaterial> =
             Vec::with_capacity(bindable_scene.bindable_pbr_materials.len());
         for bindable_mesh in bindable_scene.bindable_meshes.iter() {
-            binded_meshes.push(bind_mesh(
-                base_renderer,
-                renderer_constant_data,
-                bindable_mesh,
-            )?);
+            binded_meshes.push(bind_mesh(base_renderer, bindable_mesh)?);
         }
 
         for bindable_pbr_material in bindable_scene.bindable_pbr_materials.iter() {
@@ -730,7 +741,6 @@ impl TimeSlicedSceneBinder {
             if staged_mesh_count < bindable_scene.bindable_meshes.len() {
                 staged_scene.binded_meshes.push(bind_mesh(
                     base_renderer,
-                    renderer_constant_data,
                     &bindable_scene.bindable_meshes[staged_mesh_count],
                 )?);
 
@@ -1036,7 +1046,6 @@ fn bind_texture(
 
 fn bind_mesh(
     base_renderer: &BaseRenderer,
-    renderer_constant_data: &RendererConstantData,
     mesh: &BindableGeometryBuffers,
 ) -> Result<BindedGeometryBuffers> {
     let vertex_buffer_bytes = bytemuck::cast_slice(&mesh.vertices);

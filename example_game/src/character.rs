@@ -1,7 +1,7 @@
 use glam::Vec4;
-use ikari::mesh::BasicMesh;
+
 use ikari::physics::PhysicsState;
-use ikari::renderer::{BaseRenderer, Renderer, RendererConstantData, RendererData};
+use ikari::renderer::RendererConstantData;
 use ikari::scene::{GameNodeId, GameNodeVisual, Material, Scene};
 
 use ikari::physics::rapier3d_f64::prelude::*;
@@ -22,9 +22,7 @@ impl Character {
     pub fn new(
         scene: &mut Scene,
         physics_state: &mut PhysicsState,
-        renderer_base: &BaseRenderer,
         renderer_constant_data: &RendererConstantData,
-        renderer_data: &mut RendererData,
         root_node_id: GameNodeId,
         skin_index: usize,
     ) -> Self {

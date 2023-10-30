@@ -546,6 +546,30 @@ pub struct SkyboxPaths {
     pub environment_hdr: Option<SkyboxEnvironmentHDRPath>,
 }
 
+impl SkyboxPaths {
+    pub fn to_flattened_file_paths(&self) -> Vec<GameFilePath> {
+        let backgrounds = match &self.background {
+            SkyboxBackgroundPath::Cube(paths) => paths.to_vec(),
+            SkyboxBackgroundPath::ProcessedCube(paths) => paths.to_vec(),
+            SkyboxBackgroundPath::Equirectangular(path) => vec![path.clone()],
+        };
+
+        let environment_hdrs = match &self.environment_hdr {
+            Some(SkyboxEnvironmentHDRPath::Equirectangular(path)) => vec![path.clone()],
+            Some(SkyboxEnvironmentHDRPath::ProcessedCube { diffuse, specular }) => {
+                vec![diffuse.clone(), specular.clone()]
+            }
+            None => vec![],
+        };
+
+        backgrounds
+            .iter()
+            .chain(environment_hdrs.iter())
+            .cloned()
+            .collect()
+    }
+}
+
 #[derive(Debug)]
 pub enum BindableSkyboxBackground {
     Cube(RawImage),

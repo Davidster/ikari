@@ -129,7 +129,7 @@ pub async fn build_scene(
     {
         profiling::scope!("meshes");
 
-        for (gltf_mesh_index, (mesh, primitives)) in supported_meshes.iter().enumerate() {
+        for (_gltf_mesh_index, (mesh, primitives)) in supported_meshes.iter().enumerate() {
             for primitive in primitives.iter() {
                 let (geometry, wireframe_indices) = build_geometry(primitive, buffers)?;
                 bindable_meshes.push(geometry);

@@ -36,7 +36,7 @@ pub fn get_all_bone_data(
     let mut skin_index_to_slice_map: HashMap<usize, (usize, usize)> = HashMap::new();
 
     for skin in &scene.skins {
-        if let Some(visuals) = &scene
+        if let Some(visual) = &scene
             .get_node(skin.node_id)
             .and_then(|skin_node| skin_node.visual.as_ref())
         {
@@ -46,7 +46,7 @@ pub fn get_all_bone_data(
                 Entry::Occupied(entry) => {
                     let (start_index, end_index) = *entry.get();
                     animated_bone_transforms.push(AllBoneTransformsSlice {
-                        mesh_index: visuals.mesh_index,
+                        mesh_index: visual.mesh_index,
                         start_index,
                         end_index,
                     });
@@ -79,7 +79,7 @@ pub fn get_all_bone_data(
                     buffer.append(&mut padding);
 
                     animated_bone_transforms.push(AllBoneTransformsSlice {
-                        mesh_index: visuals.mesh_index,
+                        mesh_index: visual.mesh_index,
                         start_index,
                         end_index,
                     });
