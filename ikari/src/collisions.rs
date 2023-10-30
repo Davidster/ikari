@@ -157,7 +157,8 @@ impl Aabb {
         })
     }
 
-    pub fn scale_translate(&self, scale: Vec3, translation: Vec3) -> Aabb {
+    pub fn scale_translate(&self, mut scale: Vec3, translation: Vec3) -> Aabb {
+        scale = scale.abs();
         Aabb {
             min: self.min * scale + translation,
             max: self.max * scale + translation,

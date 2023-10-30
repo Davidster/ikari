@@ -3636,6 +3636,14 @@ impl Renderer {
                     ..
                 }) = node.visual.clone()
                 {
+                    let (scale, _, translation) = transform.to_scale_rotation_translation();
+                    let aabb_world_space = data.binded_meshes[mesh_index]
+                        .bounding_box
+                        .scale_translate(scale, translation);
+                    let closest_point_to_player =
+                        aabb_world_space.find_closest_surface_point(camera_position);
+                    let distance_from_player = closest_point_to_player.distance(camera_position);
+
                     match (material, data.enable_wireframe_mode, wireframe) {
                         (
                             Material::Pbr {
@@ -3778,15 +3786,6 @@ impl Renderer {
                                     color,
                                     model_transform: transform,
                                 };
-                                let (scale, _, translation) =
-                                    transform.to_scale_rotation_translation();
-                                let aabb_world_space = data.binded_meshes[mesh_index]
-                                    .bounding_box
-                                    .scale_translate(scale, translation);
-                                let closest_point_to_player =
-                                    aabb_world_space.find_closest_surface_point(camera_position);
-                                let distance_from_player =
-                                    closest_point_to_player.distance(camera_position);
                                 transparent_meshes.push((
                                     mesh_index,
                                     gpu_instance,
@@ -3815,12 +3814,18 @@ impl Renderer {
         let min_storage_buffer_offset_alignment =
             self.base.limits.min_storage_buffer_offset_alignment;
 
+        let mut pbr_mesh_instances: Vec<_> = pbr_mesh_index_to_gpu_instances.into_iter().collect();
+
+        // TODO: sort opaque instances front to back to maximize z-buffer early outs
+        pbr_mesh_instances.sort_unstable_by_key(|((_, material_index), _)| *material_index);
+        pbr_mesh_instances.sort_by_key(|((mesh_index, _), _)| *mesh_index);
+
         private_data.all_pbr_instances_culling_masks.clear();
 
         {
             profiling::scope!("Combine culling masks");
 
-            for instances in pbr_mesh_index_to_gpu_instances.values() {
+            for (_, instances) in &pbr_mesh_instances {
                 // we only have one culling mask per chunk of instances,
                 // meaning that instances can't be culled individually
                 let mut combined_culling_mask = 0u32;
@@ -3833,11 +3838,8 @@ impl Renderer {
             }
         }
 
-        // TODO: when drawing, sort these by mesh index so that instances of the same mesh are contiguous.
-        //       should be better for performance
-        //       I guess the sort would need to happen before combining those culling masks above
         private_data.all_pbr_instances.replace(
-            pbr_mesh_index_to_gpu_instances.into_iter(),
+            pbr_mesh_instances.into_iter(),
             min_storage_buffer_offset_alignment as usize,
         );
 
@@ -3898,7 +3900,13 @@ impl Renderer {
         }
 
         // draw furthest transparent meshes first
-        transparent_meshes.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
+        transparent_meshes.sort_by(
+            |(_, _, distance_from_player_a), (_, _, distance_from_player_b)| {
+                distance_from_player_b
+                    .partial_cmp(&distance_from_player_a)
+                    .unwrap()
+            },
+        );
 
         private_data.all_transparent_instances.replace(
             transparent_meshes
