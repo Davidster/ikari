@@ -15,8 +15,6 @@ pub struct EngineState {
     pub physics_state: PhysicsState,
     pub audio_streams: AudioStreams,
     pub audio_manager: Arc<Mutex<AudioManager>>,
-    pub point_lights: Vec<PointLight>,
-    pub directional_lights: Vec<DirectionalLight>,
 }
 
 impl EngineState {
@@ -29,8 +27,6 @@ impl EngineState {
             scene: Scene::default(),
             audio_streams,
             audio_manager: audio_manager_mutex,
-            point_lights: vec![],
-            directional_lights: vec![],
             time_tracker: None,
             physics_state: PhysicsState::new(),
         })

@@ -21,6 +21,8 @@ pub struct Scene {
     // skeleton skin node index -> parent_index_map
     skeleton_parent_index_maps:
         HashMap<u32, HashMap<u32, u32, BuildHasherDefault<XxHash64>>, BuildHasherDefault<XxHash64>>,
+    pub point_lights: Vec<PointLight>,
+    pub directional_lights: Vec<DirectionalLight>,
 }
 
 #[derive(Debug, Clone)]
@@ -154,6 +156,8 @@ impl Scene {
             skins: Vec::new(),
             animations,
             skeleton_parent_index_maps: Default::default(),
+            point_lights: vec![],
+            directional_lights: vec![],
         };
 
         nodes_desc.iter().for_each(|node_desc| {

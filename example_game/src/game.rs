@@ -381,7 +381,7 @@ pub async fn init_game_state(
     });
 
     // add lights to the scene
-    engine_state.directional_lights = vec![
+    engine_state.scene.directional_lights = vec![
         // DirectionalLightComponent {
         //     position: Vec3::new(1.0, 5.0, -10.0) * 10.0,
         //     direction: (-Vec3::new(1.0, 5.0, -10.0)).normalize(),
@@ -458,9 +458,9 @@ pub async fn init_game_state(
             )
             .id();
         point_light_node_ids.push(node_id);
-        engine_state.point_lights.push(PointLight {
+        scene.point_lights.push(PointLight {
             node_id,
-            color: POINT_LIGHT_COLOR,
+            color,
             intensity,
         });
     }
@@ -1666,7 +1666,7 @@ pub fn update_game_state(
             }
         });
 
-    if let Some(point_light_0) = engine_state.point_lights.get_mut(0) {
+    if let Some(point_light_0) = engine_state.scene.point_lights.get_mut(0) {
         let t = engine_state
             .scene
             .animations
@@ -1680,7 +1680,8 @@ pub fn update_game_state(
         //     LIGHT_COLOR_B,
         //     (global_time_seconds * 2.0).sin(),
         // );
-        if let Some(node) = engine_state.scene.get_node_mut(point_light_0.node_id) {
+        let node_id = point_light_0.node_id;
+        if let Some(node) = engine_state.scene.get_node_mut(node_id) {
             // let t = game_state.player_controller.speed;
             node.transform.set_position(
                 Vec3::new(0.0, 6.5, 0.0)
@@ -1693,7 +1694,7 @@ pub fn update_game_state(
         }
     }
 
-    if let Some(_point_light_1) = engine_state.point_lights.get_mut(1) {
+    if let Some(_point_light_1) = engine_state.scene.point_lights.get_mut(1) {
         // _point_light_1.color = lerp_vec(
         //     LIGHT_COLOR_B,
         //     LIGHT_COLOR_A,
@@ -1702,10 +1703,14 @@ pub fn update_game_state(
     }
 
     // sync unlit mesh config with point light component
-    game_state
+    let point_lights_with_ids: Vec<_> = game_state
         .point_light_node_ids
         .iter()
-        .zip(engine_state.point_lights.iter())
+        .cloned()
+        .zip(engine_state.scene.point_lights.iter().cloned())
+        .collect();
+    point_lights_with_ids
+        .iter()
         .for_each(|(node_id, point_light)| {
             if let Some(GameNodeVisual {
                 material: Material::Unlit { ref mut color },
@@ -1719,25 +1724,27 @@ pub fn update_game_state(
             }
         });
 
-    let directional_light_0 = engine_state
-        .directional_lights
-        .get(0)
-        .map(|directional_light_0| {
-            let direction = directional_light_0.direction;
-            // transform.set_position(Vec3::new(
-            //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
-            //     transform.position.get().y,
-            //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
-            // ));
-            // let color = lerp_vec(LIGHT_COLOR_B, LIGHT_COLOR_A, (time_seconds * 2.0).sin());
+    let directional_light_0 =
+        engine_state
+            .scene
+            .directional_lights
+            .get(0)
+            .map(|directional_light_0| {
+                let direction = directional_light_0.direction;
+                // transform.set_position(Vec3::new(
+                //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).cos(),
+                //     transform.position.get().y,
+                //     1.1 * (time_seconds * 0.25 + std::f32::consts::PI).sin(),
+                // ));
+                // let color = lerp_vec(LIGHT_COLOR_B, LIGHT_COLOR_A, (time_seconds * 2.0).sin());
 
-            DirectionalLight {
-                direction: Vec3::new(direction.x, direction.y + 0.00001, direction.z),
-                ..*directional_light_0
-            }
-        });
+                DirectionalLight {
+                    direction: Vec3::new(direction.x, direction.y + 0.00001, direction.z),
+                    ..*directional_light_0
+                }
+            });
     if let Some(directional_light_0) = directional_light_0 {
-        engine_state.directional_lights[0] = directional_light_0;
+        engine_state.scene.directional_lights[0] = directional_light_0;
     }
 
     // rotate the test object

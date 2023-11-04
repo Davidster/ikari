@@ -67,8 +67,9 @@ impl Default for PointLightUniform {
 fn make_point_light_uniform_buffer(engine_state: &EngineState) -> Vec<PointLightUniform> {
     let mut light_uniforms = Vec::new();
 
-    let active_light_count = engine_state.point_lights.len();
+    let active_light_count = engine_state.scene.point_lights.len();
     let mut active_lights = engine_state
+        .scene
         .point_lights
         .iter()
         .flat_map(|point_light| {
@@ -2345,7 +2346,7 @@ impl Renderer {
                 POINT_LIGHT_SHADOW_MAP_RESOLUTION,
             ),
             Some("point_shadow_map_texture"),
-            2, // TODO: this currently puts on hard limit on number of point lights at a time
+            2,
         );
 
         let directional_shadow_map_textures = Texture::create_depth_texture_array(
@@ -2355,7 +2356,7 @@ impl Renderer {
                 DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION,
             ),
             Some("directional_shadow_map_texture"),
-            2, // TODO: this currently puts on hard limit on number of directional lights at a time
+            2,
         );
 
         let environment_textures_bind_group = Self::get_environment_textures_bind_group(
@@ -3122,7 +3123,8 @@ impl Renderer {
         }
 
         if data.draw_point_light_culling_frusta {
-            for point_light in &engine_state.point_lights {
+            let mut new_node_descs = vec![];
+            for point_light in &scene.point_lights {
                 for controlled_direction in build_cubemap_face_camera_view_directions() {
                     let frustum_descriptor = CameraFrustumDescriptor {
                         focal_point: scene
@@ -3175,25 +3177,23 @@ impl Renderer {
                         ..culling_frustum_mesh.clone()
                     };
 
-                    private_data.debug_culling_frustum_nodes.push(
-                        scene
-                            .add_node(
-                                GameNodeDescBuilder::new()
-                                    .visual(Some(culling_frustum_mesh))
-                                    .build(),
-                            )
-                            .id(),
+                    new_node_descs.push(
+                        GameNodeDescBuilder::new()
+                            .visual(Some(culling_frustum_mesh))
+                            .build(),
                     );
-                    private_data.debug_culling_frustum_nodes.push(
-                        scene
-                            .add_node(
-                                GameNodeDescBuilder::new()
-                                    .visual(Some(culling_frustum_mesh_wf))
-                                    .build(),
-                            )
-                            .id(),
+                    new_node_descs.push(
+                        GameNodeDescBuilder::new()
+                            .visual(Some(culling_frustum_mesh_wf))
+                            .build(),
                     );
                 }
+            }
+
+            for new_node_desc in new_node_descs {
+                private_data
+                    .debug_culling_frustum_nodes
+                    .push(scene.add_node(new_node_desc).id());
             }
         }
     }
@@ -3302,7 +3302,7 @@ impl Renderer {
         camera_culling_frustum: &Frustum,
         point_lights_frusta: &PointLightFrustaWithCullingInfo,
     ) -> u32 {
-        assert!(1 + engine_state.directional_lights.len() + engine_state.point_lights.len() * 6 <= 32,
+        assert!(1 + engine_state.scene.directional_lights.len() + engine_state.scene.point_lights.len() * 6 <= 32,
             "u32 can only store a max of 5 point lights, might be worth using a larger, might be worth using a larger bitvec or a Vec<bool> or something"
         );
 
@@ -3343,7 +3343,7 @@ impl Renderer {
 
         mask_pos += 1;
 
-        for _ in &engine_state.directional_lights {
+        for _ in &engine_state.scene.directional_lights {
             // TODO: add support for frustum culling directional lights shadow map gen?
             culling_mask |= 2u32.pow(mask_pos);
 
@@ -3578,6 +3578,7 @@ impl Renderer {
 
         // list of 6 frusta for each point light including culling information
         let point_lights_frusta: PointLightFrustaWithCullingInfo = engine_state
+            .scene
             .point_lights
             .iter()
             .map(|point_light| {
@@ -4103,7 +4104,7 @@ impl Renderer {
         ));
 
         // directional lights
-        for directional_light in &engine_state.directional_lights {
+        for directional_light in &engine_state.scene.directional_lights {
             all_camera_data.push(build_directional_light_camera_view(
                 -directional_light.direction,
                 100.0,
@@ -4113,7 +4114,7 @@ impl Renderer {
         }
 
         // point lights
-        for point_light in &engine_state.point_lights {
+        for point_light in &engine_state.scene.point_lights {
             let light_position = engine_state
                 .scene
                 .get_node(point_light.node_id)
@@ -4234,7 +4235,7 @@ impl Renderer {
             &private_data.directional_lights_buffer,
             0,
             bytemuck::cast_slice(&make_directional_light_uniform_buffer(
-                &engine_state.directional_lights,
+                &engine_state.scene.directional_lights,
             )),
         );
         queue.write_buffer(
@@ -4314,6 +4315,7 @@ impl Renderer {
 
         if data.enable_shadows {
             engine_state
+                .scene
                 .directional_lights
                 .iter()
                 .enumerate()
@@ -4356,10 +4358,10 @@ impl Renderer {
                         None,
                     );
                 });
-            (0..engine_state.point_lights.len()).for_each(|light_index| {
+            (0..engine_state.scene.point_lights.len()).for_each(|light_index| {
                 if let Some(light_node) = engine_state
                     .scene
-                    .get_node(engine_state.point_lights[light_index].node_id)
+                    .get_node(engine_state.scene.point_lights[light_index].node_id)
                 {
                     build_cubemap_face_camera_views(
                         light_node.transform.position(),
@@ -4372,7 +4374,7 @@ impl Renderer {
                     .enumerate()
                     .for_each(|(face_index, _face_view_proj_matrices)| {
                         let culling_mask = 2u32.pow(
-                            (1 + engine_state.directional_lights.len()
+                            (1 + engine_state.scene.directional_lights.len()
                                 + light_index * 6
                                 + face_index)
                                 .try_into()
@@ -4415,7 +4417,7 @@ impl Renderer {
                             &shadow_render_pass_desc,
                             &self.constant_data.point_shadow_map_pipeline,
                             &private_data.camera_lights_and_pbr_shader_options_bind_groups[1
-                                + engine_state.directional_lights.len()
+                                + engine_state.scene.directional_lights.len()
                                 + light_index * 6
                                 + face_index],
                             true,
