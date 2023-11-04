@@ -401,7 +401,7 @@ impl AssetLoader {
 impl AssetBinder {
     pub fn new() -> Self {
         #[cfg(not(target_arch = "wasm32"))]
-        let scene_binder = Box::new(ThreadedSceneBinder::new(WasmNotArc::new(
+        let scene_binder = Box::new(TimeSlicedSceneBinder::new(WasmNotArc::new(
             WasmNotMutex::new(HashMap::new()),
         )));
 
@@ -775,6 +775,12 @@ impl TimeSlicedSceneBinder {
                     &staged_scene.textures,
                     &bindable_scene.bindable_pbr_materials[staged_pbr_mat_count],
                 )?);
+
+                if staged_scene.binded_pbr_materials.len()
+                    < bindable_scene.bindable_pbr_materials.len()
+                {
+                    return Ok(None);
+                }
             }
         }
 
