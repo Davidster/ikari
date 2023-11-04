@@ -19,10 +19,9 @@ use ikari::player_controller::ControlledViewDirection;
 use ikari::profile_dump::can_generate_profile_dump;
 use ikari::profile_dump::generate_profile_dump;
 use ikari::profile_dump::PendingPerfDump;
+use ikari::renderer::CullingFrustumLockMode;
+use ikari::renderer::GpuTimerScopeResultWrapper;
 use ikari::time::Instant;
-use ikari::ui::collect_frame_time_ms;
-use ikari::ui::CullingFrustumLockMode;
-use ikari::ui::GpuTimerScopeResultWrapper;
 use plotters::prelude::*;
 use plotters::style::RED;
 use plotters_iced::{Chart, ChartWidget, DrawingBackend};
@@ -823,4 +822,12 @@ impl runtime::Program for UiOverlay {
             Modal::new(background_content, modal_content).into()
         }
     }
+}
+
+fn collect_frame_time_ms(frame_times: &Vec<GpuTimerScopeResultWrapper>) -> f64 {
+    let mut result = 0.0;
+    for frame_time in frame_times {
+        result += (frame_time.time.end - frame_time.time.start) * 1000.0;
+    }
+    result
 }

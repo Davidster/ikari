@@ -171,6 +171,93 @@ fn make_directional_light_uniform_buffer(
     light_uniforms
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum CullingFrustumLockMode {
+    Full,
+    FocalPoint,
+    #[default]
+    None,
+}
+
+impl CullingFrustumLockMode {
+    pub const ALL: [CullingFrustumLockMode; 3] = [
+        CullingFrustumLockMode::None,
+        CullingFrustumLockMode::Full,
+        CullingFrustumLockMode::FocalPoint,
+    ];
+}
+
+impl From<CullingFrustumLock> for CullingFrustumLockMode {
+    fn from(value: CullingFrustumLock) -> Self {
+        match value {
+            CullingFrustumLock::Full(_) => CullingFrustumLockMode::Full,
+            CullingFrustumLock::FocalPoint(_) => CullingFrustumLockMode::FocalPoint,
+            CullingFrustumLock::None => CullingFrustumLockMode::None,
+        }
+    }
+}
+
+impl std::fmt::Display for CullingFrustumLockMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                CullingFrustumLockMode::Full => "On",
+                CullingFrustumLockMode::FocalPoint => "Only FocalPoint",
+                CullingFrustumLockMode::None => "Off",
+            }
+        )
+    }
+}
+
+pub struct GpuTimerScopeResultWrapper(pub wgpu_profiler::GpuTimerScopeResult);
+
+impl std::ops::Deref for GpuTimerScopeResultWrapper {
+    type Target = wgpu_profiler::GpuTimerScopeResult;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for GpuTimerScopeResultWrapper {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "(TODO implement better formatter for type) {:?} -> {:?}",
+            self.label, self.time
+        )
+    }
+}
+
+impl Clone for GpuTimerScopeResultWrapper {
+    fn clone(&self) -> Self {
+        Self(wgpu_profiler::GpuTimerScopeResult {
+            label: self.label.clone(),
+            time: self.time.clone(),
+            nested_scopes: clone_nested_scopes(&self.nested_scopes),
+            pid: self.pid,
+            tid: self.tid,
+        })
+    }
+}
+
+fn clone_nested_scopes(
+    nested_scopes: &[wgpu_profiler::GpuTimerScopeResult],
+) -> Vec<wgpu_profiler::GpuTimerScopeResult> {
+    nested_scopes
+        .iter()
+        .map(|nested_scope| wgpu_profiler::GpuTimerScopeResult {
+            label: nested_scope.label.clone(),
+            time: nested_scope.time.clone(),
+            nested_scopes: clone_nested_scopes(&nested_scope.nested_scopes),
+            pid: nested_scope.pid,
+            tid: nested_scope.tid,
+        })
+        .collect()
+}
+
 fn make_pbr_shader_options_uniform_buffer(
     enable_soft_shadows: bool,
     shadow_bias: f32,
