@@ -3,8 +3,6 @@ use std::sync::{Arc, Mutex};
 use crate::{
     audio::{AudioManager, AudioStreams},
     physics::PhysicsState,
-    renderer::DirectionalLight,
-    renderer::PointLight,
     scene::Scene,
     time_tracker::TimeTracker,
 };

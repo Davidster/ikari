@@ -3909,7 +3909,7 @@ impl Renderer {
         transparent_meshes.sort_by(
             |(_, _, distance_from_player_a), (_, _, distance_from_player_b)| {
                 distance_from_player_b
-                    .partial_cmp(&distance_from_player_a)
+                    .partial_cmp(distance_from_player_a)
                     .unwrap()
             },
         );
