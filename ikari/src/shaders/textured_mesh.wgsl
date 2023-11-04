@@ -9,6 +9,8 @@ var<uniform> CAMERA: MeshShaderCameraRaw;
 
 const MAX_LIGHTS = 32u;
 const MAX_BONES = 512u;
+const POINT_LIGHT_SHOW_MAP_COUNT = 2u;
+const DIRECTIONAL_LIGHT_SHOW_MAP_COUNT = 2u;
 
 const pi: f32 = 3.141592653589793;
 const two_pi: f32 = 6.283185307179586;
@@ -747,115 +749,117 @@ fn do_fragment_shade(
 
         var shadow_occlusion_acc = 0.0;
 
-        if get_soft_shadows_are_enabled() {
-            // soft shadows code path
-            // TODO: dedupe with directional lights
+        if light_index < POINT_LIGHT_SHOW_MAP_COUNT {
+            if get_soft_shadows_are_enabled() {
+                // soft shadows code path
+                // TODO: dedupe with directional lights
 
-            var early_test_coords = array<vec2<u32>, 4>(
-                vec2<u32>(0u, 3u),
-                vec2<u32>(1u, 3u),
-                vec2<u32>(2u, 3u),
-                vec2<u32>(3u, 3u)
-            );
+                var early_test_coords = array<vec2<u32>, 4>(
+                    vec2<u32>(0u, 3u),
+                    vec2<u32>(1u, 3u),
+                    vec2<u32>(2u, 3u),
+                    vec2<u32>(3u, 3u)
+                );
 
-            let max_sample_jitter = get_soft_shadow_factor() * 0.67;
+                let max_sample_jitter = get_soft_shadow_factor() * 0.67;
 
-            for (var i = 0; i < 4; i++) {
-                let base_sample_jitter = get_soft_shadow_sample_jitter(early_test_coords[i], random_jitter, 4u);
-                // TODO: multiply by current_depth to get softer shadows at a distance?
-                var sample_jitter = base_sample_jitter * max_sample_jitter;
-                sample_jitter.y = sample_jitter.y * 6.0;
+                for (var i = 0; i < 4; i++) {
+                    let base_sample_jitter = get_soft_shadow_sample_jitter(early_test_coords[i], random_jitter, 4u);
+                    // TODO: multiply by current_depth to get softer shadows at a distance?
+                    var sample_jitter = base_sample_jitter * max_sample_jitter;
+                    sample_jitter.y = sample_jitter.y * 6.0;
+                    let closest_depth = textureSampleLevel(
+                        point_shadow_map_textures,
+                        shadow_map_sampler,
+                        validate_jittered_sample_coordinate(
+                            light_space_position_uv + sample_jitter, 
+                            light_space_position_face_slice
+                        ),
+                        i32(light_index),
+                        0.0
+                    ).r;
+
+                    if current_depth - shadow_bias < closest_depth {
+                        shadow_occlusion_acc = shadow_occlusion_acc + 0.25;
+                    }
+                }
+
+                let n_dot_l = max(dot(n, to_light_vec_norm), 0.0);
+
+                // if the early test finds the fragment to be completely in shadow, 
+                // completely in light, or its surface isn't facing the light (n_dot_l =< 0)
+                // then skip the extra work that we do to soften the penumbra
+                if (shadow_occlusion_acc - 1.0) * shadow_occlusion_acc * n_dot_l != 0.0 {
+                    
+                    if soft_shadow_grid_dims > 0u {
+                        // TODO: don't clear shadow_occlusion_acc, we can perserve it and perform fewer samples here
+                        // (skip the samples already done by early test) for a theoretically equivalent level of quality
+                        // and decent performance boost if soft_shadow_grid_dims isn't too high
+                        shadow_occlusion_acc = 0.0;
+                    }
+
+                    for (var i = 0u; i < soft_shadow_grid_dims; i++) {
+                        for (var j = 0u; j < soft_shadow_grid_dims; j++) {
+                            let coord = vec2<u32>(i, j);
+                            let base_sample_jitter = get_soft_shadow_sample_jitter(coord, random_jitter, soft_shadow_grid_dims);
+                            // TODO: multiply by current_depth to get softer shadows at a distance?
+                            var sample_jitter = base_sample_jitter * max_sample_jitter;
+                            sample_jitter.y = sample_jitter.y * 6.0;
+                            let closest_depth = textureSampleLevel(
+                                point_shadow_map_textures,
+                                shadow_map_sampler,
+                                validate_jittered_sample_coordinate(
+                                    light_space_position_uv + sample_jitter, 
+                                    light_space_position_face_slice
+                                ),
+                                i32(light_index),
+                                0.0
+                            ).r;
+                            
+                            if current_depth - shadow_bias < closest_depth {
+                                shadow_occlusion_acc = shadow_occlusion_acc + (1.0 / f32(soft_shadow_grid_dims * soft_shadow_grid_dims));
+                            }
+                        }
+                    }
+                }
+
+                /*
+                // old method, way slower.
+                let sample_count = 4.0;
+                let random_jitter_3d = vec3(random_jitter, 2.0 * noise3(random_seed_y + 1000.0) - 1.0);
+                let max_sample_jitter = get_soft_shadow_factor() * 100.0;
+                for (var x = 0.0; x < sample_count; x = x + 1.0) {
+                    for (var y = 0.0; y < sample_count; y = y + 1.0) {
+                        for (var z = 0.0; z < sample_count; z = z + 1.0) {
+                            let irregular_offset = max_sample_jitter * random_jitter_3d * vec3(x, y, z) / sample_count;
+                            let closest_depth = textureSample(
+                                point_shadow_map_textures,
+                                shadow_map_sampler,
+                                get_sample_coordinate(world_normal_to_cubemap_vec(from_shadow_vec + irregular_offset)).xy,
+                                i32(light_index)
+                            ).r;
+                            if current_depth - shadow_bias < closest_depth {
+                                shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
+                            }
+                        }
+                    }
+                }
+                shadow_occlusion_acc = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
+                */
+            } else {
+                // hard shadows
                 let closest_depth = textureSampleLevel(
                     point_shadow_map_textures,
                     shadow_map_sampler,
-                    validate_jittered_sample_coordinate(
-                        light_space_position_uv + sample_jitter, 
-                        light_space_position_face_slice
-                    ),
+                    light_space_position_uv,
                     i32(light_index),
                     0.0
                 ).r;
-
-                if current_depth - shadow_bias < closest_depth {
-                    shadow_occlusion_acc = shadow_occlusion_acc + 0.25;
+                if (current_depth - shadow_bias < closest_depth) {
+                    shadow_occlusion_acc = 1.0;
                 }
             }
-
-            let n_dot_l = max(dot(n, to_light_vec_norm), 0.0);
-
-            // if the early test finds the fragment to be completely in shadow, 
-            // completely in light, or its surface isn't facing the light (n_dot_l =< 0)
-            // then skip the extra work that we do to soften the penumbra
-            if (shadow_occlusion_acc - 1.0) * shadow_occlusion_acc * n_dot_l != 0.0 {
-                
-                if soft_shadow_grid_dims > 0u {
-                    // TODO: don't clear shadow_occlusion_acc, we can perserve it and perform fewer samples here
-                    // (skip the samples already done by early test) for a theoretically equivalent level of quality
-                    // and decent performance boost if soft_shadow_grid_dims isn't too high
-                    shadow_occlusion_acc = 0.0;
-                }
-
-                for (var i = 0u; i < soft_shadow_grid_dims; i++) {
-                    for (var j = 0u; j < soft_shadow_grid_dims; j++) {
-                        let coord = vec2<u32>(i, j);
-                        let base_sample_jitter = get_soft_shadow_sample_jitter(coord, random_jitter, soft_shadow_grid_dims);
-                        // TODO: multiply by current_depth to get softer shadows at a distance?
-                        var sample_jitter = base_sample_jitter * max_sample_jitter;
-                        sample_jitter.y = sample_jitter.y * 6.0;
-                        let closest_depth = textureSampleLevel(
-                            point_shadow_map_textures,
-                            shadow_map_sampler,
-                            validate_jittered_sample_coordinate(
-                                light_space_position_uv + sample_jitter, 
-                                light_space_position_face_slice
-                            ),
-                            i32(light_index),
-                            0.0
-                        ).r;
-                        
-                        if current_depth - shadow_bias < closest_depth {
-                            shadow_occlusion_acc = shadow_occlusion_acc + (1.0 / f32(soft_shadow_grid_dims * soft_shadow_grid_dims));
-                        }
-                    }
-                }
-            }
-
-            /*
-            // old method, way slower.
-            let sample_count = 4.0;
-            let random_jitter_3d = vec3(random_jitter, 2.0 * noise3(random_seed_y + 1000.0) - 1.0);
-            let max_sample_jitter = get_soft_shadow_factor() * 100.0;
-            for (var x = 0.0; x < sample_count; x = x + 1.0) {
-                for (var y = 0.0; y < sample_count; y = y + 1.0) {
-                    for (var z = 0.0; z < sample_count; z = z + 1.0) {
-                        let irregular_offset = max_sample_jitter * random_jitter_3d * vec3(x, y, z) / sample_count;
-                        let closest_depth = textureSample(
-                            point_shadow_map_textures,
-                            shadow_map_sampler,
-                            get_sample_coordinate(world_normal_to_cubemap_vec(from_shadow_vec + irregular_offset)).xy,
-                            i32(light_index)
-                        ).r;
-                        if current_depth - shadow_bias < closest_depth {
-                            shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
-                        }
-                    }
-                }
-            }
-            shadow_occlusion_acc = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
-            */
-         } else {
-            // hard shadows
-            let closest_depth = textureSampleLevel(
-                point_shadow_map_textures,
-                shadow_map_sampler,
-                light_space_position_uv,
-                i32(light_index),
-                0.0
-            ).r;
-            if (current_depth - shadow_bias < closest_depth) {
-                shadow_occlusion_acc = 1.0;
-            }
-         }
+        }
 
         var shadow_occlusion_factor = shadow_occlusion_acc;
         total_shadow_occlusion_acc = total_shadow_occlusion_acc + shadow_occlusion_acc;
@@ -915,87 +919,89 @@ fn do_fragment_shade(
         if light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0 {
             let current_depth = light_space_position.z; // domain is (0, 1), lower means closer to the light
             
-            if get_soft_shadows_are_enabled() {
-                // soft shadows code path. costs about 0.15ms extra (per shadow map?) per frame
-                // on an RTX 3060 when compared to hard shadows
+            if light_index < DIRECTIONAL_LIGHT_SHOW_MAP_COUNT {
+                if get_soft_shadows_are_enabled() {
+                    // soft shadows code path. costs about 0.15ms extra (per shadow map?) per frame
+                    // on an RTX 3060 when compared to hard shadows
 
-                // these coordinates will distribute the early samples
-                // around the edges of the soft shadow poisson sampling disc
-                var early_test_coords = array<vec2<u32>, 4>(
-                    vec2<u32>(0u, 3u),
-                    vec2<u32>(1u, 3u),
-                    vec2<u32>(2u, 3u),
-                    vec2<u32>(3u, 3u)
-                );
+                    // these coordinates will distribute the early samples
+                    // around the edges of the soft shadow poisson sampling disc
+                    var early_test_coords = array<vec2<u32>, 4>(
+                        vec2<u32>(0u, 3u),
+                        vec2<u32>(1u, 3u),
+                        vec2<u32>(2u, 3u),
+                        vec2<u32>(3u, 3u)
+                    );
 
-                let max_sample_jitter = get_soft_shadow_factor();
+                    let max_sample_jitter = get_soft_shadow_factor();
 
-                for (var i = 0; i < 4; i++) {
-                    let base_sample_jitter = get_soft_shadow_sample_jitter(early_test_coords[i], random_jitter, 4u);
-                    // TODO: multiply by current_depth to get softer shadows at a distance?
-                    let sample_jitter = base_sample_jitter * max_sample_jitter;
-                    let closest_depth = textureSampleLevel(
-                        directional_shadow_map_textures,
-                        shadow_map_sampler,
-                        light_space_position_uv + sample_jitter,
-                        i32(light_index),
-                        0.0
-                    ).r;
+                    for (var i = 0; i < 4; i++) {
+                        let base_sample_jitter = get_soft_shadow_sample_jitter(early_test_coords[i], random_jitter, 4u);
+                        // TODO: multiply by current_depth to get softer shadows at a distance?
+                        let sample_jitter = base_sample_jitter * max_sample_jitter;
+                        let closest_depth = textureSampleLevel(
+                            directional_shadow_map_textures,
+                            shadow_map_sampler,
+                            light_space_position_uv + sample_jitter,
+                            i32(light_index),
+                            0.0
+                        ).r;
 
-                    if current_depth - shadow_bias < closest_depth {
-                        shadow_occlusion_acc = shadow_occlusion_acc + 0.25;
-                    }
-                }
-
-                let n_dot_l = max(dot(n, to_light_vec_norm), 0.0);
-
-                // if the early test finds the fragment to be completely in shadow, 
-                // completely in light, or its surface isn't facing the light (n_dot_l =< 0)
-                // then skip the extra work that we do to soften the penumbra
-                if (shadow_occlusion_acc - 1.0) * shadow_occlusion_acc * n_dot_l != 0.0 {
-                    
-                    if soft_shadow_grid_dims > 0u {
-                        // TODO: don't clear shadow_occlusion_acc, we can perserve it and perform fewer samples here
-                        // (skip the samples already done by early test) for a theoretically equivalent level of quality
-                        // and decent performance boost if soft_shadow_grid_dims isn't too high
-                        shadow_occlusion_acc = 0.0;
+                        if current_depth - shadow_bias < closest_depth {
+                            shadow_occlusion_acc = shadow_occlusion_acc + 0.25;
+                        }
                     }
 
-                    for (var i = 0u; i < soft_shadow_grid_dims; i++) {
-                        for (var j = 0u; j < soft_shadow_grid_dims; j++) {
-                            let coord = vec2<u32>(i, j);
-                            let base_sample_jitter = get_soft_shadow_sample_jitter(coord, random_jitter, soft_shadow_grid_dims);
-                            // TODO: multiply by current_depth to get softer shadows at a distance?
-                            let sample_jitter = base_sample_jitter * max_sample_jitter;
-                            let closest_depth = textureSampleLevel(
-                                directional_shadow_map_textures,
-                                shadow_map_sampler,
-                                light_space_position_uv + sample_jitter,
-                                i32(light_index),
-                                0.0
-                            ).r;
-                            
-                            if current_depth - shadow_bias < closest_depth {
-                                shadow_occlusion_acc = shadow_occlusion_acc + (1.0 / f32(soft_shadow_grid_dims * soft_shadow_grid_dims));
+                    let n_dot_l = max(dot(n, to_light_vec_norm), 0.0);
+
+                    // if the early test finds the fragment to be completely in shadow, 
+                    // completely in light, or its surface isn't facing the light (n_dot_l =< 0)
+                    // then skip the extra work that we do to soften the penumbra
+                    if (shadow_occlusion_acc - 1.0) * shadow_occlusion_acc * n_dot_l != 0.0 {
+                        
+                        if soft_shadow_grid_dims > 0u {
+                            // TODO: don't clear shadow_occlusion_acc, we can perserve it and perform fewer samples here
+                            // (skip the samples already done by early test) for a theoretically equivalent level of quality
+                            // and decent performance boost if soft_shadow_grid_dims isn't too high
+                            shadow_occlusion_acc = 0.0;
+                        }
+
+                        for (var i = 0u; i < soft_shadow_grid_dims; i++) {
+                            for (var j = 0u; j < soft_shadow_grid_dims; j++) {
+                                let coord = vec2<u32>(i, j);
+                                let base_sample_jitter = get_soft_shadow_sample_jitter(coord, random_jitter, soft_shadow_grid_dims);
+                                // TODO: multiply by current_depth to get softer shadows at a distance?
+                                let sample_jitter = base_sample_jitter * max_sample_jitter;
+                                let closest_depth = textureSampleLevel(
+                                    directional_shadow_map_textures,
+                                    shadow_map_sampler,
+                                    light_space_position_uv + sample_jitter,
+                                    i32(light_index),
+                                    0.0
+                                ).r;
+                                
+                                if current_depth - shadow_bias < closest_depth {
+                                    shadow_occlusion_acc = shadow_occlusion_acc + (1.0 / f32(soft_shadow_grid_dims * soft_shadow_grid_dims));
+                                }
                             }
                         }
                     }
-                }
-            } else {
-                // hard shadows
-                let closest_depth = textureSampleLevel(
-                    directional_shadow_map_textures,
-                    shadow_map_sampler,
-                    light_space_position_uv,
-                    i32(light_index),
-                    0.0
-                ).r;
-                if light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0 {
-                    if current_depth - shadow_bias < closest_depth {
+                } else {
+                    // hard shadows
+                    let closest_depth = textureSampleLevel(
+                        directional_shadow_map_textures,
+                        shadow_map_sampler,
+                        light_space_position_uv,
+                        i32(light_index),
+                        0.0
+                    ).r;
+                    if light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0 {
+                        if current_depth - shadow_bias < closest_depth {
+                            shadow_occlusion_acc = 1.0;
+                        }
+                    } else {
                         shadow_occlusion_acc = 1.0;
                     }
-                } else {
-                    shadow_occlusion_acc = 1.0;
                 }
             }
         }

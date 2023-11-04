@@ -40,6 +40,8 @@ pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE: f32 = 0.1;
 pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE: f32 = 1000.0;
 pub const POINT_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 1024;
 pub const DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 2048;
+pub const POINT_LIGHT_SHOW_MAP_COUNT: u32 = 2;
+pub const DIRECTIONAL_LIGHT_SHOW_MAP_COUNT: u32 = 2;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -2346,7 +2348,7 @@ impl Renderer {
                 POINT_LIGHT_SHADOW_MAP_RESOLUTION,
             ),
             Some("point_shadow_map_texture"),
-            2,
+            POINT_LIGHT_SHOW_MAP_COUNT,
         );
 
         let directional_shadow_map_textures = Texture::create_depth_texture_array(
@@ -2356,7 +2358,7 @@ impl Renderer {
                 DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION,
             ),
             Some("directional_shadow_map_texture"),
-            2,
+            DIRECTIONAL_LIGHT_SHOW_MAP_COUNT,
         );
 
         let environment_textures_bind_group = Self::get_environment_textures_bind_group(
@@ -3303,7 +3305,7 @@ impl Renderer {
         point_lights_frusta: &PointLightFrustaWithCullingInfo,
     ) -> u32 {
         assert!(1 + engine_state.scene.directional_lights.len() + engine_state.scene.point_lights.len() * 6 <= 32,
-            "u32 can only store a max of 5 point lights, might be worth using a larger, might be worth using a larger bitvec or a Vec<bool> or something"
+            "u32 can only store a max of 5 point lights, might be worth using a larger bitvec or a Vec<bool> or something"
         );
 
         if node.visual.is_none() {
@@ -4314,51 +4316,51 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         if data.enable_shadows {
-            engine_state
-                .scene
-                .directional_lights
-                .iter()
-                .enumerate()
-                .for_each(|(light_index, light)| {
-                    let _view_proj_matrices =
-                        build_directional_light_camera_view(-light.direction, 100.0, 100.0, 1000.0);
-                    let texture_view = private_data
-                        .directional_shadow_map_textures
-                        .texture
-                        .create_view(&wgpu::TextureViewDescriptor {
-                            dimension: Some(wgpu::TextureViewDimension::D2),
-                            base_array_layer: light_index.try_into().unwrap(),
-                            array_layer_count: Some(1),
-                            ..Default::default()
-                        });
-                    let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
-                        label: USE_LABELS.then_some("Directional light shadow map"),
-                        color_attachments: &[],
-                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                            view: &texture_view,
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(1.0),
-                                store: true,
-                            }),
-                            stencil_ops: None,
+            for (light_index, light) in engine_state.scene.directional_lights.iter().enumerate() {
+                if light_index >= DIRECTIONAL_LIGHT_SHOW_MAP_COUNT as usize {
+                    continue;
+                }
+                let _view_proj_matrices =
+                    build_directional_light_camera_view(-light.direction, 100.0, 100.0, 1000.0);
+                let texture_view = private_data
+                    .directional_shadow_map_textures
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor {
+                        dimension: Some(wgpu::TextureViewDimension::D2),
+                        base_array_layer: light_index.try_into().unwrap(),
+                        array_layer_count: Some(1),
+                        ..Default::default()
+                    });
+                let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
+                    label: USE_LABELS.then_some("Directional light shadow map"),
+                    color_attachments: &[],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &texture_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: true,
                         }),
-                    };
-                    Self::render_pbr_meshes(
-                        &self.base,
-                        data,
-                        private_data,
-                        profiler,
-                        &mut encoder,
-                        &shadow_render_pass_desc,
-                        &self.constant_data.directional_shadow_map_pipeline,
-                        &private_data.camera_lights_and_pbr_shader_options_bind_groups
-                            [1 + light_index],
-                        true,
-                        2u32.pow((1 + light_index).try_into().unwrap()),
-                        None,
-                    );
-                });
-            (0..engine_state.scene.point_lights.len()).for_each(|light_index| {
+                        stencil_ops: None,
+                    }),
+                };
+                Self::render_pbr_meshes(
+                    &self.base,
+                    data,
+                    private_data,
+                    profiler,
+                    &mut encoder,
+                    &shadow_render_pass_desc,
+                    &self.constant_data.directional_shadow_map_pipeline,
+                    &private_data.camera_lights_and_pbr_shader_options_bind_groups[1 + light_index],
+                    true,
+                    2u32.pow((1 + light_index).try_into().unwrap()),
+                    None,
+                );
+            }
+            for light_index in 0..engine_state.scene.point_lights.len() {
+                if light_index >= POINT_LIGHT_SHOW_MAP_COUNT as usize {
+                    continue;
+                }
                 if let Some(light_node) = engine_state
                     .scene
                     .get_node(engine_state.scene.point_lights[light_index].node_id)
@@ -4426,7 +4428,7 @@ impl Renderer {
                         );
                     });
                 }
-            });
+            }
         }
 
         let black = wgpu::Color {

@@ -382,10 +382,10 @@ pub async fn init_game_state(
 
     // add lights to the scene
     engine_state.scene.directional_lights = vec![
-        // DirectionalLightComponent {
+        // DirectionalLight {
         //     position: Vec3::new(1.0, 5.0, -10.0) * 10.0,
         //     direction: (-Vec3::new(1.0, 5.0, -10.0)).normalize(),
-        //     color: DIRECTIONAL_LIGHT_COLOR_A,
+        //     color: _DIRECTIONAL_LIGHT_COLOR_A,
         //     intensity: 1.0,
         // },
         DirectionalLight {
@@ -394,6 +394,12 @@ pub async fn init_game_state(
             color: DIRECTIONAL_LIGHT_COLOR_B,
             intensity: 0.2,
         },
+        // DirectionalLight {
+        //     position: Vec3::new(-1.0, 10.0, 10.0) * 10.0,
+        //     direction: (-Vec3::new(10.0, 10.0, 1.0)).normalize(),
+        //     color: DIRECTIONAL_LIGHT_COLOR_B,
+        //     intensity: 0.2,
+        // },
     ];
     // let directional_lights: Vec<DirectionalLightComponent> = vec![];
 
@@ -410,6 +416,14 @@ pub async fn init_game_state(
         //     TransformBuilder::new()
         //         .scale(Vec3::new(0.1, 0.1, 0.1))
         //         .position(Vec3::new(0.0, 15.0, 0.0))
+        //         .build(),
+        //     DIRECTIONAL_LIGHT_COLOR_B,
+        //     1.0,
+        // ),
+        // (
+        //     TransformBuilder::new()
+        //         .scale(Vec3::new(0.1, 0.1, 0.1))
+        //         .position(Vec3::new(0.0, 10.0, 0.0))
         //         .build(),
         //     DIRECTIONAL_LIGHT_COLOR_B,
         //     1.0,
