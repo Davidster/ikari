@@ -3,7 +3,6 @@ use crate::camera::*;
 use crate::collisions::*;
 use crate::engine_state::EngineState;
 use crate::file_manager::GameFilePath;
-use crate::light::*;
 use crate::math::*;
 use crate::mesh::*;
 use crate::sampler_cache::*;
@@ -118,9 +117,9 @@ struct PbrShaderOptionsUniform {
     options_4: [f32; 4],
 }
 
-impl From<&DirectionalLightComponent> for DirectionalLightUniform {
-    fn from(light: &DirectionalLightComponent) -> Self {
-        let DirectionalLightComponent {
+impl From<&DirectionalLight> for DirectionalLightUniform {
+    fn from(light: &DirectionalLight) -> Self {
+        let DirectionalLight {
             position,
             direction,
             color,
@@ -150,7 +149,7 @@ impl Default for DirectionalLightUniform {
 }
 
 fn make_directional_light_uniform_buffer(
-    lights: &[DirectionalLightComponent],
+    lights: &[DirectionalLight],
 ) -> Vec<DirectionalLightUniform> {
     let mut light_uniforms = Vec::new();
 
@@ -288,6 +287,21 @@ pub enum DefaultTextureType {
     Emissive,
     EmissiveGLTF,
     AmbientOcclusion,
+}
+
+#[derive(Clone, Debug)]
+pub struct PointLight {
+    pub node_id: GameNodeId,
+    pub color: Vec3,
+    pub intensity: f32,
+}
+
+#[derive(Clone, Debug)]
+pub struct DirectionalLight {
+    pub position: Vec3,
+    pub direction: Vec3,
+    pub color: Vec3,
+    pub intensity: f32,
 }
 
 pub struct BaseRenderer {
@@ -673,7 +687,6 @@ pub struct RendererConstantData {
     pub plane_mesh_index: usize,
 }
 
-// TODO: store the framebuffer texture format and size, then remove it from a bunch of the function arguments
 pub struct Renderer {
     pub base: WasmNotArc<BaseRenderer>,
     pub data: WasmNotArc<Mutex<RendererData>>,
@@ -2759,13 +2772,13 @@ impl Renderer {
     pub fn resize_surface(
         &mut self,
         surface_data: &mut SurfaceData,
-        unscaled_framebuffer_size: winit::dpi::PhysicalSize<u32>,
+        new_unscaled_framebuffer_size: winit::dpi::PhysicalSize<u32>,
     ) {
-        let unscaled_framebuffer_size = (
-            unscaled_framebuffer_size.width,
-            unscaled_framebuffer_size.height,
+        let new_unscaled_framebuffer_size = (
+            new_unscaled_framebuffer_size.width,
+            new_unscaled_framebuffer_size.height,
         );
-        let (new_width, new_height) = unscaled_framebuffer_size;
+        let (new_width, new_height) = new_unscaled_framebuffer_size;
 
         surface_data.surface_config.width = new_width;
         surface_data.surface_config.height = new_height;
@@ -2781,40 +2794,40 @@ impl Renderer {
         private_data_guard.pre_gamma_fb = private_data_guard.pre_gamma_fb.is_some().then(|| {
             Texture::create_scaled_surface_texture(
                 &self.base,
-                unscaled_framebuffer_size,
+                new_unscaled_framebuffer_size,
                 1.0,
                 "pre_gamma_fb",
             )
         });
         private_data_guard.shading_texture = Texture::create_scaled_surface_texture(
             &self.base,
-            unscaled_framebuffer_size,
+            new_unscaled_framebuffer_size,
             render_scale,
             "shading_texture",
         );
         private_data_guard.bloom_pingpong_textures = [
             Texture::create_scaled_surface_texture(
                 &self.base,
-                unscaled_framebuffer_size,
+                new_unscaled_framebuffer_size,
                 render_scale,
                 "bloom_texture_1",
             ),
             Texture::create_scaled_surface_texture(
                 &self.base,
-                unscaled_framebuffer_size,
+                new_unscaled_framebuffer_size,
                 render_scale,
                 "bloom_texture_2",
             ),
         ];
         private_data_guard.tone_mapping_texture = Texture::create_scaled_surface_texture(
             &self.base,
-            unscaled_framebuffer_size,
+            new_unscaled_framebuffer_size,
             render_scale,
             "tone_mapping_texture",
         );
         private_data_guard.depth_texture = Texture::create_depth_texture(
             &self.base,
-            unscaled_framebuffer_size,
+            new_unscaled_framebuffer_size,
             render_scale,
             "depth_texture",
         );
@@ -3188,11 +3201,10 @@ impl Renderer {
     pub fn set_culling_frustum_lock(
         &self,
         engine_state: &EngineState,
-        framebuffer_size: (u32, u32), // TODO: create an engine type (e.g. https://docs.rs/bevy/0.11.3/bevy/window/struct.WindowResolution.html) for window size
+        surface_config: &wgpu::SurfaceConfiguration,
         lock_mode: CullingFrustumLockMode,
     ) {
-        let (framebuffer_width, framebuffer_height) = framebuffer_size;
-        let aspect_ratio = framebuffer_width as f32 / framebuffer_height as f32;
+        let aspect_ratio = surface_config.width as f32 / surface_config.height as f32;
 
         let mut private_data_guard = self.private_data.lock().unwrap();
 
@@ -3246,14 +3258,7 @@ impl Renderer {
     where
         UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + 'static,
     {
-        self.update_internal(
-            engine_state,
-            surface_data.surface_config.format,
-            (
-                surface_data.surface_config.width,
-                surface_data.surface_config.height,
-            ),
-        );
+        self.update_internal(engine_state, &surface_data.surface_config);
         self.render_internal(
             engine_state,
             surface_data.surface.get_current_texture()?,
@@ -3498,8 +3503,7 @@ impl Renderer {
     fn update_internal(
         &mut self,
         engine_state: &mut EngineState,
-        framebuffer_format: wgpu::TextureFormat,
-        framebuffer_size: (u32, u32),
+        surface_config: &wgpu::SurfaceConfiguration,
     ) {
         let mut data_guard = self.data.lock().unwrap();
         let data: &mut RendererData = &mut data_guard;
@@ -3507,8 +3511,7 @@ impl Renderer {
         let mut private_data_guard = self.private_data.lock().unwrap();
         let private_data: &mut RendererPrivateData = &mut private_data_guard;
 
-        let (framebuffer_width, framebuffer_height) = framebuffer_size;
-        let aspect_ratio = framebuffer_width as f32 / framebuffer_height as f32;
+        let aspect_ratio = surface_config.width as f32 / surface_config.height as f32;
 
         let camera_transform = data
             .camera_node_id
@@ -4239,7 +4242,7 @@ impl Renderer {
             0,
             bytemuck::cast_slice(&[
                 data.tone_mapping_exposure,
-                if framebuffer_format.is_srgb() {
+                if surface_config.format.is_srgb() {
                     0f32
                 } else {
                     1f32

@@ -2,9 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
     audio::{AudioManager, AudioStreams},
-    light::DirectionalLightComponent,
-    light::PointLightComponent,
     physics::PhysicsState,
+    renderer::DirectionalLight,
+    renderer::PointLight,
     scene::Scene,
     time_tracker::TimeTracker,
 };
@@ -15,8 +15,8 @@ pub struct EngineState {
     pub physics_state: PhysicsState,
     pub audio_streams: AudioStreams,
     pub audio_manager: Arc<Mutex<AudioManager>>,
-    pub point_lights: Vec<PointLightComponent>,
-    pub directional_lights: Vec<DirectionalLightComponent>,
+    pub point_lights: Vec<PointLight>,
+    pub directional_lights: Vec<DirectionalLight>,
 }
 
 impl EngineState {

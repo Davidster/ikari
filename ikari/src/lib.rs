@@ -13,7 +13,6 @@ pub mod engine_state;
 pub mod file_manager;
 pub mod gameloop;
 pub mod gltf_loader;
-pub mod light;
 pub mod math;
 pub mod mesh;
 pub mod physics;

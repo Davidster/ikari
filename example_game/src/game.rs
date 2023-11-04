@@ -29,8 +29,6 @@ use ikari::audio::SoundParams;
 use ikari::engine_state::EngineState;
 use ikari::file_manager::{FileManager, GamePathMaker};
 use ikari::gameloop::GameContext;
-use ikari::light::DirectionalLightComponent;
-use ikari::light::PointLightComponent;
 use ikari::math::deg_to_rad;
 use ikari::mesh::BasicMesh;
 use ikari::mesh::DynamicPbrParams;
@@ -40,6 +38,8 @@ use ikari::physics::rapier3d_f64::prelude::*;
 use ikari::physics::PhysicsState;
 use ikari::player_controller::ControlledViewDirection;
 use ikari::player_controller::PlayerController;
+use ikari::renderer::DirectionalLight;
+use ikari::renderer::PointLight;
 use ikari::renderer::RendererData;
 use ikari::renderer::SkyboxPaths;
 use ikari::renderer::SkyboxSlot;
@@ -388,7 +388,7 @@ pub async fn init_game_state(
         //     color: DIRECTIONAL_LIGHT_COLOR_A,
         //     intensity: 1.0,
         // },
-        DirectionalLightComponent {
+        DirectionalLight {
             position: Vec3::new(-1.0, 10.0, 10.0) * 10.0,
             direction: (-Vec3::new(-1.0, 10.0, 10.0)).normalize(),
             color: DIRECTIONAL_LIGHT_COLOR_B,
@@ -458,7 +458,7 @@ pub async fn init_game_state(
             )
             .id();
         point_light_node_ids.push(node_id);
-        engine_state.point_lights.push(PointLightComponent {
+        engine_state.point_lights.push(PointLight {
             node_id,
             color: POINT_LIGHT_COLOR,
             intensity,
@@ -1731,7 +1731,7 @@ pub fn update_game_state(
             // ));
             // let color = lerp_vec(LIGHT_COLOR_B, LIGHT_COLOR_A, (time_seconds * 2.0).sin());
 
-            DirectionalLightComponent {
+            DirectionalLight {
                 direction: Vec3::new(direction.x, direction.y + 0.00001, direction.z),
                 ..*directional_light_0
             }
@@ -2025,10 +2025,7 @@ pub fn update_game_state(
 
         renderer.set_culling_frustum_lock(
             engine_state,
-            (
-                surface_data.surface_config.width,
-                surface_data.surface_config.height,
-            ),
+            &surface_data.surface_config,
             ui_state.culling_frustum_lock_mode,
         );
     }
