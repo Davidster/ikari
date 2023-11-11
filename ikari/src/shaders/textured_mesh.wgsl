@@ -23,7 +23,6 @@ struct PointLight {
 }
 struct DirectionalLight {
     world_space_to_light_space: mat4x4<f32>,
-    position: vec4<f32>,
     direction: vec4<f32>,
     color: vec4<f32>,
 }
@@ -910,7 +909,7 @@ fn do_fragment_shade(
             light_space_position.x * 0.5 + 0.5,
             1.0 - (light_space_position.y * 0.5 + 0.5),
         );
-        let to_light_vec = light.position.xyz - world_position;
+        let to_light_vec = -light.direction.xyz;
         let to_light_vec_norm = normalize(to_light_vec);
 
         var shadow_occlusion_acc = 0.0;

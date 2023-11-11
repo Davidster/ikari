@@ -38,7 +38,7 @@ pub struct ShaderCameraData {
 }
 
 impl ShaderCameraData {
-    pub fn from_mat4(
+    pub fn perspective(
         transform: Mat4,
         aspect_ratio: f32,
         near_plane_distance: f32,
@@ -65,14 +65,34 @@ impl ShaderCameraData {
             near_plane_distance,
             far_plane_distance,
         }
-        // orthographic instead of perspective:
-        // build_directional_light_camera_view(
-        //     Vec3::new(-0.5, -0.5, 0.1).normalize(),
-        //     100.0,
-        //     100.0,
-        //     100.0,
-        // )
-        // .into()
+    }
+
+    pub fn orthographic(
+        transform: Mat4,
+        width: f32,
+        height: f32,
+        near_plane_distance: f32,
+        far_plane_distance: f32,
+    ) -> Self {
+        let proj = make_orthographic_proj_matrix(
+            width,
+            height,
+            near_plane_distance,
+            far_plane_distance,
+            false,
+        );
+        let rotation_only_matrix = clear_translation_from_matrix(transform);
+        let rotation_only_view = rotation_only_matrix.inverse();
+        let view = transform.inverse();
+        let position = get_translation_from_matrix(transform);
+        Self {
+            proj,
+            view,
+            rotation_only_view,
+            position,
+            near_plane_distance,
+            far_plane_distance,
+        }
     }
 }
 
@@ -155,7 +175,7 @@ pub fn build_cubemap_face_camera_views(
 ) -> Vec<ShaderCameraData> {
     build_cubemap_face_camera_view_directions()
         .map(|view_direction| {
-            ShaderCameraData::from_mat4(
+            ShaderCameraData::perspective(
                 Camera {
                     horizontal_rotation: view_direction.horizontal,
                     vertical_rotation: view_direction.vertical,
@@ -191,23 +211,4 @@ pub fn build_cubemap_face_frusta(
             }
         })
         .collect()
-}
-
-pub fn build_directional_light_camera_view(
-    direction: Vec3,
-    width: f32,
-    height: f32,
-    depth: f32,
-) -> ShaderCameraData {
-    let proj = make_orthographic_proj_matrix(width, height, -depth / 2.0, depth / 2.0, false);
-    let rotation_only_view = direction_vector_to_coordinate_frame_matrix(direction).inverse();
-    let view = rotation_only_view;
-    ShaderCameraData {
-        proj,
-        view,
-        rotation_only_view,
-        position: Vec3::new(0.0, 0.0, 0.0),
-        near_plane_distance: -depth / 2.0,
-        far_plane_distance: depth / 2.0,
-    }
 }

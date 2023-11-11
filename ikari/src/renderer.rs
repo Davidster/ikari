@@ -42,6 +42,8 @@ pub const POINT_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 1024;
 pub const DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 2048;
 pub const POINT_LIGHT_SHOW_MAP_COUNT: u32 = 2;
 pub const DIRECTIONAL_LIGHT_SHOW_MAP_COUNT: u32 = 2;
+pub const DIRECTIONAL_LIGHT_PROJ_BOX_RADIUS: f32 = 50.0;
+pub const DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH: f32 = 1000.0;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -106,7 +108,6 @@ fn make_point_light_uniform_buffer(engine_state: &EngineState) -> Vec<PointLight
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct DirectionalLightUniform {
     world_space_to_light_space: [[f32; 4]; 4],
-    position: [f32; 4],
     direction: [f32; 4],
     color: [f32; 4],
 }
@@ -123,17 +124,20 @@ struct PbrShaderOptionsUniform {
 impl From<&DirectionalLight> for DirectionalLightUniform {
     fn from(light: &DirectionalLight) -> Self {
         let DirectionalLight {
-            position,
             direction,
             color,
             intensity,
         } = light;
-        let view_proj_matrices =
-            build_directional_light_camera_view(-light.direction, 100.0, 100.0, 1000.0);
+        let shader_camera_data = ShaderCameraData::orthographic(
+            look_in_dir(Vec3::new(0.0, 0.0, 0.0), light.direction),
+            DIRECTIONAL_LIGHT_PROJ_BOX_RADIUS * 2.0,
+            DIRECTIONAL_LIGHT_PROJ_BOX_RADIUS * 2.0,
+            -DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
+            DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
+        );
         Self {
-            world_space_to_light_space: (view_proj_matrices.proj * view_proj_matrices.view)
+            world_space_to_light_space: (shader_camera_data.proj * shader_camera_data.view)
                 .to_cols_array_2d(),
-            position: [position.x, position.y, position.z, 1.0],
             direction: [direction.x, direction.y, direction.z, 1.0],
             color: [color.x, color.y, color.z, *intensity],
         }
@@ -144,7 +148,6 @@ impl Default for DirectionalLightUniform {
     fn default() -> Self {
         Self {
             world_space_to_light_space: Mat4::IDENTITY.to_cols_array_2d(),
-            position: [0.0, 0.0, 0.0, 1.0],
             direction: [0.0, -1.0, 0.0, 1.0],
             color: [0.0, 0.0, 0.0, 0.0],
         }
@@ -388,7 +391,6 @@ pub struct PointLight {
 
 #[derive(Clone, Debug)]
 pub struct DirectionalLight {
-    pub position: Vec3,
     pub direction: Vec3,
     pub color: Vec3,
     pub intensity: f32,
@@ -735,6 +737,7 @@ pub struct RendererData {
     pub draw_node_bounding_spheres: bool,
     pub draw_culling_frustum: bool,
     pub draw_point_light_culling_frusta: bool,
+    pub draw_directional_light_culling_frusta: bool,
     pub enable_soft_shadows: bool,
     pub shadow_bias: f32,
     pub soft_shadow_factor: f32,
@@ -2474,6 +2477,7 @@ impl Renderer {
             draw_node_bounding_spheres: false,
             draw_culling_frustum: false,
             draw_point_light_culling_frusta: false,
+            draw_directional_light_culling_frusta: false,
             enable_soft_shadows,
             shadow_bias,
             soft_shadow_factor,
@@ -3283,6 +3287,16 @@ impl Renderer {
                 private_data
                     .debug_culling_frustum_nodes
                     .push(scene.add_node(new_node_desc).id());
+            }
+        }
+
+        if data.draw_directional_light_culling_frusta {
+            // let mut new_node_descs = vec![];
+            for directional_light in &scene.directional_lights {
+                // -directional_light.direction,
+                // DIRECTIONAL_LIGHT_PROJ_BOX_RADIUS * 2.0,
+                // DIRECTIONAL_LIGHT_PROJ_BOX_RADIUS * 2.0,
+                // DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH,
             }
         }
     }
@@ -4183,7 +4197,7 @@ impl Renderer {
         // collect all camera data
 
         // main camera
-        all_camera_data.push(ShaderCameraData::from_mat4(
+        all_camera_data.push(ShaderCameraData::perspective(
             camera_transform.into(),
             aspect_ratio,
             NEAR_PLANE_DISTANCE,
@@ -4194,11 +4208,12 @@ impl Renderer {
 
         // directional lights
         for directional_light in &engine_state.scene.directional_lights {
-            all_camera_data.push(build_directional_light_camera_view(
-                -directional_light.direction,
-                100.0,
-                100.0,
-                1000.0,
+            all_camera_data.push(ShaderCameraData::orthographic(
+                look_in_dir(Vec3::new(0.0, 0.0, 0.0), directional_light.direction),
+                DIRECTIONAL_LIGHT_PROJ_BOX_RADIUS * 2.0,
+                DIRECTIONAL_LIGHT_PROJ_BOX_RADIUS * 2.0,
+                -DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
+                DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
             ));
         }
 
@@ -4407,8 +4422,6 @@ impl Renderer {
                 if light_index >= DIRECTIONAL_LIGHT_SHOW_MAP_COUNT as usize {
                     continue;
                 }
-                let _view_proj_matrices =
-                    build_directional_light_camera_view(-light.direction, 100.0, 100.0, 1000.0);
                 let texture_view = private_data
                     .directional_shadow_map_textures
                     .texture

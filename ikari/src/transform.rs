@@ -287,7 +287,7 @@ pub fn make_orthographic_proj_matrix(
     let orth_matrix =  Mat4::from_cols_array(&[
         2.0/(r-l), 0.0,       0.0,       -(r+l)/(r-l),
         0.0,       2.0/(t-b), 0.0,       -(t+b)/(t-b),
-        0.0,       0.0,       1.0/(n-f), n/(n-f),
+        0.0,       0.0,       1.0/(f-n), -n/(f-n),
         0.0,       0.0,       0.0,       1.0,
     ]).transpose();
     if !reverse_z {
@@ -304,12 +304,8 @@ pub fn make_orthographic_proj_matrix(
     }
 }
 
-pub fn direction_vector_to_coordinate_frame_matrix(dir: Vec3) -> Mat4 {
-    look_at_dir(Vec3::new(0.0, 0.0, 0.0), dir)
-}
-
 pub fn _look_at(eye_pos: Vec3, dst_pos: Vec3) -> Mat4 {
-    look_at_dir(eye_pos, (dst_pos - eye_pos).normalize())
+    look_in_dir(eye_pos, dst_pos - eye_pos)
 }
 
 /// this gives a coordinate frame for an object that points in direction dir.
@@ -318,7 +314,7 @@ pub fn _look_at(eye_pos: Vec3, dst_pos: Vec3) -> Mat4 {
 /// into the camera's view space), take the inverse of this matrix
 /// warning: fails if pointing directly upward or downward
 /// a.k.a. if dir.normalize() is approximately (0, 1, 0) or (0, -1, 0)
-pub fn look_at_dir(eye_pos: Vec3, dir: Vec3) -> Mat4 {
+pub fn look_in_dir(eye_pos: Vec3, dir: Vec3) -> Mat4 {
     let world_up = Vec3::new(0.0, 1.0, 0.0);
     let forward = dir.normalize();
     let left = world_up.cross(forward).normalize();
