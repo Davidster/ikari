@@ -4437,7 +4437,7 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         if data.enable_shadows {
-            for (light_index, light) in engine_state.scene.directional_lights.iter().enumerate() {
+            for (light_index, _light) in engine_state.scene.directional_lights.iter().enumerate() {
                 if light_index >= DIRECTIONAL_LIGHT_SHOW_MAP_COUNT as usize {
                     continue;
                 }
