@@ -73,13 +73,14 @@ impl ShaderCameraData {
         height: f32,
         near_plane_distance: f32,
         far_plane_distance: f32,
+        reverse_z: bool,
     ) -> Self {
         let proj = make_orthographic_proj_matrix(
             width,
             height,
             near_plane_distance,
             far_plane_distance,
-            false,
+            reverse_z,
         );
         let rotation_only_matrix = clear_translation_from_matrix(transform);
         let rotation_only_view = rotation_only_matrix.inverse();

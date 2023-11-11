@@ -29,6 +29,7 @@ use wgpu_profiler::wgpu_profiler;
 use wgpu_profiler::GpuProfiler;
 
 pub(crate) const USE_LABELS: bool = true;
+pub(crate) const USE_ORTHOGRAPHIC_CAMERA: bool = false;
 pub(crate) const USE_EXTRA_SHADOW_MAP_CULLING: bool = true;
 
 pub const MAX_LIGHT_COUNT: usize = 32;
@@ -134,6 +135,7 @@ impl From<&DirectionalLight> for DirectionalLightUniform {
             DIRECTIONAL_LIGHT_PROJ_BOX_RADIUS * 2.0,
             -DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
             DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
+            false,
         );
         Self {
             world_space_to_light_space: (shader_camera_data.proj * shader_camera_data.view)
@@ -3405,6 +3407,10 @@ impl Renderer {
         camera_culling_frustum: &Frustum,
         point_lights_frusta: &PointLightFrustaWithCullingInfo,
     ) -> u32 {
+        if USE_ORTHOGRAPHIC_CAMERA {
+            return u32::MAX;
+        }
+
         assert!(1 + engine_state.scene.directional_lights.len() + engine_state.scene.point_lights.len() * 6 <= 32,
             "u32 can only store a max of 5 point lights, might be worth using a larger bitvec or a Vec<bool> or something"
         );
@@ -4197,14 +4203,26 @@ impl Renderer {
         // collect all camera data
 
         // main camera
-        all_camera_data.push(ShaderCameraData::perspective(
-            camera_transform.into(),
-            aspect_ratio,
-            NEAR_PLANE_DISTANCE,
-            FAR_PLANE_DISTANCE,
-            deg_to_rad(FOV_Y_DEG),
-            true,
-        ));
+        let main_camera_shader_data = if USE_ORTHOGRAPHIC_CAMERA {
+            ShaderCameraData::orthographic(
+                camera_transform.into(),
+                20.0 * aspect_ratio,
+                20.0,
+                -1000.0,
+                1000.0,
+                false,
+            )
+        } else {
+            ShaderCameraData::perspective(
+                camera_transform.into(),
+                aspect_ratio,
+                NEAR_PLANE_DISTANCE,
+                FAR_PLANE_DISTANCE,
+                deg_to_rad(FOV_Y_DEG),
+                true,
+            )
+        };
+        all_camera_data.push(main_camera_shader_data);
 
         // directional lights
         for directional_light in &engine_state.scene.directional_lights {
@@ -4214,6 +4232,7 @@ impl Renderer {
                 DIRECTIONAL_LIGHT_PROJ_BOX_RADIUS * 2.0,
                 -DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
                 DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
+                false,
             ));
         }
 
