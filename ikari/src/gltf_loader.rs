@@ -267,13 +267,7 @@ pub async fn build_scene(
                                     })
                             })
                             .map(|vertex| {
-                                let position = Vec4::new(
-                                    vertex.position[0],
-                                    vertex.position[1],
-                                    vertex.position[2],
-                                    1.0,
-                                );
-                                bone_inv_bind_matrix * position
+                                bone_inv_bind_matrix.transform_point3(Vec3::from(vertex.position))
                             })
                             .collect();
                         if vertex_positions_for_node.is_empty() {
@@ -281,19 +275,11 @@ pub async fn build_scene(
                                 .scale(Vec3::new(0.0, 0.0, 0.0))
                                 .build();
                         }
-                        let mut min_point = Vec3::new(
-                            vertex_positions_for_node[0].x,
-                            vertex_positions_for_node[0].y,
-                            vertex_positions_for_node[0].z,
-                        );
+                        let mut min_point = vertex_positions_for_node[0];
                         let mut max_point = min_point;
                         for pos in vertex_positions_for_node {
-                            min_point.x = min_point.x.min(pos.x);
-                            min_point.y = min_point.y.min(pos.y);
-                            min_point.z = min_point.z.min(pos.z);
-                            max_point.x = max_point.x.max(pos.x);
-                            max_point.y = max_point.y.max(pos.y);
-                            max_point.z = max_point.z.max(pos.z);
+                            min_point = min_point.min(pos);
+                            max_point = max_point.max(pos);
                         }
                         TransformBuilder::new()
                             .scale((max_point - min_point) / 2.0)

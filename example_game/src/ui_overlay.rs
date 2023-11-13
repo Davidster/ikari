@@ -21,6 +21,7 @@ use ikari::profile_dump::generate_profile_dump;
 use ikari::profile_dump::PendingPerfDump;
 use ikari::renderer::CullingFrustumLockMode;
 use ikari::renderer::GpuTimerScopeResultWrapper;
+use ikari::renderer::MIN_SHADOW_MAP_BIAS;
 use ikari::time::Instant;
 use plotters::prelude::*;
 use plotters::style::RED;
@@ -29,6 +30,7 @@ use plotters_iced::{Chart, ChartWidget, DrawingBackend};
 use ikari::time::Duration;
 
 use crate::game::INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG;
+use crate::game::INITIAL_ENABLE_DIRECTIONAL_LIGHT_CULLING_FRUSTUM_DEBUG;
 use crate::game::INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG;
 use crate::game::INITIAL_ENABLE_SHADOW_DEBUG;
 use crate::game::INITIAL_ENABLE_SOFT_SHADOWS;
@@ -72,6 +74,7 @@ pub enum Message {
     ToggleSoftShadows(bool),
     ToggleDrawCullingFrustum(bool),
     ToggleDrawPointLightCullingFrusta(bool),
+    ToggleDrawDirectionalLightCullingFrusta(bool),
     ToggleShadowDebug(bool),
     ToggleAudioStats(bool),
     ShadowBiasChanged(f32),
@@ -108,6 +111,7 @@ pub struct UiOverlay {
     pub enable_shadow_debug: bool,
     pub draw_culling_frustum: bool,
     pub draw_point_light_culling_frusta: bool,
+    pub draw_directional_light_culling_frusta: bool,
     pub culling_frustum_lock_mode: CullingFrustumLockMode,
     pub soft_shadow_grid_dims: u32,
     pub is_showing_camera_pose: bool,
@@ -265,8 +269,8 @@ impl UiOverlay {
             camera_pose: None,
             is_showing_camera_pose: INITIAL_IS_SHOWING_CAMERA_POSE,
             is_showing_cursor_marker: INITIAL_IS_SHOWING_CURSOR_MARKER,
-            is_showing_fps_chart: true,
-            is_showing_gpu_spans: false,
+            is_showing_fps_chart: false,
+            is_showing_gpu_spans: true,
             is_showing_options_menu: false,
             was_exit_button_pressed: false,
             is_showing_audio_stats: false,
@@ -278,6 +282,8 @@ impl UiOverlay {
             enable_shadow_debug: INITIAL_ENABLE_SHADOW_DEBUG,
             draw_culling_frustum: INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG,
             draw_point_light_culling_frusta: INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG,
+            draw_directional_light_culling_frusta:
+                INITIAL_ENABLE_DIRECTIONAL_LIGHT_CULLING_FRUSTUM_DEBUG,
             culling_frustum_lock_mode: CullingFrustumLockMode::None,
             soft_shadow_grid_dims: INITIAL_SOFT_SHADOW_GRID_DIMS,
             pending_perf_dump: None,
@@ -416,6 +422,9 @@ impl runtime::Program for UiOverlay {
             }
             Message::ToggleDrawPointLightCullingFrusta(new_state) => {
                 self.draw_point_light_culling_frusta = new_state;
+            }
+            Message::ToggleDrawDirectionalLightCullingFrusta(new_state) => {
+                self.draw_directional_light_culling_frusta = new_state;
             }
             Message::ToggleShadowDebug(new_state) => {
                 self.enable_soft_shadows = new_state;
@@ -685,6 +694,12 @@ impl runtime::Program for UiOverlay {
                 Message::ToggleDrawPointLightCullingFrusta,
             ));
 
+            // directional light frusta debug
+            options = options.push(checkbox(
+                "Enable Directional Light Frustum Culling Debug",
+                self.draw_directional_light_culling_frusta,
+                Message::ToggleDrawDirectionalLightCullingFrusta,
+            ));
             // shadow debug
             options = options.push(separator_line.clone());
             options = options.push(checkbox(
@@ -707,7 +722,7 @@ impl runtime::Program for UiOverlay {
             options = options.push(Text::new(format!("Shadow Bias: {:.5}", self.shadow_bias)));
             options = options.push(
                 slider(
-                    0.00001..=0.005,
+                    MIN_SHADOW_MAP_BIAS..=0.005,
                     self.shadow_bias,
                     Message::ShadowBiasChanged,
                 )

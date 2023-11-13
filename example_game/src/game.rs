@@ -72,7 +72,8 @@ pub const INITIAL_IS_SHOWING_CURSOR_MARKER: bool = false;
 pub const INITIAL_ENABLE_SHADOW_DEBUG: bool = false;
 pub const INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG: bool = false;
 pub const INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG: bool = false;
-pub const INITIAL_ENABLE_SOFT_SHADOWS: bool = true;
+pub const INITIAL_ENABLE_DIRECTIONAL_LIGHT_CULLING_FRUSTUM_DEBUG: bool = false;
+pub const INITIAL_ENABLE_SOFT_SHADOWS: bool = false;
 pub const INITIAL_SHADOW_BIAS: f32 = 0.0005;
 pub const INITIAL_SKYBOX_WEIGHT: f32 = 1.0;
 pub const INITIAL_SOFT_SHADOW_FACTOR: f32 = 0.0015;
@@ -336,7 +337,7 @@ pub async fn init_game_state(
                 );
             }
 
-            let mut audio_load_params = Vec::new();
+            let mut audio_load_params: Vec<AudioAssetLoadParams> = Vec::new();
 
             audio_load_params.push(AudioAssetLoadParams {
                 path: GAME_PATH_MAKER.make("src/sounds/bgm.mp3"),
@@ -1527,8 +1528,9 @@ pub fn update_game_state(
                     {
                         // mesh.wireframe = true;
                     }
-                    // let transform = &mut engine_state.scene.get_node_mut(node_id).unwrap().transform;
-                    // transform.set_position(transform.position() + Vec3::new(0.0, 25.0, 0.0));
+                    let transform =
+                        &mut engine_state.scene.get_node_mut(node_id).unwrap().transform;
+                    transform.set_position(transform.position() + Vec3::new(0.0, 25.0, 0.0));
                     add_static_box(
                         &mut engine_state.physics_state,
                         &engine_state.scene,
@@ -1755,7 +1757,7 @@ pub fn update_game_state(
                 }
             });
     if let Some(directional_light_0) = directional_light_0 {
-        engine_state.scene.directional_lights[0] = directional_light_0;
+        // engine_state.scene.directional_lights[0] = directional_light_0;
     }
 
     // rotate the test object
@@ -2036,6 +2038,8 @@ pub fn update_game_state(
         renderer_data_guard.draw_culling_frustum = ui_state.draw_culling_frustum;
         renderer_data_guard.draw_point_light_culling_frusta =
             ui_state.draw_point_light_culling_frusta;
+        renderer_data_guard.draw_directional_light_culling_frusta =
+            ui_state.draw_directional_light_culling_frusta;
         renderer.set_skybox_weights([1.0 - ui_state.skybox_weight, ui_state.skybox_weight]);
         renderer.set_vsync(ui_state.enable_vsync, surface_data);
 

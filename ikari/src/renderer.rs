@@ -31,6 +31,7 @@ use wgpu_profiler::GpuProfiler;
 pub(crate) const USE_LABELS: bool = true;
 pub(crate) const USE_ORTHOGRAPHIC_CAMERA: bool = false;
 pub(crate) const USE_EXTRA_SHADOW_MAP_CULLING: bool = true;
+pub(crate) const DRAW_FRUSTUM_BOUNDING_SPHERE_FOR_SHADOW_MAPS: bool = false;
 
 pub const MAX_LIGHT_COUNT: usize = 32;
 pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
@@ -43,8 +44,8 @@ pub const POINT_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 1024;
 pub const DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 2048;
 pub const POINT_LIGHT_SHOW_MAP_COUNT: u32 = 2;
 pub const DIRECTIONAL_LIGHT_SHOW_MAP_COUNT: u32 = 2;
-pub const DIRECTIONAL_LIGHT_PROJ_BOX_RADIUS: f32 = 50.0;
-pub const DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH: f32 = 1000.0;
+pub const DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH: f32 = 250.0;
+pub const MIN_SHADOW_MAP_BIAS: f32 = 0.00005;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -122,17 +123,17 @@ struct PbrShaderOptionsUniform {
     options_4: [f32; 4],
 }
 
-impl From<&DirectionalLight> for DirectionalLightUniform {
-    fn from(light: &DirectionalLight) -> Self {
+impl DirectionalLightUniform {
+    pub fn new(light: &DirectionalLight, adjusted_light_box: Sphere) -> Self {
         let DirectionalLight {
             direction,
             color,
             intensity,
         } = light;
         let shader_camera_data = ShaderCameraData::orthographic(
-            look_in_dir(Vec3::new(0.0, 0.0, 0.0), light.direction),
-            DIRECTIONAL_LIGHT_PROJ_BOX_RADIUS * 2.0,
-            DIRECTIONAL_LIGHT_PROJ_BOX_RADIUS * 2.0,
+            look_in_dir(adjusted_light_box.center, light.direction),
+            adjusted_light_box.radius * 2.0,
+            adjusted_light_box.radius * 2.0,
             -DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
             DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
             false,
@@ -145,7 +146,6 @@ impl From<&DirectionalLight> for DirectionalLightUniform {
         }
     }
 }
-
 impl Default for DirectionalLightUniform {
     fn default() -> Self {
         Self {
@@ -158,13 +158,17 @@ impl Default for DirectionalLightUniform {
 
 fn make_directional_light_uniform_buffer(
     lights: &[DirectionalLight],
+    adjusted_light_boxes: &[Sphere],
 ) -> Vec<DirectionalLightUniform> {
     let mut light_uniforms = Vec::new();
 
     let active_light_count = lights.len();
     let mut active_lights = lights
         .iter()
-        .map(DirectionalLightUniform::from)
+        .enumerate()
+        .map(|(light_index, light)| {
+            DirectionalLightUniform::new(light, adjusted_light_boxes[light_index])
+        })
         .collect::<Vec<_>>();
     light_uniforms.append(&mut active_lights);
 
@@ -1798,6 +1802,7 @@ impl Renderer {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
+                // back face culling can be more performant here but it increases peter panning
                 cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
@@ -1834,6 +1839,7 @@ impl Renderer {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
+                // back face culling can be more performant here but it increases peter panning
                 cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
@@ -3093,6 +3099,7 @@ impl Renderer {
         engine_state: &mut EngineState,
         main_culling_frustum: &Frustum,
         main_culling_frustum_desc: &CameraFrustumDescriptor,
+        adjusted_directional_light_boxes: &Vec<Sphere>,
     ) {
         let scene = &mut engine_state.scene;
 
@@ -3293,12 +3300,76 @@ impl Renderer {
         }
 
         if data.draw_directional_light_culling_frusta {
-            // let mut new_node_descs = vec![];
-            for directional_light in &scene.directional_lights {
-                // -directional_light.direction,
-                // DIRECTIONAL_LIGHT_PROJ_BOX_RADIUS * 2.0,
-                // DIRECTIONAL_LIGHT_PROJ_BOX_RADIUS * 2.0,
-                // DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH,
+            let mut new_node_descs = vec![];
+            for (light_index, directional_light) in scene.directional_lights.iter().enumerate() {
+                let adjusted_light_box = adjusted_directional_light_boxes[light_index];
+                let mut transform = Transform::from(
+                    look_in_dir(adjusted_light_box.center, directional_light.direction)
+                        .to_cols_array_2d(),
+                );
+                transform.set_scale(Vec3::new(
+                    adjusted_light_box.radius,
+                    adjusted_light_box.radius,
+                    DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH,
+                ));
+
+                let culling_box_mesh = GameNodeVisual {
+                    material: Material::Transparent {
+                        color: Vec4::new(1.0, 0.0, 0.0, 0.1),
+                        premultiplied_alpha: false,
+                    },
+                    mesh_index: self.constant_data.cube_mesh_index,
+                    wireframe: false,
+                    cullable: false,
+                };
+
+                let culling_box_mesh_wf = GameNodeVisual {
+                    wireframe: true,
+                    ..culling_box_mesh.clone()
+                };
+
+                new_node_descs.push(
+                    GameNodeDescBuilder::new()
+                        .transform(transform)
+                        .visual(Some(culling_box_mesh))
+                        .build(),
+                );
+                new_node_descs.push(
+                    GameNodeDescBuilder::new()
+                        .transform(transform)
+                        .visual(Some(culling_box_mesh_wf))
+                        .build(),
+                );
+
+                if DRAW_FRUSTUM_BOUNDING_SPHERE_FOR_SHADOW_MAPS {
+                    let frustum_bounding_sphere_mesh = GameNodeVisual {
+                        material: Material::Transparent {
+                            color: Vec4::new(0.0, 0.0, 1.0, 0.1),
+                            premultiplied_alpha: false,
+                        },
+                        mesh_index: self.constant_data.sphere_mesh_index,
+                        wireframe: false,
+                        cullable: false,
+                    };
+
+                    new_node_descs.push(
+                        GameNodeDescBuilder::new()
+                            .transform(
+                                TransformBuilder::new()
+                                    .position(adjusted_light_box.center)
+                                    .scale(Vec3::splat(adjusted_light_box.radius))
+                                    .build(),
+                            )
+                            .visual(Some(frustum_bounding_sphere_mesh))
+                            .build(),
+                    );
+                }
+            }
+
+            for new_node_desc in new_node_descs {
+                private_data
+                    .debug_culling_frustum_nodes
+                    .push(scene.add_node(new_node_desc).id());
             }
         }
     }
@@ -3650,12 +3721,57 @@ impl Renderer {
 
         let culling_frustum = Frustum::from(culling_frustum_desc);
 
+        let mut adjusted_directional_light_boxes = vec![];
+        for directional_light in &engine_state.scene.directional_lights {
+            let from_light_space =
+                look_in_dir(Vec3::new(0.0, 0.0, 0.0), directional_light.direction);
+            let to_light_space = from_light_space.inverse();
+
+            let light_space_culling_frustum_desc = CameraFrustumDescriptor {
+                focal_point: to_light_space.transform_point3(culling_frustum_desc.focal_point),
+                forward_vector: to_light_space
+                    .transform_vector3(culling_frustum_desc.forward_vector),
+                near_plane_distance: 0.5,
+                far_plane_distance: 60.0,
+                ..culling_frustum_desc
+            };
+
+            // we use a bounding sphere to make sure the shadow map camera frustum's thickness remains consistent regardless
+            // of the rotation of the main camera's view frustum.
+            //
+            // we round the position to the nearest pixel_size to make sure the shadow map camera frustum
+            // moves in pixel-sized increments.
+            // combined with the above bounding sphere logic, this ensures that the shadow map is always sampled at the same
+            // location regardless of the camera transform. Otherwise, there would be visible shimmering/aliasing as the user
+            // moved the camera around that is quite distracting.
+            //
+            // See https://www.gamedev.net/forums/topic/591684-xna-40---shimmering-shadow-maps/
+            //     https://www.youtube.com/watch?v=u0pk1LyLKYQ
+            let bounding_sphere =
+                light_space_culling_frustum_desc.make_rotation_independent_bounding_sphere();
+
+            let pixel_size =
+                2.0 * bounding_sphere.radius / DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION as f32;
+
+            let rounded_bounding_sphere_center = Vec3::new(
+                bounding_sphere.center.x - bounding_sphere.center.x % pixel_size,
+                bounding_sphere.center.y - bounding_sphere.center.y % pixel_size,
+                bounding_sphere.center.z - bounding_sphere.center.z % pixel_size,
+            );
+
+            adjusted_directional_light_boxes.push(Sphere {
+                center: from_light_space.transform_point3(rounded_bounding_sphere_center),
+                radius: bounding_sphere.radius,
+            });
+        }
+
         self.add_debug_nodes(
             data,
             private_data,
             engine_state,
             &culling_frustum,
             &culling_frustum_desc,
+            &adjusted_directional_light_boxes,
         );
 
         // TODO: compute node bounding spheres here too?
@@ -4225,11 +4341,12 @@ impl Renderer {
         all_camera_data.push(main_camera_shader_data);
 
         // directional lights
-        for directional_light in &engine_state.scene.directional_lights {
+        for (light_index, light) in engine_state.scene.directional_lights.iter().enumerate() {
+            let adjusted_light_box = adjusted_directional_light_boxes[light_index];
             all_camera_data.push(ShaderCameraData::orthographic(
-                look_in_dir(Vec3::new(0.0, 0.0, 0.0), directional_light.direction),
-                DIRECTIONAL_LIGHT_PROJ_BOX_RADIUS * 2.0,
-                DIRECTIONAL_LIGHT_PROJ_BOX_RADIUS * 2.0,
+                look_in_dir(adjusted_light_box.center, light.direction),
+                adjusted_light_box.radius * 2.0,
+                adjusted_light_box.radius * 2.0,
                 -DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
                 DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
                 false,
@@ -4359,6 +4476,7 @@ impl Renderer {
             0,
             bytemuck::cast_slice(&make_directional_light_uniform_buffer(
                 &engine_state.scene.directional_lights,
+                &adjusted_directional_light_boxes,
             )),
         );
         queue.write_buffer(

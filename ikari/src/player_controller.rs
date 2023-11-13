@@ -124,6 +124,7 @@ impl PlayerController {
             self.is_right_pressed = false;
             self.is_jump_pressed = false;
             self.is_down_pressed = false;
+            self.is_up_pressed = false;
             self.mouse_button_pressed = false;
         }
     }
@@ -321,7 +322,7 @@ impl PlayerController {
             vector![
                 new_linear_velocity.x as f64,
                 if self.is_up_pressed {
-                    5.0
+                    self.speed as f64
                 } else {
                     // preserve effect of gravity
                     current_linear_velocity.y

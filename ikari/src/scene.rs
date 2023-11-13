@@ -568,14 +568,7 @@ fn build_mesh_bounding_sphere(
 
     let bounding_box = renderer_data.binded_meshes[mesh_index].bounding_box;
 
-    let global_mat4 = Mat4::from(*global_transform);
-
-    let transform_point = |point: Vec3| {
-        let transformed = global_mat4 * Vec4::new(point.x, point.y, point.z, 1.0);
-        Vec3::new(transformed.x, transformed.y, transformed.z)
-    };
-
-    let center = transform_point((bounding_box.max + bounding_box.min) / 2.0);
+    let center = global_transform.transform_point3((bounding_box.max + bounding_box.min) / 2.0);
 
     let half_length = (bounding_box.max - bounding_box.min) / 2.0;
     let radius = largest_axis_scale * half_length.length();
