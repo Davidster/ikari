@@ -17,6 +17,7 @@ const pi: f32 = 3.141592653589793;
 const two_pi: f32 = 6.283185307179586;
 const half_pi: f32 = 1.570796326794897;
 const epsilon: f32 = 0.00001;
+const DEBUG_POINT_LIGHT_SAMPLED_FACES: f32 = 0.0;
 
 struct PointLight {
     position: vec4<f32>,
@@ -541,83 +542,63 @@ fn compute_direct_lighting(
 // cursed magic, adapted from these links:
 // https://kosmonautblog.wordpress.com/2017/03/25/shadow-filtering-for-pointlights/
 // https://github.com/Kosmonaut3d/DeferredEngine/blob/f772b53e7e09dde6d0dd0682f4c4c1f1f6957b69/EngineTest/Content/Shaders/Common/helper.fx#L367
-// TODO: rename
-fn get_sample_coordinate(in_coord_const: vec3<f32>) -> vec3<f32> {
-    var coord: vec2<f32>;
+fn vector_to_cubemap_uv(in_vec_preflip: vec3<f32>) -> vec3<f32> {
+    var uv: vec2<f32>;
     var slice: f32;
-    var in_coord = in_coord_const;
-    in_coord.z = -in_coord.z;
-    in_coord.x = -in_coord.x;
+    let in_vec = vec3(-in_vec_preflip.x, in_vec_preflip.y, -in_vec_preflip.z);
+    let in_vec_abs = abs(in_vec);
     
-    if abs(in_coord.x) >= abs(in_coord.y) && abs(in_coord.x) >= abs(in_coord.z) {
-        if in_coord.x > 0.0 {
+    // positive and negative x
+    if in_vec_abs.x >= in_vec_abs.y && in_vec_abs.x >= in_vec_abs.z {
+        let in_vec_div = in_vec / in_vec.x;
+        uv.x = -in_vec_div.z;
+        if in_vec.x > 0.0 {
             slice = 1.0;
-            in_coord.y = -in_coord.y;
+            uv.y = -in_vec_div.y;
         } else {
             slice = 0.0;
+            uv.y = in_vec_div.y;
         }
-        in_coord.z = -in_coord.z;
-        in_coord = in_coord / in_coord.x;
-        coord = in_coord.zy;
-    } else if abs(in_coord.y) >= abs(in_coord.x) && abs(in_coord.y) >= abs(in_coord.z) {
-        if in_coord.y > 0.0 {
+    // positive and negative y
+    } else if in_vec_abs.y >= in_vec_abs.x && in_vec_abs.y >= in_vec_abs.z {
+        let in_vec_div = in_vec / in_vec.y;
+        uv.y = -in_vec_div.z;
+        if in_vec.y > 0.0 {
             slice = 2.0;
-            in_coord.x = -in_coord.x;
+            uv.x = -in_vec_div.x;
         } else {
             slice = 3.0; 
+            uv.x = in_vec_div.x;
         }
-        in_coord.z = -in_coord.z;
-        in_coord = in_coord / in_coord.y;
-        coord = in_coord.xz;
+    // positive and negative z
     } else {
-        if in_coord.z < 0.0 {
+        let in_vec_div = in_vec / in_vec.z;
+        uv.x = in_vec_div.x;
+        if in_vec.z < 0.0 {
             slice = 4.0;
+            uv.y = in_vec_div.y;
         } else {
             slice = 5.0;
-             in_coord.y = -in_coord.y;
+            uv.y = -in_vec_div.y;
         }
-        in_coord = in_coord / in_coord.z;
-        coord = in_coord.xy;
     }
 
     let one_sixth = 1.0 / 6.0;
 
     // now we are in [-1,1]x[-1,1] space, so transform to texCoords
-    coord = (coord + vec2(1.0, 1.0)) * 0.5;
+    uv = (uv + vec2(1.0, 1.0)) * 0.5;
 
     // now transform to slice position
-    coord.x = coord.x * one_sixth + slice * one_sixth;
+    uv.x = uv.x * one_sixth + slice * one_sixth;
 
-    return vec3(coord, slice);
+    return vec3(uv, slice);
 }
 
-fn validate_jittered_sample_coordinate_y(in_coord: f32, face_slice: f32) -> f32 {
-    return in_coord;
-}
-
-// TODO: instead of just clamping here, figure out how to
-// correctly transition the coordinate into the other face
-// note that the face slices are arranged like so:
-//   0 -> right (negative x)
-//   1 -> left (positive x)
-//   2 -> top (positive y)
-//   3 -> bottom (negative y)
-//   4 -> front (position z)
-//   5 -> back (negative z)
-fn validate_jittered_sample_coordinate_x(in_coord: f32, face_slice: f32) -> f32 {
-
-    let min_max = vec2(face_slice, 1.0 + face_slice) / vec2(6.0, 6.0);
-
-    return clamp(in_coord, min_max.x, min_max.y);
-}
-
-// cursed magic, adapted from these links:
-// https://kosmonautblog.wordpress.com/2017/03/25/shadow-filtering-for-pointlights/
-// https://github.com/Kosmonaut3d/DeferredEngine/blob/f772b53e7e09dde6d0dd0682f4c4c1f1f6957b69/EngineTest/Content/Shaders/Common/helper.fx#L367
-fn validate_jittered_sample_coordinate(in_coord: vec2<f32>, face_slice: f32) -> vec2<f32> {
+fn clamp_jittered_cubemap_uv(uv: vec2<f32>, face_slice: f32) -> vec2<f32> {
+    let min_max_u = vec2(0.00001, -0.00001) + vec2(face_slice, 1.0 + face_slice) / vec2(6.0, 6.0);
     return vec2<f32>(
-        validate_jittered_sample_coordinate_x(in_coord.x, face_slice),
-        in_coord.y,
+        clamp(uv.x, min_max_u.x, min_max_u.y),
+        uv.y
     );
 }
 
@@ -742,7 +723,7 @@ fn do_fragment_shade(
         let to_light_vec = -from_shadow_vec;
         let to_light_vec_norm = normalize(to_light_vec);
         let n_dot_l = max(dot(n, to_light_vec_norm), 0.0);
-        let light_space_position_uv_and_face_slice = get_sample_coordinate(world_normal_to_cubemap_vec(from_shadow_vec));
+        let light_space_position_uv_and_face_slice = vector_to_cubemap_uv(world_normal_to_cubemap_vec(from_shadow_vec));
         let light_space_position_uv = light_space_position_uv_and_face_slice.xy;
         let light_space_position_face_slice = light_space_position_uv_and_face_slice.z;
         let shadow_camera_far_plane_distance = 1000.0;
@@ -773,7 +754,7 @@ fn do_fragment_shade(
                     let closest_depth = textureSampleLevel(
                         point_shadow_map_textures,
                         shadow_map_sampler,
-                        validate_jittered_sample_coordinate(
+                        clamp_jittered_cubemap_uv(
                             light_space_position_uv + sample_jitter, 
                             light_space_position_face_slice
                         ),
@@ -808,7 +789,7 @@ fn do_fragment_shade(
                             let closest_depth = textureSampleLevel(
                                 point_shadow_map_textures,
                                 shadow_map_sampler,
-                                validate_jittered_sample_coordinate(
+                                clamp_jittered_cubemap_uv(
                                     light_space_position_uv + sample_jitter, 
                                     light_space_position_face_slice
                                 ),
@@ -822,30 +803,6 @@ fn do_fragment_shade(
                         }
                     }
                 }
-
-                /*
-                // old method, way slower.
-                let sample_count = 4.0;
-                let random_jitter_3d = vec3(random_jitter, 2.0 * noise3(random_seed_y + 1000.0) - 1.0);
-                let max_sample_jitter = get_soft_shadow_factor() * 100.0;
-                for (var x = 0.0; x < sample_count; x = x + 1.0) {
-                    for (var y = 0.0; y < sample_count; y = y + 1.0) {
-                        for (var z = 0.0; z < sample_count; z = z + 1.0) {
-                            let irregular_offset = max_sample_jitter * random_jitter_3d * vec3(x, y, z) / sample_count;
-                            let closest_depth = textureSample(
-                                point_shadow_map_textures,
-                                shadow_map_sampler,
-                                get_sample_coordinate(world_normal_to_cubemap_vec(from_shadow_vec + irregular_offset)).xy,
-                                i32(light_index)
-                            ).r;
-                            if current_depth - bias < closest_depth {
-                                shadow_occlusion_acc = shadow_occlusion_acc + 1.0;
-                            }
-                        }
-                    }
-                }
-                shadow_occlusion_acc = shadow_occlusion_acc / (sample_count * sample_count * sample_count);
-                */
             } else {
                 // hard shadows
                 let closest_depth = textureSampleLevel(
@@ -877,7 +834,7 @@ fn do_fragment_shade(
         // let light_attenuation_factor_d3250 = 1.0 / (1.0 + 0.0014 * distance_from_light + 0.000007 * distance_from_light * distance_from_light);
         let light_attenuation_factor = light_attenuation_factor_d600;
 
-        let light_irradiance = compute_direct_lighting(
+        var light_irradiance = compute_direct_lighting(
             world_normal,
             to_viewer_vec,
             to_light_vec_norm,
@@ -888,6 +845,11 @@ fn do_fragment_shade(
             metallicness,
             f0
         );
+
+        if DEBUG_POINT_LIGHT_SAMPLED_FACES > 0.0 {
+            light_irradiance = (vec3(light_space_position_face_slice, light_space_position_face_slice + 1.0, light_space_position_face_slice + 2.0) % 6.0) / 6.0;
+        }
+
         total_light_irradiance = total_light_irradiance + light_irradiance * shadow_occlusion_factor;
     }
 

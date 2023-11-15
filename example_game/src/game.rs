@@ -73,7 +73,7 @@ pub const INITIAL_ENABLE_SHADOW_DEBUG: bool = false;
 pub const INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG: bool = false;
 pub const INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG: bool = false;
 pub const INITIAL_ENABLE_DIRECTIONAL_LIGHT_CULLING_FRUSTUM_DEBUG: bool = false;
-pub const INITIAL_ENABLE_SOFT_SHADOWS: bool = false;
+pub const INITIAL_ENABLE_SOFT_SHADOWS: bool = true;
 pub const INITIAL_SHADOW_BIAS: f32 = 0.0005;
 pub const INITIAL_SKYBOX_WEIGHT: f32 = 1.0;
 pub const INITIAL_SOFT_SHADOW_FACTOR: f32 = 0.0015;
@@ -402,14 +402,14 @@ pub async fn init_game_state(
     // let directional_lights: Vec<DirectionalLightComponent> = vec![];
 
     let point_lights: Vec<(Transform, Vec3, f32)> = vec![
-        // (
-        //     TransformBuilder::new()
-        //         .scale(Vec3::new(0.05, 0.05, 0.05))
-        //         .position(Vec3::new(0.0, 0.0, 0.0))
-        //         .build(),
-        //     POINT_LIGHT_COLOR,
-        //     1.0,
-        // ),
+        (
+            TransformBuilder::new()
+                .scale(Vec3::new(0.05, 0.05, 0.05))
+                .position(Vec3::new(0.0, 0.0, 0.0))
+                .build(),
+            POINT_LIGHT_COLOR,
+            1.0,
+        ),
         // (
         //     TransformBuilder::new()
         //         .scale(Vec3::new(0.1, 0.1, 0.1))
@@ -1680,13 +1680,22 @@ pub fn update_game_state(
         });
 
     if let Some(point_light_0) = engine_state.scene.point_lights.get_mut(0) {
-        let t = engine_state
-            .scene
-            .animations
-            .iter_mut()
-            .find(|animation| animation.name == Some(String::from("jump_up_root_motion")))
-            .map(|animation| animation.state.current_time_seconds * 2.0)
-            .unwrap_or(global_time_seconds as f32 * 0.5);
+        let t = {
+            let mut t = engine_state
+                .scene
+                .animations
+                .iter_mut()
+                .find(|animation| animation.name == Some(String::from("jump_up_root_motion")))
+                .map(|animation| animation.state.current_time_seconds * 2.0)
+                .unwrap_or(global_time_seconds as f32 * 0.5);
+
+            if CREATE_POINT_SHADOW_MAP_DEBUG_OBJECTS {
+                // t = 8.14; // puts the shadow at the corner of the box
+                t = game_state.player_controller.speed * 0.05
+            }
+
+            t
+        };
 
         // point_light_0.color = lerp_vec(
         //     LIGHT_COLOR_A,
@@ -1695,9 +1704,15 @@ pub fn update_game_state(
         // );
         let node_id = point_light_0.node_id;
         if let Some(node) = engine_state.scene.get_node_mut(node_id) {
-            // let t = game_state.player_controller.speed;
-            node.transform.set_position(
+            let center = if CREATE_POINT_SHADOW_MAP_DEBUG_OBJECTS {
+                let cube_radius = 4.0;
+                Vec3::new(20.0, cube_radius, -4.5)
+            } else {
                 Vec3::new(0.0, 6.5, 0.0)
+            };
+
+            node.transform.set_position(
+                center
                     + Vec3::new(
                         (t * 2.0).cos() * (t * 0.25).cos(),
                         2.0 * (t * 1.0).cos(),
