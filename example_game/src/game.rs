@@ -58,7 +58,9 @@ use ikari::transform::Transform;
 use ikari::transform::TransformBuilder;
 use ikari::ui::IkariUiContainer;
 use ikari::wasm_not_sync::WasmNotArc;
-use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
+use winit::event::{ElementState, WindowEvent};
+use winit::keyboard::Key;
+use winit::keyboard::NamedKey;
 
 pub const INITIAL_ENABLE_VSYNC: bool = true;
 pub const INITIAL_RENDER_SCALE: f32 = 2.0;
@@ -250,10 +252,10 @@ async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
     )
 }
 
-pub async fn init_game_state(
+pub async fn init_game_state<'a>(
     engine_state: &mut EngineState,
     renderer: &mut Renderer,
-    surface_data: &mut SurfaceData,
+    surface_data: &mut SurfaceData<'a>,
     window: &winit::window::Window,
 ) -> Result<GameState> {
     log::info!("Controls:");
@@ -303,7 +305,7 @@ pub async fn init_game_state(
     ikari::thread::spawn(move || {
         #[allow(clippy::vec_init_then_push)]
         ikari::block_on(async move {
-            // ikari::thread::sleep_async(ikari::time::Duration::from_secs_f32(5.0)).await;
+            ikari::thread::sleep_async(ikari::time::Duration::from_secs_f32(5.0)).await;
 
             // load in gltf files
 
@@ -373,7 +375,6 @@ pub async fn init_game_state(
                 );
             }
 
-            // ikari::thread::sleep_async(ikari::time::Duration::from_secs_f32(4.0)).await;
             asset_id_map.lock().unwrap().insert(
                 "skybox".to_string(),
                 asset_loader.load_skybox(get_skybox_path()),
@@ -1129,8 +1130,9 @@ pub async fn init_game_state(
             vec![
                 DEFAULT_FONT_BYTES,
                 KOOKY_FONT_BYTES,
-                iced_aw::graphics::icons::ICON_FONT_BYTES,
+                iced_aw::graphics::icons::BOOTSTRAP_FONT_BYTES,
             ],
+            crate::ui_overlay::THEME,
         )
     };
 
@@ -1181,88 +1183,83 @@ pub fn process_window_input(
         renderer,
         surface_data,
         window,
-        control_flow,
+        elwt,
         ..
     }: GameContext<GameState>,
     event: &winit::event::WindowEvent,
 ) {
     #[allow(clippy::single_match)]
     match event {
-        WindowEvent::KeyboardInput {
-            input:
-                KeyboardInput {
-                    state,
-                    virtual_keycode: Some(keycode),
-                    ..
-                },
-            ..
-        } => {
-            if *state == ElementState::Pressed && *keycode == VirtualKeyCode::Tab {
+        WindowEvent::KeyboardInput { event, .. } => {
+            let key = event.logical_key.as_ref();
+            if event.state == ElementState::Pressed && key == Key::Named(NamedKey::Tab) {
                 game_state
                     .ui_overlay
                     .queue_message(Message::TogglePopupMenu);
             }
 
-            if *state == ElementState::Released {
+            if event.state == ElementState::Released {
                 let mut render_data_guard = renderer.data.lock().unwrap();
-
-                match keycode {
-                    VirtualKeyCode::Z => {
-                        drop(render_data_guard);
-                        increment_render_scale(
-                            renderer,
-                            surface_data,
-                            false,
-                            window,
-                            &mut game_state.ui_overlay,
-                        );
-                    }
-                    VirtualKeyCode::X => {
-                        drop(render_data_guard);
-                        increment_render_scale(
-                            renderer,
-                            surface_data,
-                            true,
-                            window,
-                            &mut game_state.ui_overlay,
-                        );
-                    }
-                    VirtualKeyCode::R => {
-                        increment_exposure(&mut render_data_guard, false);
-                    }
-                    VirtualKeyCode::T => {
-                        increment_exposure(&mut render_data_guard, true);
-                    }
-                    VirtualKeyCode::Y => {
-                        increment_bloom_threshold(&mut render_data_guard, false);
-                    }
-                    VirtualKeyCode::U => {
-                        increment_bloom_threshold(&mut render_data_guard, true);
-                    }
-                    VirtualKeyCode::P => {
-                        game_state.is_playing_animations = !game_state.is_playing_animations;
-                    }
-                    VirtualKeyCode::M => {
-                        render_data_guard.enable_shadows = !render_data_guard.enable_shadows;
-                    }
-                    VirtualKeyCode::B => {
-                        render_data_guard.enable_bloom = !render_data_guard.enable_bloom;
-                    }
-                    VirtualKeyCode::F => {
-                        render_data_guard.enable_wireframe_mode =
-                            !render_data_guard.enable_wireframe_mode;
-                    }
-                    VirtualKeyCode::J => {
-                        render_data_guard.draw_node_bounding_spheres =
-                            !render_data_guard.draw_node_bounding_spheres;
-                    }
-                    VirtualKeyCode::C => {
-                        if let Some(character) = game_state.character.as_mut() {
-                            character.toggle_collision_box_display(&mut engine_state.scene);
+                match key {
+                    Key::Character(character) => match character.to_lowercase().as_str() {
+                        "z" => {
+                            drop(render_data_guard);
+                            increment_render_scale(
+                                renderer,
+                                surface_data,
+                                false,
+                                window,
+                                &mut game_state.ui_overlay,
+                            );
                         }
-                    }
-                    VirtualKeyCode::Escape => {
-                        *control_flow = winit::event_loop::ControlFlow::Exit;
+                        "x" => {
+                            drop(render_data_guard);
+                            increment_render_scale(
+                                renderer,
+                                surface_data,
+                                true,
+                                window,
+                                &mut game_state.ui_overlay,
+                            );
+                        }
+                        "r" => {
+                            increment_exposure(&mut render_data_guard, false);
+                        }
+                        "t" => {
+                            increment_exposure(&mut render_data_guard, true);
+                        }
+                        "y" => {
+                            increment_bloom_threshold(&mut render_data_guard, false);
+                        }
+                        "u" => {
+                            increment_bloom_threshold(&mut render_data_guard, true);
+                        }
+                        "p" => {
+                            game_state.is_playing_animations = !game_state.is_playing_animations;
+                        }
+                        "m" => {
+                            render_data_guard.enable_shadows = !render_data_guard.enable_shadows;
+                        }
+                        "b" => {
+                            render_data_guard.enable_bloom = !render_data_guard.enable_bloom;
+                        }
+                        "f" => {
+                            render_data_guard.enable_wireframe_mode =
+                                !render_data_guard.enable_wireframe_mode;
+                        }
+                        "j" => {
+                            render_data_guard.draw_node_bounding_spheres =
+                                !render_data_guard.draw_node_bounding_spheres;
+                        }
+                        "c" => {
+                            if let Some(character) = game_state.character.as_mut() {
+                                character.toggle_collision_box_display(&mut engine_state.scene);
+                            }
+                        }
+                        _ => {}
+                    },
+                    Key::Named(NamedKey::Escape) => {
+                        elwt.exit();
                     }
                     _ => {}
                 }
@@ -1359,7 +1356,7 @@ pub fn update_game_state(
         renderer,
         surface_data,
         window,
-        control_flow,
+        elwt,
         ..
     }: GameContext<GameState>,
 ) {
@@ -1771,7 +1768,7 @@ pub fn update_game_state(
                     ..*directional_light_0
                 }
             });
-    if let Some(directional_light_0) = directional_light_0 {
+    if let Some(_directional_light_0) = directional_light_0 {
         // engine_state.scene.directional_lights[0] = directional_light_0;
     }
 
@@ -2042,7 +2039,7 @@ pub fn update_game_state(
         let ui_state = game_state.ui_overlay.get_state();
 
         if ui_state.was_exit_button_pressed {
-            *control_flow = winit::event_loop::ControlFlow::Exit;
+            elwt.exit();
         }
 
         renderer_data_guard.enable_soft_shadows = ui_state.enable_soft_shadows;
@@ -2067,7 +2064,7 @@ pub fn update_game_state(
         );
     }
 
-    game_state.ui_overlay.update(window, control_flow);
+    game_state.ui_overlay.update(window);
 
     {
         let viewport_dims = (

@@ -71,7 +71,7 @@ impl Texture {
 
     pub fn unpadded_bytes_per_row(&self, mip_level: Option<u32>) -> u32 {
         (self.size.width >> mip_level.unwrap_or(0))
-            * self.texture.format().block_size(None).unwrap()
+            * self.texture.format().block_copy_size(None).unwrap()
     }
 
     pub fn padded_bytes_per_row(&self, mip_level: Option<u32>) -> u32 {
@@ -155,7 +155,7 @@ impl Texture {
                 wgpu::ImageDataLayout {
                     offset: 0,
                     // queue.write_texture is exempt from COPY_BYTES_PER_ROW_ALIGNMENT requirement
-                    bytes_per_row: Some(format.block_size(None).unwrap() * dimensions.0),
+                    bytes_per_row: Some(format.block_copy_size(None).unwrap() * dimensions.0),
                     rows_per_image: Some(dimensions.1),
                 },
                 size,
@@ -190,6 +190,7 @@ impl Texture {
                     usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                     view_formats: &[],
                 },
+                wgpu::util::TextureDataOrder::LayerMajor,
                 img_bytes,
             )
         };
@@ -722,10 +723,12 @@ impl Texture {
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                            store: true,
+                            store: wgpu::StoreOp::Store,
                         },
                     })],
                     depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
                 });
                 rpass.set_pipeline(equirectangular_to_cubemap_pipeline);
                 rpass.set_bind_group(0, &er_texture_bind_group, &[]);
@@ -821,6 +824,7 @@ impl Texture {
                     | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             },
+            wgpu::util::TextureDataOrder::LayerMajor,
             image.raw,
         );
 
@@ -969,10 +973,12 @@ impl Texture {
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                            store: true,
+                            store: wgpu::StoreOp::Store,
                         },
                     })],
                     depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
                 });
                 rpass.set_pipeline(&renderer_constant_data.diffuse_env_map_gen_pipeline);
                 rpass.set_bind_group(0, &skybox_ir_texture_bind_group, &[]);
@@ -1185,10 +1191,12 @@ impl Texture {
                                         resolve_target: None,
                                         ops: wgpu::Operations {
                                             load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                                            store: true,
+                                            store: wgpu::StoreOp::Store,
                                         },
                                     })],
                                     depth_stencil_attachment: None,
+                                    occlusion_query_set: None,
+                                    timestamp_writes: None,
                                 });
                             rpass.set_pipeline(
                                 &renderer_constant_data.specular_env_map_gen_pipeline,
@@ -1315,10 +1323,12 @@ impl Texture {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::RED),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
             });
             rpass.set_pipeline(brdf_lut_gen_pipeline);
             rpass.draw(0..3, 0..1);
@@ -1467,10 +1477,12 @@ fn generate_mipmaps_for_texture(
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                    store: true,
+                    store: wgpu::StoreOp::Store,
                 },
             })],
             depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
         });
         rpass.set_pipeline(&mip_render_pipeline);
         rpass.set_bind_group(0, &bind_group, &[]);

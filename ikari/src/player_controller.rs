@@ -10,12 +10,12 @@ use rapier3d_f64::prelude::*;
 use glam::f32::{Quat, Vec3};
 use glam::EulerRot;
 use winit::event::MouseButton;
+use winit::keyboard::Key;
+use winit::keyboard::NamedKey;
 use winit::window::CursorGrabMode;
 use winit::{
     dpi::PhysicalPosition,
-    event::{
-        DeviceEvent, ElementState, KeyboardInput, MouseScrollDelta, VirtualKeyCode, WindowEvent,
-    },
+    event::{DeviceEvent, ElementState, MouseScrollDelta, WindowEvent},
     window::Window,
 };
 
@@ -161,57 +161,45 @@ impl PlayerController {
         };
     }
 
-    pub fn process_window_event(
-        &mut self,
-        event: &WindowEvent,
-        _window: &Window,
-        // ui_overlay: &mut IkariUiContainer,
-    ) {
-        // let is_showing_options_menu = ui_overlay.get_state().is_showing_options_menu;
-        // let is_showing_cursor_marker = ui_overlay.get_state().is_showing_cursor_marker;
-        // let is_controlling_game = self.is_controlling_game(ui_overlay);
-
+    pub fn process_window_event(&mut self, event: &WindowEvent, _window: &Window) {
         match event {
-            WindowEvent::KeyboardInput {
-                input:
-                    KeyboardInput {
-                        state,
-                        virtual_keycode: Some(keycode),
-                        ..
-                    },
-                ..
-            } => {
-                if *state == ElementState::Pressed && *keycode == VirtualKeyCode::Up {
+            WindowEvent::KeyboardInput { event, .. } => {
+                let key = event.logical_key.as_ref();
+                if event.state == ElementState::Pressed && key == Key::Named(NamedKey::ArrowUp) {
                     self.increment_speed(true);
                 }
 
-                if *state == ElementState::Pressed && *keycode == VirtualKeyCode::Down {
+                if event.state == ElementState::Pressed && key == Key::Named(NamedKey::ArrowUp) {
                     self.increment_speed(false);
                 }
 
                 if self.is_enabled {
-                    let is_pressed = *state == ElementState::Pressed;
-                    match keycode {
-                        VirtualKeyCode::W => {
-                            self.is_forward_pressed = is_pressed;
-                        }
-                        VirtualKeyCode::A => {
-                            self.is_left_pressed = is_pressed;
-                        }
-                        VirtualKeyCode::S => {
-                            self.is_backward_pressed = is_pressed;
-                        }
-                        VirtualKeyCode::D => {
-                            self.is_right_pressed = is_pressed;
-                        }
-                        VirtualKeyCode::Space => {
+                    let is_pressed = event.state == ElementState::Pressed;
+                    match key {
+                        Key::Character(character) => match character.to_lowercase().as_str() {
+                            "w" => {
+                                self.is_forward_pressed = is_pressed;
+                            }
+                            "a" => {
+                                self.is_left_pressed = is_pressed;
+                            }
+                            "s" => {
+                                self.is_backward_pressed = is_pressed;
+                            }
+                            "d" => {
+                                self.is_right_pressed = is_pressed;
+                            }
+                            "e" => {
+                                self.is_up_pressed = is_pressed;
+                            }
+                            _ => {}
+                        },
+
+                        Key::Named(NamedKey::Space) => {
                             self.is_jump_pressed = is_pressed;
                         }
-                        VirtualKeyCode::LControl => {
+                        Key::Named(NamedKey::Control) => {
                             self.is_down_pressed = is_pressed;
-                        }
-                        VirtualKeyCode::E => {
-                            self.is_up_pressed = is_pressed;
                         }
                         _ => {}
                     }

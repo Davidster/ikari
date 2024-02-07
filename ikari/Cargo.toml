@@ -30,7 +30,7 @@ chrono = { version = "0.4.28", default-features = false, features = [
     "wasmbind",
     "clock",
 ] }
-instant = "0.1.12"
+web-time = "1.0.0"
 async-std = "1.12.0"
 
 # log
@@ -40,8 +40,7 @@ log.workspace = true
 
 # profiling
 profiling.workspace = true
-wgpu-profiler = "0.14.1"
-# wgpu-profiler = { path = "../../wgpu-profiler-fork" }
+wgpu-profiler.workspace = true
 
 # assets
 gltf.workspace = true
@@ -88,4 +87,3 @@ wasm-bindgen.workspace = true
 cpal = { git = "https://github.com/DouglasDwyer/cpal.git", rev = "91aeb4d", features = [
     "wasm-bindgen",
 ] }
-cosmic-text = { version = "0.9.0", features = ["wasm-web"] }
