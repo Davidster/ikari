@@ -1,21 +1,21 @@
 use crate::collisions::*;
-use crate::game::*;
 use crate::math::*;
 use crate::physics::*;
 use crate::renderer::*;
 use crate::time::*;
 use crate::transform::*;
-use crate::ui_overlay::*;
+
+use rapier3d_f64::prelude::*;
 
 use glam::f32::{Quat, Vec3};
 use glam::EulerRot;
 use winit::event::MouseButton;
+use winit::keyboard::Key;
+use winit::keyboard::NamedKey;
 use winit::window::CursorGrabMode;
 use winit::{
     dpi::PhysicalPosition,
-    event::{
-        DeviceEvent, ElementState, KeyboardInput, MouseScrollDelta, VirtualKeyCode, WindowEvent,
-    },
+    event::{DeviceEvent, ElementState, MouseScrollDelta, WindowEvent},
     window::Window,
 };
 
@@ -24,6 +24,8 @@ pub struct PlayerController {
     unprocessed_delta: Option<(f64, f64)>,
     window_focused: bool,
     is_window_focused_and_clicked: bool,
+    is_enabled: bool,
+    cached_cursor_grab: bool,
 
     is_forward_pressed: bool,
     is_backward_pressed: bool,
@@ -71,6 +73,7 @@ impl PlayerController {
         speed: f32,
         position: Vec3,
         view_direction: ControlledViewDirection,
+        collider: Collider,
     ) -> Self {
         let rigid_body = RigidBodyBuilder::dynamic()
             .translation(vector![
@@ -79,15 +82,6 @@ impl PlayerController {
                 position.z as f64
             ])
             .lock_rotations()
-            .build();
-        let collider = ColliderBuilder::capsule_y(0.5, 0.25)
-            .restitution_combine_rule(CoefficientCombineRule::Min)
-            .friction_combine_rule(CoefficientCombineRule::Min)
-            .collision_groups(
-                InteractionGroups::all().with_memberships(COLLISION_GROUP_PLAYER_UNSHOOTABLE),
-            )
-            .friction(0.0)
-            .restitution(0.0)
             .build();
         let rigid_body_handle = physics_state.rigid_body_set.insert(rigid_body);
         physics_state.collider_set.insert_with_parent(
@@ -100,6 +94,8 @@ impl PlayerController {
             unprocessed_delta: None,
             window_focused: false,
             is_window_focused_and_clicked: false,
+            is_enabled: true,
+            cached_cursor_grab: false,
 
             mouse_button_pressed: false,
 
@@ -118,8 +114,23 @@ impl PlayerController {
         }
     }
 
-    pub fn is_controlling_game(&self, ui_overlay: &IkariUiOverlay) -> bool {
-        self.is_window_focused_and_clicked && !ui_overlay.get_state().is_showing_options_menu
+    pub fn set_is_controlling_game(&mut self, value: bool) {
+        self.is_enabled = value;
+
+        if !value {
+            self.is_forward_pressed = false;
+            self.is_left_pressed = false;
+            self.is_backward_pressed = false;
+            self.is_right_pressed = false;
+            self.is_jump_pressed = false;
+            self.is_down_pressed = false;
+            self.is_up_pressed = false;
+            self.mouse_button_pressed = false;
+        }
+    }
+
+    fn is_controlling_game(&self) -> bool {
+        self.is_window_focused_and_clicked && self.is_enabled
     }
 
     fn increment_speed(&mut self, increase: bool) {
@@ -128,8 +139,8 @@ impl PlayerController {
         self.speed = (self.speed + (direction * amount)).clamp(0.5, 300.0);
     }
 
-    pub fn process_device_events(&mut self, event: &DeviceEvent, ui_overlay: &IkariUiOverlay) {
-        if !self.is_controlling_game(ui_overlay) {
+    pub fn process_device_event(&mut self, event: &DeviceEvent) {
+        if !self.is_controlling_game() {
             return;
         }
         match event {
@@ -150,15 +161,87 @@ impl PlayerController {
         };
     }
 
-    fn update_cursor_grab(
-        &mut self,
-        is_showing_options_menu: bool,
-        is_showing_cursor_marker: bool,
-        window: &Window,
-    ) {
-        let grab = self.is_window_focused_and_clicked
-            && !is_showing_options_menu
-            && !is_showing_cursor_marker;
+    pub fn process_window_event(&mut self, event: &WindowEvent, _window: &Window) {
+        match event {
+            WindowEvent::KeyboardInput { event, .. } => {
+                let key = event.logical_key.as_ref();
+                if event.state == ElementState::Pressed && key == Key::Named(NamedKey::ArrowUp) {
+                    self.increment_speed(true);
+                }
+
+                if event.state == ElementState::Pressed && key == Key::Named(NamedKey::ArrowUp) {
+                    self.increment_speed(false);
+                }
+
+                if self.is_enabled {
+                    let is_pressed = event.state == ElementState::Pressed;
+                    match key {
+                        Key::Character(character) => match character.to_lowercase().as_str() {
+                            "w" => {
+                                self.is_forward_pressed = is_pressed;
+                            }
+                            "a" => {
+                                self.is_left_pressed = is_pressed;
+                            }
+                            "s" => {
+                                self.is_backward_pressed = is_pressed;
+                            }
+                            "d" => {
+                                self.is_right_pressed = is_pressed;
+                            }
+                            "q" => {
+                                self.is_down_pressed = is_pressed;
+                            }
+                            "e" => {
+                                self.is_up_pressed = is_pressed;
+                            }
+                            _ => {}
+                        },
+                        Key::Named(NamedKey::Space) => {
+                            self.is_jump_pressed = is_pressed;
+                        }
+                        Key::Named(NamedKey::Control) => {
+                            self.is_down_pressed = is_pressed;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            WindowEvent::Focused(focused) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                if *focused {
+                    crate::thread::sleep(std::time::Duration::from_millis(100));
+                }
+
+                self.window_focused = *focused;
+                if !self.window_focused {
+                    self.is_window_focused_and_clicked = false;
+                }
+            }
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Left,
+                ..
+            } => {
+                let is_pressed = *state == ElementState::Pressed;
+                self.mouse_button_pressed = self.is_enabled && is_pressed;
+
+                if self.window_focused && is_pressed {
+                    self.is_window_focused_and_clicked = true;
+                }
+            }
+            _ => {}
+        };
+    }
+
+    pub fn update_cursor_grab(&mut self, grab: bool, window: &Window) {
+        let grab = self.is_window_focused_and_clicked && grab;
+
+        if grab == self.cached_cursor_grab {
+            return;
+        }
+
+        self.cached_cursor_grab = grab;
 
         let new_grab_mode = if !grab {
             CursorGrabMode::None
@@ -179,114 +262,6 @@ impl PlayerController {
         window.set_cursor_visible(!grab);
     }
 
-    pub fn process_window_events(
-        &mut self,
-        event: &WindowEvent,
-        window: &Window,
-        ui_overlay: &mut IkariUiOverlay,
-    ) {
-        let is_showing_options_menu = ui_overlay.get_state().is_showing_options_menu;
-        let is_showing_cursor_marker = ui_overlay.get_state().is_showing_cursor_marker;
-        let is_controlling_game = self.is_controlling_game(ui_overlay);
-
-        match event {
-            WindowEvent::KeyboardInput {
-                input:
-                    KeyboardInput {
-                        state,
-                        virtual_keycode: Some(keycode),
-                        ..
-                    },
-                ..
-            } => {
-                if *state == ElementState::Pressed && *keycode == VirtualKeyCode::Tab {
-                    let new_is_showing_options_menu = !is_showing_options_menu;
-                    self.update_cursor_grab(
-                        new_is_showing_options_menu,
-                        is_showing_cursor_marker,
-                        window,
-                    );
-
-                    if new_is_showing_options_menu {
-                        self.mouse_button_pressed = false;
-                    }
-
-                    ui_overlay.send_message(Message::TogglePopupMenu);
-                }
-
-                if *state == ElementState::Pressed && *keycode == VirtualKeyCode::Up {
-                    self.increment_speed(true);
-                }
-
-                if *state == ElementState::Pressed && *keycode == VirtualKeyCode::Down {
-                    self.increment_speed(false);
-                }
-
-                if is_controlling_game {
-                    let is_pressed = *state == ElementState::Pressed;
-                    match keycode {
-                        VirtualKeyCode::W => {
-                            self.is_forward_pressed = is_pressed;
-                        }
-                        VirtualKeyCode::A => {
-                            self.is_left_pressed = is_pressed;
-                        }
-                        VirtualKeyCode::S => {
-                            self.is_backward_pressed = is_pressed;
-                        }
-                        VirtualKeyCode::D => {
-                            self.is_right_pressed = is_pressed;
-                        }
-                        VirtualKeyCode::Space => {
-                            self.is_jump_pressed = is_pressed;
-                        }
-                        VirtualKeyCode::LControl => {
-                            self.is_down_pressed = is_pressed;
-                        }
-                        VirtualKeyCode::E => {
-                            self.is_up_pressed = is_pressed;
-                        }
-                        _ => {}
-                    }
-                } else {
-                    self.is_forward_pressed = false;
-                    self.is_left_pressed = false;
-                    self.is_backward_pressed = false;
-                    self.is_right_pressed = false;
-                    self.is_jump_pressed = false;
-                    self.is_down_pressed = false;
-                }
-            }
-            WindowEvent::Focused(focused) => {
-                #[cfg(not(target_arch = "wasm32"))]
-                if *focused {
-                    crate::thread::sleep(std::time::Duration::from_millis(100));
-                }
-
-                self.window_focused = *focused;
-                if !self.window_focused {
-                    self.is_window_focused_and_clicked = false;
-                }
-                self.update_cursor_grab(is_showing_options_menu, is_showing_cursor_marker, window);
-            }
-            WindowEvent::MouseInput {
-                state,
-                button: MouseButton::Left,
-                ..
-            } => {
-                let is_pressed = *state == ElementState::Pressed;
-                self.mouse_button_pressed = is_controlling_game && is_pressed;
-
-                if self.window_focused && is_pressed {
-                    self.is_window_focused_and_clicked = true;
-                }
-
-                self.update_cursor_grab(is_showing_options_menu, is_showing_cursor_marker, window);
-            }
-            _ => {}
-        };
-    }
-
     pub fn update(&mut self, physics_state: &mut PhysicsState) {
         if let Some((d_x, d_y)) = self.unprocessed_delta {
             let mouse_sensitivity = 0.002;
@@ -294,7 +269,7 @@ impl PlayerController {
             self.view_direction.horizontal += -d_x as f32 * mouse_sensitivity;
             self.view_direction.vertical = (self.view_direction.vertical
                 + (-d_y as f32 * mouse_sensitivity))
-                .clamp(deg_to_rad(-90.0), deg_to_rad(90.0));
+                .clamp(deg_to_rad(-89.5), deg_to_rad(89.5));
         }
         self.unprocessed_delta = None;
 
@@ -324,6 +299,12 @@ impl PlayerController {
                 add_movement(-right_direction);
             }
 
+            if self.is_up_pressed {
+                add_movement(up_direction);
+            } else if self.is_down_pressed {
+                add_movement(-up_direction);
+            }
+
             res.map(|res| res.normalize() * self.speed)
                 .unwrap_or(Vec3::new(0.0, 0.0, 0.0))
         };
@@ -336,11 +317,10 @@ impl PlayerController {
         rigid_body.set_linvel(
             vector![
                 new_linear_velocity.x as f64,
-                if self.is_up_pressed {
-                    5.0
+                if physics_state.gravity.norm() > 0.0 {
+                    current_linear_velocity.y as f64
                 } else {
-                    // preserve effect of gravity
-                    current_linear_velocity.y
+                    new_linear_velocity.y as f64
                 },
                 new_linear_velocity.z as f64
             ],

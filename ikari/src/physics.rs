@@ -1,14 +1,10 @@
-use crate::game::*;
-use crate::renderer::*;
 use crate::scene::*;
 
 use std::collections::HashMap;
 
-use glam::{
-    f32::{Vec3, Vec4},
-    Mat4,
-};
-pub use rapier3d_f64::prelude::*;
+use rapier3d_f64::prelude::*;
+
+pub use rapier3d_f64;
 
 pub struct PhysicsState {
     pub gravity: nalgebra::Vector3<f64>,
@@ -71,79 +67,6 @@ impl PhysicsState {
             .update(&self.rigid_body_set, &self.collider_set);
     }
 
-    pub fn add_static_box(
-        &mut self,
-        scene: &Scene,
-        renderer_data: &RendererData,
-        node_id: GameNodeId,
-    ) {
-        let collider_handles = self.static_box_set.entry(node_id).or_insert(vec![]);
-
-        if let Some(node) = scene.get_node(node_id) {
-            if let Some(mesh) = node.mesh.as_ref() {
-                let transform: crate::transform::Transform =
-                    scene.get_global_transform_for_node(node_id);
-                let transform_decomposed = transform.decompose();
-                for mesh_index in mesh.mesh_indices.iter() {
-                    let bounding_box = match mesh.mesh_type {
-                        GameNodeMeshType::Pbr { .. } => {
-                            renderer_data.binded_pbr_meshes[*mesh_index]
-                                .geometry_buffers
-                                .bounding_box
-                        }
-                        GameNodeMeshType::Unlit { .. } => {
-                            renderer_data.binded_unlit_meshes[*mesh_index].bounding_box
-                        }
-                        GameNodeMeshType::Transparent { .. } => {
-                            renderer_data.binded_transparent_meshes[*mesh_index].bounding_box
-                        }
-                    };
-                    let base_scale = (bounding_box.max - bounding_box.min) / 2.0;
-                    let base_position = (bounding_box.max + bounding_box.min) / 2.0;
-                    let scale = Vec3::new(
-                        base_scale.x * transform_decomposed.scale.x,
-                        base_scale.y * transform_decomposed.scale.y,
-                        base_scale.z * transform_decomposed.scale.z,
-                    );
-                    let position_rotated = {
-                        let rotated = Mat4::from_quat(transform_decomposed.rotation)
-                            * Vec4::new(base_position.x, base_position.y, base_position.z, 1.0);
-                        Vec3::new(rotated.x, rotated.y, rotated.z)
-                    };
-                    let position = Vec3::new(
-                        position_rotated.x + transform_decomposed.position.x,
-                        position_rotated.y + transform_decomposed.position.y,
-                        position_rotated.z + transform_decomposed.position.z,
-                    );
-                    let rotation = transform_decomposed.rotation;
-                    let mut collider =
-                        ColliderBuilder::cuboid(scale.x as f64, scale.y as f64, scale.z as f64)
-                            .collision_groups(
-                                InteractionGroups::all()
-                                    .with_memberships(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
-                            )
-                            .friction(1.0)
-                            .restitution(1.0)
-                            .build();
-                    collider.set_position(Isometry::from_parts(
-                        nalgebra::Translation3::new(
-                            position.x as f64,
-                            position.y as f64,
-                            position.z as f64,
-                        ),
-                        nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
-                            rotation.w as f64,
-                            rotation.x as f64,
-                            rotation.y as f64,
-                            rotation.z as f64,
-                        )),
-                    ));
-                    collider_handles.push(self.collider_set.insert(collider));
-                }
-            }
-        }
-    }
-
     pub fn remove_rigid_body(&mut self, rigid_body_handle: RigidBodyHandle) {
         self.rigid_body_set.remove(
             rigid_body_handle,
@@ -153,6 +76,10 @@ impl PhysicsState {
             &mut self.multibody_joint_set,
             true,
         );
+    }
+
+    pub fn set_gravity_is_enabled(&mut self, is_enabled: bool) {
+        self.gravity = vector![0.0, if is_enabled { -9.8 } else { 0.0 }, 0.0];
     }
 }
 

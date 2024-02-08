@@ -123,21 +123,21 @@ impl GpuBuffer {
 }
 
 #[derive(Debug)]
-pub struct ChunkedBuffer<T> {
+pub struct ChunkedBuffer<T, I> {
     buffer: Vec<u8>,
-    chunks: Vec<BufferChunk>,
+    chunks: Vec<BufferChunk<I>>,
     biggest_chunk_length: usize,
     item_type: std::marker::PhantomData<T>,
 }
 
 #[derive(Debug)]
-pub struct BufferChunk {
-    pub id: usize,
+pub struct BufferChunk<I> {
+    pub id: I,
     pub start_index: usize,
     pub end_index: usize,
 }
 
-impl<T: bytemuck::Pod> ChunkedBuffer<T> {
+impl<T: bytemuck::Pod, I> ChunkedBuffer<T, I> {
     pub fn new() -> Self {
         Self {
             buffer: vec![],
@@ -153,7 +153,7 @@ impl<T: bytemuck::Pod> ChunkedBuffer<T> {
     /// Only supports replace() for now, could maybe create an add_all function if we keep track of the biggest chunk length and fix the padding
     /// at the end of the buffer
     #[profiling::function]
-    pub fn replace(&mut self, chunks: impl Iterator<Item = (usize, Vec<T>)>, alignment: usize) {
+    pub fn replace(&mut self, chunks: impl Iterator<Item = (I, Vec<T>)>, alignment: usize) {
         self.clear();
 
         let stride = std::mem::size_of::<T>();
@@ -194,7 +194,7 @@ impl<T: bytemuck::Pod> ChunkedBuffer<T> {
         &self.buffer
     }
 
-    pub fn chunks(&self) -> &[BufferChunk] {
+    pub fn chunks(&self) -> &[BufferChunk<I>] {
         &self.chunks
     }
 
@@ -207,7 +207,7 @@ impl<T: bytemuck::Pod> ChunkedBuffer<T> {
     }
 }
 
-impl<T: bytemuck::Pod> Default for ChunkedBuffer<T> {
+impl<T: bytemuck::Pod, I> Default for ChunkedBuffer<T, I> {
     fn default() -> Self {
         Self::new()
     }

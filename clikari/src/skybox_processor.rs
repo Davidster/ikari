@@ -1,8 +1,10 @@
 use std::path::PathBuf;
 
 use ikari::{
+    file_manager::native_fs,
     renderer::{
-        BaseRenderer, BindedSkybox, Renderer, SkyboxBackgroundPath, SkyboxHDREnvironmentPath,
+        BaseRenderer, BindedSkybox, Renderer, SkyboxBackgroundPath, SkyboxEnvironmentHDRPath,
+        SkyboxPaths,
     },
     texture::RawImage,
     texture_compression::TextureCompressionArgs,
@@ -18,8 +20,8 @@ pub struct SkyboxProcessorArgs {
     pub out_folder: PathBuf,
 }
 
-pub fn run(args: SkyboxProcessorArgs) {
-    if let Err(err) = ikari::block_on(run_internal(args)) {
+pub async fn run(args: SkyboxProcessorArgs) {
+    if let Err(err) = run_internal(args).await {
         log::error!("Error: {err}\n{}", err.backtrace());
     }
 }
@@ -35,15 +37,12 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
     let base_renderer = BaseRenderer::offscreen(backends, Some(DXC_PATH.into())).await?;
     let renderer = Renderer::new(base_renderer, wgpu::TextureFormat::Bgra8Unorm, (1, 1)).await?;
 
-    let bindable_skybox = ikari::asset_loader::make_bindable_skybox(
-        &SkyboxBackgroundPath::Equirectangular(PATH_MAKER.make(args.background_path)),
-        args.environment_hdr_path
-            .as_ref()
-            .map(|environment_hdr_path| {
-                SkyboxHDREnvironmentPath::Equirectangular(PATH_MAKER.make(environment_hdr_path))
-            })
-            .as_ref(),
-    )
+    let bindable_skybox = ikari::asset_loader::make_bindable_skybox(&SkyboxPaths {
+        background: SkyboxBackgroundPath::Equirectangular(PATH_MAKER.make(args.background_path)),
+        environment_hdr: args.environment_hdr_path.map(|environment_hdr_path| {
+            SkyboxEnvironmentHDRPath::Equirectangular(PATH_MAKER.make(environment_hdr_path))
+        }),
+    })
     .await?;
 
     let binded_skybox =
@@ -59,12 +58,11 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
 
     let compressor = ikari::texture_compression::TextureCompressor;
 
-    std::fs::create_dir_all(&args.out_folder)?;
+    native_fs::create_dir_all(&args.out_folder)?;
 
     {
-        // TODO: join into a single file like with diffuse/spec env maps
         let folder = std::path::Path::join(&args.out_folder, "background");
-        std::fs::create_dir_all(&folder)?;
+        native_fs::create_dir_all(&folder)?;
 
         let texture = background;
 
@@ -103,7 +101,7 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
             let gpu_compressed_file_path =
                 std::path::Path::join(&folder, format!("{file_name}_compressed.bin"));
 
-            std::fs::write(&gpu_compressed_file_path, gpu_compressed_img_bytes)?;
+            native_fs::write(&gpu_compressed_file_path, gpu_compressed_img_bytes)?;
             log::info!("Done compressing: {:?}", png_file_path.canonicalize()?);
         }
     }
@@ -123,7 +121,7 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
         let full_file_path =
             std::path::Path::join(&args.out_folder, "diffuse_environment_map_compressed.bin");
 
-        std::fs::write(&full_file_path, compressed_img_bytes)?;
+        native_fs::write(&full_file_path, compressed_img_bytes)?;
         log::info!("Done compressing: {:?}", full_file_path.canonicalize()?);
     }
 
@@ -142,7 +140,7 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
         let full_file_path =
             std::path::Path::join(&args.out_folder, "specular_environment_map_compressed.bin");
 
-        std::fs::write(&full_file_path, compressed_img_bytes)?;
+        native_fs::write(&full_file_path, compressed_img_bytes)?;
         log::info!("Done compressing: {:?}", full_file_path.canonicalize()?);
     }
 

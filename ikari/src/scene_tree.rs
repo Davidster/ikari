@@ -53,7 +53,7 @@ pub fn build_scene_tree(
     let mut scene_tree = SceneTree::new(old_scene_tree);
 
     for node in scene.nodes() {
-        if node.mesh.is_none() || !node.mesh.as_ref().unwrap().cullable {
+        if node.visual.is_none() || !node.visual.as_ref().unwrap().cullable {
             continue;
         }
         if let Some(node_bounding_sphere) =

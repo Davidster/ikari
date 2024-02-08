@@ -98,6 +98,7 @@ impl Aabb {
         let mut q: Vec3 = Vec3::new(0.0, 0.0, 0.0);
         for i in 0..3 {
             let mut v = p[i];
+            // TODO: got a crash here once: thread 'main' panicked at 'min > max, or either was NaN. min = NaN, max = NaN', /rustc/903e279f468590fa3425f8aff7f3d61a5a873dbb\library\core\src\num\f32.rs:1431:9
             v = v.clamp(self.min[i], self.max[i]);
             q[i] = v;
         }
@@ -157,7 +158,8 @@ impl Aabb {
         })
     }
 
-    pub fn scale_translate(&self, scale: Vec3, translation: Vec3) -> Aabb {
+    pub fn scale_translate(&self, mut scale: Vec3, translation: Vec3) -> Aabb {
+        scale = scale.abs();
         Aabb {
             min: self.min * scale + translation,
             max: self.max * scale + translation,
@@ -369,22 +371,40 @@ impl CameraFrustumDescriptor {
             .clone()
     }
 
-    pub fn to_basic_mesh(&self) -> BasicMesh {
-        let culling_frustum_right_vector = self
+    /// this bounding sphere is not optimally tight
+    pub fn make_rotation_independent_bounding_sphere(&self) -> Sphere {
+        let right = self
             .forward_vector
             .cross(Vec3::new(0.0, 1.0, 0.0))
             .normalize();
+        let up = right.cross(self.forward_vector);
+        let tan_half_fovy = (self.fov_y_rad / 2.0).tan();
 
-        let (d_x, d_y) = {
-            let vertical_vec = culling_frustum_right_vector
-                .cross(self.forward_vector)
-                .normalize();
-            let sin_half_fovy = (self.fov_y_rad / 2.0).tan();
-            (
-                sin_half_fovy * culling_frustum_right_vector * self.aspect_ratio,
-                sin_half_fovy * vertical_vec,
-            )
-        };
+        let d_x = tan_half_fovy * right * self.aspect_ratio;
+        let d_y = tan_half_fovy * up;
+
+        let d_x_far = self.far_plane_distance * d_x;
+        let d_y_far = self.far_plane_distance * d_y;
+
+        let far_plane_corner_point =
+            self.focal_point + self.forward_vector * self.far_plane_distance + d_y_far - d_x_far;
+        let center = self.focal_point
+            + self.forward_vector * (self.far_plane_distance - self.near_plane_distance) / 2.0;
+        let radius = (center - far_plane_corner_point).length();
+
+        Sphere { center, radius }
+    }
+
+    pub fn to_basic_mesh(&self) -> BasicMesh {
+        let right = self
+            .forward_vector
+            .cross(Vec3::new(0.0, 1.0, 0.0))
+            .normalize();
+        let up = right.cross(self.forward_vector);
+        let tan_half_fovy = (self.fov_y_rad / 2.0).tan();
+
+        let d_x = tan_half_fovy * right * self.aspect_ratio;
+        let d_y = tan_half_fovy * up;
 
         let d_x_near = self.near_plane_distance * d_x;
         let d_y_near = self.near_plane_distance * d_y;

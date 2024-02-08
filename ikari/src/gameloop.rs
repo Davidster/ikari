@@ -1,41 +1,66 @@
-use crate::game::*;
-use crate::game_state::*;
+use std::sync::Arc;
+
+use crate::engine_state::EngineState;
 use crate::renderer::*;
 use crate::time::*;
-use crate::ui_overlay::AudioSoundStats;
-use crate::ui_overlay::IkariUiOverlay;
+use crate::ui::IkariUiContainer;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
 use winit::{
     event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::EventLoop,
     window::Window,
 };
 
-pub fn resize_window(
-    renderer: &mut Renderer,
-    ui_overlay: &mut IkariUiOverlay,
-    surface_data: &mut SurfaceData,
-    window: &winit::window::Window,
-    new_size: (u32, u32),
-) {
-    renderer.resize_surface(new_size, surface_data);
-    renderer.resize(new_size);
-    ui_overlay.resize(new_size, window.scale_factor());
+pub trait GameState<UiOverlay>
+where
+    UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + 'static,
+{
+    fn get_ui_container(&mut self) -> &mut IkariUiContainer<UiOverlay>;
 }
 
-pub fn run(
-    window: Window,
+pub struct GameContext<'a, GameState> {
+    pub game_state: &'a mut GameState,
+    pub engine_state: &'a mut EngineState,
+    pub renderer: &'a mut Renderer,
+    pub surface_data: &'a mut SurfaceData<'static>,
+    pub window: &'a winit::window::Window,
+    pub elwt: &'a winit::event_loop::EventLoopWindowTarget<()>,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run<
+    OnUpdateFunction,
+    OnWindowEventFunction,
+    OnDeviceEventFunction,
+    OnWindowResizeFunction,
+    GameStateType,
+    UiOverlay,
+>(
+    mut window: Arc<Window>,
     event_loop: EventLoop<()>,
-    mut game_state: GameState,
+    mut game_state: GameStateType,
+    mut engine_state: EngineState,
     mut renderer: Renderer,
-    mut surface_data: SurfaceData,
+    mut surface_data: SurfaceData<'static>,
+    mut on_update: OnUpdateFunction,
+    mut on_window_event: OnWindowEventFunction,
+    mut on_device_event: OnDeviceEventFunction,
+    mut on_window_resize: OnWindowResizeFunction,
     application_start_time: Instant,
-) {
+) where
+    OnUpdateFunction: FnMut(GameContext<GameStateType>) + 'static,
+    OnWindowEventFunction: FnMut(GameContext<GameStateType>, &winit::event::WindowEvent) + 'static,
+    OnDeviceEventFunction: FnMut(GameContext<GameStateType>, &winit::event::DeviceEvent) + 'static,
+    OnWindowResizeFunction:
+        FnMut(GameContext<GameStateType>, winit::dpi::PhysicalSize<u32>) + 'static,
+    UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + 'static,
+    GameStateType: GameState<UiOverlay> + 'static,
+{
     let mut logged_start_time = false;
-    let mut last_frame_start_time: Option<Instant> = None;
+    let _last_frame_start_time: Option<Instant> = None;
 
     #[cfg(target_arch = "wasm32")]
     let canvas_container;
@@ -50,204 +75,158 @@ pub fn run(
             .unwrap();
     }
 
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
-        match event {
-            Event::RedrawRequested(_) => {
-                game_state.on_frame_started();
-                profiling::finish_frame!();
-                let frame_duration = last_frame_start_time.map(|time| time.elapsed());
-                last_frame_start_time = Some(Instant::now());
-
-                update_game_state(&mut game_state, &mut renderer, &surface_data);
-
-                {
-                    profiling::scope!("Sync UI");
-                    // sync UI
-                    // TODO: move this into a function in game module?
-
-                    let mut renderer_data_guard = renderer.data.lock().unwrap();
-
-                    if let Some(frame_duration) = frame_duration {
-                        profiling::scope!("GPU Profiler");
-                        if !logged_start_time {
-                            log::debug!(
-                                "Took {:?} from process startup till first frame",
-                                application_start_time.elapsed()
-                            );
-                            logged_start_time = true;
-                        }
-
-                        game_state.ui_overlay.send_message(
-                            crate::ui_overlay::Message::FrameCompleted(frame_duration),
+    event_loop
+        .run(move |event, elwt| {
+            match event {
+                Event::WindowEvent {
+                    event: WindowEvent::RedrawRequested,
+                    ..
+                } => {
+                    if !logged_start_time && engine_state.time_tracker.is_some() {
+                        log::debug!(
+                            "Took {:?} from process startup till first frame",
+                            application_start_time.elapsed()
                         );
-                        if let Some(gpu_timing_info) = renderer.process_profiler_frame() {
-                            game_state.ui_overlay.send_message(
-                                crate::ui_overlay::Message::GpuFrameCompleted(gpu_timing_info),
-                            );
-                        }
+                        logged_start_time = true;
                     }
 
+                    engine_state.on_frame_started();
+                    profiling::finish_frame!();
+
+                    on_update(GameContext {
+                        game_state: &mut game_state,
+                        engine_state: &mut engine_state,
+                        renderer: &mut renderer,
+                        surface_data: &mut surface_data,
+                        window: &mut window,
+                        elwt,
+                    });
+
+                    #[cfg(target_arch = "wasm32")]
                     {
-                        profiling::scope!("Audio");
+                        let new_size = winit::dpi::PhysicalSize::new(
+                            (canvas_container.offset_width() as f64 * window.scale_factor()) as u32,
+                            (canvas_container.offset_height() as f64 * window.scale_factor())
+                                as u32,
+                        );
+                        if window.inner_size() != new_size {
+                            let _resized_immediately = window.request_inner_size(new_size);
+                        }
+                    }
 
-                        let audio_manager_guard = game_state.audio_manager.lock().unwrap();
-                        for sound_index in audio_manager_guard.sound_indices() {
-                            let file_path = audio_manager_guard
-                                .get_sound_file_path(sound_index)
-                                .unwrap();
-                            let length_seconds = audio_manager_guard
-                                .get_sound_length_seconds(sound_index)
-                                .unwrap();
-                            let pos_seconds = audio_manager_guard
-                                .get_sound_pos_seconds(sound_index)
-                                .unwrap();
-                            let buffered_to_pos_seconds = audio_manager_guard
-                                .get_sound_buffered_to_pos_seconds(sound_index)
-                                .unwrap();
+                    match renderer.render(
+                        &mut engine_state,
+                        &surface_data,
+                        game_state.get_ui_container(),
+                    ) {
+                        Ok(_) => {}
+                        Err(err) => match err.downcast_ref::<wgpu::SurfaceError>() {
+                            // Reconfigure the surface if lost
+                            Some(wgpu::SurfaceError::Lost) => {
+                                let size = window.inner_size();
 
-                            game_state.ui_overlay.send_message(
-                                crate::ui_overlay::Message::AudioSoundStatsChanged((
-                                    file_path.clone(),
-                                    AudioSoundStats {
-                                        length_seconds,
-                                        pos_seconds,
-                                        buffered_to_pos_seconds,
+                                renderer.resize_surface(&mut surface_data, size);
+                                on_window_resize(
+                                    GameContext {
+                                        game_state: &mut game_state,
+                                        engine_state: &mut engine_state,
+                                        renderer: &mut renderer,
+                                        surface_data: &mut surface_data,
+                                        window: &mut window,
+                                        elwt,
                                     },
-                                )),
-                            );
-                        }
+                                    size,
+                                );
+                            }
+                            Some(wgpu::SurfaceError::OutOfMemory) => elwt.exit(),
+                            _ => log::error!("{err:?}"),
+                        },
                     }
-
-                    let camera_position = game_state
-                        .player_controller
-                        .position(&game_state.physics_state);
-                    let camera_view_direction = game_state.player_controller.view_direction;
-                    game_state.ui_overlay.send_message(
-                        crate::ui_overlay::Message::CameraPoseChanged((
-                            camera_position,
-                            camera_view_direction,
-                        )),
-                    );
-
-                    let ui_state = game_state.ui_overlay.get_state();
-
-                    renderer_data_guard.enable_soft_shadows = ui_state.enable_soft_shadows;
-                    renderer_data_guard.soft_shadow_factor = ui_state.soft_shadow_factor;
-                    renderer_data_guard.shadow_bias = ui_state.shadow_bias;
-                    renderer_data_guard.enable_shadow_debug = ui_state.enable_shadow_debug;
-                    renderer_data_guard.soft_shadow_grid_dims = ui_state.soft_shadow_grid_dims;
-                    renderer_data_guard.draw_culling_frustum = ui_state.draw_culling_frustum;
-                    renderer_data_guard.draw_point_light_culling_frusta =
-                        ui_state.draw_point_light_culling_frusta;
-                    renderer
-                        .set_skybox_weights([1.0 - ui_state.skybox_weight, ui_state.skybox_weight]);
-                    renderer.set_vsync(ui_state.enable_vsync, &mut surface_data);
-
-                    renderer.set_culling_frustum_lock(
-                        &game_state,
-                        (
-                            surface_data.surface_config.width,
-                            surface_data.surface_config.height,
-                        ),
-                        ui_state.culling_frustum_lock_mode,
+                }
+                Event::LoopExiting => {
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let dom_window = web_sys::window().unwrap();
+                        let document = dom_window.document().unwrap();
+                        let canvas_container = document
+                            .get_element_by_id("canvas_container")
+                            .unwrap()
+                            .dyn_into::<web_sys::HtmlElement>()
+                            .unwrap();
+                        canvas_container.remove();
+                    }
+                }
+                Event::AboutToWait => {
+                    window.request_redraw();
+                }
+                Event::DeviceEvent { event, .. } => {
+                    on_device_event(
+                        GameContext {
+                            game_state: &mut game_state,
+                            engine_state: &mut engine_state,
+                            renderer: &mut renderer,
+                            surface_data: &mut surface_data,
+                            window: &mut window,
+                            elwt,
+                        },
+                        &event,
                     );
                 }
+                Event::WindowEvent {
+                    event, window_id, ..
+                } if window_id == window.id() => {
+                    match &event {
+                        WindowEvent::Resized(size) => {
+                            if size.width > 0 && size.height > 0 {
+                                renderer.resize_surface(&mut surface_data, *size);
+                                on_window_resize(
+                                    GameContext {
+                                        game_state: &mut game_state,
+                                        engine_state: &mut engine_state,
+                                        renderer: &mut renderer,
+                                        surface_data: &mut surface_data,
+                                        window: &mut window,
+                                        elwt,
+                                    },
+                                    *size,
+                                );
+                            }
+                        }
+                        WindowEvent::ScaleFactorChanged { .. } => {
+                            let new_inner_size = window.inner_size();
+                            if new_inner_size.width > 0 && new_inner_size.height > 0 {
+                                renderer.resize_surface(&mut surface_data, new_inner_size);
+                                on_window_resize(
+                                    GameContext {
+                                        game_state: &mut game_state,
+                                        engine_state: &mut engine_state,
+                                        renderer: &mut renderer,
+                                        surface_data: &mut surface_data,
+                                        window: &mut window,
+                                        elwt,
+                                    },
+                                    new_inner_size,
+                                );
+                            }
+                        }
+                        WindowEvent::CloseRequested => elwt.exit(),
+                        _ => {}
+                    };
 
-                #[cfg(target_arch = "wasm32")]
-                {
-                    let new_size = winit::dpi::PhysicalSize::new(
-                        (canvas_container.offset_width() as f64 * window.scale_factor()) as u32,
-                        (canvas_container.offset_height() as f64 * window.scale_factor()) as u32,
+                    on_window_event(
+                        GameContext {
+                            game_state: &mut game_state,
+                            engine_state: &mut engine_state,
+                            renderer: &mut renderer,
+                            surface_data: &mut surface_data,
+                            window: &mut window,
+                            elwt,
+                        },
+                        &event,
                     );
-                    if window.inner_size() != new_size {
-                        window.set_inner_size(new_size);
-                    }
                 }
-
-                game_state.ui_overlay.update(&window, control_flow);
-
-                match renderer.render(&mut game_state, &surface_data) {
-                    Ok(_) => {}
-                    Err(err) => match err.downcast_ref::<wgpu::SurfaceError>() {
-                        // Reconfigure the surface if lost
-                        Some(wgpu::SurfaceError::Lost) => {
-                            resize_window(
-                                &mut renderer,
-                                &mut game_state.ui_overlay,
-                                &mut surface_data,
-                                &window,
-                                window.inner_size().into(),
-                            );
-                        }
-                        // The system is out of memory, we should probably quit
-                        Some(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                        _ => log::error!("{err:?}"),
-                    },
-                }
-            }
-            Event::LoopDestroyed => {
-                #[cfg(target_arch = "wasm32")]
-                {
-                    let dom_window = web_sys::window().unwrap();
-                    let document = dom_window.document().unwrap();
-                    let canvas_container = document
-                        .get_element_by_id("canvas_container")
-                        .unwrap()
-                        .dyn_into::<web_sys::HtmlElement>()
-                        .unwrap();
-                    canvas_container.remove();
-                }
-            }
-            Event::MainEventsCleared => {
-                // RedrawRequested will only trigger once, unless we manually
-                // request it.
-                window.request_redraw();
-            }
-            Event::DeviceEvent { event, .. } => {
-                process_device_input(&mut game_state, &event);
-            }
-            Event::WindowEvent {
-                event, window_id, ..
-            } if window_id == window.id() => {
-                match &event {
-                    WindowEvent::Resized(size) => {
-                        if size.width > 0 && size.height > 0 {
-                            resize_window(
-                                &mut renderer,
-                                &mut game_state.ui_overlay,
-                                &mut surface_data,
-                                &window,
-                                (*size).into(),
-                            );
-                        }
-                    }
-                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                        if new_inner_size.width > 0 && new_inner_size.height > 0 {
-                            resize_window(
-                                &mut renderer,
-                                &mut game_state.ui_overlay,
-                                &mut surface_data,
-                                &window,
-                                (**new_inner_size).into(),
-                            );
-                        }
-                    }
-                    WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                    _ => {}
-                };
-
-                game_state.ui_overlay.handle_window_event(&window, &event);
-
-                process_window_input(
-                    &mut game_state,
-                    &mut renderer,
-                    &mut surface_data,
-                    &event,
-                    &window,
-                );
-            }
-            _ => {}
-        }
-    });
+                _ => {}
+            };
+        })
+        .unwrap();
 }

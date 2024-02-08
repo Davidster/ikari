@@ -1,5 +1,4 @@
-use crate::file_loader::FileLoader;
-use crate::file_loader::GameFilePath;
+use crate::file_manager::GameFilePath;
 use crate::time::Instant;
 
 use anyhow::Result;
@@ -99,14 +98,15 @@ pub struct AudioFileStreamer {
 
 #[cfg(target_arch = "wasm32")]
 async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSource>> {
-    // TODO: implement proper streaming over http
-    let file_bytes = FileLoader::read(file_path).await?;
+    use crate::file_manager::FileManager;
+    let file_bytes = FileManager::read(file_path).await?;
     Ok(Box::new(std::io::Cursor::new(file_bytes)))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSource>> {
-    Ok(Box::new(FileLoader::open_file(file_path)?))
+    use crate::file_manager::native_fs::File;
+    Ok(Box::new(File::open(file_path.resolve())?))
 }
 
 impl AudioFileStreamer {
@@ -397,7 +397,6 @@ impl AudioManager {
         }
     }
 
-    // TODO: can't reload music. should probably separate sound and music.
     pub fn reload_sound(&mut self, sound_index: usize, params: SoundParams) {
         if let Some(sound) = self.sounds[sound_index].take() {
             let signal = Self::get_signal(&sound.data, params.clone(), self.device_sample_rate);

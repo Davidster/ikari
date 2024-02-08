@@ -1,7 +1,4 @@
-use crate::{
-    file_loader::{FileLoader, GameFilePath},
-    texture::*,
-};
+use crate::texture::*;
 
 use std::{
     collections::{hash_map, HashMap},
@@ -72,12 +69,11 @@ pub struct GpuPbrMeshInstance {
     pub emissive_factor: [f32; 4],
     pub mrno: [f32; 4], // metallic_factor, roughness_factor, normal scale, occlusion strength
     pub alpha_cutoff: f32,
-    pub culling_mask: u32,
-    pub padding: [f32; 2],
+    pub padding: [f32; 3],
 }
 
 impl GpuPbrMeshInstance {
-    pub fn new(transform: Mat4, pbr_params: DynamicPbrParams, culling_mask: u32) -> Self {
+    pub fn new(transform: Mat4, pbr_params: DynamicPbrParams) -> Self {
         let DynamicPbrParams {
             base_color_factor,
             emissive_factor,
@@ -103,8 +99,7 @@ impl GpuPbrMeshInstance {
                 occlusion_strength,
             ],
             alpha_cutoff,
-            culling_mask,
-            padding: [0.0, 0.0],
+            padding: [0.0, 0.0, 0.0],
         }
     }
 }
@@ -146,7 +141,7 @@ impl Default for DynamicPbrParams {
 }
 
 #[derive(Debug, Default, Hash, PartialEq, Eq, Clone)]
-pub struct IndexedPbrMaterial {
+pub struct IndexedPbrTextures {
     pub base_color: Option<usize>,
     pub normal: Option<usize>,
     pub metallic_roughness: Option<usize>,
@@ -155,7 +150,7 @@ pub struct IndexedPbrMaterial {
 }
 
 #[derive(Default)]
-pub struct PbrMaterial<'a> {
+pub struct PbrTextures<'a> {
     pub base_color: Option<&'a Texture>,
     pub normal: Option<&'a Texture>,
     pub metallic_roughness: Option<&'a Texture>,
@@ -169,10 +164,8 @@ pub struct BasicMesh {
 }
 
 impl BasicMesh {
-    pub async fn new(obj_file_path: &GameFilePath) -> Result<Self> {
-        let obj = parse_obj(BufReader::new(Cursor::new(
-            FileLoader::read(obj_file_path).await?,
-        )))?;
+    pub fn new(obj_file_bytes: &[u8]) -> Result<Self> {
+        let obj = parse_obj(BufReader::new(Cursor::new(obj_file_bytes)))?;
 
         let mut triangles: Vec<[(usize, usize, usize); 3]> = vec![];
 

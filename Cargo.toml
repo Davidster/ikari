@@ -17,17 +17,17 @@ authors = [
 ]
 
 [workspace.dependencies]
-winit = { version = "0.28", git = "https://github.com/iced-rs/winit.git", rev = "c52db2045d0a2f1b8d9923870de1d4ab1994146e" }
+winit = { version = "0.29", git = "https://github.com/iced-rs/winit.git", rev = "b91e39ece2c0d378c3b80da7f3ab50e17bb798a5" }
 ikari = { version = "0.0.1", path = "./ikari" }
 log = "0.4"
-wgpu = { version = "0.17" }
+wgpu = { version = "0.19" }
+wgpu-profiler = { git = "https://github.com/Davidster/wgpu-profiler", branch = "fix_test_and_wasm_build" }
 anyhow = { version = "1.0", features = ["backtrace"] }
 env_logger = { version = "0.10", default-features = false, features = [
   "auto-color",
   "humantime",
 ] }
-# The version should be the one used by wgpu-core/hal TODO: does this version number need updating?
-profiling = "1.0.10"
+profiling = "1.0.11"
 image = { version = "0.24", default-features = false, features = [
   "hdr",
   "jpeg",
@@ -35,6 +35,9 @@ image = { version = "0.24", default-features = false, features = [
 gltf = "1.3"
 pico-args = "0.5.0"
 lazy_static = "1.4"
+glam = { version = "0.24.1", features = ["approx", "bytemuck"] }
+rand = { version = "0.8", features = ["small_rng"] }
+pollster = "0.3"
 
 # wasm32 depdendencies
 web-sys = { version = "0.3.64", features = [
@@ -52,16 +55,18 @@ web-sys = { version = "0.3.64", features = [
 wasm-bindgen = { version = "0.2.87", features = ["serde-serialize"] }
 wasm-bindgen-futures = "0.4.37"
 
+iced = { git = "https://github.com/Davidster/iced.git", branch = "master", features = [
+  "canvas",
+] }
+iced_wgpu = { git = "https://github.com/Davidster/iced.git", branch = "master" }
+iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "master" }
+
 [patch.crates-io]
-iced_core = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
-iced_style = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
-iced_renderer = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
-iced_graphics = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
-# iced_core = { path = "../iced-fork/core" }
-# iced_style = { path = "../iced-fork/style" }
-# iced_renderer = { path = "../iced-fork/renderer" }
-# iced_graphics = { path = "../iced-fork/graphics" }
-# cosmic-text = { path = "../cosmic-text" }
+iced_core = { git = "https://github.com/Davidster/iced.git", branch = "master" }
+iced_style = { git = "https://github.com/Davidster/iced.git", branch = "master" }
+iced_renderer = { git = "https://github.com/Davidster/iced.git", branch = "master" }
+iced_graphics = { git = "https://github.com/Davidster/iced.git", branch = "master" }
+iced_widget = { git = "https://github.com/Davidster/iced.git", branch = "master" }
 
 [profile.dev]
 opt-level = 1

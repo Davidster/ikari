@@ -1,2 +1,2 @@
-pub use instant::Instant;
 pub use std::time::*;
+pub use web_time::Instant;

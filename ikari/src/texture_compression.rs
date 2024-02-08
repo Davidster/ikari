@@ -1,7 +1,7 @@
 use rmp_serde::Serializer;
 use serde::Serialize;
 
-use crate::{file_loader::GameFilePath, texture::RawImage};
+use crate::{file_manager::GameFilePath, texture::RawImage};
 
 #[cfg(not(target_arch = "wasm32"))]
 const BASISU_COMPRESSION_FORMAT: basis_universal::BasisTextureFormat =
@@ -122,6 +122,7 @@ impl TextureCompressor {
 
     // floating point texture format isn't yet supported by basisu. see
     // https://github.com/BinomialLLC/basis_universal/issues/310
+    #[profiling::function]
     pub fn transcode_float_image(&self, img_bytes: &[u8]) -> anyhow::Result<RawImage> {
         let miniz_decoded_data = miniz_oxide::inflate::decompress_to_vec(img_bytes)
             .map_err(|err| anyhow::anyhow!("{err}"))?;

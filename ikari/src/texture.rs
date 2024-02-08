@@ -71,7 +71,7 @@ impl Texture {
 
     pub fn unpadded_bytes_per_row(&self, mip_level: Option<u32>) -> u32 {
         (self.size.width >> mip_level.unwrap_or(0))
-            * self.texture.format().block_size(None).unwrap()
+            * self.texture.format().block_copy_size(None).unwrap()
     }
 
     pub fn padded_bytes_per_row(&self, mip_level: Option<u32>) -> u32 {
@@ -155,7 +155,7 @@ impl Texture {
                 wgpu::ImageDataLayout {
                     offset: 0,
                     // queue.write_texture is exempt from COPY_BYTES_PER_ROW_ALIGNMENT requirement
-                    bytes_per_row: Some(format.block_size(None).unwrap() * dimensions.0),
+                    bytes_per_row: Some(format.block_copy_size(None).unwrap() * dimensions.0),
                     rows_per_image: Some(dimensions.1),
                 },
                 size,
@@ -181,7 +181,7 @@ impl Texture {
             base_renderer.device.create_texture_with_data(
                 &base_renderer.queue,
                 &wgpu::TextureDescriptor {
-                    label,
+                    label: if USE_LABELS { label } else { None },
                     size,
                     mip_level_count: baked_mip_levels,
                     sample_count: 1,
@@ -190,6 +190,7 @@ impl Texture {
                     usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                     view_formats: &[],
                 },
+                wgpu::util::TextureDataOrder::LayerMajor,
                 img_bytes,
             )
         };
@@ -478,7 +479,7 @@ impl Texture {
         let texture = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
-                label,
+                label: if USE_LABELS { label } else { None },
                 size,
                 mip_level_count: 1,
                 sample_count: 1,
@@ -535,7 +536,7 @@ impl Texture {
         let texture = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
-                label,
+                label: if USE_LABELS { label } else { None },
                 size,
                 mip_level_count: 1,
                 sample_count: 1,
@@ -613,7 +614,7 @@ impl Texture {
         let cubemap_texture = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
-                label,
+                label: if USE_LABELS { label } else { None },
                 size,
                 mip_level_count,
                 sample_count: 1,
@@ -637,7 +638,7 @@ impl Texture {
             base_renderer
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &base_renderer.single_uniform_bind_group_layout,
+                    layout: &renderer_constant_data.single_uniform_bind_group_layout,
                     entries: &[wgpu::BindGroupEntry {
                         binding: 0,
                         resource: camera_buffer.as_entire_binding(),
@@ -694,7 +695,7 @@ impl Texture {
                     base_renderer
                         .device
                         .create_bind_group(&wgpu::BindGroupDescriptor {
-                            layout: &base_renderer.single_texture_bind_group_layout,
+                            layout: &renderer_constant_data.single_texture_bind_group_layout,
                             entries: &[
                                 wgpu::BindGroupEntry {
                                     binding: 0,
@@ -722,10 +723,12 @@ impl Texture {
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                            store: true,
+                            store: wgpu::StoreOp::Store,
                         },
                     })],
                     depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
                 });
                 rpass.set_pipeline(equirectangular_to_cubemap_pipeline);
                 rpass.set_bind_group(0, &er_texture_bind_group, &[]);
@@ -810,7 +813,7 @@ impl Texture {
         let texture = base_renderer.device.create_texture_with_data(
             &base_renderer.queue,
             &wgpu::TextureDescriptor {
-                label,
+                label: if USE_LABELS { label } else { None },
                 size,
                 mip_level_count: image.mip_count,
                 sample_count: 1,
@@ -821,6 +824,7 @@ impl Texture {
                     | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             },
+            wgpu::util::TextureDataOrder::LayerMajor,
             image.raw,
         );
 
@@ -869,7 +873,7 @@ impl Texture {
         let env_map = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
-                label,
+                label: if USE_LABELS { label } else { None },
                 size,
                 mip_level_count: 1,
                 sample_count: 1,
@@ -893,7 +897,7 @@ impl Texture {
             base_renderer
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &base_renderer.single_uniform_bind_group_layout,
+                    layout: &renderer_constant_data.single_uniform_bind_group_layout,
                     entries: &[wgpu::BindGroupEntry {
                         binding: 0,
                         resource: camera_buffer.as_entire_binding(),
@@ -934,7 +938,7 @@ impl Texture {
                 base_renderer
                     .device
                     .create_bind_group(&wgpu::BindGroupDescriptor {
-                        layout: &base_renderer.single_cube_texture_bind_group_layout,
+                        layout: &renderer_constant_data.single_cube_texture_bind_group_layout,
                         entries: &[
                             wgpu::BindGroupEntry {
                                 binding: 0,
@@ -969,10 +973,12 @@ impl Texture {
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                            store: true,
+                            store: wgpu::StoreOp::Store,
                         },
                     })],
                     depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
                 });
                 rpass.set_pipeline(&renderer_constant_data.diffuse_env_map_gen_pipeline);
                 rpass.set_bind_group(0, &skybox_ir_texture_bind_group, &[]);
@@ -1054,7 +1060,7 @@ impl Texture {
         let env_map = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
-                label,
+                label: if USE_LABELS { label } else { None },
                 size,
                 mip_level_count,
                 sample_count: 1,
@@ -1087,7 +1093,7 @@ impl Texture {
             base_renderer
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &base_renderer.two_uniform_bind_group_layout,
+                    layout: &renderer_constant_data.two_uniform_bind_group_layout,
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
@@ -1140,7 +1146,8 @@ impl Texture {
                             base_renderer
                                 .device
                                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                                    layout: &base_renderer.single_cube_texture_bind_group_layout,
+                                    layout: &renderer_constant_data
+                                        .single_cube_texture_bind_group_layout,
                                     entries: &[
                                         wgpu::BindGroupEntry {
                                             binding: 0,
@@ -1184,10 +1191,12 @@ impl Texture {
                                         resolve_target: None,
                                         ops: wgpu::Operations {
                                             load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                                            store: true,
+                                            store: wgpu::StoreOp::Store,
                                         },
                                     })],
                                     depth_stencil_attachment: None,
+                                    occlusion_query_set: None,
+                                    timestamp_writes: None,
                                 });
                             rpass.set_pipeline(
                                 &renderer_constant_data.specular_env_map_gen_pipeline,
@@ -1314,10 +1323,12 @@ impl Texture {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::RED),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
             });
             rpass.set_pipeline(brdf_lut_gen_pipeline);
             rpass.draw(0..3, 0..1);
@@ -1466,10 +1477,12 @@ fn generate_mipmaps_for_texture(
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                    store: true,
+                    store: wgpu::StoreOp::Store,
                 },
             })],
             depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
         });
         rpass.set_pipeline(&mip_render_pipeline);
         rpass.set_bind_group(0, &bind_group, &[]);

@@ -1,4 +1,5 @@
-use crate::file_loader::GameFilePath;
+use crate::asset_loader::SceneAssetLoadParams;
+use crate::file_manager::GameFilePath;
 use crate::mesh::*;
 use crate::renderer::*;
 use crate::sampler_cache::*;
@@ -14,9 +15,6 @@ use std::path::PathBuf;
 use anyhow::{bail, Result};
 use approx::abs_diff_eq;
 use glam::f32::{Mat4, Vec2, Vec3, Vec4};
-
-// TODO: replace with log::debug and use RUST_LOG module filter to view logs?
-const SCENE_LOAD_DEBUG: bool = false;
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct ChannelPropertyStr<'a>(&'a str);
@@ -39,7 +37,7 @@ pub async fn build_scene(
         &Vec<gltf::buffer::Data>,
         &Vec<gltf::image::Data>,
     ),
-    gltf_path: &GameFilePath,
+    params: SceneAssetLoadParams,
 ) -> Result<(Scene, BindableSceneData)> {
     let scene_index = document
         .default_scene()
@@ -47,11 +45,12 @@ pub async fn build_scene(
         .unwrap_or(0);
 
     let materials: Vec<_> = document.materials().collect();
+    let material_count = materials.len();
 
-    let textures = get_textures(document, images, materials, gltf_path).await?;
+    let textures = get_textures(document, images, materials, &params.path).await?;
 
-    // node index -> parent node index
-    let parent_index_map: HashMap<usize, usize> = document
+    // gltf node index -> gltf parent node index
+    let gltf_parent_index_map: HashMap<usize, usize> = document
         .nodes()
         .flat_map(|parent_node| {
             let parent_node_index = parent_node.index();
@@ -87,91 +86,124 @@ pub async fn build_scene(
 
     let meshes: Vec<_> = document.meshes().collect();
 
-    let make_supported_mesh_iterator = || {
-        meshes
-            .iter()
-            .flat_map(|mesh| mesh.primitives().map(|prim| (&meshes[mesh.index()], prim)))
-            .filter(|(_, prim)| {
-                prim.mode() == gltf::mesh::Mode::Triangles
-                    && (prim.material().alpha_mode() == gltf::material::AlphaMode::Opaque
-                        || prim.material().alpha_mode() == gltf::material::AlphaMode::Mask)
-            })
-    };
+    let mut supported_meshes = vec![];
+    let mut supported_primitives = vec![];
 
-    let supported_mesh_count = make_supported_mesh_iterator().count();
+    for mesh in meshes.iter() {
+        for primitive in mesh.primitives() {
+            if primitive.mode() != gltf::mesh::Mode::Triangles {
+                log::warn!(
+                    "{:?}: Primitive mode {:?} is not currently supported. Primitive {:?} of mesh {:?} will be skipped.",
+                    params.path.relative_path,
+                    primitive.mode(),
+                    primitive.index(),
+                    mesh.index(),
+                );
+                continue;
+            }
 
-    let mut bindable_pbr_meshes: Vec<BindablePbrMesh> = Vec::with_capacity(supported_mesh_count);
+            if primitive.material().alpha_mode() == gltf::material::AlphaMode::Blend {
+                log::warn!(
+                    "{:?}: Loading gltf materials in alpha blending mode is not current supported. Material {:?} will be rendered as opaque.",
+                    params.path.relative_path,
+                    primitive.material().index()
+                );
+            }
+
+            supported_primitives.push(primitive);
+        }
+
+        supported_meshes.push((mesh, supported_primitives.clone()));
+        supported_primitives.clear();
+    }
+
+    let mut bindable_meshes: Vec<BindableGeometryBuffers> =
+        Vec::with_capacity(supported_meshes.len());
     let mut bindable_wireframe_meshes: Vec<BindableWireframeMesh> =
-        Vec::with_capacity(supported_mesh_count);
-    // gltf node index -> game node
-    let mut node_mesh_links: HashMap<usize, Vec<usize>> = HashMap::new();
+        Vec::with_capacity(supported_meshes.len());
+    let mut bindable_pbr_materials: Vec<BindablePbrMaterial> = Vec::with_capacity(material_count);
+
+    // collect a list of visuals to be created for each gltf node
+    // gltf node index -> Vec<(bindable mesh index, bindable material index)>
+    let mut node_visual_map: HashMap<usize, Vec<(usize, usize)>> = HashMap::new();
 
     {
         profiling::scope!("meshes");
 
-        for (binded_pbr_mesh_index, (mesh, primitive_group)) in
-            make_supported_mesh_iterator().enumerate()
-        {
-            let dynamic_pbr_params = get_dynamic_pbr_params(&primitive_group.material());
+        for (_gltf_mesh_index, (mesh, primitives)) in supported_meshes.iter().enumerate() {
+            for primitive in primitives.iter() {
+                let (geometry, wireframe_indices) = build_geometry(primitive, buffers)?;
+                bindable_meshes.push(geometry);
+                let mesh_index = bindable_meshes.len() - 1;
 
-            let material = get_indexed_pbr_material(&primitive_group.material());
-
-            let (geometry, wireframe_indices) = build_geometry(&primitive_group, buffers)?;
-
-            let primitive_mode = crate::renderer::PrimitiveMode::Triangles;
-
-            let alpha_mode = match primitive_group.material().alpha_mode() {
-                gltf::material::AlphaMode::Opaque => crate::renderer::AlphaMode::Opaque,
-                gltf::material::AlphaMode::Mask => crate::renderer::AlphaMode::Mask,
-                gltf::material::AlphaMode::Blend => {
-                    todo!("Alpha blending isn't yet supported")
+                if params.generate_wireframe_meshes {
+                    bindable_wireframe_meshes.push(BindableWireframeMesh {
+                        source_mesh_index: mesh_index,
+                        indices: wireframe_indices,
+                    });
                 }
-            };
 
-            if let Some(gltf_node_indices) = mesh_node_map.get(&mesh.index()) {
-                for gltf_node_index in gltf_node_indices {
-                    let binded_pbr_mesh_indices =
-                        node_mesh_links.entry(*gltf_node_index).or_insert(vec![]);
-                    binded_pbr_mesh_indices.push(binded_pbr_mesh_index);
+                bindable_pbr_materials.push(BindablePbrMaterial {
+                    textures: get_indexed_pbr_material(&primitive.material()),
+                    dynamic_pbr_params: get_dynamic_pbr_params(&primitive.material()),
+                });
+                let pbr_material_index = bindable_pbr_materials.len() - 1;
+
+                if let Some(gltf_node_indices) = mesh_node_map.get(&mesh.index()) {
+                    for gltf_node_index in gltf_node_indices {
+                        let node_visuals =
+                            node_visual_map.entry(*gltf_node_index).or_insert(vec![]);
+                        node_visuals.push((mesh_index, pbr_material_index));
+                    }
                 }
             }
-
-            bindable_wireframe_meshes.push(BindableWireframeMesh {
-                source_mesh_type: MeshType::Pbr,
-                source_mesh_index: binded_pbr_mesh_index,
-                indices: wireframe_indices,
-            });
-
-            bindable_pbr_meshes.push(BindablePbrMesh {
-                geometry,
-                material,
-                dynamic_pbr_params,
-                primitive_mode,
-                alpha_mode,
-            });
         }
     }
 
     // it is important that the node indices from the gltf document are preserved
     // for any of the other stuff that refers to the nodes by index such as the animations
-    let nodes: Vec<_> = document
-        .nodes()
-        .map(|node| IndexedGameNodeDesc {
-            transform: crate::transform::Transform::from(node.transform()),
-            skin_index: node.skin().map(|skin| skin.index()),
-            mesh: node_mesh_links
-                .get(&node.index())
-                .map(|mesh_indices| GameNodeMesh {
-                    mesh_indices: mesh_indices.clone(),
-                    mesh_type: GameNodeMeshType::Pbr {
-                        material_override: None,
+    let mut nodes: Vec<IndexedGameNodeDesc> = vec![];
+    for gltf_node in document.nodes() {
+        // 'parent node', corresponds directly to gltf node
+        nodes.push(IndexedGameNodeDesc {
+            transform: crate::transform::Transform::from(gltf_node.transform()),
+            skin_index: gltf_node.skin().map(|skin| skin.index()),
+            visual: None, // will be added later
+            name: gltf_node.name().map(|name| name.to_string()),
+            parent_index: gltf_parent_index_map.get(&gltf_node.index()).copied(),
+        });
+    }
+
+    for gltf_node in document.nodes() {
+        if let Some(visuals) = node_visual_map.get(&gltf_node.index()) {
+            for (i, (mesh_index, pbr_material_index)) in visuals.iter().enumerate() {
+                let visual = GameNodeVisual::from_mesh_mat(
+                    *mesh_index,
+                    Material::Pbr {
+                        binded_material_index: *pbr_material_index,
+                        dynamic_pbr_params: None,
                     },
-                    ..Default::default()
-                }),
-            name: node.name().map(|name| name.to_string()),
-            parent_index: parent_index_map.get(&node.index()).copied(),
-        })
-        .collect();
+                );
+
+                if visuals.len() == 1 {
+                    // don't bother adding 'auto-child' nodes, just put the visual on the 'parent' node.
+                    // skinning breaks without this optimization 🙃
+                    nodes[gltf_node.index()].visual = Some(visual);
+                } else {
+                    // child nodes which don't exist as gltf nodes but are used to display the visuals of the above 'parent node'
+                    nodes.push(IndexedGameNodeDesc {
+                        transform: Default::default(),
+                        skin_index: None,
+                        visual: Some(visual),
+                        name: gltf_node
+                            .name()
+                            .map(|name| format!("{name} (auto-child {i})",)),
+                        parent_index: Some(gltf_node.index()),
+                    });
+                }
+            }
+        }
+    }
 
     let animations = get_animations(document, buffers)?;
 
@@ -211,9 +243,12 @@ pub async fn build_scene(
                     .iter()
                     .find(|node| node.skin_index == Some(skin_index))
                     .unwrap();
-                let skeleton_mesh_index = skeleton_skin_node.mesh.as_ref().unwrap().mesh_indices[0];
-                let skeleton_mesh_vertices =
-                    &bindable_pbr_meshes[skeleton_mesh_index].geometry.vertices;
+                let skeleton_mesh_index = skeleton_skin_node
+                    .visual
+                    .as_ref()
+                    .expect("Skeleton skin node should have a mesh")
+                    .mesh_index;
+                let skeleton_mesh_vertices = &bindable_meshes[skeleton_mesh_index].vertices;
 
                 let bone_bounding_box_transforms: Vec<_> = (0..bone_inverse_bind_matrices.len())
                     .map(|bone_index| {
@@ -232,13 +267,7 @@ pub async fn build_scene(
                                     })
                             })
                             .map(|vertex| {
-                                let position = Vec4::new(
-                                    vertex.position[0],
-                                    vertex.position[1],
-                                    vertex.position[2],
-                                    1.0,
-                                );
-                                bone_inv_bind_matrix * position
+                                bone_inv_bind_matrix.transform_point3(Vec3::from(vertex.position))
                             })
                             .collect();
                         if vertex_positions_for_node.is_empty() {
@@ -246,19 +275,11 @@ pub async fn build_scene(
                                 .scale(Vec3::new(0.0, 0.0, 0.0))
                                 .build();
                         }
-                        let mut min_point = Vec3::new(
-                            vertex_positions_for_node[0].x,
-                            vertex_positions_for_node[0].y,
-                            vertex_positions_for_node[0].z,
-                        );
+                        let mut min_point = vertex_positions_for_node[0];
                         let mut max_point = min_point;
                         for pos in vertex_positions_for_node {
-                            min_point.x = min_point.x.min(pos.x);
-                            min_point.y = min_point.y.min(pos.y);
-                            min_point.z = min_point.z.min(pos.z);
-                            max_point.x = max_point.x.max(pos.x);
-                            max_point.y = max_point.y.max(pos.y);
-                            max_point.z = max_point.z.max(pos.z);
+                            min_point = min_point.min(pos);
+                            max_point = max_point.max(pos);
                         }
                         TransformBuilder::new()
                             .scale((max_point - min_point) / 2.0)
@@ -277,41 +298,34 @@ pub async fn build_scene(
     };
 
     let bindable_scene_data = BindableSceneData {
-        bindable_pbr_meshes,
-        bindable_unlit_meshes: vec![],
-        bindable_transparent_meshes: vec![],
+        bindable_meshes,
         bindable_wireframe_meshes,
+        bindable_pbr_materials,
         textures,
     };
 
-    if SCENE_LOAD_DEBUG {
-        log::info!("Scene loaded:");
+    log::debug!("Scene loaded ({:?}):", params.path.relative_path);
 
-        log::info!("  - node count: {:?}", nodes.len());
-        log::info!("  - skin count: {:?}", skins.len());
-        log::info!("  - animation count: {:?}", animations.len());
-        log::info!("  Render buffers:");
-        log::info!(
-            "    - PBR mesh count: {:?}",
-            bindable_scene_data.bindable_pbr_meshes.len()
-        );
-        log::info!(
-            "    - Unlit mesh count: {:?}",
-            bindable_scene_data.bindable_unlit_meshes.len()
-        );
-        log::info!(
-            "    - Transparent mesh count: {:?}",
-            bindable_scene_data.bindable_transparent_meshes.len()
-        );
-        log::info!(
-            "    - Wireframe mesh count: {:?}",
-            bindable_scene_data.bindable_transparent_meshes.len()
-        );
-        log::info!(
-            "    - Texture count: {:?}",
-            bindable_scene_data.textures.len()
-        );
-    }
+    log::debug!("  - node count: {:?}", nodes.len());
+    log::debug!("  - skin count: {:?}", skins.len());
+    log::debug!("  - animation count: {:?}", animations.len());
+    log::debug!("  Render buffers:");
+    log::debug!(
+        "    - Mesh count: {:?}",
+        bindable_scene_data.bindable_meshes.len()
+    );
+    log::debug!(
+        "    - Wireframe mesh count: {:?}",
+        bindable_scene_data.bindable_wireframe_meshes.len()
+    );
+    log::debug!(
+        "    - PBR material count: {:?}",
+        bindable_scene_data.bindable_pbr_materials.len()
+    );
+    log::debug!(
+        "    - Texture count: {:?}",
+        bindable_scene_data.textures.len()
+    );
 
     let scene = Scene::new(nodes, skins, animations);
 
@@ -546,7 +560,7 @@ async fn get_image_pixels(
     is_srgb: bool,
     is_normal_map: bool,
 ) -> Result<(Vec<u8>, wgpu::TextureFormat, u32, (u32, u32), bool)> {
-    use crate::file_loader::FileLoader;
+    use crate::file_manager::FileManager;
 
     let compressed_image_data = match texture.source().source() {
         gltf::image::Source::Uri { uri, .. } => {
@@ -561,7 +575,7 @@ async fn get_image_pixels(
             });
             if compressed_texture_path.resolve().try_exists()? {
                 let texture_compressor = TextureCompressor;
-                let texture_bytes = FileLoader::read(&compressed_texture_path).await?;
+                let texture_bytes = FileManager::read(&compressed_texture_path).await?;
                 Some(texture_compressor.transcode_image(&texture_bytes, is_normal_map)?)
             } else {
                 None
@@ -699,13 +713,13 @@ fn get_full_node_list_impl<'a>(
     }
 }
 
-fn get_indexed_pbr_material(material: &gltf::material::Material) -> IndexedPbrMaterial {
+fn get_indexed_pbr_material(material: &gltf::material::Material) -> IndexedPbrTextures {
     let pbr_info = material.pbr_metallic_roughness();
 
     let get_texture_index =
         |texture: Option<gltf::texture::Texture>| texture.map(|texture| texture.index());
 
-    IndexedPbrMaterial {
+    IndexedPbrTextures {
         base_color: get_texture_index(pbr_info.base_color_texture().map(|info| info.texture())),
         normal: get_texture_index(material.normal_texture().map(|info| info.texture())),
         emissive: get_texture_index(material.emissive_texture().map(|info| info.texture())),

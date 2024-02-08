@@ -20,7 +20,7 @@ tracy-profile-dumps = ["profiling/profile-with-tracy"]
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
 half = { version = "2.3.1" }
-pollster = "0.3"
+pollster.workspace = true
 twox-hash = "1.6"
 lazy_static.workspace = true
 smallvec = { version = "1.11", features = ["union", "const_generics"] }
@@ -30,7 +30,7 @@ chrono = { version = "0.4.28", default-features = false, features = [
     "wasmbind",
     "clock",
 ] }
-instant = "0.1.12"
+web-time = "1.0.0"
 async-std = "1.12.0"
 
 # log
@@ -40,8 +40,7 @@ log.workspace = true
 
 # profiling
 profiling.workspace = true
-wgpu-profiler = "0.14.1"
-# wgpu-profiler = { path = "../../wgpu-profiler-fork" }
+wgpu-profiler.workspace = true
 
 # assets
 gltf.workspace = true
@@ -54,9 +53,9 @@ wgpu.workspace = true
 winit.workspace = true
 
 # math
-rand = { version = "0.8", features = ["small_rng"] }
+rand.workspace = true
 rapier3d-f64 = "0.17.2"
-glam = { version = "0.24.1", features = ["approx", "bytemuck"] }
+glam.workspace = true
 approx = "0.5"
 
 # audio
@@ -65,32 +64,17 @@ oddio = "0.6"
 symphonia = { version = "0.5.3", features = ["mp3", "wav"] }
 
 # UI
-iced = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb", features = [
-    "canvas",
-] }
-iced_wgpu = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
-iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "wgpu_webgpu_support_reb" }
-# iced = { version = "0.10" }
-# iced_wgpu = "0.11"
-# iced_winit = "0.10"
-# iced = { path = "../../iced-fork" }
-# iced_wgpu = { path = "../../iced-fork/wgpu", features = ["geometry"] }
-# iced_winit = { path = "../../iced-fork/winit" }
+iced.workspace = true
+iced_wgpu.workspace = true
+iced_winit.workspace = true
 
-plotters-iced = "0.9"
-plotters = { version = "0.3", default-features = false, features = [
-    "line_series",
-] }
-iced_aw = { version = "0.7", default-features = false, features = [
-    "modal",
-    "card",
-    "floating_element",
-] }
 wasm_thread = { version = "0.2.0", features = ["es_modules"] }
 futures-intrusive = "0.5.0"
 rmp-serde = "1.1.2"
 serde = "1.0.188"
 miniz_oxide = "0.7.1"
+byte-unit = "4.0.19"
+bitvec = "1.0.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 basis-universal = "0.3.0"
@@ -104,4 +88,3 @@ wasm-bindgen.workspace = true
 cpal = { git = "https://github.com/DouglasDwyer/cpal.git", rev = "91aeb4d", features = [
     "wasm-bindgen",
 ] }
-cosmic-text = { version = "0.9.0", features = ["wasm-web"] }

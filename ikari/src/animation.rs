@@ -69,7 +69,6 @@ pub fn step_animations(scene: &mut Scene, delta_time_seconds: f64) {
         if !state.is_playing {
             continue;
         }
-        // TODO: use f64?
         state.current_time_seconds += delta_time_seconds as f32 * animation.speed;
         if state.loop_type == LoopType::Once
             && state.current_time_seconds > animation.length_seconds
