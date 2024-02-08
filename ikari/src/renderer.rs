@@ -5,6 +5,8 @@ use crate::engine_state::EngineState;
 use crate::file_manager::GameFilePath;
 use crate::math::*;
 use crate::mesh::*;
+use crate::physics::rapier3d_f64::na::Vector3;
+use crate::physics::rapier3d_f64::prelude::*;
 use crate::sampler_cache::*;
 use crate::scene::*;
 use crate::skinning::*;
@@ -18,6 +20,8 @@ use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use bitvec::prelude::*;
+
 use anyhow::Result;
 use glam::f32::{Mat4, Vec3};
 use glam::Vec4;
@@ -30,10 +34,12 @@ use wgpu_profiler::GpuProfiler;
 
 pub(crate) const USE_LABELS: bool = true;
 pub(crate) const USE_ORTHOGRAPHIC_CAMERA: bool = false;
+pub(crate) const DISABLE_FRUSTUM_CULLING: bool = false;
 pub(crate) const USE_EXTRA_SHADOW_MAP_CULLING: bool = true;
 pub(crate) const DRAW_FRUSTUM_BOUNDING_SPHERE_FOR_SHADOW_MAPS: bool = false;
 
 pub const MAX_LIGHT_COUNT: usize = 32;
+pub const MAX_SHADOW_CASCADES: usize = 4;
 pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const FAR_PLANE_DISTANCE: f32 = 100000.0;
 pub const FOV_Y_DEG: f32 = 45.0;
@@ -42,9 +48,10 @@ pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE: f32 = 0.1;
 pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE: f32 = 1000.0;
 pub const POINT_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 1024;
 pub const DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 2048;
+// pub const DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 512;
 pub const POINT_LIGHT_SHOW_MAP_COUNT: u32 = 2;
 pub const DIRECTIONAL_LIGHT_SHOW_MAP_COUNT: u32 = 2;
-pub const DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH: f32 = 250.0;
+pub const DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH: f32 = 250.0; // relative to radius. final length is this value * radius
 pub const MIN_SHADOW_MAP_BIAS: f32 = 0.00005;
 
 #[repr(C)]
@@ -107,14 +114,6 @@ fn make_point_light_uniform_buffer(engine_state: &EngineState) -> Vec<PointLight
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct DirectionalLightUniform {
-    world_space_to_light_space: [[f32; 4]; 4],
-    direction: [f32; 4],
-    color: [f32; 4],
-}
-
-#[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Default)]
 struct PbrShaderOptionsUniform {
     options_1: [f32; 4],
@@ -123,61 +122,137 @@ struct PbrShaderOptionsUniform {
     options_4: [f32; 4],
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct DirectionalLightUniform {
+    direction: [f32; 4],
+    color: [f32; 4],
+}
+
 impl DirectionalLightUniform {
-    pub fn new(light: &DirectionalLight, adjusted_light_box: Sphere) -> Self {
+    pub fn new(light: &DirectionalLight) -> Self {
         let DirectionalLight {
             direction,
             color,
             intensity,
+            shadow_mapping_config,
         } = light;
-        let shader_camera_data = ShaderCameraData::orthographic(
-            look_in_dir(adjusted_light_box.center, light.direction),
-            adjusted_light_box.radius * 2.0,
-            adjusted_light_box.radius * 2.0,
-            -DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
-            DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
-            false,
-        );
+
         Self {
-            world_space_to_light_space: (shader_camera_data.proj * shader_camera_data.view)
-                .to_cols_array_2d(),
             direction: [direction.x, direction.y, direction.z, 1.0],
             color: [color.x, color.y, color.z, *intensity],
         }
     }
 }
+
 impl Default for DirectionalLightUniform {
     fn default() -> Self {
         Self {
-            world_space_to_light_space: Mat4::IDENTITY.to_cols_array_2d(),
             direction: [0.0, -1.0, 0.0, 1.0],
             color: [0.0, 0.0, 0.0, 0.0],
         }
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct DirectionalLightCascadeUniform {
+    world_space_to_light_space: [[f32; 4]; 4],
+    distance: f32,
+    _padding: [f32; 3],
+}
+
+impl DirectionalLightCascadeUniform {
+    // TODO: reuse 'frustum_slice_bounding_sphere' name elsewhere?
+    pub fn new(
+        distance: f32,
+        frustum_slice_bounding_sphere: Sphere,
+        light_direction: Vec3,
+    ) -> Self {
+        let shader_camera_data = ShaderCameraData::orthographic(
+            look_in_dir(frustum_slice_bounding_sphere.center, light_direction),
+            frustum_slice_bounding_sphere.radius * 2.0,
+            frustum_slice_bounding_sphere.radius * 2.0,
+            -DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
+            DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
+            false,
+        );
+
+        Self {
+            world_space_to_light_space: (shader_camera_data.proj * shader_camera_data.view)
+                .to_cols_array_2d(),
+            distance,
+            _padding: Default::default(),
+        }
+    }
+}
+
+impl Default for DirectionalLightCascadeUniform {
+    fn default() -> Self {
+        Self {
+            world_space_to_light_space: Mat4::IDENTITY.to_cols_array_2d(),
+            distance: 0.0,
+            _padding: Default::default(),
+        }
+    }
+}
+
 fn make_directional_light_uniform_buffer(
     lights: &[DirectionalLight],
-    adjusted_light_boxes: &[Sphere],
-) -> Vec<DirectionalLightUniform> {
+    // TODO: maybe this is the best name?
+    all_resolved_cascades: &[Vec<(f32, Sphere)>],
+) -> Vec<u8> {
     let mut light_uniforms = Vec::new();
 
     let active_light_count = lights.len();
     let mut active_lights = lights
         .iter()
-        .enumerate()
-        .map(|(light_index, light)| {
-            DirectionalLightUniform::new(light, adjusted_light_boxes[light_index])
-        })
+        .map(|light| DirectionalLightUniform::new(light))
         .collect::<Vec<_>>();
     light_uniforms.append(&mut active_lights);
+    light_uniforms.resize(MAX_LIGHT_COUNT, DirectionalLightUniform::default());
 
-    let mut inactive_lights = (0..(MAX_LIGHT_COUNT - active_light_count))
-        .map(|_| DirectionalLightUniform::default())
-        .collect::<Vec<_>>();
-    light_uniforms.append(&mut inactive_lights);
+    let mut cascade_uniforms = vec![];
+    let mut tmp_cascade_distances = vec![];
 
-    light_uniforms
+    for light_index in 0..active_light_count {
+        let light_direction = lights[light_index].direction;
+
+        for i in 0..all_resolved_cascades[light_index].len() {
+            let (distance, frustum_slice_bounding_sphere) = &all_resolved_cascades[light_index][i];
+
+            // let _previous_distance = if i == 0 {
+            //     0.0
+            // } else {
+            //     all_resolved_cascades[light_index][i - 1].0
+            // };
+            // let distance = frustum_slice_bounding_sphere.radius
+            //     + (_previous_distance + (distance - _previous_distance) / 2.0);
+
+            tmp_cascade_distances.push(DirectionalLightCascadeUniform::new(
+                *distance,
+                *frustum_slice_bounding_sphere,
+                light_direction,
+            ));
+        }
+
+        tmp_cascade_distances.resize(
+            MAX_SHADOW_CASCADES,
+            DirectionalLightCascadeUniform::default(),
+        );
+
+        cascade_uniforms.append(&mut tmp_cascade_distances);
+    }
+
+    cascade_uniforms.resize(
+        MAX_LIGHT_COUNT * MAX_SHADOW_CASCADES,
+        DirectionalLightCascadeUniform::default(),
+    );
+
+    let mut result_bytes = bytemuck::cast_slice(&light_uniforms).to_vec();
+    result_bytes.extend_from_slice(bytemuck::cast_slice(&cascade_uniforms));
+
+    result_bytes
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
@@ -272,6 +347,7 @@ fn make_pbr_shader_options_uniform_buffer(
     shadow_bias: f32,
     soft_shadow_factor: f32,
     enable_shadow_debug: bool,
+    enable_cascade_debug: bool,
     soft_shadow_grid_dims: u32,
 ) -> PbrShaderOptionsUniform {
     let options_1 = [
@@ -281,7 +357,12 @@ fn make_pbr_shader_options_uniform_buffer(
         soft_shadow_grid_dims as f32,
     ];
 
-    let options_2 = [shadow_bias, 0.0, 0.0, 0.0];
+    let options_2 = [
+        shadow_bias,
+        if enable_cascade_debug { 1.0 } else { 0.0 },
+        0.0,
+        0.0,
+    ];
 
     PbrShaderOptionsUniform {
         options_1,
@@ -309,7 +390,7 @@ pub struct BindablePbrMaterial {
 
 #[derive(Debug)]
 pub struct BindedPbrMaterial {
-    pub textures_bind_group: wgpu::BindGroup,
+    pub textures_bind_group: WasmNotArc<wgpu::BindGroup>,
     pub dynamic_pbr_params: DynamicPbrParams,
 }
 
@@ -395,11 +476,29 @@ pub struct PointLight {
     pub intensity: f32,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
+pub struct DirectionalLightShadowMappingConfig {
+    pub num_cascades: u32,
+    pub maximum_distance: f32,
+    pub first_cascade_far_bound: f32,
+}
+
+impl Default for DirectionalLightShadowMappingConfig {
+    fn default() -> Self {
+        Self {
+            num_cascades: 4,
+            maximum_distance: 250.0,
+            first_cascade_far_bound: 5.0,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
 pub struct DirectionalLight {
     pub direction: Vec3,
     pub color: Vec3,
     pub intensity: f32,
+    pub shadow_mapping_config: DirectionalLightShadowMappingConfig,
 }
 
 pub struct BaseRenderer {
@@ -564,7 +663,7 @@ pub struct RendererPrivateData {
     // cpu
     all_bone_transforms: AllBoneTransforms,
     all_pbr_instances: ChunkedBuffer<GpuPbrMeshInstance, (usize, usize)>,
-    all_pbr_instances_culling_masks: Vec<u32>,
+    all_pbr_instances_culling_masks: Vec<BitVec>,
     all_unlit_instances: ChunkedBuffer<GpuUnlitMeshInstance, usize>,
     all_transparent_instances: ChunkedBuffer<GpuUnlitMeshInstance, usize>,
     all_wireframe_instances: ChunkedBuffer<GpuWireframeMeshInstance, usize>,
@@ -737,6 +836,8 @@ pub struct RendererData {
     pub bloom_threshold: f32,
     pub bloom_ramp_size: f32,
     pub render_scale: f32,
+    pub enable_depth_prepass: bool,
+    pub enable_directional_shadow_culling: bool,
     pub enable_bloom: bool,
     pub enable_shadows: bool,
     pub enable_wireframe_mode: bool,
@@ -748,6 +849,7 @@ pub struct RendererData {
     pub shadow_bias: f32,
     pub soft_shadow_factor: f32,
     pub enable_shadow_debug: bool,
+    pub enable_cascade_debug: bool,
     pub soft_shadow_grid_dims: u32,
     pub camera_node_id: Option<GameNodeId>,
 }
@@ -765,6 +867,7 @@ pub struct RendererConstantData {
     pub environment_textures_bind_group_layout: wgpu::BindGroupLayout,
 
     pub mesh_pipeline: wgpu::RenderPipeline,
+    pub depth_prepass_pipeline: wgpu::RenderPipeline,
     pub unlit_mesh_pipeline: wgpu::RenderPipeline,
     pub transparent_mesh_pipeline: wgpu::RenderPipeline,
     pub wireframe_pipeline: wgpu::RenderPipeline,
@@ -1326,6 +1429,17 @@ impl Renderer {
             .device
             .create_render_pipeline(&mesh_pipeline_descriptor);
 
+        // depth_prepass_fs_main
+        let mut depth_prepass_pipeline_descriptor = mesh_pipeline_descriptor.clone();
+        depth_prepass_pipeline_descriptor.fragment = Some(wgpu::FragmentState {
+            module: &textured_mesh_shader,
+            entry_point: "depth_prepass_fs_main",
+            targets: &[],
+        });
+        let depth_prepass_pipeline = base
+            .device
+            .create_render_pipeline(&depth_prepass_pipeline_descriptor);
+
         let unlit_mesh_pipeline_layout =
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1882,6 +1996,7 @@ impl Renderer {
             environment_textures_bind_group_layout,
 
             mesh_pipeline,
+            depth_prepass_pipeline,
             unlit_mesh_pipeline,
             transparent_mesh_pipeline,
             wireframe_pipeline,
@@ -2267,15 +2382,11 @@ impl Renderer {
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
-        let initial_directional_lights_buffer: Vec<u8> = (0..(MAX_LIGHT_COUNT
-            * std::mem::size_of::<DirectionalLightUniform>()))
-            .map(|_| 0u8)
-            .collect();
         let directional_lights_buffer =
             base.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: USE_LABELS.then_some("Directional Lights Buffer"),
-                    contents: &initial_directional_lights_buffer,
+                    contents: &make_directional_light_uniform_buffer(&[], &[]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
@@ -2283,12 +2394,14 @@ impl Renderer {
         let shadow_bias = Default::default();
         let soft_shadow_factor = Default::default();
         let enable_shadow_debug = Default::default();
+        let enable_cascade_debug = Default::default();
         let soft_shadow_grid_dims = Default::default();
         let initial_pbr_shader_options_buffer = make_pbr_shader_options_uniform_buffer(
             enable_soft_shadows,
             shadow_bias,
             soft_shadow_factor,
             enable_shadow_debug,
+            enable_cascade_debug,
             soft_shadow_grid_dims,
         );
         let pbr_shader_options_buffer =
@@ -2456,7 +2569,7 @@ impl Renderer {
                 DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION,
             ),
             Some("directional_shadow_map_texture"),
-            DIRECTIONAL_LIGHT_SHOW_MAP_COUNT,
+            DIRECTIONAL_LIGHT_SHOW_MAP_COUNT * MAX_SHADOW_CASCADES as u32,
         );
 
         let environment_textures_bind_group = Self::get_environment_textures_bind_group(
@@ -2480,6 +2593,8 @@ impl Renderer {
             bloom_ramp_size: 0.2,
             render_scale: initial_render_scale,
             enable_bloom: true,
+            enable_depth_prepass: false,
+            enable_directional_shadow_culling: true,
             enable_shadows: true,
             enable_wireframe_mode: false,
             draw_node_bounding_spheres: false,
@@ -2490,6 +2605,7 @@ impl Renderer {
             shadow_bias,
             soft_shadow_factor,
             enable_shadow_debug,
+            enable_cascade_debug,
             soft_shadow_grid_dims,
             camera_node_id: None,
         };
@@ -2754,7 +2870,7 @@ impl Renderer {
 
         data.binded_pbr_materials.push(BindedPbrMaterial {
             dynamic_pbr_params,
-            textures_bind_group,
+            textures_bind_group: WasmNotArc::new(textures_bind_group),
         });
         let material_index = data.binded_pbr_materials.len() - 1;
 
@@ -3099,7 +3215,7 @@ impl Renderer {
         engine_state: &mut EngineState,
         main_culling_frustum: &Frustum,
         main_culling_frustum_desc: &CameraFrustumDescriptor,
-        adjusted_directional_light_boxes: &Vec<Sphere>,
+        resolved_directional_light_cascades: &Vec<Vec<(f32, Sphere)>>,
     ) {
         let scene = &mut engine_state.scene;
 
@@ -3302,67 +3418,80 @@ impl Renderer {
         if data.draw_directional_light_culling_frusta {
             let mut new_node_descs = vec![];
             for (light_index, directional_light) in scene.directional_lights.iter().enumerate() {
-                let adjusted_light_box = adjusted_directional_light_boxes[light_index];
-                let mut transform = Transform::from(
-                    look_in_dir(adjusted_light_box.center, directional_light.direction)
+                for (cascade_index, (_, frustum_slice_bounding_sphere)) in
+                    resolved_directional_light_cascades[light_index]
+                        .iter()
+                        .enumerate()
+                {
+                    let mut transform = Transform::from(
+                        look_in_dir(
+                            frustum_slice_bounding_sphere.center,
+                            directional_light.direction,
+                        )
                         .to_cols_array_2d(),
-                );
-                transform.set_scale(Vec3::new(
-                    adjusted_light_box.radius,
-                    adjusted_light_box.radius,
-                    DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH,
-                ));
+                    );
+                    transform.set_scale(Vec3::new(
+                        frustum_slice_bounding_sphere.radius,
+                        frustum_slice_bounding_sphere.radius,
+                        DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH,
+                    ));
 
-                let culling_box_mesh = GameNodeVisual {
-                    material: Material::Transparent {
-                        color: Vec4::new(1.0, 0.0, 0.0, 0.1),
-                        premultiplied_alpha: false,
-                    },
-                    mesh_index: self.constant_data.cube_mesh_index,
-                    wireframe: false,
-                    cullable: false,
-                };
-
-                let culling_box_mesh_wf = GameNodeVisual {
-                    wireframe: true,
-                    ..culling_box_mesh.clone()
-                };
-
-                new_node_descs.push(
-                    GameNodeDescBuilder::new()
-                        .transform(transform)
-                        .visual(Some(culling_box_mesh))
-                        .build(),
-                );
-                new_node_descs.push(
-                    GameNodeDescBuilder::new()
-                        .transform(transform)
-                        .visual(Some(culling_box_mesh_wf))
-                        .build(),
-                );
-
-                if DRAW_FRUSTUM_BOUNDING_SPHERE_FOR_SHADOW_MAPS {
-                    let frustum_bounding_sphere_mesh = GameNodeVisual {
+                    let culling_box_mesh = GameNodeVisual {
                         material: Material::Transparent {
-                            color: Vec4::new(0.0, 0.0, 1.0, 0.1),
+                            color: match cascade_index {
+                                0 => Vec4::new(0.0, 1.0, 0.0, 0.1),
+                                1 => Vec4::new(0.0, 0.0, 1.0, 0.1),
+                                2 => Vec4::new(1.0, 0.0, 1.0, 0.1),
+                                _ => Vec4::new(1.0, 0.0, 0.0, 0.1),
+                            },
                             premultiplied_alpha: false,
                         },
-                        mesh_index: self.constant_data.sphere_mesh_index,
+                        mesh_index: self.constant_data.cube_mesh_index,
                         wireframe: false,
                         cullable: false,
                     };
 
+                    let culling_box_mesh_wf = GameNodeVisual {
+                        wireframe: true,
+                        ..culling_box_mesh.clone()
+                    };
+
                     new_node_descs.push(
                         GameNodeDescBuilder::new()
-                            .transform(
-                                TransformBuilder::new()
-                                    .position(adjusted_light_box.center)
-                                    .scale(Vec3::splat(adjusted_light_box.radius))
-                                    .build(),
-                            )
-                            .visual(Some(frustum_bounding_sphere_mesh))
+                            .transform(transform)
+                            .visual(Some(culling_box_mesh))
                             .build(),
                     );
+                    new_node_descs.push(
+                        GameNodeDescBuilder::new()
+                            .transform(transform)
+                            .visual(Some(culling_box_mesh_wf))
+                            .build(),
+                    );
+
+                    if DRAW_FRUSTUM_BOUNDING_SPHERE_FOR_SHADOW_MAPS {
+                        let frustum_bounding_sphere_mesh = GameNodeVisual {
+                            material: Material::Transparent {
+                                color: Vec4::new(0.0, 0.0, 1.0, 0.1),
+                                premultiplied_alpha: false,
+                            },
+                            mesh_index: self.constant_data.sphere_mesh_index,
+                            wireframe: false,
+                            cullable: false,
+                        };
+
+                        new_node_descs.push(
+                            GameNodeDescBuilder::new()
+                                .transform(
+                                    TransformBuilder::new()
+                                        .position(frustum_slice_bounding_sphere.center)
+                                        .scale(Vec3::splat(frustum_slice_bounding_sphere.radius))
+                                        .build(),
+                                )
+                                .visual(Some(frustum_bounding_sphere_mesh))
+                                .build(),
+                        );
+                    }
                 }
             }
 
@@ -3464,11 +3593,11 @@ impl Renderer {
         Some(camera_culling_frustum.sphere_intersection_test(node_bounding_sphere))
     }
 
-    // culling mask is a bitmask where each bit corresponds to a frustum
-    // and the value of the bit represents whether or not the object
+    // culling mask is a bitvec where each bit corresponds to a frustum
+    // and the value of the bit represents whether the object
     // is touching that frustum or not. the first bit represnts the main
     // camera frustum, the subsequent bits represent the directional shadow
-    // mapping frusta and the rest of the bits represent the point light shadow
+    // mapping boxes and the rest of the bits represent the point light shadow
     // mapping frusta, of which there are 6 per point light so 6 bits are used
     // per point light.
     fn get_node_culling_mask(
@@ -3477,22 +3606,31 @@ impl Renderer {
         engine_state: &EngineState,
         camera_culling_frustum: &Frustum,
         point_lights_frusta: &PointLightFrustaWithCullingInfo,
-    ) -> u32 {
-        if USE_ORTHOGRAPHIC_CAMERA {
-            return u32::MAX;
+        resolved_directional_light_cascades: &Vec<Vec<(f32, Sphere)>>,
+    ) -> BitVec {
+        let directional_light_camera_count: usize = engine_state
+            .scene
+            .directional_lights
+            .iter()
+            .map(|light| light.shadow_mapping_config.num_cascades as usize)
+            .sum();
+        let point_light_camera_count = engine_state.scene.point_lights.len() * 6;
+        let camera_count = 1 + directional_light_camera_count + point_light_camera_count;
+
+        if DISABLE_FRUSTUM_CULLING
+            || USE_ORTHOGRAPHIC_CAMERA
+            || !data.enable_directional_shadow_culling
+        {
+            return BitVec::repeat(true, camera_count);
         }
 
-        assert!(1 + engine_state.scene.directional_lights.len() + engine_state.scene.point_lights.len() * 6 <= 32,
-            "u32 can only store a max of 5 point lights, might be worth using a larger bitvec or a Vec<bool> or something"
-        );
-
         if node.visual.is_none() {
-            return 0;
+            return BitVec::repeat(false, camera_count);
         }
 
         /* bounding boxes will be wrong for skinned meshes so we currently can't cull them */
         if node.skin_index.is_some() || !node.visual.as_ref().unwrap().cullable {
-            return u32::MAX;
+            return BitVec::repeat(true, camera_count);
         }
 
         let node_bounding_sphere = engine_state
@@ -3500,10 +3638,20 @@ impl Renderer {
             .get_node_bounding_sphere_opt(node.id(), data);
 
         if node_bounding_sphere.is_none() {
-            return 0;
+            return BitVec::repeat(false, camera_count);
         }
 
         let node_bounding_sphere = node_bounding_sphere.unwrap();
+
+        let node_bounding_sphere_parry = Ball::new(node_bounding_sphere.radius as f64);
+        let node_bounding_sphere_parry_isometry = rapier3d_f64::na::Isometry::from_parts(
+            nalgebra::Translation3::new(
+                node_bounding_sphere.center.x as f64,
+                node_bounding_sphere.center.y as f64,
+                node_bounding_sphere.center.z as f64,
+            ),
+            Default::default(),
+        );
 
         let is_touching_frustum = |frustum: &Frustum| {
             matches!(
@@ -3512,22 +3660,84 @@ impl Renderer {
             )
         };
 
-        let mut culling_mask = 0u32;
+        let mut culling_mask = BitVec::repeat(false, camera_count);
         let mut mask_pos = 0;
 
         let is_node_on_screen = is_touching_frustum(camera_culling_frustum);
 
         if is_node_on_screen {
-            culling_mask |= 2u32.pow(mask_pos);
+            culling_mask.set(mask_pos, true);
         }
 
         mask_pos += 1;
 
-        for _ in &engine_state.scene.directional_lights {
-            // TODO: add support for frustum culling directional lights shadow map gen?
-            culling_mask |= 2u32.pow(mask_pos);
+        for (light_index, directional_light) in
+            engine_state.scene.directional_lights.iter().enumerate()
+        {
+            let light_cascades = &resolved_directional_light_cascades[light_index];
+            for (_, (_, frustum_slice_bounding_sphere)) in light_cascades.iter().enumerate() {
+                let mut transform = Transform::from(
+                    look_in_dir(
+                        frustum_slice_bounding_sphere.center,
+                        directional_light.direction,
+                    )
+                    .to_cols_array_2d(),
+                );
+                transform.set_scale(Vec3::new(
+                    frustum_slice_bounding_sphere.radius,
+                    frustum_slice_bounding_sphere.radius,
+                    DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH,
+                ));
 
-            mask_pos += 1;
+                let cascade_box_collider = Cuboid::new(Vector3::new(
+                    frustum_slice_bounding_sphere.radius as f64,
+                    frustum_slice_bounding_sphere.radius as f64,
+                    DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH as f64,
+                ));
+                let cascade_box_isometry = Isometry::from_parts(
+                    nalgebra::Translation3::new(
+                        transform.position().x as f64,
+                        transform.position().y as f64,
+                        transform.position().z as f64,
+                    ),
+                    nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
+                        transform.rotation().w as f64,
+                        transform.rotation().x as f64,
+                        transform.rotation().y as f64,
+                        transform.rotation().z as f64,
+                    )),
+                );
+
+                if let Some(contact) = rapier3d_f64::parry::query::contact(
+                    &cascade_box_isometry,
+                    &cascade_box_collider,
+                    &node_bounding_sphere_parry_isometry,
+                    &node_bounding_sphere_parry,
+                    0.0,
+                )
+                .unwrap()
+                {
+                    // if node.name == Some("test_object".into()) {
+                    //     log::debug!(
+                    //         "test_object contact dist={:.2}, object radius={:.2}",
+                    //         contact.dist,
+                    //         node_bounding_sphere.radius
+                    //     );
+                    // }
+                    culling_mask.set(mask_pos, true);
+
+                    // TODO: Cull small objects for far away shadow maps
+                    //       / cull any objects that cover less than 1 pixel?
+
+                    // TODO: optimize CSM by culling close objects from the larger shadow maps?
+                    // if contact.dist.abs() > 2.0 * node_bounding_sphere.radius as f64 {
+                    //     mask_pos += light_cascades.len() - cascade_index;
+                    //     break;
+                    // }
+                }
+
+                mask_pos += 1;
+            }
         }
 
         for frusta in point_lights_frusta {
@@ -3545,7 +3755,7 @@ impl Renderer {
                         };
 
                         if !is_culled {
-                            culling_mask |= 2u32.pow(mask_pos);
+                            culling_mask.set(mask_pos, true);
                         }
 
                         mask_pos += 1;
@@ -3721,48 +3931,82 @@ impl Renderer {
 
         let culling_frustum = Frustum::from(culling_frustum_desc);
 
-        let mut adjusted_directional_light_boxes = vec![];
+        let mut resolved_directional_light_cascades = vec![];
         for directional_light in &engine_state.scene.directional_lights {
             let from_light_space =
                 look_in_dir(Vec3::new(0.0, 0.0, 0.0), directional_light.direction);
             let to_light_space = from_light_space.inverse();
 
-            let light_space_culling_frustum_desc = CameraFrustumDescriptor {
-                focal_point: to_light_space.transform_point3(culling_frustum_desc.focal_point),
-                forward_vector: to_light_space
-                    .transform_vector3(culling_frustum_desc.forward_vector),
-                near_plane_distance: 0.5,
-                far_plane_distance: 60.0,
-                ..culling_frustum_desc
+            let DirectionalLightShadowMappingConfig {
+                num_cascades,
+                maximum_distance,
+                first_cascade_far_bound,
+                ..
+            } = directional_light.shadow_mapping_config;
+
+            // https://github.com/bevyengine/bevy/blob/951c9bb1a25caddc97ac69bbe8a2937f97227e90/crates/bevy_pbr/src/light.rs#L258
+            let cascade_distances = if num_cascades == 1 {
+                vec![maximum_distance]
+            } else {
+                let base = (maximum_distance / first_cascade_far_bound)
+                    .powf(1.0 / (num_cascades - 1) as f32);
+                (0..num_cascades)
+                    .map(|i| first_cascade_far_bound * base.powf(i as f32))
+                    .collect()
             };
 
-            // we use a bounding sphere to make sure the shadow map camera frustum's thickness remains consistent regardless
-            // of the rotation of the main camera's view frustum.
-            //
-            // we round the position to the nearest pixel_size to make sure the shadow map camera frustum
-            // moves in pixel-sized increments.
-            // combined with the above bounding sphere logic, this ensures that the shadow map is always sampled at the same
-            // location regardless of the camera transform. Otherwise, there would be visible shimmering/aliasing as the user
-            // moved the camera around that is quite distracting.
-            //
-            // See https://www.gamedev.net/forums/topic/591684-xna-40---shimmering-shadow-maps/
-            //     https://www.youtube.com/watch?v=u0pk1LyLKYQ
-            let bounding_sphere =
-                light_space_culling_frustum_desc.make_rotation_independent_bounding_sphere();
+            let mut cascade_sizes = vec![];
 
-            let pixel_size =
-                2.0 * bounding_sphere.radius / DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION as f32;
+            let minimum_cascade_distance = 0.5;
+            let overlap_proportion = 0.1;
 
-            let rounded_bounding_sphere_center = Vec3::new(
-                bounding_sphere.center.x - bounding_sphere.center.x % pixel_size,
-                bounding_sphere.center.y - bounding_sphere.center.y % pixel_size,
-                bounding_sphere.center.z - bounding_sphere.center.z % pixel_size,
-            );
+            for cascade_index in 0..cascade_distances.len() {
+                let light_space_frustum_slice = CameraFrustumDescriptor {
+                    focal_point: to_light_space.transform_point3(culling_frustum_desc.focal_point),
+                    forward_vector: to_light_space
+                        .transform_vector3(culling_frustum_desc.forward_vector),
+                    near_plane_distance: if cascade_index > 0 {
+                        (1.0 - overlap_proportion) * cascade_distances[cascade_index - 1]
+                    } else {
+                        minimum_cascade_distance
+                    },
+                    far_plane_distance: cascade_distances[cascade_index],
+                    ..culling_frustum_desc
+                };
 
-            adjusted_directional_light_boxes.push(Sphere {
-                center: from_light_space.transform_point3(rounded_bounding_sphere_center),
-                radius: bounding_sphere.radius,
-            });
+                // we use a bounding sphere to make sure the shadow map camera box's thickness remains consistent regardless
+                // of the rotation of the main camera's view frustum.
+                //
+                // we round the position to the nearest pixel_size to make sure the shadow map camera box
+                // moves in pixel-sized increments.
+                // combined with the above bounding sphere logic, this ensures that the shadow map is always sampled at the same
+                // location regardless of the camera transform. Otherwise, there would be visible shimmering/aliasing as the user
+                // moves the camera around that is quite distracting.
+                //
+                // See https://www.gamedev.net/forums/topic/591684-xna-40---shimmering-shadow-maps/
+                //     https://www.youtube.com/watch?v=u0pk1LyLKYQ
+                let bounding_sphere =
+                    light_space_frustum_slice.make_rotation_independent_bounding_sphere();
+
+                let pixel_size =
+                    2.0 * bounding_sphere.radius / DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION as f32;
+
+                let rounded_bounding_sphere_center = Vec3::new(
+                    bounding_sphere.center.x - bounding_sphere.center.x % pixel_size,
+                    bounding_sphere.center.y - bounding_sphere.center.y % pixel_size,
+                    bounding_sphere.center.z - bounding_sphere.center.z % pixel_size,
+                );
+
+                cascade_sizes.push((
+                    cascade_distances[cascade_index],
+                    Sphere {
+                        center: from_light_space.transform_point3(rounded_bounding_sphere_center),
+                        radius: bounding_sphere.radius,
+                    },
+                ));
+            }
+
+            resolved_directional_light_cascades.push(cascade_sizes);
         }
 
         self.add_debug_nodes(
@@ -3771,7 +4015,7 @@ impl Renderer {
             engine_state,
             &culling_frustum,
             &culling_frustum_desc,
-            &adjusted_directional_light_boxes,
+            &resolved_directional_light_cascades,
         );
 
         // TODO: compute node bounding spheres here too?
@@ -3790,8 +4034,19 @@ impl Renderer {
         let previous_bones_buffer_capacity_bytes = private_data.bones_buffer.capacity_bytes();
 
         // composite index (mesh_index, material_index)
-        let mut pbr_mesh_index_to_gpu_instances: HashMap<(usize, usize), Vec<GpuPbrMeshInstance>> =
-            HashMap::new();
+        //
+        // Since instances must be packed in continguous lists for the instanced draw calls,
+        // we would need to create a separate instance buffer for each camera to be able to
+        // draw a different set of instances per camera.
+        //
+        // Instead, we conservatively combine the culling mask of all instances into one
+        // and use it for the whole group, meaning frustum culling can be much less effective
+        // for large groups of instances because if only one of them is visible by the camera
+        // then all the rest of them need to be drawn
+        let mut pbr_mesh_index_to_gpu_instances: HashMap<
+            (usize, usize),
+            (Vec<GpuPbrMeshInstance>, BitVec),
+        > = HashMap::new();
         let mut unlit_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuUnlitMeshInstance>> =
             HashMap::new();
         let mut wireframe_mesh_index_to_gpu_instances: HashMap<
@@ -3852,6 +4107,11 @@ impl Renderer {
         {
             profiling::scope!("Prepare/cull instance lists");
 
+            let start = crate::time::Instant::now();
+
+            let mut total_object_count = 0;
+            let mut culled_object_counts: Vec<usize> = vec![];
+
             for node in engine_state.scene.nodes() {
                 let transform = Mat4::from(
                     engine_state
@@ -3882,29 +4142,46 @@ impl Renderer {
                             false,
                             false,
                         ) => {
+                            total_object_count += 1;
+
                             let culling_mask = Self::get_node_culling_mask(
                                 node,
                                 data,
                                 engine_state,
                                 &culling_frustum,
                                 &point_lights_frusta,
+                                &resolved_directional_light_cascades,
                             );
+
+                            if culled_object_counts.len() == 0 {
+                                culled_object_counts = vec![0; culling_mask.len()];
+                            }
+
+                            for (i, element) in culling_mask.iter().by_vals().enumerate() {
+                                if element {
+                                    culled_object_counts[i] += 1;
+                                }
+                            }
+
                             let gpu_instance = GpuPbrMeshInstance::new(
                                 transform,
                                 dynamic_pbr_params.unwrap_or_else(|| {
                                     data.binded_pbr_materials[binded_material_index]
                                         .dynamic_pbr_params
                                 }),
-                                culling_mask,
                             );
+
+                            // TODO: if the culling mask is all 0's, we should omit it from the list altogether
                             match pbr_mesh_index_to_gpu_instances
                                 .entry((mesh_index, binded_material_index))
                             {
                                 Entry::Occupied(mut entry) => {
-                                    entry.get_mut().push(gpu_instance);
+                                    entry.get_mut().0.push(gpu_instance);
+                                    // combine instance culling masks
+                                    *entry.get_mut().1 |= culling_mask;
                                 }
                                 Entry::Vacant(entry) => {
-                                    entry.insert(vec![gpu_instance]);
+                                    entry.insert((vec![gpu_instance], culling_mask));
                                 }
                             }
                         }
@@ -4038,6 +4315,57 @@ impl Renderer {
                     }
                 }
             }
+
+            // TODO: move to UI?
+
+            log::debug!("Culling time: {:?}", start.elapsed());
+
+            log::debug!("Culling stats:");
+            log::debug!("  Total renderable objects: {}", total_object_count);
+            log::debug!(
+                "  Main camera: {} ({:.2}%)",
+                culled_object_counts[0],
+                100.0 * culled_object_counts[0] as f32 / total_object_count as f32
+            );
+
+            let mut directional_light_index_acc = 1;
+
+            for light_index in 0..engine_state.scene.directional_lights.len() {
+                log::debug!("  Directional light: {}", light_index);
+
+                for cascade_index in 0..resolved_directional_light_cascades[light_index].len() {
+                    let cull_index = 1 + light_index + cascade_index;
+                    directional_light_index_acc += 1;
+                    log::debug!(
+                        "    Cascade {}: {} ({:.2}%)",
+                        cascade_index,
+                        culled_object_counts[cull_index],
+                        100.0 * culled_object_counts[cull_index] as f32 / total_object_count as f32
+                    );
+                }
+            }
+
+            for light_index in 0..engine_state.scene.point_lights.len() {
+                log::debug!("  Point light: {}", light_index);
+
+                match &point_lights_frusta[light_index] {
+                    Some(frusta) => {
+                        for frustum_index in 0..frusta.0.len() {
+                            let cull_index = directional_light_index_acc + frustum_index;
+                            log::debug!(
+                                "    Frustum {}: {} ({:.2}%)",
+                                frustum_index,
+                                culled_object_counts[cull_index],
+                                100.0 * culled_object_counts[cull_index] as f32
+                                    / total_object_count as f32
+                            );
+                        }
+                    }
+                    None => {
+                        log::debug!("    N/A");
+                    }
+                }
+            }
         }
 
         let min_storage_buffer_offset_alignment =
@@ -4046,29 +4374,18 @@ impl Renderer {
         let mut pbr_mesh_instances: Vec<_> = pbr_mesh_index_to_gpu_instances.into_iter().collect();
 
         // TODO: sort opaque instances front to back to maximize z-buffer early outs
-        pbr_mesh_instances.sort_unstable_by_key(|((_, material_index), _)| *material_index);
+        pbr_mesh_instances.sort_by_key(|((_, material_index), _)| *material_index);
         pbr_mesh_instances.sort_by_key(|((mesh_index, _), _)| *mesh_index);
 
-        private_data.all_pbr_instances_culling_masks.clear();
-
-        {
-            profiling::scope!("Combine culling masks");
-
-            for (_, instances) in &pbr_mesh_instances {
-                // we only have one culling mask per chunk of instances,
-                // meaning that instances can't be culled individually
-                let mut combined_culling_mask = 0u32;
-                for instance in instances {
-                    combined_culling_mask |= instance.culling_mask;
-                }
-                private_data
-                    .all_pbr_instances_culling_masks
-                    .push(combined_culling_mask);
-            }
-        }
+        private_data.all_pbr_instances_culling_masks = pbr_mesh_instances
+            .iter()
+            .map(|(_, (_, culling_mask))| culling_mask.clone())
+            .collect();
 
         private_data.all_pbr_instances.replace(
-            pbr_mesh_instances.into_iter(),
+            pbr_mesh_instances
+                .into_iter()
+                .map(|(key, (instances, _))| (key, instances)),
             min_storage_buffer_offset_alignment as usize,
         );
 
@@ -4342,15 +4659,18 @@ impl Renderer {
 
         // directional lights
         for (light_index, light) in engine_state.scene.directional_lights.iter().enumerate() {
-            let adjusted_light_box = adjusted_directional_light_boxes[light_index];
-            all_camera_data.push(ShaderCameraData::orthographic(
-                look_in_dir(adjusted_light_box.center, light.direction),
-                adjusted_light_box.radius * 2.0,
-                adjusted_light_box.radius * 2.0,
-                -DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
-                DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
-                false,
-            ));
+            for (_, frustum_slice_bounding_sphere) in
+                &resolved_directional_light_cascades[light_index]
+            {
+                all_camera_data.push(ShaderCameraData::orthographic(
+                    look_in_dir(frustum_slice_bounding_sphere.center, light.direction),
+                    frustum_slice_bounding_sphere.radius * 2.0,
+                    frustum_slice_bounding_sphere.radius * 2.0,
+                    -DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
+                    DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
+                    false,
+                ));
+            }
         }
 
         // point lights
@@ -4474,10 +4794,10 @@ impl Renderer {
         queue.write_buffer(
             &private_data.directional_lights_buffer,
             0,
-            bytemuck::cast_slice(&make_directional_light_uniform_buffer(
+            &make_directional_light_uniform_buffer(
                 &engine_state.scene.directional_lights,
-                &adjusted_directional_light_boxes,
-            )),
+                &resolved_directional_light_cascades,
+            ),
         );
         queue.write_buffer(
             &private_data.tone_mapping_config_buffer,
@@ -4511,6 +4831,7 @@ impl Renderer {
                 data.shadow_bias,
                 data.soft_shadow_factor,
                 data.enable_shadow_debug,
+                data.enable_cascade_debug,
                 data.soft_shadow_grid_dims,
             )]),
         );
@@ -4555,44 +4876,53 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         if data.enable_shadows {
-            for (light_index, _light) in engine_state.scene.directional_lights.iter().enumerate() {
+            let mut culling_mask_camera_index = 1; // start at one to skip main camera
+
+            for (light_index, light) in engine_state.scene.directional_lights.iter().enumerate() {
                 if light_index >= DIRECTIONAL_LIGHT_SHOW_MAP_COUNT as usize {
                     continue;
                 }
-                let texture_view = private_data
-                    .directional_shadow_map_textures
-                    .texture
-                    .create_view(&wgpu::TextureViewDescriptor {
-                        dimension: Some(wgpu::TextureViewDimension::D2),
-                        base_array_layer: light_index.try_into().unwrap(),
-                        array_layer_count: Some(1),
-                        ..Default::default()
-                    });
-                let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
-                    label: USE_LABELS.then_some("Directional light shadow map"),
-                    color_attachments: &[],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &texture_view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(1.0),
-                            store: true,
+
+                for cascade_index in 0..light.shadow_mapping_config.num_cascades {
+                    let texture_view = private_data
+                        .directional_shadow_map_textures
+                        .texture
+                        .create_view(&wgpu::TextureViewDescriptor {
+                            dimension: Some(wgpu::TextureViewDimension::D2),
+                            base_array_layer: cascade_index + light_index as u32,
+                            array_layer_count: Some(1),
+                            ..Default::default()
+                        });
+
+                    let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
+                        label: USE_LABELS.then_some("Directional light shadow map"),
+                        color_attachments: &[],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &texture_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(1.0),
+                                store: true,
+                            }),
+                            stencil_ops: None,
                         }),
-                        stencil_ops: None,
-                    }),
-                };
-                Self::render_pbr_meshes(
-                    &self.base,
-                    data,
-                    private_data,
-                    profiler,
-                    &mut encoder,
-                    &shadow_render_pass_desc,
-                    &self.constant_data.directional_shadow_map_pipeline,
-                    &private_data.camera_lights_and_pbr_shader_options_bind_groups[1 + light_index],
-                    true,
-                    2u32.pow((1 + light_index).try_into().unwrap()),
-                    None,
-                );
+                    };
+                    Self::render_pbr_meshes(
+                        &self.base,
+                        data,
+                        private_data,
+                        profiler,
+                        &mut encoder,
+                        &shadow_render_pass_desc,
+                        &self.constant_data.directional_shadow_map_pipeline,
+                        &private_data.camera_lights_and_pbr_shader_options_bind_groups
+                            [culling_mask_camera_index],
+                        true,
+                        culling_mask_camera_index,
+                        None,
+                    );
+
+                    culling_mask_camera_index += 1;
+                }
             }
             for light_index in 0..engine_state.scene.point_lights.len() {
                 if light_index >= POINT_LIGHT_SHOW_MAP_COUNT as usize {
@@ -4612,13 +4942,6 @@ impl Renderer {
                     .copied()
                     .enumerate()
                     .for_each(|(face_index, _face_view_proj_matrices)| {
-                        let culling_mask = 2u32.pow(
-                            (1 + engine_state.scene.directional_lights.len()
-                                + light_index * 6
-                                + face_index)
-                                .try_into()
-                                .unwrap(),
-                        );
                         let face_texture_view = private_data
                             .point_shadow_map_textures
                             .texture
@@ -4628,6 +4951,7 @@ impl Renderer {
                                 array_layer_count: Some(1),
                                 ..Default::default()
                             });
+
                         let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
                             label: USE_LABELS.then_some("Point light shadow map"),
                             color_attachments: &[],
@@ -4655,14 +4979,14 @@ impl Renderer {
                             &mut encoder,
                             &shadow_render_pass_desc,
                             &self.constant_data.point_shadow_map_pipeline,
-                            &private_data.camera_lights_and_pbr_shader_options_bind_groups[1
-                                + engine_state.scene.directional_lights.len()
-                                + light_index * 6
-                                + face_index],
+                            &private_data.camera_lights_and_pbr_shader_options_bind_groups
+                                [culling_mask_camera_index],
                             true,
-                            culling_mask,
+                            culling_mask_camera_index,
                             Some(face_index.try_into().unwrap()),
                         );
+
+                        culling_mask_camera_index += 1;
                     });
                 }
             }
@@ -4674,6 +4998,35 @@ impl Renderer {
             b: 0.0,
             a: 1.0,
         };
+
+        if data.enable_depth_prepass {
+            let depth_prepass_render_pass_desc = wgpu::RenderPassDescriptor {
+                label: USE_LABELS.then_some("Depth pre-pass"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &private_data.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0.0),
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
+            };
+
+            Self::render_pbr_meshes(
+                &self.base,
+                data,
+                private_data,
+                profiler,
+                &mut encoder,
+                &depth_prepass_render_pass_desc,
+                &self.constant_data.depth_prepass_pipeline,
+                &private_data.camera_lights_and_pbr_shader_options_bind_groups[0],
+                false,
+                0, // use main camera culling mask
+                None,
+            );
+        }
 
         let shading_render_pass_desc = wgpu::RenderPassDescriptor {
             label: USE_LABELS.then_some("Pbr meshes"),
@@ -4688,7 +5041,11 @@ impl Renderer {
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &private_data.depth_texture.view,
                 depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(0.0),
+                    load: if data.enable_depth_prepass {
+                        wgpu::LoadOp::Load
+                    } else {
+                        wgpu::LoadOp::Clear(0.0)
+                    },
                     store: true,
                 }),
                 stencil_ops: None,
@@ -4705,7 +5062,7 @@ impl Renderer {
             &self.constant_data.mesh_pipeline,
             &private_data.camera_lights_and_pbr_shader_options_bind_groups[0],
             false,
-            1, // use main camera culling mask
+            0, // use main camera culling mask
             None,
         );
 
@@ -5153,7 +5510,7 @@ impl Renderer {
         pipeline: &'a wgpu::RenderPipeline,
         camera_lights_shader_options_bind_group: &'a wgpu::BindGroup,
         is_shadow: bool,
-        culling_mask: u32,
+        culling_mask_camera_index: usize,
         cubemap_face_index: Option<u32>,
     ) {
         let device = &base.device;
@@ -5195,9 +5552,8 @@ impl Renderer {
                     // TODO: if none of the instances pass the culling test, we should
                     //       early out at the beginning of this function to avoid creating
                     //       the render pass / clearing the texture at all.
-                    if private_data.all_pbr_instances_culling_masks[pbr_instance_chunk_index]
-                        & culling_mask
-                        == 0
+                    if !private_data.all_pbr_instances_culling_masks[pbr_instance_chunk_index]
+                        [culling_mask_camera_index]
                     {
                         continue;
                     }

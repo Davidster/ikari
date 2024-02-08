@@ -19,6 +19,7 @@ use anyhow::Result;
 use image::Pixel;
 use std::collections::HashMap;
 
+use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -77,6 +78,9 @@ trait BindScene: WasmNotSend + WasmNotSync {
 struct TimeSlicedSceneBinder {
     staged_scenes: WasmNotMutex<HashMap<AssetId, BindedSceneData>>,
     loaded_scenes: WasmNotArc<WasmNotMutex<HashMap<AssetId, (Scene, BindedSceneData)>>>,
+    bind_group_caches: WasmNotArc<
+        WasmNotMutex<HashMap<AssetId, HashMap<IndexedPbrTextures, WasmNotArc<wgpu::BindGroup>>>>,
+    >,
 }
 
 trait BindSkybox: WasmNotSend + WasmNotSync {
@@ -595,17 +599,23 @@ pub async fn make_bindable_skybox(paths: &SkyboxPaths) -> Result<BindableSkybox>
 #[cfg(not(target_arch = "wasm32"))]
 struct ThreadedSceneBinder {
     loaded_scenes: Arc<Mutex<HashMap<AssetId, (Scene, BindedSceneData)>>>,
+    bind_group_caches:
+        Arc<Mutex<HashMap<AssetId, HashMap<IndexedPbrTextures, WasmNotArc<wgpu::BindGroup>>>>>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl ThreadedSceneBinder {
     pub fn new(loaded_scenes: Arc<Mutex<HashMap<AssetId, (Scene, BindedSceneData)>>>) -> Self {
-        Self { loaded_scenes }
+        Self {
+            loaded_scenes,
+            bind_group_caches: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
     fn bind_scene(
         base_renderer: &BaseRenderer,
         renderer_constant_data: &RendererConstantData,
+        bind_group_cache: &mut HashMap<IndexedPbrTextures, WasmNotArc<wgpu::BindGroup>>,
         bindable_scene: BindableSceneData,
     ) -> Result<BindedSceneData> {
         let mut textures: Vec<Texture> = Vec::with_capacity(bindable_scene.textures.len());
@@ -626,9 +636,12 @@ impl ThreadedSceneBinder {
                 base_renderer,
                 renderer_constant_data,
                 &textures,
+                bind_group_cache,
                 bindable_pbr_material,
             )?);
         }
+
+        bind_group_cache.clear();
 
         let mut binded_wireframe_meshes: Vec<BindedWireframeMesh> =
             Vec::with_capacity(bindable_scene.bindable_wireframe_meshes.len());
@@ -654,6 +667,7 @@ impl BindScene for ThreadedSceneBinder {
         asset_loader: Arc<AssetLoader>,
     ) {
         let loaded_scenes_clone = self.loaded_scenes.clone();
+        let bind_group_caches_clone = self.bind_group_caches.clone();
 
         let mut bindable_scenes: Vec<_> = vec![];
         {
@@ -669,9 +683,13 @@ impl BindScene for ThreadedSceneBinder {
 
         crate::thread::spawn(move || {
             for (scene_id, (scene, bindable_scene)) in bindable_scenes {
+                let mut bind_group_caches_guard = bind_group_caches_clone.lock().unwrap();
+                let bind_group_cache = bind_group_caches_guard.entry(scene_id).or_default();
+
                 let binded_scene_result = Self::bind_scene(
                     &base_renderer.clone(),
                     &renderer_constant_data.clone(),
+                    bind_group_cache,
                     bindable_scene,
                 );
                 match binded_scene_result {
@@ -707,6 +725,7 @@ impl TimeSlicedSceneBinder {
         Self {
             loaded_scenes,
             staged_scenes: WasmNotMutex::new(HashMap::new()),
+            bind_group_caches: WasmNotArc::new(WasmNotMutex::new(HashMap::new())),
         }
     }
 
@@ -714,6 +733,7 @@ impl TimeSlicedSceneBinder {
         base_renderer: &BaseRenderer,
         renderer_constant_data: &RendererConstantData,
         staged_scenes: &mut HashMap<AssetId, BindedSceneData>,
+        bind_group_cache: &mut HashMap<IndexedPbrTextures, WasmNotArc<wgpu::BindGroup>>,
         scene_id: AssetId,
         bindable_scene: &BindableSceneData,
     ) -> Result<Option<BindedSceneData>> {
@@ -773,6 +793,7 @@ impl TimeSlicedSceneBinder {
                     base_renderer,
                     renderer_constant_data,
                     &staged_scene.textures,
+                    bind_group_cache,
                     &bindable_scene.bindable_pbr_materials[staged_pbr_mat_count],
                 )?);
 
@@ -782,6 +803,8 @@ impl TimeSlicedSceneBinder {
                     return Ok(None);
                 }
             }
+
+            bind_group_cache.clear();
         }
 
         let staged_scene = staged_scenes.remove(&scene_id).unwrap();
@@ -809,10 +832,14 @@ impl BindScene for TimeSlicedSceneBinder {
 
                 let (scene, bindable_scene) = bindable_scenes_guard.remove(&scene_id).unwrap();
 
+                let mut bind_group_caches_guard = self.bind_group_caches.lock().unwrap();
+                let bind_group_cache = bind_group_caches_guard.entry(scene_id).or_default();
+
                 let binded_scene_result = Self::bind_scene_slice(
                     &base_renderer,
                     &renderer_constant_data,
                     &mut self.staged_scenes.lock().unwrap(),
+                    bind_group_cache,
                     scene_id,
                     &bindable_scene,
                 );
@@ -1087,24 +1114,33 @@ fn bind_pbr_material(
     base_renderer: &BaseRenderer,
     renderer_constant_data: &RendererConstantData,
     textures: &[Texture],
+    bind_group_cache: &mut HashMap<IndexedPbrTextures, WasmNotArc<wgpu::BindGroup>>,
     material: &BindablePbrMaterial,
 ) -> Result<BindedPbrMaterial> {
-    let get_texture =
-        |texture_index: Option<usize>| texture_index.map(|texture_index| &textures[texture_index]);
+    let textures_bind_group = match bind_group_cache.entry(material.textures.clone()) {
+        Entry::Occupied(entry) => entry.get().clone(),
+        Entry::Vacant(vacant_entry) => {
+            let get_texture = |texture_index: Option<usize>| {
+                texture_index.map(|texture_index| &textures[texture_index])
+            };
 
-    let pbr_textures = PbrTextures {
-        base_color: get_texture(material.textures.base_color),
-        normal: get_texture(material.textures.normal),
-        emissive: get_texture(material.textures.emissive),
-        ambient_occlusion: get_texture(material.textures.ambient_occlusion),
-        metallic_roughness: get_texture(material.textures.metallic_roughness),
+            let pbr_textures = PbrTextures {
+                base_color: get_texture(material.textures.base_color),
+                normal: get_texture(material.textures.normal),
+                emissive: get_texture(material.textures.emissive),
+                ambient_occlusion: get_texture(material.textures.ambient_occlusion),
+                metallic_roughness: get_texture(material.textures.metallic_roughness),
+            };
+            let textures_bind_group = WasmNotArc::new(Renderer::make_pbr_textures_bind_group(
+                base_renderer,
+                renderer_constant_data,
+                &pbr_textures,
+                true,
+            )?);
+            vacant_entry.insert(textures_bind_group.clone());
+            textures_bind_group
+        }
     };
-    let textures_bind_group = Renderer::make_pbr_textures_bind_group(
-        base_renderer,
-        renderer_constant_data,
-        &pbr_textures,
-        true,
-    )?;
 
     Ok(BindedPbrMaterial {
         textures_bind_group,

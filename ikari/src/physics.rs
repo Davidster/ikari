@@ -77,6 +77,10 @@ impl PhysicsState {
             true,
         );
     }
+
+    pub fn set_gravity_is_enabled(&mut self, is_enabled: bool) {
+        self.gravity = vector![0.0, if is_enabled { -9.8 } else { 0.0 }, 0.0];
+    }
 }
 
 impl Default for PhysicsState {

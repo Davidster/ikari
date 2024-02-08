@@ -210,6 +210,9 @@ impl PlayerController {
                         VirtualKeyCode::LControl => {
                             self.is_down_pressed = is_pressed;
                         }
+                        VirtualKeyCode::Q => {
+                            self.is_down_pressed = is_pressed;
+                        }
                         VirtualKeyCode::E => {
                             self.is_up_pressed = is_pressed;
                         }
@@ -309,6 +312,12 @@ impl PlayerController {
                 add_movement(-right_direction);
             }
 
+            if self.is_up_pressed {
+                add_movement(up_direction);
+            } else if self.is_down_pressed {
+                add_movement(-up_direction);
+            }
+
             res.map(|res| res.normalize() * self.speed)
                 .unwrap_or(Vec3::new(0.0, 0.0, 0.0))
         };
@@ -321,11 +330,10 @@ impl PlayerController {
         rigid_body.set_linvel(
             vector![
                 new_linear_velocity.x as f64,
-                if self.is_up_pressed {
-                    self.speed as f64
+                if physics_state.gravity.norm() > 0.0 {
+                    current_linear_velocity.y as f64
                 } else {
-                    // preserve effect of gravity
-                    current_linear_velocity.y
+                    new_linear_velocity.y as f64
                 },
                 new_linear_velocity.z as f64
             ],

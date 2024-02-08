@@ -69,12 +69,11 @@ pub struct GpuPbrMeshInstance {
     pub emissive_factor: [f32; 4],
     pub mrno: [f32; 4], // metallic_factor, roughness_factor, normal scale, occlusion strength
     pub alpha_cutoff: f32,
-    pub culling_mask: u32,
-    pub padding: [f32; 2],
+    pub padding: [f32; 3],
 }
 
 impl GpuPbrMeshInstance {
-    pub fn new(transform: Mat4, pbr_params: DynamicPbrParams, culling_mask: u32) -> Self {
+    pub fn new(transform: Mat4, pbr_params: DynamicPbrParams) -> Self {
         let DynamicPbrParams {
             base_color_factor,
             emissive_factor,
@@ -100,8 +99,7 @@ impl GpuPbrMeshInstance {
                 occlusion_strength,
             ],
             alpha_cutoff,
-            culling_mask,
-            padding: [0.0, 0.0],
+            padding: [0.0, 0.0, 0.0],
         }
     }
 }

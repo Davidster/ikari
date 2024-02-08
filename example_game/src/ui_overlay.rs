@@ -29,8 +29,11 @@ use plotters_iced::{Chart, ChartWidget, DrawingBackend};
 
 use ikari::time::Duration;
 
+use crate::game::INITIAL_ENABLE_CASCADE_DEBUG;
 use crate::game::INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG;
+use crate::game::INITIAL_ENABLE_DEPTH_PREPASS;
 use crate::game::INITIAL_ENABLE_DIRECTIONAL_LIGHT_CULLING_FRUSTUM_DEBUG;
+use crate::game::INITIAL_ENABLE_DIRECTIONAL_SHADOW_CULLING;
 use crate::game::INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG;
 use crate::game::INITIAL_ENABLE_SHADOW_DEBUG;
 use crate::game::INITIAL_ENABLE_SOFT_SHADOWS;
@@ -67,6 +70,8 @@ pub enum Message {
     AudioSoundStatsChanged((GameFilePath, AudioSoundStats)),
     #[allow(dead_code)]
     ToggleVSync(bool),
+    ToggleDepthPrepass(bool),
+    ToggleDirectionalShadowCulling(bool),
     ToggleCameraPose(bool),
     ToggleCursorMarker(bool),
     ToggleFpsChart(bool),
@@ -76,6 +81,7 @@ pub enum Message {
     ToggleDrawPointLightCullingFrusta(bool),
     ToggleDrawDirectionalLightCullingFrusta(bool),
     ToggleShadowDebug(bool),
+    ToggleCascadeDebug(bool),
     ToggleAudioStats(bool),
     ShadowBiasChanged(f32),
     SkyboxWeightChanged(f32),
@@ -104,11 +110,14 @@ pub struct UiOverlay {
     audio_sound_stats: BTreeMap<String, AudioSoundStats>,
 
     pub enable_vsync: bool,
+    pub enable_depth_prepass: bool,
+    pub enable_directional_shadow_culling: bool,
     pub enable_soft_shadows: bool,
     pub skybox_weight: f32,
     pub shadow_bias: f32,
     pub soft_shadow_factor: f32,
     pub enable_shadow_debug: bool,
+    pub enable_cascade_debug: bool,
     pub draw_culling_frustum: bool,
     pub draw_point_light_culling_frusta: bool,
     pub draw_directional_light_culling_frusta: bool,
@@ -275,11 +284,14 @@ impl UiOverlay {
             was_exit_button_pressed: false,
             is_showing_audio_stats: false,
             enable_vsync: INITIAL_ENABLE_VSYNC,
+            enable_depth_prepass: INITIAL_ENABLE_DEPTH_PREPASS,
+            enable_directional_shadow_culling: INITIAL_ENABLE_DIRECTIONAL_SHADOW_CULLING,
             enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
             skybox_weight: INITIAL_SKYBOX_WEIGHT,
             shadow_bias: INITIAL_SHADOW_BIAS,
             soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
             enable_shadow_debug: INITIAL_ENABLE_SHADOW_DEBUG,
+            enable_cascade_debug: INITIAL_ENABLE_SHADOW_DEBUG,
             draw_culling_frustum: INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG,
             draw_point_light_culling_frusta: INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG,
             draw_directional_light_culling_frusta:
@@ -399,6 +411,12 @@ impl runtime::Program for UiOverlay {
             Message::ToggleVSync(new_state) => {
                 self.enable_vsync = new_state;
             }
+            Message::ToggleDepthPrepass(new_state) => {
+                self.enable_depth_prepass = new_state;
+            }
+            Message::ToggleDirectionalShadowCulling(new_state) => {
+                self.enable_directional_shadow_culling = new_state;
+            }
             Message::ToggleCameraPose(new_state) => {
                 self.is_showing_camera_pose = new_state;
             }
@@ -412,7 +430,7 @@ impl runtime::Program for UiOverlay {
                 self.is_showing_gpu_spans = new_state;
             }
             Message::ToggleSoftShadows(new_state) => {
-                self.enable_shadow_debug = new_state;
+                self.enable_soft_shadows = new_state;
             }
             Message::ToggleDrawCullingFrustum(new_state) => {
                 self.draw_culling_frustum = new_state;
@@ -427,7 +445,10 @@ impl runtime::Program for UiOverlay {
                 self.draw_directional_light_culling_frusta = new_state;
             }
             Message::ToggleShadowDebug(new_state) => {
-                self.enable_soft_shadows = new_state;
+                self.enable_shadow_debug = new_state;
+            }
+            Message::ToggleCascadeDebug(new_state) => {
+                self.enable_cascade_debug = new_state;
             }
             Message::ToggleAudioStats(new_state) => {
                 self.is_showing_audio_stats = new_state;
@@ -632,6 +653,18 @@ impl runtime::Program for UiOverlay {
                 ));
             }
 
+            options = options.push(checkbox(
+                "Enable Depth Pre-pass",
+                self.enable_depth_prepass,
+                Message::ToggleDepthPrepass,
+            ));
+
+            options = options.push(checkbox(
+                "Enable Directional Shadow Culling",
+                self.enable_directional_shadow_culling,
+                Message::ToggleDirectionalShadowCulling,
+            ));
+
             // camera debug
             options = options.push(checkbox(
                 "Show Camera Pose",
@@ -705,12 +738,17 @@ impl runtime::Program for UiOverlay {
             options = options.push(checkbox(
                 "Enable Shadow Debug",
                 self.enable_shadow_debug,
-                Message::ToggleSoftShadows,
+                Message::ToggleShadowDebug,
+            ));
+            options = options.push(checkbox(
+                "Enable Cascade Debug",
+                self.enable_cascade_debug,
+                Message::ToggleCascadeDebug,
             ));
             options = options.push(checkbox(
                 "Enable Soft Shadows",
                 self.enable_soft_shadows,
-                Message::ToggleShadowDebug,
+                Message::ToggleSoftShadows,
             ));
             options = options.push(Text::new(format!(
                 "Skybox weight: {:.5}",

@@ -39,6 +39,7 @@ use ikari::physics::PhysicsState;
 use ikari::player_controller::ControlledViewDirection;
 use ikari::player_controller::PlayerController;
 use ikari::renderer::DirectionalLight;
+use ikari::renderer::DirectionalLightShadowMappingConfig;
 use ikari::renderer::PointLight;
 use ikari::renderer::RendererData;
 use ikari::renderer::SkyboxPaths;
@@ -60,24 +61,31 @@ use ikari::ui::IkariUiContainer;
 use ikari::wasm_not_sync::WasmNotArc;
 use winit::event::{ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 
+// graphics settings
 pub const INITIAL_ENABLE_VSYNC: bool = true;
-pub const INITIAL_RENDER_SCALE: f32 = 2.0;
+pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
+pub const INITIAL_ENABLE_DIRECTIONAL_SHADOW_CULLING: bool = true;
+pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
 pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
 pub const INITIAL_ENABLE_BLOOM: bool = true;
-pub const ARENA_SIDE_LENGTH: f32 = 500.0;
 pub const INITIAL_IS_SHOWING_CAMERA_POSE: bool = true;
 pub const INITIAL_IS_SHOWING_CURSOR_MARKER: bool = false;
 pub const INITIAL_ENABLE_SHADOW_DEBUG: bool = false;
+pub const INITIAL_ENABLE_CASCADE_DEBUG: bool = false;
 pub const INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG: bool = false;
 pub const INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG: bool = false;
 pub const INITIAL_ENABLE_DIRECTIONAL_LIGHT_CULLING_FRUSTUM_DEBUG: bool = false;
-pub const INITIAL_ENABLE_SOFT_SHADOWS: bool = true;
-pub const INITIAL_SHADOW_BIAS: f32 = 0.0005;
+pub const INITIAL_ENABLE_SOFT_SHADOWS: bool = false;
+pub const INITIAL_SHADOW_BIAS: f32 = 0.004;
 pub const INITIAL_SKYBOX_WEIGHT: f32 = 1.0;
 pub const INITIAL_SOFT_SHADOW_FACTOR: f32 = 0.0015;
 pub const INITIAL_SOFT_SHADOW_GRID_DIMS: u32 = 4;
+
+// game settings
+pub const ARENA_SIDE_LENGTH: f32 = 500.0;
+pub const ENABLE_GRAVITY: bool = false;
 
 pub const CREATE_POINT_SHADOW_MAP_DEBUG_OBJECTS: bool = false;
 pub const REMOVE_LARGE_OBJECTS_FROM_FOREST: bool = false;
@@ -259,7 +267,7 @@ pub async fn init_game_state(
     log::info!("Controls:");
     [
         "Look Around:             Mouse",
-        "Move Around:             WASD, E, Space Bar",
+        "Move Around:             WASD, E, Space Bar, LCtrl, Q",
         "Adjust Speed:            Scroll or Up/Down Arrow Keys",
         "Adjust Render Scale:     Z / X",
         "Adjust Exposure:         R / T",
@@ -307,7 +315,7 @@ pub async fn init_game_state(
 
             // load in gltf files
 
-            let mut gltf_paths = Vec::new();
+            let mut gltf_paths: Vec<&str> = Vec::new();
 
             // player's revolver
             // https://done3d.com/colt-python-8-inch/
@@ -387,16 +395,24 @@ pub async fn init_game_state(
         //     direction: (-Vec3::new(1.0, 5.0, -10.0)).normalize(),
         //     color: _DIRECTIONAL_LIGHT_COLOR_A,
         //     intensity: 1.0,
+        //     shadow_mapping_config: Default::default(),
         // },
         DirectionalLight {
             direction: (-Vec3::new(-1.0, 10.0, 10.0)).normalize(),
             color: DIRECTIONAL_LIGHT_COLOR_B,
             intensity: 1.0,
+            shadow_mapping_config: DirectionalLightShadowMappingConfig {
+                // num_cascades: 2,
+                // maximum_distance: 100.0,
+                // first_cascade_far_bound: 10.0,
+                ..Default::default()
+            },
         },
         // DirectionalLight {
         //     direction: (-Vec3::new(10.0, 10.0, 1.0)).normalize(),
         //     color: DIRECTIONAL_LIGHT_COLOR_B,
         //     intensity: 0.2,
+        //     shadow_mapping_config: Default::default(),
         // },
     ];
     // let directional_lights: Vec<DirectionalLightComponent> = vec![];
@@ -431,6 +447,8 @@ pub async fn init_game_state(
 
     let physics_state = &mut engine_state.physics_state;
     let scene = &mut engine_state.scene;
+
+    physics_state.set_gravity_is_enabled(ENABLE_GRAVITY);
 
     let player_node_id = scene.add_node(GameNodeDesc::default()).id();
     let player_controller = PlayerController::new(
@@ -634,10 +652,11 @@ pub async fn init_game_state(
                 )))
                 .transform(
                     TransformBuilder::new()
-                        .position(Vec3::new(4.0, 1.5, 3.0))
+                        .position(Vec3::new(4.0, 20.5, 3.0))
                         .scale(0.2 * Vec3::new(1.0, 1.0, 1.0))
                         .build(),
                 )
+                .name(Some("test_object".into()))
                 .build(),
         )
         .id();
@@ -2045,10 +2064,14 @@ pub fn update_game_state(
             *control_flow = winit::event_loop::ControlFlow::Exit;
         }
 
+        renderer_data_guard.enable_depth_prepass = ui_state.enable_depth_prepass;
+        renderer_data_guard.enable_directional_shadow_culling =
+            ui_state.enable_directional_shadow_culling;
         renderer_data_guard.enable_soft_shadows = ui_state.enable_soft_shadows;
         renderer_data_guard.soft_shadow_factor = ui_state.soft_shadow_factor;
         renderer_data_guard.shadow_bias = ui_state.shadow_bias;
         renderer_data_guard.enable_shadow_debug = ui_state.enable_shadow_debug;
+        renderer_data_guard.enable_cascade_debug = ui_state.enable_cascade_debug;
         renderer_data_guard.soft_shadow_grid_dims = ui_state.soft_shadow_grid_dims;
         renderer_data_guard.draw_culling_frustum = ui_state.draw_culling_frustum;
         renderer_data_guard.draw_point_light_culling_frusta =
