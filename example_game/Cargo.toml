@@ -22,6 +22,7 @@ winit.workspace = true
 ikari.workspace = true
 log.workspace = true
 wgpu.workspace = true
+wgpu-profiler.workspace = true
 anyhow.workspace = true
 env_logger.workspace = true
 profiling.workspace = true
@@ -34,11 +35,12 @@ iced_wgpu.workspace = true
 iced_winit.workspace = true
 tracing-tracy = { version = "0.10.3", features = ["ondemand"], optional = true }
 
-plotters-iced = "0.9"
+plotters-iced = { git = "https://github.com/Davidster/plotters-iced.git", branch = "iced_0_12" }
 plotters = { version = "0.3", default-features = false, features = [
   "line_series",
 ] }
-iced_aw = { version = "0.7", default-features = false, features = [
+
+iced_aw = { git = "https://github.com/Davidster/iced_aw.git", branch = "my_iced_fork", default-features = false, features = [
   "modal",
   "card",
   "floating_element",

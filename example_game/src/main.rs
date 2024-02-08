@@ -6,6 +6,8 @@ mod physics_ball;
 mod revolver;
 mod ui_overlay;
 
+use std::sync::Arc;
+
 use crate::game::handle_window_resize;
 use crate::game::init_game_state;
 use crate::game::process_device_input;
@@ -24,7 +26,7 @@ async fn start() {
     let run_result = async {
         let application_start_time = ikari::time::Instant::now();
 
-        let event_loop = winit::event_loop::EventLoop::new();
+        let event_loop = winit::event_loop::EventLoop::new()?;
 
         let window = {
             let (width, height) = match event_loop.primary_monitor() {
@@ -34,14 +36,16 @@ async fn start() {
 
             let inner_size = winit::dpi::PhysicalSize::new(width * 3 / 4, height * 3 / 4);
             let title = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
-            winit::window::WindowBuilder::new()
-                //.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
-                .with_inner_size(inner_size)
-                .with_title(title)
-                .with_maximized(false)
-                // .with_visible(false)
-                .build(&event_loop)
-                .expect("Failed to create window")
+            Arc::new(
+                winit::window::WindowBuilder::new()
+                    //.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
+                    .with_inner_size(inner_size)
+                    .with_title(title)
+                    .with_maximized(false)
+                    // .with_visible(false)
+                    .build(&event_loop)
+                    .expect("Failed to create window"),
+            )
         };
 
         #[cfg(target_arch = "wasm32")]
@@ -56,13 +60,14 @@ async fn start() {
                 .unwrap()
                 .dyn_into::<web_sys::HtmlElement>()
                 .unwrap();
-            window.set_inner_size(winit::dpi::LogicalSize::new(
+            let _resized_immediately = window.request_inner_size(winit::dpi::LogicalSize::new(
                 (canvas_container.offset_width() as f64 * window.scale_factor()) as u32,
                 (canvas_container.offset_height() as f64 * window.scale_factor()) as u32,
             ));
 
-            let canvas = web_sys::Element::from(window.canvas());
-            canvas_container.append_child(&canvas).unwrap();
+            canvas_container
+                .append_child(&window.canvas().unwrap())
+                .unwrap();
         }
 
         log::debug!("window: {:?}", application_start_time.elapsed());
@@ -74,7 +79,7 @@ async fn start() {
             } else {
                 wgpu::Backends::PRIMARY
             };
-            BaseRenderer::with_window(backends, Some(DXC_PATH.into()), &window).await?
+            BaseRenderer::with_window(backends, Some(DXC_PATH.into()), window.clone()).await?
         };
 
         log::debug!("base render: {:?}", application_start_time.elapsed());

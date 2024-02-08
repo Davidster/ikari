@@ -10,7 +10,8 @@ use iced::widget::{
     canvas, checkbox, container, radio, scrollable, slider, text, Button, Column, Container, Row,
     Text,
 };
-use iced::{mouse, Background, Command, Element, Length, Rectangle, Theme};
+use iced::Length;
+use iced::{mouse, Background, Command, Element, Rectangle, Theme};
 use iced_aw::{floating_element, Modal};
 use iced_winit::runtime;
 use ikari::file_manager::GameFilePath;
@@ -20,7 +21,6 @@ use ikari::profile_dump::can_generate_profile_dump;
 use ikari::profile_dump::generate_profile_dump;
 use ikari::profile_dump::PendingPerfDump;
 use ikari::renderer::CullingFrustumLockMode;
-use ikari::renderer::GpuTimerScopeResultWrapper;
 use ikari::renderer::MIN_SHADOW_MAP_BIAS;
 use ikari::time::Instant;
 use plotters::prelude::*;
@@ -52,6 +52,7 @@ pub const KOOKY_FONT_BYTES: &[u8] = include_bytes!("./fonts/Pacifico-Regular.ttf
 pub const KOOKY_FONT_NAME: &str = "Pacifico";
 
 const FRAME_TIME_HISTORY_SIZE: usize = 720;
+pub(crate) const THEME: iced::Theme = iced::Theme::Dark;
 
 #[derive(Debug, Clone)]
 pub struct AudioSoundStats {
@@ -65,7 +66,7 @@ pub enum Message {
     ViewportDimsChanged((u32, u32)),
     CursorPosChanged(winit::dpi::PhysicalPosition<f64>),
     FrameCompleted(Duration),
-    GpuFrameCompleted(Vec<GpuTimerScopeResultWrapper>),
+    GpuFrameCompleted(Vec<wgpu_profiler::GpuTimerQueryResult>),
     CameraPoseChanged((Vec3, ControlledViewDirection)),
     AudioSoundStatsChanged((GameFilePath, AudioSoundStats)),
     #[allow(dead_code)]
@@ -148,7 +149,7 @@ impl container::StyleSheet for ContainerStyle {
 #[derive(Debug, Clone)]
 struct FpsChart {
     recent_frame_times: Vec<Duration>,
-    recent_gpu_frame_times: Vec<Vec<GpuTimerScopeResultWrapper>>,
+    recent_gpu_frame_times: Vec<Vec<wgpu_profiler::GpuTimerQueryResult>>,
     avg_frame_time_millis: Option<f64>,
     avg_gpu_frame_time_millis: Option<f64>,
 }
@@ -250,7 +251,7 @@ impl Chart<Message> for FpsChart {
 }
 
 impl FpsChart {
-    fn view(&self) -> Element<Message, iced::Renderer> {
+    fn view(&self) -> Element<Message, iced::Theme, iced::Renderer> {
         ChartWidget::new(self)
             .width(Length::Fixed(400.0))
             .height(Length::Fixed(300.0))
@@ -304,14 +305,14 @@ impl UiOverlay {
     }
 }
 
-impl<Message> canvas::Program<Message, iced::Renderer> for UiOverlay {
+impl<Message> canvas::Program<Message, iced::Theme, iced::Renderer> for UiOverlay {
     type State = ();
 
     fn draw(
         &self,
         _state: &Self::State,
         renderer: &iced::Renderer,
-        _theme: &Theme,
+        _theme: &iced::Theme,
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<canvas::Geometry> {
@@ -331,8 +332,9 @@ impl<Message> canvas::Program<Message, iced::Renderer> for UiOverlay {
 
 // the iced ui
 impl runtime::Program for UiOverlay {
-    type Renderer = iced::Renderer;
     type Message = Message;
+    type Theme = iced::Theme;
+    type Renderer = iced::Renderer;
 
     fn update(&mut self, message: Message) -> Command<Message> {
         let moving_average_alpha = 0.01;
@@ -481,7 +483,7 @@ impl runtime::Program for UiOverlay {
         Command::none()
     }
 
-    fn view(&self) -> Element<Message, iced::Renderer> {
+    fn view(&self) -> Element<'_, Message, iced::Theme, iced::Renderer> {
         if self.fps_chart.recent_frame_times.is_empty() {
             return Row::new().into();
         }
@@ -633,7 +635,7 @@ impl runtime::Program for UiOverlay {
         .width(Length::Fill)
         .height(Length::Fill);
 
-        let modal_content: Option<Element<_, _>> = self.is_showing_options_menu.then(|| {
+        let modal_content: Option<Element<_, _, _>> = self.is_showing_options_menu.then(|| {
             let separator_line = Text::new("-------------")
                 .width(Length::Fill)
                 .horizontal_alignment(Horizontal::Center);
@@ -788,7 +790,7 @@ impl runtime::Program for UiOverlay {
                     self.soft_shadow_grid_dims,
                     Message::SoftShadowGridDimsChanged,
                 )
-                .step(1),
+                .step(1u32),
             );
 
             // profile dump
@@ -853,9 +855,10 @@ impl runtime::Program for UiOverlay {
 
         if self.is_showing_cursor_marker {
             let overlay = {
-                let canvas: canvas::Canvas<&Self, Message, iced::Renderer> = canvas(self as &Self)
-                    .width(Length::Fill)
-                    .height(Length::Fill);
+                let canvas: canvas::Canvas<&Self, Message, iced::Theme, iced::Renderer> =
+                    canvas(self as &Self)
+                        .width(Length::Fill)
+                        .height(Length::Fill);
 
                 Element::from(
                     container(canvas)
@@ -877,7 +880,7 @@ impl runtime::Program for UiOverlay {
     }
 }
 
-fn collect_frame_time_ms(frame_times: &Vec<GpuTimerScopeResultWrapper>) -> f64 {
+fn collect_frame_time_ms(frame_times: &Vec<wgpu_profiler::GpuTimerQueryResult>) -> f64 {
     let mut result = 0.0;
     for frame_time in frame_times {
         result += (frame_time.time.end - frame_time.time.start) * 1000.0;

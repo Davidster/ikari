@@ -1,3 +1,4 @@
+/// Adapted from cargo-run-wasm v0.3.2
 use std::{ffi::OsStr, path::PathBuf, process::Command};
 
 use arboard::Clipboard;
@@ -130,7 +131,6 @@ Remove one flag or the other to continue."#
     }
 }
 
-/// Adapted from cargo-run-wasm v0.3.2
 fn main() {
     env_logger::init();
 
