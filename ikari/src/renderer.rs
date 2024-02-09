@@ -3690,8 +3690,6 @@ impl Renderer {
 
                     if contact.dist.abs() > 2.0 * node_bounding_sphere.radius as f64 {
                         fully_contained_cascades += 1;
-                    } else {
-                        fully_contained_cascades = 0;
                     }
                 }
 
