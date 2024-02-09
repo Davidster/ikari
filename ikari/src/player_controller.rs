@@ -318,7 +318,7 @@ impl PlayerController {
             vector![
                 new_linear_velocity.x as f64,
                 if physics_state.gravity.norm() > 0.0 {
-                    current_linear_velocity.y as f64
+                    current_linear_velocity.y
                 } else {
                     new_linear_velocity.y as f64
                 },
