@@ -132,7 +132,7 @@ impl DirectionalLightUniform {
             direction,
             color,
             intensity,
-            shadow_mapping_config,
+            ..
         } = light;
 
         Self {
@@ -160,7 +160,6 @@ struct DirectionalLightCascadeUniform {
 }
 
 impl DirectionalLightCascadeUniform {
-    // TODO: reuse 'frustum_slice_bounding_sphere' name elsewhere?
     pub fn new(
         distance: f32,
         frustum_slice_bounding_sphere: Sphere,
@@ -196,7 +195,6 @@ impl Default for DirectionalLightCascadeUniform {
 
 fn make_directional_light_uniform_buffer(
     lights: &[DirectionalLight],
-    // TODO: maybe this is the best name?
     all_resolved_cascades: &[Vec<(f32, Sphere)>],
 ) -> Vec<u8> {
     let mut light_uniforms = Vec::new();
@@ -3631,7 +3629,19 @@ impl Renderer {
             engine_state.scene.directional_lights.iter().enumerate()
         {
             let light_cascades = &resolved_directional_light_cascades[light_index];
-            for (_, (_, frustum_slice_bounding_sphere)) in light_cascades.iter().enumerate() {
+
+            let mut fully_contained_cascades = 0;
+
+            for (cascade_index, (_, frustum_slice_bounding_sphere)) in
+                light_cascades.iter().enumerate()
+            {
+                // if the object is fully inside both of the previous cascades then it can be culled
+                // should work well when combined with LOD
+                if fully_contained_cascades >= 2 {
+                    mask_pos += light_cascades.len() - cascade_index;
+                    break;
+                }
+
                 let mut transform = Transform::from(
                     look_in_dir(
                         frustum_slice_bounding_sphere.center,
@@ -3673,23 +3683,16 @@ impl Renderer {
                 )
                 .unwrap()
                 {
-                    // if node.name == Some("test_object".into()) {
-                    //     log::debug!(
-                    //         "test_object contact dist={:.2}, object radius={:.2}",
-                    //         contact.dist,
-                    //         node_bounding_sphere.radius
-                    //     );
-                    // }
                     culling_mask.set(mask_pos, true);
 
                     // TODO: Cull small objects for far away shadow maps
                     //       / cull any objects that cover less than 1 pixel?
 
-                    // TODO: optimize CSM by culling close objects from the larger shadow maps?
-                    // if contact.dist.abs() > 2.0 * node_bounding_sphere.radius as f64 {
-                    //     mask_pos += light_cascades.len() - cascade_index;
-                    //     break;
-                    // }
+                    if contact.dist.abs() > 2.0 * node_bounding_sphere.radius as f64 {
+                        fully_contained_cascades += 1;
+                    } else {
+                        fully_contained_cascades = 0;
+                    }
                 }
 
                 mask_pos += 1;
@@ -4061,6 +4064,8 @@ impl Renderer {
             .collect();
 
         {
+            // TODO: culling is very slow. should do an optimization pass
+
             profiling::scope!("Prepare/cull instance lists");
 
             let start = crate::time::Instant::now();

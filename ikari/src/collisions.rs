@@ -98,7 +98,6 @@ impl Aabb {
         let mut q: Vec3 = Vec3::new(0.0, 0.0, 0.0);
         for i in 0..3 {
             let mut v = p[i];
-            // TODO: got a crash here once: thread 'main' panicked at 'min > max, or either was NaN. min = NaN, max = NaN', /rustc/903e279f468590fa3425f8aff7f3d61a5a873dbb\library\core\src\num\f32.rs:1431:9
             v = v.clamp(self.min[i], self.max[i]);
             q[i] = v;
         }
