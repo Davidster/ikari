@@ -60,6 +60,30 @@ impl Default for Aabb {
 }
 
 impl Aabb {
+    // None if the iterator had less than two points
+    pub fn make_from_points(mut points: impl Iterator<Item = Vec3>) -> Option<Self> {
+        let first_point = points.next();
+
+        if first_point.is_none() {
+            return None;
+        }
+
+        let first_point = first_point.unwrap();
+        let mut min = first_point;
+        let mut max = first_point;
+
+        let mut got_second_point = false;
+
+        for point in points {
+            got_second_point = true;
+
+            min = min.min(point);
+            max = max.max(point);
+        }
+
+        got_second_point.then(|| Self { min, max })
+    }
+
     pub fn volume(&self) -> f32 {
         let size = self.size();
         size.x * size.y * size.z
@@ -370,7 +394,9 @@ impl CameraFrustumDescriptor {
             .clone()
     }
 
-    /// this bounding sphere is not optimally tight
+    /// here we're less worried about the bounding sphere being optimally tight
+    /// and more worried about it having the same radius regardless of how
+    /// the frustum is rotated
     pub fn make_rotation_independent_bounding_sphere(&self) -> Sphere {
         let right = self
             .forward_vector
@@ -385,11 +411,34 @@ impl CameraFrustumDescriptor {
         let d_x_far = self.far_plane_distance * d_x;
         let d_y_far = self.far_plane_distance * d_y;
 
-        let far_plane_corner_point =
-            self.focal_point + self.forward_vector * self.far_plane_distance + d_y_far - d_x_far;
-        let center = self.focal_point
-            + self.forward_vector * (self.far_plane_distance - self.near_plane_distance) / 2.0;
-        let radius = (center - far_plane_corner_point).length();
+        let center = Aabb::make_from_points(
+            self.to_basic_mesh()
+                .vertices
+                .iter()
+                .map(|vertex| vertex.position.into()),
+        )
+        .unwrap()
+        .center();
+
+        let far_plane_side_length_x = 2.0 * d_x_far.length();
+        let far_plane_side_length_y = 2.0 * d_y_far.length();
+        let forward_length = self.far_plane_distance - self.near_plane_distance;
+        let diagonal_length = ((self.far_plane_distance - self.near_plane_distance)
+            / self.far_plane_distance)
+            * self.far_plane_distance
+            / (self.fov_y_rad / 2.0).cos();
+        let longest_side_length = [
+            far_plane_side_length_x,
+            far_plane_side_length_y,
+            forward_length,
+            diagonal_length,
+        ]
+        .iter()
+        .copied()
+        .max_by(|a, b| a.partial_cmp(b).unwrap())
+        .unwrap();
+
+        let radius = longest_side_length / 2.0;
 
         Sphere { center, radius }
     }

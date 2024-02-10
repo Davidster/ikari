@@ -14,6 +14,8 @@ const DIRECTIONAL_LIGHT_SHOW_MAP_COUNT = 2u;
 const POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE: f32 = 1000.0;
 const MAX_SHADOW_CASCADES = 4u;
 const MAX_TOTAL_SHADOW_CASCADES = 128u; // MAX_LIGHTS * MAX_SHADOW_CASCADES
+// TODO: pass this from cpu
+const SOFT_SHADOW_MAX_DISTANCE: f32 = 100.0;
 
 const MIN_SHADOW_MAP_BIAS: f32 = 0.00005;
 const pi: f32 = 3.141592653589793;
@@ -904,7 +906,7 @@ fn do_fragment_shade(
 
                 // assume we're not in shadow if we're outside the shadow's viewproj area
                 if shadow_cascade_dist != 0.0 && to_viewer_vec_length < shadow_cascade_dist && light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0 {
-                    if get_soft_shadows_are_enabled() {
+                    if get_soft_shadows_are_enabled() && to_viewer_vec_length < SOFT_SHADOW_MAX_DISTANCE {
                         // soft shadows code path. costs about 0.15ms extra (per shadow map?) per frame
                         // on an RTX 3060 when compared to hard shadows
 

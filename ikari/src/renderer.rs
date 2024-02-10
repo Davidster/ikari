@@ -48,7 +48,8 @@ pub const DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 2048;
 // pub const DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 512;
 pub const POINT_LIGHT_SHOW_MAP_COUNT: u32 = 2;
 pub const DIRECTIONAL_LIGHT_SHOW_MAP_COUNT: u32 = 2;
-pub const DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH: f32 = 250.0; // relative to radius. final length is this value * radius
+// TODO: farther cascade level light projection boxes seem too "shallow". maybe we should scale this by sqrt(r)?
+pub const DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH: f32 = 250.0;
 pub const MIN_SHADOW_MAP_BIAS: f32 = 0.00005;
 
 #[repr(C)]
@@ -151,6 +152,7 @@ impl Default for DirectionalLightUniform {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub struct ResolvedDirectionalLightCascade {
     // distance from minimum_cascade_distance to the far place of the slice of the
     // frustum that was used for computing the bounding volume for the slice
@@ -170,24 +172,26 @@ struct DirectionalLightCascadeUniform {
 }
 
 impl DirectionalLightCascadeUniform {
-    pub fn new(
-        distance: f32,
-        frustum_slice_bounding_sphere: Sphere,
-        light_direction: Vec3,
-    ) -> Self {
+    pub fn new(resolved_cascade: ResolvedDirectionalLightCascade, light_direction: Vec3) -> Self {
+        let scale_z =
+            (DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH + resolved_cascade.bounding_sphere.radius) / 2.0;
+        let translation = -light_direction * (scale_z - resolved_cascade.bounding_sphere.radius);
         let shader_camera_data = ShaderCameraData::orthographic(
-            look_in_dir(frustum_slice_bounding_sphere.center, light_direction),
-            frustum_slice_bounding_sphere.radius * 2.0,
-            frustum_slice_bounding_sphere.radius * 2.0,
-            -DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
-            DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
+            look_in_dir(
+                resolved_cascade.bounding_sphere.center + translation,
+                light_direction,
+            ),
+            resolved_cascade.bounding_sphere.radius * 2.0,
+            resolved_cascade.bounding_sphere.radius * 2.0,
+            -scale_z,
+            scale_z,
             false,
         );
 
         Self {
             world_space_to_light_space: (shader_camera_data.proj * shader_camera_data.view)
                 .to_cols_array_2d(),
-            distance,
+            distance: resolved_cascade.distance,
             _padding: Default::default(),
         }
     }
@@ -224,11 +228,8 @@ fn make_directional_light_uniform_buffer(
         let light_direction = lights[light_index].direction;
 
         for i in 0..all_resolved_cascades[light_index].len() {
-            let resolved_cascade = &all_resolved_cascades[light_index][i];
-
             tmp_cascade_distances.push(DirectionalLightCascadeUniform::new(
-                resolved_cascade.distance,
-                resolved_cascade.bounding_sphere,
+                all_resolved_cascades[light_index][i],
                 light_direction,
             ));
         }
@@ -2858,26 +2859,10 @@ impl Renderer {
             wgpu::BufferUsages::INDEX,
         );
 
-        let bounding_box = {
-            let mut min_point = Vec3::new(
-                mesh.vertices[0].position[0],
-                mesh.vertices[0].position[1],
-                mesh.vertices[0].position[2],
-            );
-            let mut max_point = min_point;
-            for vertex in &mesh.vertices {
-                min_point.x = min_point.x.min(vertex.position[0]);
-                min_point.y = min_point.y.min(vertex.position[1]);
-                min_point.z = min_point.z.min(vertex.position[2]);
-                max_point.x = max_point.x.max(vertex.position[0]);
-                max_point.y = max_point.y.max(vertex.position[1]);
-                max_point.z = max_point.z.max(vertex.position[2]);
-            }
-            crate::collisions::Aabb {
-                min: min_point,
-                max: max_point,
-            }
-        };
+        let bounding_box = crate::collisions::Aabb::make_from_points(
+            mesh.vertices.iter().map(|vertex| vertex.position.into()),
+        )
+        .expect("Expected model to have at least two vertex positions");
 
         BindedGeometryBuffers {
             vertex_buffer,
@@ -3386,11 +3371,24 @@ impl Renderer {
                         )
                         .to_cols_array_2d(),
                     );
+
+                    // the box is "stretched" towards the light by DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH * R
+                    // and away from the light by R
+                    let scale_z = (DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH
+                        + resolved_cascade.bounding_sphere.radius)
+                        / 2.0;
                     transform.set_scale(Vec3::new(
                         resolved_cascade.bounding_sphere.radius,
                         resolved_cascade.bounding_sphere.radius,
-                        DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH,
+                        scale_z,
                     ));
+
+                    // make sure the box's "far plane" is roughly at the edge of the frustum slice
+                    transform.set_position(
+                        transform.position()
+                            - directional_light.direction
+                                * (scale_z - resolved_cascade.bounding_sphere.radius),
+                    );
 
                     let culling_box_mesh = GameNodeVisual {
                         material: Material::Transparent {
@@ -3653,18 +3651,30 @@ impl Renderer {
                     )
                     .to_cols_array_2d(),
                 );
+
+                // TODO: dedupe from debug drawer.
+                // the box is "stretched" towards the light by DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH * R
+                // and away from the light by R
+                let scale_z = (DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH
+                    + resolved_cascade.bounding_sphere.radius)
+                    / 2.0;
                 transform.set_scale(Vec3::new(
                     resolved_cascade.bounding_sphere.radius,
                     resolved_cascade.bounding_sphere.radius,
-                    DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH,
+                    scale_z,
                 ));
 
-                // TODO: this should NOT be using DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH. the depth of the collider
-                //       (and the light volume itself) should more tightly surround the frustum slice.
+                // make sure the box's "far plane" is roughly at the edge of the frustum slice
+                transform.set_position(
+                    transform.position()
+                        - directional_light.direction
+                            * (scale_z - resolved_cascade.bounding_sphere.radius),
+                );
+
                 let cascade_box_collider = Cuboid::new(Vector3::new(
-                    resolved_cascade.bounding_sphere.radius as f64,
-                    resolved_cascade.bounding_sphere.radius as f64,
-                    DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH as f64,
+                    transform.scale().x as f64,
+                    transform.scale().y as f64,
+                    transform.scale().z as f64,
                 ));
                 let cascade_box_isometry = Isometry::from_parts(
                     nalgebra::Translation3::new(
@@ -4624,12 +4634,20 @@ impl Renderer {
         // directional lights
         for (light_index, light) in engine_state.scene.directional_lights.iter().enumerate() {
             for resolved_cascade in &resolved_directional_light_cascades[light_index] {
+                let scale_z = (DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH
+                    + resolved_cascade.bounding_sphere.radius)
+                    / 2.0;
+                let translation =
+                    -light.direction * (scale_z - resolved_cascade.bounding_sphere.radius);
                 all_camera_data.push(ShaderCameraData::orthographic(
-                    look_in_dir(resolved_cascade.bounding_sphere.center, light.direction),
+                    look_in_dir(
+                        resolved_cascade.bounding_sphere.center + translation,
+                        light.direction,
+                    ),
                     resolved_cascade.bounding_sphere.radius * 2.0,
                     resolved_cascade.bounding_sphere.radius * 2.0,
-                    -DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
-                    DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
+                    -scale_z,
+                    scale_z,
                     false,
                 ));
             }
