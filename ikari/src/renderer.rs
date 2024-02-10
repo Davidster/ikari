@@ -151,6 +151,16 @@ impl Default for DirectionalLightUniform {
     }
 }
 
+pub struct ResolvedDirectionalLightCascade {
+    // distance from minimum_cascade_distance to the far place of the slice of the
+    // frustum that was used for computing the bounding volume for the slice
+    distance: f32,
+    // bounding sphere of frustum slice
+    bounding_sphere: Sphere,
+    // side length of a pixel in world units
+    pixel_size: f32,
+}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct DirectionalLightCascadeUniform {
@@ -195,7 +205,7 @@ impl Default for DirectionalLightCascadeUniform {
 
 fn make_directional_light_uniform_buffer(
     lights: &[DirectionalLight],
-    all_resolved_cascades: &[Vec<(f32, Sphere)>],
+    all_resolved_cascades: &[Vec<ResolvedDirectionalLightCascade>],
 ) -> Vec<u8> {
     let mut light_uniforms = Vec::new();
 
@@ -214,19 +224,11 @@ fn make_directional_light_uniform_buffer(
         let light_direction = lights[light_index].direction;
 
         for i in 0..all_resolved_cascades[light_index].len() {
-            let (distance, frustum_slice_bounding_sphere) = &all_resolved_cascades[light_index][i];
-
-            // let _previous_distance = if i == 0 {
-            //     0.0
-            // } else {
-            //     all_resolved_cascades[light_index][i - 1].0
-            // };
-            // let distance = frustum_slice_bounding_sphere.radius
-            //     + (_previous_distance + (distance - _previous_distance) / 2.0);
+            let resolved_cascade = &all_resolved_cascades[light_index][i];
 
             tmp_cascade_distances.push(DirectionalLightCascadeUniform::new(
-                *distance,
-                *frustum_slice_bounding_sphere,
+                resolved_cascade.distance,
+                resolved_cascade.bounding_sphere,
                 light_direction,
             ));
         }
@@ -3169,7 +3171,7 @@ impl Renderer {
         engine_state: &mut EngineState,
         main_culling_frustum: &Frustum,
         main_culling_frustum_desc: &CameraFrustumDescriptor,
-        resolved_directional_light_cascades: &[Vec<(f32, Sphere)>],
+        resolved_directional_light_cascades: &[Vec<ResolvedDirectionalLightCascade>],
     ) {
         let scene = &mut engine_state.scene;
 
@@ -3372,21 +3374,21 @@ impl Renderer {
         if data.draw_directional_light_culling_frusta {
             let mut new_node_descs = vec![];
             for (light_index, directional_light) in scene.directional_lights.iter().enumerate() {
-                for (cascade_index, (_, frustum_slice_bounding_sphere)) in
-                    resolved_directional_light_cascades[light_index]
-                        .iter()
-                        .enumerate()
+                for (cascade_index, resolved_cascade) in resolved_directional_light_cascades
+                    [light_index]
+                    .iter()
+                    .enumerate()
                 {
                     let mut transform = Transform::from(
                         look_in_dir(
-                            frustum_slice_bounding_sphere.center,
+                            resolved_cascade.bounding_sphere.center,
                             directional_light.direction,
                         )
                         .to_cols_array_2d(),
                     );
                     transform.set_scale(Vec3::new(
-                        frustum_slice_bounding_sphere.radius,
-                        frustum_slice_bounding_sphere.radius,
+                        resolved_cascade.bounding_sphere.radius,
+                        resolved_cascade.bounding_sphere.radius,
                         DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH,
                     ));
 
@@ -3438,8 +3440,8 @@ impl Renderer {
                             GameNodeDescBuilder::new()
                                 .transform(
                                     TransformBuilder::new()
-                                        .position(frustum_slice_bounding_sphere.center)
-                                        .scale(Vec3::splat(frustum_slice_bounding_sphere.radius))
+                                        .position(resolved_cascade.bounding_sphere.center)
+                                        .scale(Vec3::splat(resolved_cascade.bounding_sphere.radius))
                                         .build(),
                                 )
                                 .visual(Some(frustum_bounding_sphere_mesh))
@@ -3560,7 +3562,7 @@ impl Renderer {
         engine_state: &EngineState,
         camera_culling_frustum: &Frustum,
         point_lights_frusta: &PointLightFrustaWithCullingInfo,
-        resolved_directional_light_cascades: &Vec<Vec<(f32, Sphere)>>,
+        resolved_directional_light_cascades: &Vec<Vec<ResolvedDirectionalLightCascade>>,
     ) -> BitVec {
         let directional_light_camera_count: usize = engine_state
             .scene
@@ -3632,32 +3634,36 @@ impl Renderer {
 
             let mut fully_contained_cascades = 0;
 
-            for (cascade_index, (_, frustum_slice_bounding_sphere)) in
-                light_cascades.iter().enumerate()
-            {
-                // if the object is fully inside both of the previous cascades then it can be culled
-                // should work well when combined with LOD
-                if fully_contained_cascades >= 2 {
+            for (cascade_index, resolved_cascade) in light_cascades.iter().enumerate() {
+                // Cull objects that cover less than one pixel in the shadow map
+                //
+                // If the object is fully inside both of the previous cascades then it can
+                // also be culled. This should work well when combined with LOD
+                if resolved_cascade.pixel_size > node_bounding_sphere.radius
+                    || fully_contained_cascades >= 2
+                {
                     mask_pos += light_cascades.len() - cascade_index;
                     break;
                 }
 
                 let mut transform = Transform::from(
                     look_in_dir(
-                        frustum_slice_bounding_sphere.center,
+                        resolved_cascade.bounding_sphere.center,
                         directional_light.direction,
                     )
                     .to_cols_array_2d(),
                 );
                 transform.set_scale(Vec3::new(
-                    frustum_slice_bounding_sphere.radius,
-                    frustum_slice_bounding_sphere.radius,
+                    resolved_cascade.bounding_sphere.radius,
+                    resolved_cascade.bounding_sphere.radius,
                     DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH,
                 ));
 
+                // TODO: this should NOT be using DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH. the depth of the collider
+                //       (and the light volume itself) should more tightly surround the frustum slice.
                 let cascade_box_collider = Cuboid::new(Vector3::new(
-                    frustum_slice_bounding_sphere.radius as f64,
-                    frustum_slice_bounding_sphere.radius as f64,
+                    resolved_cascade.bounding_sphere.radius as f64,
+                    resolved_cascade.bounding_sphere.radius as f64,
                     DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH as f64,
                 ));
                 let cascade_box_isometry = Isometry::from_parts(
@@ -3684,9 +3690,6 @@ impl Renderer {
                 .unwrap()
                 {
                     culling_mask.set(mask_pos, true);
-
-                    // TODO: Cull small objects for far away shadow maps
-                    //       / cull any objects that cover less than 1 pixel?
 
                     if contact.dist.abs() > 2.0 * node_bounding_sphere.radius as f64 {
                         fully_contained_cascades += 1;
@@ -3912,9 +3915,10 @@ impl Renderer {
                     .collect()
             };
 
-            let mut cascade_sizes = vec![];
+            let mut resolved_cascades = vec![];
 
             let minimum_cascade_distance = 0.5;
+            // TODO: does this really need to be so big?
             let overlap_proportion = 0.1;
 
             for cascade_index in 0..cascade_distances.len() {
@@ -3954,16 +3958,17 @@ impl Renderer {
                     bounding_sphere.center.z - bounding_sphere.center.z % pixel_size,
                 );
 
-                cascade_sizes.push((
-                    cascade_distances[cascade_index],
-                    Sphere {
+                resolved_cascades.push(ResolvedDirectionalLightCascade {
+                    distance: cascade_distances[cascade_index],
+                    bounding_sphere: Sphere {
                         center: from_light_space.transform_point3(rounded_bounding_sphere_center),
                         radius: bounding_sphere.radius,
                     },
-                ));
+                    pixel_size,
+                });
             }
 
-            resolved_directional_light_cascades.push(cascade_sizes);
+            resolved_directional_light_cascades.push(resolved_cascades);
         }
 
         self.add_debug_nodes(
@@ -4618,13 +4623,11 @@ impl Renderer {
 
         // directional lights
         for (light_index, light) in engine_state.scene.directional_lights.iter().enumerate() {
-            for (_, frustum_slice_bounding_sphere) in
-                &resolved_directional_light_cascades[light_index]
-            {
+            for resolved_cascade in &resolved_directional_light_cascades[light_index] {
                 all_camera_data.push(ShaderCameraData::orthographic(
-                    look_in_dir(frustum_slice_bounding_sphere.center, light.direction),
-                    frustum_slice_bounding_sphere.radius * 2.0,
-                    frustum_slice_bounding_sphere.radius * 2.0,
+                    look_in_dir(resolved_cascade.bounding_sphere.center, light.direction),
+                    resolved_cascade.bounding_sphere.radius * 2.0,
+                    resolved_cascade.bounding_sphere.radius * 2.0,
                     -DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
                     DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH / 2.0,
                     false,
