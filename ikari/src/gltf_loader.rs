@@ -1,4 +1,5 @@
 use crate::asset_loader::SceneAssetLoadParams;
+use crate::collisions::Aabb;
 use crate::file_manager::GameFilePath;
 use crate::mesh::*;
 use crate::renderer::*;
@@ -254,7 +255,7 @@ pub async fn build_scene(
                     .map(|bone_index| {
                         let bone_inv_bind_matrix = bone_inverse_bind_matrices[bone_index];
                         let vertex_weight_threshold = 0.5f32;
-                        let vertex_positions_for_node: Vec<_> = skeleton_mesh_vertices
+                        let vertex_positions_for_node = skeleton_mesh_vertices
                             .iter()
                             .filter(|vertex| {
                                 vertex
@@ -268,23 +269,16 @@ pub async fn build_scene(
                             })
                             .map(|vertex| {
                                 bone_inv_bind_matrix.transform_point3(Vec3::from(vertex.position))
-                            })
-                            .collect();
-                        if vertex_positions_for_node.is_empty() {
-                            return TransformBuilder::new()
+                            });
+                        match Aabb::make_from_points(vertex_positions_for_node) {
+                            Some(aabb) => TransformBuilder::new()
+                                .scale((aabb.max - aabb.min) / 2.0)
+                                .position(aabb.center())
+                                .build(),
+                            None => TransformBuilder::new()
                                 .scale(Vec3::new(0.0, 0.0, 0.0))
-                                .build();
+                                .build(),
                         }
-                        let mut min_point = vertex_positions_for_node[0];
-                        let mut max_point = min_point;
-                        for pos in vertex_positions_for_node {
-                            min_point = min_point.min(pos);
-                            max_point = max_point.max(pos);
-                        }
-                        TransformBuilder::new()
-                            .scale((max_point - min_point) / 2.0)
-                            .position((max_point + min_point) / 2.0)
-                            .build()
                     })
                     .collect();
 
@@ -775,22 +769,8 @@ pub fn build_geometry(
 ) -> Result<(BindableGeometryBuffers, BindableIndices)> {
     let vertex_positions = get_vertex_positions(primitive_group, buffers)?;
     let vertex_position_count = vertex_positions.len();
-    let bounding_box = {
-        let mut min_point = vertex_positions[0];
-        let mut max_point = min_point;
-        for pos in &vertex_positions {
-            min_point.x = min_point.x.min(pos.x);
-            min_point.y = min_point.y.min(pos.y);
-            min_point.z = min_point.z.min(pos.z);
-            max_point.x = max_point.x.max(pos.x);
-            max_point.y = max_point.y.max(pos.y);
-            max_point.z = max_point.z.max(pos.z);
-        }
-        crate::collisions::Aabb {
-            min: min_point,
-            max: max_point,
-        }
-    };
+    let bounding_box = crate::collisions::Aabb::make_from_points(vertex_positions.iter().copied())
+        .expect("Expected model to have at least two vertex positions");
 
     let indices = get_indices(primitive_group, buffers, vertex_position_count)?;
 
