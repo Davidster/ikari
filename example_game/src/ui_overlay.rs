@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-
 use glam::Vec3;
 use iced::alignment::Horizontal;
 use iced::Font;
