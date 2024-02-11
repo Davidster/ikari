@@ -64,9 +64,7 @@ impl Aabb {
     pub fn make_from_points(mut points: impl Iterator<Item = Vec3>) -> Option<Self> {
         let first_point = points.next();
 
-        if first_point.is_none() {
-            return None;
-        }
+        first_point?;
 
         let first_point = first_point.unwrap();
         let mut min = first_point;
@@ -81,7 +79,7 @@ impl Aabb {
             max = max.max(point);
         }
 
-        got_second_point.then(|| Self { min, max })
+        got_second_point.then_some(Self { min, max })
     }
 
     pub fn volume(&self) -> f32 {
