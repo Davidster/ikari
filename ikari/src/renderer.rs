@@ -164,11 +164,12 @@ pub struct ResolvedDirectionalLightCascade {
 }
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Default)]
 struct DirectionalLightCascadeUniform {
     world_space_to_light_space: [[f32; 4]; 4],
     distance: f32,
-    _padding: [f32; 3],
+    pixel_size: f32,
+    _padding: [f32; 2],
 }
 
 impl DirectionalLightCascadeUniform {
@@ -192,16 +193,7 @@ impl DirectionalLightCascadeUniform {
             world_space_to_light_space: (shader_camera_data.proj * shader_camera_data.view)
                 .to_cols_array_2d(),
             distance: resolved_cascade.distance,
-            _padding: Default::default(),
-        }
-    }
-}
-
-impl Default for DirectionalLightCascadeUniform {
-    fn default() -> Self {
-        Self {
-            world_space_to_light_space: Mat4::IDENTITY.to_cols_array_2d(),
-            distance: 0.0,
+            pixel_size: resolved_cascade.pixel_size,
             _padding: Default::default(),
         }
     }
