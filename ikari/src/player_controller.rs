@@ -129,6 +129,14 @@ impl PlayerController {
         }
     }
 
+    pub fn set_is_gravity_enabled(&self, physics_state: &mut PhysicsState, is_enabled: bool) {
+        let rigid_body = physics_state
+            .rigid_body_set
+            .get_mut(self.rigid_body_handle)
+            .unwrap();
+        rigid_body.set_gravity_scale(if is_enabled { 1.0 } else { 0.0 }, true);
+    }
+
     fn is_controlling_game(&self) -> bool {
         self.is_window_focused_and_clicked && self.is_enabled
     }
@@ -277,6 +285,13 @@ impl PlayerController {
         let up_direction = Vec3::new(0.0, 1.0, 0.0);
         let right_direction = forward_direction.cross(up_direction);
 
+        let rigid_body = physics_state
+            .rigid_body_set
+            .get_mut(self.rigid_body_handle)
+            .unwrap();
+
+        let gravity_is_enabled = rigid_body.gravity_scale() * physics_state.gravity.norm() > 0.001;
+
         let new_linear_velocity = {
             let mut res: Option<Vec3> = None;
 
@@ -303,21 +318,19 @@ impl PlayerController {
                 add_movement(up_direction);
             } else if self.is_down_pressed {
                 add_movement(-up_direction);
+            } else if !gravity_is_enabled && self.is_jump_pressed {
+                add_movement(up_direction);
             }
 
             res.map(|res| res.normalize() * self.speed)
                 .unwrap_or(Vec3::new(0.0, 0.0, 0.0))
         };
 
-        let rigid_body = physics_state
-            .rigid_body_set
-            .get_mut(self.rigid_body_handle)
-            .unwrap();
         let current_linear_velocity = rigid_body.linvel();
         rigid_body.set_linvel(
             vector![
                 new_linear_velocity.x as f64,
-                if physics_state.gravity.norm() > 0.0 {
+                if gravity_is_enabled {
                     current_linear_velocity.y
                 } else {
                     new_linear_velocity.y as f64
@@ -328,7 +341,7 @@ impl PlayerController {
         );
 
         let can_jump = || {
-            if self.is_up_pressed {
+            if !gravity_is_enabled || self.is_up_pressed {
                 return false;
             }
 
