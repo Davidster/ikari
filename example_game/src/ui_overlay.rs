@@ -1,6 +1,8 @@
+use std::collections::hash_map::Entry;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::hash::Hash;
 
 use glam::Vec3;
 use iced::alignment::Horizontal;
@@ -52,6 +54,7 @@ pub const KOOKY_FONT_BYTES: &[u8] = include_bytes!("./fonts/Pacifico-Regular.ttf
 pub const KOOKY_FONT_NAME: &str = "Pacifico";
 
 const FRAME_TIME_HISTORY_SIZE: usize = 720;
+const FRAME_TIMES_MOVING_AVERAGE_ALPHA: f64 = 0.01;
 pub(crate) const THEME: iced::Theme = iced::Theme::Dark;
 
 #[derive(Debug, Clone)]
@@ -152,6 +155,7 @@ struct FpsChart {
     recent_gpu_frame_times: Vec<Vec<wgpu_profiler::GpuTimerQueryResult>>,
     avg_frame_time_millis: Option<f64>,
     avg_gpu_frame_time_millis: Option<f64>,
+    avg_gpu_frame_time_per_span: HashMap<String, f64>,
 }
 
 impl Chart<Message> for FpsChart {
@@ -272,6 +276,7 @@ impl UiOverlay {
                 recent_gpu_frame_times: vec![],
                 avg_frame_time_millis: None,
                 avg_gpu_frame_time_millis: None,
+                avg_gpu_frame_time_per_span: HashMap::new(),
             },
 
             audio_sound_stats: BTreeMap::new(),
@@ -337,8 +342,6 @@ impl runtime::Program for UiOverlay {
     type Renderer = iced::Renderer;
 
     fn update(&mut self, message: Message) -> Command<Message> {
-        let moving_average_alpha = 0.01;
-
         match message {
             Message::ViewportDimsChanged(new_state) => {
                 self.viewport_dims = new_state;
@@ -353,8 +356,8 @@ impl runtime::Program for UiOverlay {
                 self.fps_chart.avg_frame_time_millis =
                     Some(match self.fps_chart.avg_frame_time_millis {
                         Some(avg_frame_time_millis) => {
-                            (1.0 - moving_average_alpha) * avg_frame_time_millis
-                                + (moving_average_alpha * frame_time_ms)
+                            (1.0 - FRAME_TIMES_MOVING_AVERAGE_ALPHA) * avg_frame_time_millis
+                                + (FRAME_TIMES_MOVING_AVERAGE_ALPHA * frame_time_ms)
                         }
                         None => frame_time_ms,
                     });
@@ -386,15 +389,69 @@ impl runtime::Program for UiOverlay {
                 }
             }
             Message::GpuFrameCompleted(frames) => {
-                let frame_time_ms = collect_frame_time_ms(&frames);
+                let mut total_frame_time_ms = 0.0;
+
+                let mut span_set: HashSet<String> = HashSet::new();
+
+                for frame in &frames {
+                    total_frame_time_ms += (frame.time.end - frame.time.start) * 1000.0;
+                    span_set.insert(frame.label.clone());
+                }
+
                 self.fps_chart.avg_gpu_frame_time_millis =
                     Some(match self.fps_chart.avg_gpu_frame_time_millis {
                         Some(avg_gpu_frame_time_millis) => {
-                            (1.0 - moving_average_alpha) * avg_gpu_frame_time_millis
-                                + (moving_average_alpha * frame_time_ms)
+                            (1.0 - FRAME_TIMES_MOVING_AVERAGE_ALPHA) * avg_gpu_frame_time_millis
+                                + (FRAME_TIMES_MOVING_AVERAGE_ALPHA * total_frame_time_ms)
                         }
-                        None => frame_time_ms,
+                        None => total_frame_time_ms,
                     });
+
+                let spans_to_remove: Vec<_> = self
+                    .fps_chart
+                    .avg_gpu_frame_time_per_span
+                    .keys()
+                    .filter(|key| !span_set.contains(*key))
+                    .cloned()
+                    .collect();
+
+                for span_to_remove in spans_to_remove {
+                    self.fps_chart
+                        .avg_gpu_frame_time_per_span
+                        .remove(&span_to_remove);
+                }
+
+                let mut span_totals: HashMap<String, f64> = HashMap::new();
+
+                for frame in &frames {
+                    let span_time_ms = (frame.time.end - frame.time.start) * 1000.0;
+                    match span_totals.entry(frame.label.clone()) {
+                        Entry::Occupied(mut entry) => {
+                            entry.insert(entry.get() + span_time_ms);
+                        }
+                        Entry::Vacant(entry) => {
+                            entry.insert(span_time_ms);
+                        }
+                    }
+                }
+
+                for (span_label, span_time_ms) in &span_totals {
+                    match self
+                        .fps_chart
+                        .avg_gpu_frame_time_per_span
+                        .entry(span_label.clone())
+                    {
+                        Entry::Occupied(mut entry) => {
+                            entry.insert(
+                                (1.0 - FRAME_TIMES_MOVING_AVERAGE_ALPHA) * entry.get()
+                                    + (FRAME_TIMES_MOVING_AVERAGE_ALPHA * span_time_ms),
+                            );
+                        }
+                        Entry::Vacant(entry) => {
+                            entry.insert(*span_time_ms);
+                        }
+                    }
+                }
 
                 self.fps_chart.recent_gpu_frame_times.push(frames);
                 if self.fps_chart.recent_gpu_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
@@ -488,8 +545,6 @@ impl runtime::Program for UiOverlay {
             return Row::new().into();
         }
 
-        let moving_average_alpha = 0.01;
-
         let container_style = Box::new(ContainerStyle {});
 
         let mut rows = Column::new()
@@ -497,26 +552,19 @@ impl runtime::Program for UiOverlay {
             .height(Length::Shrink)
             .spacing(4);
 
-        let has_gpu_frame_time_data = self
-            .fps_chart
-            .recent_gpu_frame_times
-            .iter()
-            .any(|list| !list.is_empty());
-
         if let Some(avg_frame_time_millis) = self.fps_chart.avg_frame_time_millis {
             let cpu_frametime_string = format!(
                 "{:.2}ms ({:.2}fps)",
                 avg_frame_time_millis,
                 1_000.0 / avg_frame_time_millis,
             );
-            let gpu_frametime_string = if has_gpu_frame_time_data {
-                format!(
-                    ", GPU: {:.2}ms",
-                    self.fps_chart.avg_gpu_frame_time_millis.unwrap_or_default()
-                )
-            } else {
-                "".into()
-            };
+            let gpu_frametime_string = self
+                .fps_chart
+                .avg_gpu_frame_time_millis
+                .map(|avg_gpu_frame_time_millis| {
+                    format!(", GPU: {:.2}ms", avg_gpu_frame_time_millis)
+                })
+                .unwrap_or_default();
             rows = rows.push(text(&format!(
                 "Frametime: {cpu_frametime_string}{gpu_frametime_string}"
             )));
@@ -564,48 +612,10 @@ impl runtime::Program for UiOverlay {
         }
 
         if self.is_showing_gpu_spans {
-            let mut span_set: HashSet<&str> = HashSet::new();
-            for frame_spans in &self.fps_chart.recent_gpu_frame_times {
-                // single frame
-                for span in frame_spans {
-                    span_set.insert(&span.label);
-                }
-            }
-            let span_names: Vec<&str> = {
-                let mut span_names: Vec<&str> = span_set.iter().copied().collect();
-                span_names.sort();
-                span_names
-            };
-            let mut avg_span_times: HashMap<&str, f64> = HashMap::new();
+            let mut avg_span_times_vec: Vec<_> =
+                self.fps_chart.avg_gpu_frame_time_per_span.iter().collect();
 
-            for frame_spans in &self.fps_chart.recent_gpu_frame_times {
-                // process all spans of a single frame
-
-                let mut totals_by_span: HashMap<&str, f64> = HashMap::new();
-                for span in frame_spans {
-                    let span_time_ms = (span.time.end - span.time.start) * 1000.0;
-                    let total = totals_by_span.entry(&span.label).or_default();
-                    *total += span_time_ms;
-                }
-
-                for span_name in &span_names {
-                    use std::collections::hash_map::Entry;
-
-                    let frame_time = totals_by_span.entry(span_name).or_default();
-                    match avg_span_times.entry(span_name) {
-                        Entry::Occupied(mut entry) => {
-                            *entry.get_mut() = (1.0 - moving_average_alpha) * entry.get()
-                                + (moving_average_alpha * *frame_time);
-                        }
-                        Entry::Vacant(entry) => {
-                            entry.insert(*frame_time);
-                        }
-                    }
-                }
-            }
-
-            let mut avg_span_times_vec: Vec<_> = avg_span_times.iter().collect();
-            avg_span_times_vec.sort_by_key(|(span, _)| **span);
+            avg_span_times_vec.sort_by_key(|(span, _)| *span);
             avg_span_times_vec.sort_by_key(|(_span, avg_span_frame_time)| {
                 (avg_span_frame_time.max(0.01) * 100.0) as u64
             });
@@ -695,7 +705,12 @@ impl runtime::Program for UiOverlay {
                 Message::ToggleFpsChart,
             ));
 
-            if has_gpu_frame_time_data {
+            if self
+                .fps_chart
+                .recent_gpu_frame_times
+                .iter()
+                .any(|list| !list.is_empty())
+            {
                 options = options.push(checkbox(
                     "Show Detailed GPU Frametimes",
                     self.is_showing_gpu_spans,
@@ -878,12 +893,4 @@ impl runtime::Program for UiOverlay {
             Modal::new(background_content, modal_content).into()
         }
     }
-}
-
-fn collect_frame_time_ms(frame_times: &Vec<wgpu_profiler::GpuTimerQueryResult>) -> f64 {
-    let mut result = 0.0;
-    for frame_time in frame_times {
-        result += (frame_time.time.end - frame_time.time.start) * 1000.0;
-    }
-    result
 }
