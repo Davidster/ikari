@@ -216,7 +216,7 @@ fn make_directional_light_uniform_buffer(
     let active_light_count = lights.len();
     let mut active_lights = lights
         .iter()
-        .map(|light| DirectionalLightUniform::new(light))
+        .map(DirectionalLightUniform::new)
         .collect::<Vec<_>>();
     light_uniforms.append(&mut active_lights);
     light_uniforms.resize(MAX_LIGHT_COUNT, DirectionalLightUniform::default());
@@ -3560,7 +3560,7 @@ impl Renderer {
         engine_state: &EngineState,
         camera_culling_frustum: &Frustum,
         point_lights_frusta: &PointLightFrustaWithCullingInfo,
-        resolved_directional_light_cascades: &Vec<Vec<ResolvedDirectionalLightCascade>>,
+        resolved_directional_light_cascades: &[Vec<ResolvedDirectionalLightCascade>],
     ) -> BitVec {
         let directional_light_camera_count: usize = engine_state
             .scene
@@ -4127,7 +4127,7 @@ impl Renderer {
                                 &resolved_directional_light_cascades,
                             );
 
-                            if culled_object_counts.len() == 0 {
+                            if culled_object_counts.is_empty() {
                                 culled_object_counts = vec![0; culling_mask.len()];
                             }
 
@@ -4304,10 +4304,10 @@ impl Renderer {
 
             let mut directional_light_index_acc = 1;
 
-            for light_index in 0..engine_state.scene.directional_lights.len() {
+            for (light_index, cascades) in resolved_directional_light_cascades.iter().enumerate() {
                 log::debug!("  Directional light: {}", light_index);
 
-                for cascade_index in 0..resolved_directional_light_cascades[light_index].len() {
+                for cascade_index in 0..cascades.len() {
                     let cull_index = 1 + light_index + cascade_index;
                     directional_light_index_acc += 1;
                     log::debug!(
@@ -4319,10 +4319,10 @@ impl Renderer {
                 }
             }
 
-            for light_index in 0..engine_state.scene.point_lights.len() {
+            for (light_index, frusta) in point_lights_frusta.iter().enumerate() {
                 log::debug!("  Point light: {}", light_index);
 
-                match &point_lights_frusta[light_index] {
+                match &frusta {
                     Some(frusta) => {
                         for frustum_index in 0..frusta.0.len() {
                             let cull_index = directional_light_index_acc + frustum_index;

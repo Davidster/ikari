@@ -75,12 +75,12 @@ trait BindScene: WasmNotSend + WasmNotSync {
         -> WasmNotArc<WasmNotMutex<HashMap<AssetId, (Scene, BindedSceneData)>>>;
 }
 
+type BindGroupCache = HashMap<IndexedPbrTextures, WasmNotArc<wgpu::BindGroup>>;
+
 struct TimeSlicedSceneBinder {
     staged_scenes: WasmNotMutex<HashMap<AssetId, BindedSceneData>>,
     loaded_scenes: WasmNotArc<WasmNotMutex<HashMap<AssetId, (Scene, BindedSceneData)>>>,
-    bind_group_caches: WasmNotArc<
-        WasmNotMutex<HashMap<AssetId, HashMap<IndexedPbrTextures, WasmNotArc<wgpu::BindGroup>>>>,
-    >,
+    bind_group_caches: WasmNotArc<WasmNotMutex<HashMap<AssetId, BindGroupCache>>>,
 }
 
 trait BindSkybox: WasmNotSend + WasmNotSync {
@@ -599,8 +599,7 @@ pub async fn make_bindable_skybox(paths: &SkyboxPaths) -> Result<BindableSkybox>
 #[cfg(not(target_arch = "wasm32"))]
 struct ThreadedSceneBinder {
     loaded_scenes: Arc<Mutex<HashMap<AssetId, (Scene, BindedSceneData)>>>,
-    bind_group_caches:
-        Arc<Mutex<HashMap<AssetId, HashMap<IndexedPbrTextures, WasmNotArc<wgpu::BindGroup>>>>>,
+    bind_group_caches: Arc<Mutex<HashMap<AssetId, BindGroupCache>>>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -615,7 +614,7 @@ impl ThreadedSceneBinder {
     fn bind_scene(
         base_renderer: &BaseRenderer,
         renderer_constant_data: &RendererConstantData,
-        bind_group_cache: &mut HashMap<IndexedPbrTextures, WasmNotArc<wgpu::BindGroup>>,
+        bind_group_cache: &mut BindGroupCache,
         bindable_scene: BindableSceneData,
     ) -> Result<BindedSceneData> {
         let mut textures: Vec<Texture> = Vec::with_capacity(bindable_scene.textures.len());
@@ -733,7 +732,7 @@ impl TimeSlicedSceneBinder {
         base_renderer: &BaseRenderer,
         renderer_constant_data: &RendererConstantData,
         staged_scenes: &mut HashMap<AssetId, BindedSceneData>,
-        bind_group_cache: &mut HashMap<IndexedPbrTextures, WasmNotArc<wgpu::BindGroup>>,
+        bind_group_cache: &mut BindGroupCache,
         scene_id: AssetId,
         bindable_scene: &BindableSceneData,
     ) -> Result<Option<BindedSceneData>> {
@@ -1114,7 +1113,7 @@ fn bind_pbr_material(
     base_renderer: &BaseRenderer,
     renderer_constant_data: &RendererConstantData,
     textures: &[Texture],
-    bind_group_cache: &mut HashMap<IndexedPbrTextures, WasmNotArc<wgpu::BindGroup>>,
+    bind_group_cache: &mut BindGroupCache,
     material: &BindablePbrMaterial,
 ) -> Result<BindedPbrMaterial> {
     let textures_bind_group = match bind_group_cache.entry(material.textures.clone()) {
