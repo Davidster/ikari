@@ -87,7 +87,9 @@ pub const INITIAL_SOFT_SHADOW_GRID_DIMS: u32 = 4;
 
 // game settings
 pub const ARENA_SIDE_LENGTH: f32 = 500.0;
-pub const ENABLE_GRAVITY: bool = false;
+pub const ENABLE_GRAVITY: bool = true;
+pub const ENABLE_GRAVITY_ON_PLAYER: bool = false;
+pub const PLAYER_MOVEMENT_SPEED: f32 = 6.0;
 
 pub const CREATE_POINT_SHADOW_MAP_DEBUG_OBJECTS: bool = false;
 pub const REMOVE_LARGE_OBJECTS_FROM_FOREST: bool = false;
@@ -313,7 +315,7 @@ pub async fn init_game_state<'a>(
     ikari::thread::spawn(move || {
         #[allow(clippy::vec_init_then_push)]
         ikari::block_on(async move {
-            ikari::thread::sleep_async(ikari::time::Duration::from_secs_f32(5.0)).await;
+            // ikari::thread::sleep_async(ikari::time::Duration::from_secs_f32(5.0)).await;
 
             // load in gltf files
 
@@ -449,12 +451,10 @@ pub async fn init_game_state<'a>(
     let physics_state = &mut engine_state.physics_state;
     let scene = &mut engine_state.scene;
 
-    physics_state.set_gravity_is_enabled(ENABLE_GRAVITY);
-
     let player_node_id = scene.add_node(GameNodeDesc::default()).id();
     let player_controller = PlayerController::new(
         physics_state,
-        6.0,
+        PLAYER_MOVEMENT_SPEED,
         Vec3::new(8.0, 30.0, -13.0),
         ControlledViewDirection {
             horizontal: deg_to_rad(180.0),
@@ -470,6 +470,9 @@ pub async fn init_game_state<'a>(
             .restitution(0.0)
             .build(),
     );
+
+    physics_state.set_gravity_is_enabled(ENABLE_GRAVITY);
+    player_controller.set_is_gravity_enabled(physics_state, ENABLE_GRAVITY_ON_PLAYER);
 
     renderer.data.lock().unwrap().camera_node_id = Some(player_node_id);
 
