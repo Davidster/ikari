@@ -15,7 +15,7 @@ const POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE: f32 = 1000.0;
 const MAX_SHADOW_CASCADES = 4u;
 const MAX_TOTAL_SHADOW_CASCADES = 128u; // MAX_LIGHTS * MAX_SHADOW_CASCADES
 // TODO: pass this from cpu
-const SOFT_SHADOW_MAX_DISTANCE: f32 = 100.0;
+const SOFT_SHADOW_MAX_DISTANCE: f32 = 10000.0;
 
 const MIN_SHADOW_MAP_BIAS: f32 = 0.00005;
 const pi: f32 = 3.141592653589793;
@@ -34,7 +34,7 @@ struct DirectionalLight {
 }
 struct DirectionalLightCascade {
     world_space_to_light_space: mat4x4<f32>,
-    distance: vec4<f32>,
+    distance_and_pixel_size: vec4<f32>,
 }
 struct Instance {
     model_transform_0: vec4<f32>,
@@ -742,7 +742,7 @@ fn do_fragment_shade(
                     vec2<u32>(3u, 3u)
                 );
 
-                let max_sample_jitter = get_soft_shadow_factor() * 0.67;
+                let max_sample_jitter = get_soft_shadow_factor() * 30.0;
 
                 for (var i = 0; i < 4; i++) {
                     let base_sample_jitter = get_soft_shadow_sample_jitter(early_test_coords[i], random_jitter, 4u);
@@ -882,7 +882,7 @@ fn do_fragment_shade(
 
                 // dist = directional_lights.cascades[light_index * MAX_SHADOW_CASCADES].distance.x;
                 for (var cascade_index = 0u; cascade_index < MAX_SHADOW_CASCADES; cascade_index = cascade_index + 1u) {
-                    shadow_cascade_dist = directional_lights.cascades[light_index * MAX_SHADOW_CASCADES + cascade_index].distance.x;
+                    shadow_cascade_dist = directional_lights.cascades[light_index * MAX_SHADOW_CASCADES + cascade_index].distance_and_pixel_size.x;
                     debug_cascade_index = i32(shadow_cascade_index);
                     if shadow_cascade_dist == 0.0 || 
                         to_viewer_vec_length < shadow_cascade_dist {
@@ -896,6 +896,7 @@ fn do_fragment_shade(
                     shadow_cascade_index = shadow_cascade_index + 1u;
                 }
 
+                let shadow_cascade_pixel_size = directional_lights.cascades[shadow_cascade_index].distance_and_pixel_size.y;
                 let light_space_position_nopersp = directional_lights.cascades[shadow_cascade_index].world_space_to_light_space * vec4<f32>(world_position, 1.0);
                 let light_space_position = light_space_position_nopersp / light_space_position_nopersp.w;
                 let light_space_position_uv = vec2<f32>(
@@ -919,7 +920,7 @@ fn do_fragment_shade(
                             vec2<u32>(3u, 3u)
                         );
 
-                        let max_sample_jitter = get_soft_shadow_factor();
+                        let max_sample_jitter = get_soft_shadow_factor() / shadow_cascade_pixel_size;
 
                         for (var i = 0; i < 4; i++) {
                             let base_sample_jitter = get_soft_shadow_sample_jitter(early_test_coords[i], random_jitter, 4u);

@@ -783,16 +783,16 @@ impl runtime::Program for UiOverlay {
                 .step(0.00001),
             );
             options = options.push(Text::new(format!(
-                "Soft Shadow Factor: {:.4}",
+                "Soft Shadow Factor: {:.6}",
                 self.soft_shadow_factor
             )));
             options = options.push(
                 slider(
-                    0.0001..=0.005,
+                    0.000001..=0.00015,
                     self.soft_shadow_factor,
                     Message::SoftShadowFactorChanged,
                 )
-                .step(0.0001),
+                .step(0.000001),
             );
             options = options.push(Text::new(format!(
                 "Soft Shadow Grid Dims: {:}",
