@@ -292,7 +292,7 @@ impl UiOverlay {
             shadow_bias: INITIAL_SHADOW_BIAS,
             soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
             enable_shadow_debug: INITIAL_ENABLE_SHADOW_DEBUG,
-            enable_cascade_debug: INITIAL_ENABLE_SHADOW_DEBUG,
+            enable_cascade_debug: INITIAL_ENABLE_CASCADE_DEBUG,
             draw_culling_frustum: INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG,
             draw_point_light_culling_frusta: INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG,
             draw_directional_light_culling_frusta:
