@@ -2588,7 +2588,7 @@ impl Renderer {
 
         constant_data.cube_mesh_index = Self::bind_basic_mesh(&base, &mut data, &cube_mesh, true);
 
-        let sphere_mesh = BasicMesh::new(include_bytes!("models/sphere.obj"))?;
+        let sphere_mesh = BasicMesh::new(include_bytes!("models/icosphere.obj"))?;
         constant_data.sphere_mesh_index =
             Self::bind_basic_mesh(&base, &mut data, &sphere_mesh, true);
 

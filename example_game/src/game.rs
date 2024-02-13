@@ -80,13 +80,13 @@ pub const INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG: bool = false;
 pub const INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG: bool = false;
 pub const INITIAL_ENABLE_DIRECTIONAL_LIGHT_CULLING_FRUSTUM_DEBUG: bool = false;
 pub const INITIAL_ENABLE_SOFT_SHADOWS: bool = true;
-pub const INITIAL_SHADOW_BIAS: f32 = 0.004;
+pub const INITIAL_SHADOW_BIAS: f32 = 0.001;
 pub const INITIAL_SKYBOX_WEIGHT: f32 = 1.0;
 pub const INITIAL_SOFT_SHADOW_FACTOR: f32 = 0.00003;
 pub const INITIAL_SOFT_SHADOW_GRID_DIMS: u32 = 4;
 
 // game settings
-pub const ARENA_SIDE_LENGTH: f32 = 500.0;
+pub const ARENA_SIDE_LENGTH: f32 = 200.0;
 pub const ENABLE_GRAVITY: bool = true;
 pub const ENABLE_GRAVITY_ON_PLAYER: bool = false;
 pub const PLAYER_MOVEMENT_SPEED: f32 = 6.0;
@@ -421,14 +421,14 @@ pub async fn init_game_state<'a>(
     // let directional_lights: Vec<DirectionalLightComponent> = vec![];
 
     let point_lights: Vec<(Transform, Vec3, f32)> = vec![
-        (
-            TransformBuilder::new()
-                .scale(Vec3::new(0.05, 0.05, 0.05))
-                .position(Vec3::new(0.0, 0.0, 0.0))
-                .build(),
-            POINT_LIGHT_COLOR,
-            1.0,
-        ),
+        // (
+        //     TransformBuilder::new()
+        //         .scale(Vec3::new(0.05, 0.05, 0.05))
+        //         .position(Vec3::new(0.0, 0.0, 0.0))
+        //         .build(),
+        //     POINT_LIGHT_COLOR,
+        //     1.0,
+        // ),
         // (
         //     TransformBuilder::new()
         //         .scale(Vec3::new(0.1, 0.1, 0.1))
@@ -668,7 +668,7 @@ pub async fn init_game_state<'a>(
 
     // add floor to scene
 
-    let ball_count = 0;
+    let ball_count = 10000;
     let balls: Vec<_> = (0..ball_count).map(|_| BallComponent::rand()).collect();
 
     let ball_pbr_material_index = Renderer::bind_pbr_material(
@@ -696,7 +696,7 @@ pub async fn init_game_state<'a>(
         ball_node_ids.push(node.id());
     }
 
-    let physics_ball_count = 500;
+    let physics_ball_count = 0;
     let physics_balls: Vec<_> = (0..physics_ball_count)
         .map(|_| {
             PhysicsBall::new_random(

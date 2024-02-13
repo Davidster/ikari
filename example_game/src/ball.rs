@@ -42,7 +42,7 @@ impl BallComponent {
                 -1.0 + rand::random::<f32>() * 2.0,
                 -1.0 + rand::random::<f32>() * 2.0,
             ),
-            0.05 + (rand::random::<f32>() * 0.2),
+            (0.05 + (rand::random::<f32>() * 0.2)) * 5.0,
             1.0 + (rand::random::<f32>() * 15.0),
         )
     }

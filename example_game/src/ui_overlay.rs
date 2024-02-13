@@ -53,7 +53,7 @@ pub const KOOKY_FONT_BYTES: &[u8] = include_bytes!("./fonts/Pacifico-Regular.ttf
 pub const KOOKY_FONT_NAME: &str = "Pacifico";
 
 const FRAME_TIME_HISTORY_SIZE: usize = 720;
-const FRAME_TIMES_MOVING_AVERAGE_ALPHA: f64 = 0.01;
+const FRAME_TIMES_MOVING_AVERAGE_ALPHA: f64 = 0.05;
 pub(crate) const THEME: iced::Theme = iced::Theme::Dark;
 
 #[derive(Debug, Clone)]
