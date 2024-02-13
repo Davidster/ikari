@@ -152,48 +152,79 @@ impl Default for DirectionalLightUniform {
     }
 }
 
+/// is a square prism
+#[derive(Debug, Copy, Clone)]
+pub struct CascadeProjectionVolume {
+    pub half_thickness: f32,
+    pub half_depth: f32,
+    pub center: Vec3,
+    pub direction: Vec3,
+    /// side length of a pixel of the shadow map in world units
+    pub pixel_size: f32,
+}
+
+impl CascadeProjectionVolume {
+    /// creates a transform that transforms a 2x2 cube centered at the origin to become this volume
+    pub fn box_transform(&self) -> Transform {
+        let mut transform =
+            Transform::from(look_in_dir(self.center, self.direction).to_cols_array_2d());
+
+        transform.set_scale(Vec3::new(
+            self.half_thickness,
+            self.half_thickness,
+            self.half_depth,
+        ));
+
+        transform
+    }
+
+    pub fn shader_orthographic_projection(&self) -> ShaderCameraData {
+        ShaderCameraData::orthographic(
+            look_in_dir(self.center, self.direction),
+            self.half_thickness * 2.0,
+            self.half_thickness * 2.0,
+            -self.half_depth,
+            self.half_depth,
+            false,
+        )
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub struct ResolvedDirectionalLightCascade {
     // distance from minimum_cascade_distance to the far place of the slice of the
     // frustum that was used for computing the bounding volume for the slice
-    distance: f32,
-    // bounding sphere of frustum slice
-    bounding_sphere: Sphere,
-    // side length of a pixel in world units
-    pixel_size: f32,
+    frustum_slice_far_distance: f32,
+    projection_volume: CascadeProjectionVolume,
 }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Default)]
 struct DirectionalLightCascadeUniform {
     world_space_to_light_space: [[f32; 4]; 4],
-    distance: f32,
+    frustum_slice_far_distance: f32,
     pixel_size: f32,
     _padding: [f32; 2],
 }
 
 impl DirectionalLightCascadeUniform {
     pub fn new(resolved_cascade: ResolvedDirectionalLightCascade, light_direction: Vec3) -> Self {
-        let scale_z =
-            (DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH + resolved_cascade.bounding_sphere.radius) / 2.0;
-        let translation = -light_direction * (scale_z - resolved_cascade.bounding_sphere.radius);
+        let projection_volume = resolved_cascade.projection_volume;
+
         let shader_camera_data = ShaderCameraData::orthographic(
-            look_in_dir(
-                resolved_cascade.bounding_sphere.center + translation,
-                light_direction,
-            ),
-            resolved_cascade.bounding_sphere.radius * 2.0,
-            resolved_cascade.bounding_sphere.radius * 2.0,
-            -scale_z,
-            scale_z,
+            look_in_dir(projection_volume.center, light_direction),
+            projection_volume.half_thickness * 2.0,
+            projection_volume.half_thickness * 2.0,
+            -projection_volume.half_depth,
+            projection_volume.half_depth,
             false,
         );
 
         Self {
             world_space_to_light_space: (shader_camera_data.proj * shader_camera_data.view)
                 .to_cols_array_2d(),
-            distance: resolved_cascade.distance,
-            pixel_size: resolved_cascade.pixel_size,
+            frustum_slice_far_distance: resolved_cascade.frustum_slice_far_distance,
+            pixel_size: projection_volume.pixel_size,
             _padding: Default::default(),
         }
     }
@@ -3356,31 +3387,9 @@ impl Renderer {
                     .iter()
                     .enumerate()
                 {
-                    let mut transform = Transform::from(
-                        look_in_dir(
-                            resolved_cascade.bounding_sphere.center,
-                            directional_light.direction,
-                        )
-                        .to_cols_array_2d(),
-                    );
+                    let projection_volume = resolved_cascade.projection_volume;
 
-                    // the box is "stretched" towards the light by DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH * R
-                    // and away from the light by R
-                    let scale_z = (DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH
-                        + resolved_cascade.bounding_sphere.radius)
-                        / 2.0;
-                    transform.set_scale(Vec3::new(
-                        resolved_cascade.bounding_sphere.radius,
-                        resolved_cascade.bounding_sphere.radius,
-                        scale_z,
-                    ));
-
-                    // make sure the box's "far plane" is roughly at the edge of the frustum slice
-                    transform.set_position(
-                        transform.position()
-                            - directional_light.direction
-                                * (scale_z - resolved_cascade.bounding_sphere.radius),
-                    );
+                    let transform = projection_volume.box_transform();
 
                     let culling_box_mesh = GameNodeVisual {
                         material: Material::Transparent {
@@ -3430,8 +3439,8 @@ impl Renderer {
                             GameNodeDescBuilder::new()
                                 .transform(
                                     TransformBuilder::new()
-                                        .position(resolved_cascade.bounding_sphere.center)
-                                        .scale(Vec3::splat(resolved_cascade.bounding_sphere.radius))
+                                        .position(projection_volume.center)
+                                        .scale(Vec3::splat(projection_volume.half_thickness))
                                         .build(),
                                 )
                                 .visual(Some(frustum_bounding_sphere_mesh))
@@ -3625,43 +3634,20 @@ impl Renderer {
             let mut fully_contained_cascades = 0;
 
             for (cascade_index, resolved_cascade) in light_cascades.iter().enumerate() {
+                let projection_volume = resolved_cascade.projection_volume;
+
                 // Cull objects that cover less than one pixel in the shadow map
                 //
                 // If the object is fully inside both of the previous cascades then it can
                 // also be culled. This should work well when combined with LOD
-                if resolved_cascade.pixel_size > node_bounding_sphere.radius
+                if projection_volume.pixel_size > node_bounding_sphere.radius * 2.0
                     || fully_contained_cascades >= 2
                 {
                     mask_pos += light_cascades.len() - cascade_index;
                     break;
                 }
 
-                let mut transform = Transform::from(
-                    look_in_dir(
-                        resolved_cascade.bounding_sphere.center,
-                        directional_light.direction,
-                    )
-                    .to_cols_array_2d(),
-                );
-
-                // TODO: dedupe from debug drawer.
-                // the box is "stretched" towards the light by DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH * R
-                // and away from the light by R
-                let scale_z = (DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH
-                    + resolved_cascade.bounding_sphere.radius)
-                    / 2.0;
-                transform.set_scale(Vec3::new(
-                    resolved_cascade.bounding_sphere.radius,
-                    resolved_cascade.bounding_sphere.radius,
-                    scale_z,
-                ));
-
-                // make sure the box's "far plane" is roughly at the edge of the frustum slice
-                transform.set_position(
-                    transform.position()
-                        - directional_light.direction
-                            * (scale_z - resolved_cascade.bounding_sphere.radius),
-                );
+                let transform = projection_volume.box_transform();
 
                 let cascade_box_collider = Cuboid::new(Vector3::new(
                     transform.scale().x as f64,
@@ -3960,13 +3946,28 @@ impl Renderer {
                     bounding_sphere.center.z - bounding_sphere.center.z % pixel_size,
                 );
 
-                resolved_cascades.push(ResolvedDirectionalLightCascade {
-                    distance: cascade_distances[cascade_index],
-                    bounding_sphere: Sphere {
-                        center: from_light_space.transform_point3(rounded_bounding_sphere_center),
-                        radius: bounding_sphere.radius,
-                    },
+                let projection_volume_half_thickness = bounding_sphere.radius;
+
+                let projection_half_depth =
+                    (DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH + projection_volume_half_thickness) / 2.0;
+
+                // make sure the box's "far plane" is roughly at the edge of the frustum slice
+                let projection_center = from_light_space
+                    .transform_point3(rounded_bounding_sphere_center)
+                    - directional_light.direction
+                        * (projection_half_depth - projection_volume_half_thickness);
+
+                let projection_volume = CascadeProjectionVolume {
+                    half_thickness: projection_volume_half_thickness,
+                    half_depth: projection_half_depth,
+                    center: projection_center,
+                    direction: directional_light.direction,
                     pixel_size,
+                };
+
+                resolved_cascades.push(ResolvedDirectionalLightCascade {
+                    frustum_slice_far_distance: cascade_distances[cascade_index],
+                    projection_volume,
                 });
             }
 
@@ -4624,24 +4625,13 @@ impl Renderer {
         all_camera_data.push(main_camera_shader_data);
 
         // directional lights
-        for (light_index, light) in engine_state.scene.directional_lights.iter().enumerate() {
+        for (light_index, _light) in engine_state.scene.directional_lights.iter().enumerate() {
             for resolved_cascade in &resolved_directional_light_cascades[light_index] {
-                let scale_z = (DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH
-                    + resolved_cascade.bounding_sphere.radius)
-                    / 2.0;
-                let translation =
-                    -light.direction * (scale_z - resolved_cascade.bounding_sphere.radius);
-                all_camera_data.push(ShaderCameraData::orthographic(
-                    look_in_dir(
-                        resolved_cascade.bounding_sphere.center + translation,
-                        light.direction,
-                    ),
-                    resolved_cascade.bounding_sphere.radius * 2.0,
-                    resolved_cascade.bounding_sphere.radius * 2.0,
-                    -scale_z,
-                    scale_z,
-                    false,
-                ));
+                all_camera_data.push(
+                    resolved_cascade
+                        .projection_volume
+                        .shader_orthographic_projection(),
+                );
             }
         }
 
