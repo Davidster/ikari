@@ -155,7 +155,7 @@ impl Default for DirectionalLightUniform {
 /// is a square prism
 #[derive(Debug, Copy, Clone)]
 pub struct CascadeProjectionVolume {
-    pub half_thickness: f32, // TODO: should it be half?
+    pub half_thickness: f32,
     pub half_depth: f32,
     pub center: Vec3,
     pub direction: Vec3,
