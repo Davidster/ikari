@@ -48,8 +48,7 @@ pub const DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 2048;
 // pub const DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 512;
 pub const POINT_LIGHT_SHOW_MAP_COUNT: u32 = 2;
 pub const DIRECTIONAL_LIGHT_SHOW_MAP_COUNT: u32 = 2;
-// TODO: farther cascade level light projection boxes seem too "shallow". maybe we should scale this by sqrt(r)?
-pub const DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH: f32 = 250.0;
+pub const DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH: f32 = 50.0;
 pub const MIN_SHADOW_MAP_BIAS: f32 = 0.00005;
 
 #[repr(C)]
@@ -3946,8 +3945,10 @@ impl Renderer {
 
                 let projection_volume_half_thickness = bounding_sphere.radius;
 
-                let projection_half_depth =
-                    (DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH + projection_volume_half_thickness) / 2.0;
+                let projection_half_depth = (DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH
+                    * projection_volume_half_thickness.sqrt()
+                    + projection_volume_half_thickness)
+                    / 2.0;
 
                 // make sure the box's "far plane" is roughly at the edge of the frustum slice
                 let projection_center = from_light_space
