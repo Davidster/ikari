@@ -3381,7 +3381,7 @@ impl Renderer {
 
         if data.draw_directional_light_culling_frusta {
             let mut new_node_descs = vec![];
-            for (light_index, directional_light) in scene.directional_lights.iter().enumerate() {
+            for (light_index, _) in scene.directional_lights.iter().enumerate() {
                 for (cascade_index, resolved_cascade) in resolved_directional_light_cascades
                     [light_index]
                     .iter()
@@ -3626,12 +3626,10 @@ impl Renderer {
 
         mask_pos += 1;
 
-        for (light_index, directional_light) in
-            engine_state.scene.directional_lights.iter().enumerate()
-        {
+        for (light_index, _) in engine_state.scene.directional_lights.iter().enumerate() {
             let light_cascades = &resolved_directional_light_cascades[light_index];
 
-            let mut fully_contained_cascades = 0;
+            // let mut fully_contained_cascades = 0;
 
             for (cascade_index, resolved_cascade) in light_cascades.iter().enumerate() {
                 let projection_volume = resolved_cascade.projection_volume;
@@ -3641,7 +3639,8 @@ impl Renderer {
                 // If the object is fully inside both of the previous cascades then it can
                 // also be culled. This should work well when combined with LOD
                 if projection_volume.pixel_size > node_bounding_sphere.radius * 2.0
-                    || fully_contained_cascades >= 2
+                // TODO: this doesn't seem to work for objects that remain close to the player. is it fundamentally wrong?
+                // || fully_contained_cascades >= 2
                 {
                     mask_pos += light_cascades.len() - cascade_index;
                     break;
@@ -3668,7 +3667,7 @@ impl Renderer {
                     )),
                 );
 
-                if let Some(contact) = rapier3d_f64::parry::query::contact(
+                if let Some(_contact) = rapier3d_f64::parry::query::contact(
                     &cascade_box_isometry,
                     &cascade_box_collider,
                     &node_bounding_sphere_parry_isometry,
@@ -3679,9 +3678,9 @@ impl Renderer {
                 {
                     culling_mask.set(mask_pos, true);
 
-                    if contact.dist.abs() > 2.0 * node_bounding_sphere.radius as f64 {
-                        fully_contained_cascades += 1;
-                    }
+                    // if contact.dist.abs() > 2.0 * node_bounding_sphere.radius as f64 {
+                    //     fully_contained_cascades += 1;
+                    // }
                 }
 
                 mask_pos += 1;
@@ -3906,8 +3905,7 @@ impl Renderer {
             let mut resolved_cascades = vec![];
 
             let minimum_cascade_distance = 0.5;
-            // TODO: does this really need to be so big?
-            let overlap_proportion = 0.1;
+            let overlap_proportion = 0.0;
 
             for cascade_index in 0..cascade_distances.len() {
                 let light_space_frustum_slice = CameraFrustumDescriptor {
