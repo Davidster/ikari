@@ -770,12 +770,13 @@ fn do_fragment_shade(
                 // then skip the extra work that we do to soften the penumbra
                 if (shadow_occlusion_acc - 1.0) * shadow_occlusion_acc * n_dot_l != 0.0 {
                     
-                    if soft_shadow_grid_dims > 0u {
-                        // TODO: don't clear shadow_occlusion_acc, we can perserve it and perform fewer samples here
-                        // (skip the samples already done by early test) for a theoretically equivalent level of quality
-                        // and decent performance boost if soft_shadow_grid_dims isn't too high
-                        shadow_occlusion_acc = 0.0;
-                    }
+                    // We could theoretically preserve shadow_occlusion_acc instead of resetting it to 0 by scaling it like so:
+                    //
+                    // shadow_occlusion_acc = shadow_occlusion_acc / (0.25 * f32(soft_shadow_grid_dims * soft_shadow_grid_dims));
+                    //
+                    // then, skip all the early test coords in the following loop. But upon trying it, it seemed a tiny bit
+                    // slower to do it that way, probably because of the added looping to check if the cood is an early coord or not.
+                    shadow_occlusion_acc = 0.0;
 
                     for (var i = 0u; i < soft_shadow_grid_dims; i++) {
                         for (var j = 0u; j < soft_shadow_grid_dims; j++) {
@@ -935,7 +936,7 @@ fn do_fragment_shade(
                             ).r;
 
                             if current_depth - bias < closest_depth {
-                                shadow_occlusion_acc = shadow_occlusion_acc + 0.25;
+                                shadow_occlusion_acc = shadow_occlusion_acc + 0.25; // should add up to 1.0 if no pixels are in shadow
                             }
                         }
 
@@ -944,16 +945,18 @@ fn do_fragment_shade(
                         // then skip the extra work that we do to soften the penumbra
                         if (shadow_occlusion_acc - 1.0) * shadow_occlusion_acc * n_dot_l != 0.0 {
                             
-                            if soft_shadow_grid_dims > 0u {
-                                // TODO: don't clear shadow_occlusion_acc, we can perserve it and perform fewer samples here
-                                // (skip the samples already done by early test) for a theoretically equivalent level of quality
-                                // and decent performance boost if soft_shadow_grid_dims isn't too high
-                                shadow_occlusion_acc = 0.0;
-                            }
+                            // We could theoretically preserve shadow_occlusion_acc instead of resetting it to 0 by scaling it like so:
+                            //
+                            // shadow_occlusion_acc = shadow_occlusion_acc / (0.25 * f32(soft_shadow_grid_dims * soft_shadow_grid_dims));
+                            //
+                            // then, skip all the early test coords in the following loop. But upon trying it, it seemed a tiny bit
+                            // slower to do it that way, probably because of the added looping to check if the cood is an early coord or not.
+                            shadow_occlusion_acc = 0.0;
 
                             for (var i = 0u; i < soft_shadow_grid_dims; i++) {
                                 for (var j = 0u; j < soft_shadow_grid_dims; j++) {
                                     let coord = vec2<u32>(i, j);
+
                                     let base_sample_jitter = get_soft_shadow_sample_jitter(coord, random_jitter, soft_shadow_grid_dims);
                                     // TODO: multiply by current_depth to get softer shadows at a distance?
                                     let sample_jitter = base_sample_jitter * max_sample_jitter;
