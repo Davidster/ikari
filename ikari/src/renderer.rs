@@ -4077,6 +4077,7 @@ impl Renderer {
 
             let mut total_object_count = 0;
             let mut culled_object_counts: Vec<usize> = vec![];
+            let mut completely_culled_object_count: usize = 0;
 
             for node in engine_state.scene.nodes() {
                 let transform = Mat4::from(
@@ -4123,10 +4124,18 @@ impl Renderer {
                                 culled_object_counts = vec![0; culling_mask.len()];
                             }
 
+                            let mut completely_culled = true;
+
                             for (i, element) in culling_mask.iter().by_vals().enumerate() {
                                 if element {
+                                    completely_culled = false;
                                     culled_object_counts[i] += 1;
                                 }
+                            }
+
+                            if completely_culled {
+                                completely_culled_object_count += 1;
+                                continue;
                             }
 
                             let gpu_instance = GpuPbrMeshInstance::new(
@@ -4137,7 +4146,6 @@ impl Renderer {
                                 }),
                             );
 
-                            // TODO: if the culling mask is all 0's, we should omit it from the list altogether
                             match pbr_mesh_index_to_gpu_instances
                                 .entry((mesh_index, binded_material_index))
                             {
@@ -4288,6 +4296,11 @@ impl Renderer {
 
             log::debug!("Culling stats:");
             log::debug!("  Total renderable objects: {}", total_object_count);
+            log::debug!(
+                "  Completely culled: {} ({:.2}%)",
+                completely_culled_object_count,
+                100.0 * completely_culled_object_count as f32 / total_object_count as f32
+            );
             log::debug!(
                 "  Main camera: {} ({:.2}%)",
                 culled_object_counts[0],
