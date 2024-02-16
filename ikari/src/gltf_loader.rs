@@ -5,6 +5,7 @@ use crate::mesh::*;
 use crate::renderer::*;
 use crate::sampler_cache::*;
 use crate::scene::*;
+use crate::texture::RawImage;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::texture_compression::*;
 use crate::transform::*;
@@ -353,15 +354,14 @@ async fn get_textures(
                     && material.normal_texture().unwrap().texture().index() == texture.index()
             });
 
-        let (image_pixels, texture_format, baked_mip_levels, image_dimensions, generate_mipmaps) =
-            get_image_pixels(
-                gltf_path,
-                &texture,
-                &images[source_image_index],
-                is_srgb,
-                is_normal_map,
-            )
-            .await?;
+        let (raw_image, texture_format) = get_raw_image_and_format(
+            gltf_path,
+            &texture,
+            &images[source_image_index],
+            is_srgb,
+            is_normal_map,
+        )
+        .await?;
 
         let gltf_sampler = texture.sampler();
         let default_sampler = SamplerDescriptor {
@@ -404,12 +404,9 @@ async fn get_textures(
             .unwrap_or((default_sampler.min_filter, default_sampler.mipmap_filter));
 
         textures.push(BindableTexture {
-            image_pixels,
-            image_dimensions,
-            baked_mip_levels,
+            raw_image,
             name: texture.name().map(|name| name.to_string()),
             format: texture_format.into(),
-            generate_mipmaps,
             sampler_descriptor: SamplerDescriptor {
                 address_mode_u,
                 address_mode_v,
@@ -515,48 +512,17 @@ fn get_keyframe_times(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn get_compressed_image_pixels(
-    image_data: CompressedTexture,
-    is_srgb: bool,
-) -> Result<(Vec<u8>, wgpu::TextureFormat)> {
-    let CompressedTexture {
-        raw: image_pixels,
-        format,
-        ..
-    } = image_data;
-    let texture_format = match format {
-        basis_universal::transcoding::TranscoderTextureFormat::BC7_RGBA => {
-            if is_srgb {
-                wgpu::TextureFormat::Bc7RgbaUnormSrgb
-            } else {
-                wgpu::TextureFormat::Bc7RgbaUnorm
-            }
-        }
-        basis_universal::transcoding::TranscoderTextureFormat::BC5_RG => {
-            wgpu::TextureFormat::Bc5RgUnorm
-        }
-        _ => {
-            anyhow::bail!(
-                "Passed unsupported compressed texture format to gltf loader: {:?}",
-                format
-            );
-        }
-    };
-    Ok((image_pixels, texture_format))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 #[profiling::function]
-async fn get_image_pixels(
+async fn get_raw_image_and_format(
     gltf_path: &GameFilePath,
     texture: &gltf::Texture<'_>,
     image_data: &gltf::image::Data,
     is_srgb: bool,
     is_normal_map: bool,
-) -> Result<(Vec<u8>, wgpu::TextureFormat, u32, (u32, u32), bool)> {
+) -> Result<(RawImage, wgpu::TextureFormat)> {
     use crate::file_manager::FileManager;
 
-    let compressed_image_data = match texture.source().source() {
+    let compressed_image = match texture.source().source() {
         gltf::image::Source::Uri { uri, .. } => {
             let compressed_texture_path = texture_path_to_compressed_path(&{
                 let mut texture_path = gltf_path.clone();
@@ -578,49 +544,57 @@ async fn get_image_pixels(
         gltf::image::Source::View { .. } => None,
     };
 
-    let baked_mip_levels = compressed_image_data
+    let mip_count = compressed_image
         .as_ref()
-        .map(|data| data.mip_count)
+        .map(|compressed_image| compressed_image.raw_image.mip_count)
         .unwrap_or(1);
-    let image_dimensions = compressed_image_data
+    let (image_width, image_height) = compressed_image
         .as_ref()
-        .map(|data| (data.width, data.height))
+        .map(|data| (data.raw_image.width, data.raw_image.height))
         .unwrap_or((image_data.width, image_data.height));
-    let generate_mipmaps = compressed_image_data.is_none();
 
-    let (image_pixels, texture_format) = match compressed_image_data {
-        Some(compressed_image_data) => get_compressed_image_pixels(compressed_image_data, is_srgb)?,
-        None => get_uncompressed_image_pixels(image_data, is_srgb)?,
+    let (image_pixels, texture_format) = match compressed_image {
+        Some(compressed_image) => {
+            let format_wgpu = compressed_image.format_wgpu(is_srgb);
+            (compressed_image.raw_image.raw, format_wgpu)
+        }
+        None => get_uncompressed_image_and_format(image_data, is_srgb)?,
     };
 
     Ok((
-        image_pixels,
+        RawImage {
+            raw: image_pixels,
+            width: image_width,
+            height: image_height,
+            depth: 1,
+            mip_count,
+        },
         texture_format,
-        baked_mip_levels,
-        image_dimensions,
-        generate_mipmaps,
     ))
 }
 
 #[cfg(target_arch = "wasm32")]
-async fn get_image_pixels(
+async fn get_raw_image_and_format(
     _gltf_path: &GameFilePath,
     _texture: &gltf::Texture<'_>,
     image_data: &gltf::image::Data,
     is_srgb: bool,
     _is_normal_map: bool,
-) -> Result<(Vec<u8>, wgpu::TextureFormat, u32, (u32, u32), bool)> {
-    let (image_pixels, texture_format) = get_uncompressed_image_pixels(image_data, is_srgb)?;
+) -> Result<(RawImage, wgpu::TextureFormat)> {
+    let (image_pixels, texture_format) = get_uncompressed_image_and_format(image_data, is_srgb)?;
     Ok((
-        image_pixels,
+        RawImage {
+            raw: image_pixels,
+            width: image_data.width,
+            height: image_data.height,
+            depth: 1,
+            mip_count: 1,
+        },
         texture_format,
-        1,
-        (image_data.width, image_data.height),
-        true,
     ))
 }
 
-fn get_uncompressed_image_pixels(
+fn get_uncompressed_image_and_format(
     image_data: &gltf::image::Data,
     srgb: bool,
 ) -> Result<(Vec<u8>, wgpu::TextureFormat)> {

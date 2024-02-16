@@ -230,18 +230,12 @@ async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
     let rainbow_texture_path = "src/textures/rainbow_gradient_vertical_compressed.bin";
     let rainbow_texture_bytes =
         FileManager::read(&GAME_PATH_MAKER.make(rainbow_texture_path)).await?;
-    let rainbow_texture_decompressed =
-        texture_compressor.transcode_image(&rainbow_texture_bytes, false)?;
+    let rainbow_texture = texture_compressor.transcode_image(&rainbow_texture_bytes, false)?;
     Texture::from_decoded_image(
         renderer_base,
-        &rainbow_texture_decompressed.raw,
-        (
-            rainbow_texture_decompressed.width,
-            rainbow_texture_decompressed.height,
-        ),
-        rainbow_texture_decompressed.mip_count,
+        &rainbow_texture.raw_image,
         Some(rainbow_texture_path),
-        Some(wgpu::TextureFormat::Bc7RgbaUnormSrgb),
+        Some(rainbow_texture.format_wgpu(true)),
         false,
         &Default::default(),
     )
@@ -586,9 +580,7 @@ pub async fn init_game_state<'a>(
     };
     let checkerboard_texture = Texture::from_decoded_image(
         &renderer.base,
-        &checkerboard_texture_img,
-        checkerboard_texture_img.dimensions(),
-        1,
+        &checkerboard_texture_img.into(),
         Some("checkerboard_texture"),
         None,
         true,
@@ -1065,9 +1057,7 @@ pub async fn init_game_state<'a>(
     let mut crosshair_node_id: Option<GameNodeId> = None;
     let crosshair_texture = Texture::from_decoded_image(
         &renderer.base,
-        &crosshair_texture_img,
-        crosshair_texture_img.dimensions(),
-        1,
+        &crosshair_texture_img.into(),
         Some("crosshair_texture"),
         None,
         false,

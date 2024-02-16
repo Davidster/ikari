@@ -1,5 +1,6 @@
 use std::collections::hash_map::Entry;
 
+
 use crate::camera::*;
 use crate::renderer::BaseRenderer;
 use crate::renderer::RendererConstantData;
@@ -12,7 +13,7 @@ use crate::wasm_not_sync::WasmNotArc;
 use anyhow::*;
 use glam::f32::Vec3;
 
-use image::RgbaImage;
+
 use serde::Deserialize;
 use serde::Serialize;
 use wgpu::util::DeviceExt;
@@ -34,18 +35,6 @@ pub struct RawImage {
     pub raw: Vec<u8>,
 }
 
-impl From<image::RgbaImage> for RawImage {
-    fn from(image: RgbaImage) -> Self {
-        Self {
-            width: image.width(),
-            height: image.height(),
-            depth: 1,
-            mip_count: 1,
-            raw: image.into_raw(),
-        }
-    }
-}
-
 impl RawImage {
     pub fn slice(&self) -> RawImageSlice {
         RawImageSlice {
@@ -54,6 +43,18 @@ impl RawImage {
             depth: self.depth,
             mip_count: self.mip_count,
             raw: &self.raw,
+        }
+    }
+}
+
+impl<P: image::Pixel<Subpixel = u8>> From<image::ImageBuffer<P, Vec<u8>>> for RawImage {
+    fn from(value: image::ImageBuffer<P, Vec<u8>>) -> Self {
+        Self {
+            width: value.width(),
+            height: value.height(),
+            depth: 1,
+            mip_count: 1,
+            raw: value.into_raw(),
         }
     }
 }
@@ -87,19 +88,17 @@ impl Texture {
     // supports jpg and png
     pub fn from_encoded_image(
         base_renderer: &BaseRenderer,
-        img_bytes: &[u8],
+        encoded_img_bytes: &[u8],
         label: Option<&str>,
         format: Option<wgpu::TextureFormat>,
         generate_mipmaps: bool,
         sampler_descriptor: &SamplerDescriptor,
     ) -> Result<Self> {
-        let img = image::load_from_memory(img_bytes)?;
+        let img = image::load_from_memory(encoded_img_bytes)?;
         let img_as_rgba = img.to_rgba8();
         Self::from_decoded_image(
             base_renderer,
-            &img_as_rgba,
-            img_as_rgba.dimensions(),
-            1,
+            &img_as_rgba.into(),
             label,
             format,
             generate_mipmaps,
@@ -107,25 +106,21 @@ impl Texture {
         )
     }
 
-    // TODO: take RawImage as argument instead
-    #[allow(clippy::too_many_arguments)]
     pub fn from_decoded_image(
         base_renderer: &BaseRenderer,
-        img_bytes: &[u8],
-        dimensions: (u32, u32),
-        baked_mip_levels: u32,
+        img: &RawImage,
         label: Option<&str>,
         format: Option<wgpu::TextureFormat>,
         generate_mipmaps: bool,
         sampler_descriptor: &SamplerDescriptor,
     ) -> Result<Self> {
         let size = wgpu::Extent3d {
-            width: dimensions.0,
-            height: dimensions.1,
+            width: img.width,
+            height: img.height,
             depth_or_array_layers: 1,
         };
 
-        if generate_mipmaps && baked_mip_levels != 1 {
+        if generate_mipmaps && img.mip_count != 1 {
             panic!("Generating mips on textures that have baked mips is not supported");
         }
 
@@ -154,12 +149,12 @@ impl Texture {
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                 },
-                img_bytes,
+                &img.raw,
                 wgpu::ImageDataLayout {
                     offset: 0,
                     // queue.write_texture is exempt from COPY_BYTES_PER_ROW_ALIGNMENT requirement
-                    bytes_per_row: Some(format.block_copy_size(None).unwrap() * dimensions.0),
-                    rows_per_image: Some(dimensions.1),
+                    bytes_per_row: Some(format.block_copy_size(None).unwrap() * img.width),
+                    rows_per_image: Some(img.height),
                 },
                 size,
             );
@@ -186,7 +181,7 @@ impl Texture {
                 &wgpu::TextureDescriptor {
                     label: if USE_LABELS { label } else { None },
                     size,
-                    mip_level_count: baked_mip_levels,
+                    mip_level_count: img.mip_count,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
                     format,
@@ -194,7 +189,7 @@ impl Texture {
                     view_formats: &[],
                 },
                 wgpu::util::TextureDataOrder::LayerMajor,
-                img_bytes,
+                &img.raw,
             )
         };
 
@@ -221,9 +216,7 @@ impl Texture {
         };
         Texture::from_decoded_image(
             base_renderer,
-            &one_pixel_image,
-            one_pixel_image.dimensions(),
-            1,
+            &one_pixel_image.into(),
             Some("from_color texture"),
             wgpu::TextureFormat::Rgba8UnormSrgb.into(),
             false,
@@ -243,9 +236,7 @@ impl Texture {
         };
         Texture::from_decoded_image(
             base_renderer,
-            &one_pixel_image,
-            one_pixel_image.dimensions(),
-            1,
+            &one_pixel_image.into(),
             Some("from_color texture"),
             wgpu::TextureFormat::Rgba8Unorm.into(),
             false,
@@ -265,9 +256,7 @@ impl Texture {
         };
         Texture::from_decoded_image(
             base_renderer,
-            &one_pixel_gray_image,
-            one_pixel_gray_image.dimensions(),
-            1,
+            &one_pixel_gray_image.into(),
             Some("from_gray texture"),
             wgpu::TextureFormat::R8Unorm.into(),
             false,

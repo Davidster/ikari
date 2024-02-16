@@ -346,12 +346,9 @@ fn make_pbr_shader_options_uniform_buffer(
 
 #[derive(Debug)]
 pub struct BindableTexture {
-    pub image_pixels: Vec<u8>,
-    pub image_dimensions: (u32, u32),
-    pub baked_mip_levels: u32,
+    pub raw_image: RawImage,
     pub name: Option<String>,
     pub format: Option<wgpu::TextureFormat>,
-    pub generate_mipmaps: bool,
     pub sampler_descriptor: crate::sampler_cache::SamplerDescriptor,
 }
 
@@ -2233,9 +2230,7 @@ impl Renderer {
             let image = image::RgbaImage::from_pixel(skybox_dim, skybox_dim, sky_color.into());
             Texture::from_decoded_image(
                 &base,
-                &image,
-                image.dimensions(),
-                1,
+                &image.into(),
                 Some("skybox_image texture"),
                 wgpu::TextureFormat::Rgba8UnormSrgb.into(),
                 false,
@@ -2255,9 +2250,13 @@ impl Renderer {
             image_raw.resize(pixel_count as usize, color_hdr);
             let texture_er = Texture::from_decoded_image(
                 &base,
-                bytemuck::cast_slice(&image_raw),
-                (skybox_dim, skybox_dim),
-                1,
+                &RawImage {
+                    raw: bytemuck::cast_slice(&image_raw).to_vec(),
+                    width: skybox_dim,
+                    height: skybox_dim,
+                    depth: 1,
+                    mip_count: 1,
+                },
                 None,
                 wgpu::TextureFormat::Rgba16Float.into(),
                 false,

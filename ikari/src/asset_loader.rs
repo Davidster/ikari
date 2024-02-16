@@ -509,14 +509,14 @@ pub async fn make_bindable_skybox(paths: &SkyboxPaths) -> Result<BindableSkybox>
 
             let first_img = to_img(&face_image_paths[0]).await?;
             let mut raw = vec![];
-            raw.extend_from_slice(&first_img.raw);
+            raw.extend_from_slice(&first_img.raw_image.raw);
             for path in &face_image_paths[1..] {
-                raw.extend_from_slice(&to_img(path).await?.raw);
+                raw.extend_from_slice(&to_img(path).await?.raw_image.raw);
             }
 
             BindableSkyboxBackground::CompressedCube(RawImage {
-                width: first_img.width,
-                height: first_img.height,
+                width: first_img.raw_image.width,
+                height: first_img.raw_image.height,
                 depth: 6,
                 mip_count: 1,
                 raw,
@@ -891,9 +891,7 @@ pub fn bind_skybox(
         BindableSkyboxBackground::Equirectangular(image) => {
             let er_background_texture = Texture::from_decoded_image(
                 base_renderer,
-                &image.raw,
-                (image.width, image.height),
-                image.mip_count,
+                &image,
                 Some("er_skybox_texture"),
                 Some(wgpu::TextureFormat::Rgba8UnormSrgb),
                 false,
@@ -953,9 +951,7 @@ pub fn bind_skybox(
         Some(BindableSkyboxHDREnvironment::Equirectangular(image)) => {
             let er_hdr_env_texture = Texture::from_decoded_image(
                 base_renderer,
-                &image.raw,
-                (image.width, image.height),
-                image.mip_count,
+                &image,
                 None,
                 Some(wgpu::TextureFormat::Rgba16Float),
                 false,
@@ -1060,22 +1056,17 @@ fn bind_texture(
     bindable_texture: &BindableTexture,
 ) -> Result<Texture> {
     let BindableTexture {
-        image_pixels,
-        image_dimensions,
-        baked_mip_levels,
+        raw_image,
         name,
         format,
-        generate_mipmaps,
         sampler_descriptor,
     } = bindable_texture;
     Texture::from_decoded_image(
         base_renderer,
-        image_pixels,
-        *image_dimensions,
-        *baked_mip_levels,
+        raw_image,
         name.as_deref(),
         *format,
-        *generate_mipmaps,
+        raw_image.mip_count <= 1,
         sampler_descriptor,
     )
 }

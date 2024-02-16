@@ -29,10 +29,56 @@ pub struct TextureCompressionArgs<'a> {
 #[derive(Debug)]
 pub struct CompressedTexture {
     pub format: basis_universal::transcoding::TranscoderTextureFormat,
-    pub width: u32,
-    pub height: u32,
-    pub mip_count: u32,
-    pub raw: Vec<u8>,
+    pub raw_image: RawImage,
+}
+
+impl CompressedTexture {
+    /// Warning: this will give the wrong result for Astc-formatted hdr textures
+    pub fn format_wgpu(&self, is_srgb: bool) -> wgpu::TextureFormat {
+        let non_srgb_format = match self.format {
+            basis_universal::TranscoderTextureFormat::ETC2_RGBA => {
+                wgpu::TextureFormat::Etc2Rgba8Unorm
+            }
+            basis_universal::TranscoderTextureFormat::BC3_RGBA => wgpu::TextureFormat::Bc3RgbaUnorm,
+            basis_universal::TranscoderTextureFormat::BC4_R => wgpu::TextureFormat::Bc4RUnorm,
+            basis_universal::TranscoderTextureFormat::BC5_RG => wgpu::TextureFormat::Bc5RgUnorm,
+            basis_universal::TranscoderTextureFormat::BC7_RGBA => wgpu::TextureFormat::Bc7RgbaUnorm,
+
+            basis_universal::TranscoderTextureFormat::ASTC_4x4_RGBA => wgpu::TextureFormat::Astc {
+                block: wgpu::AstcBlock::B4x4,
+                channel: wgpu::AstcChannel::Unorm,
+            },
+            basis_universal::TranscoderTextureFormat::ETC1_RGB => unimplemented!(),
+            basis_universal::TranscoderTextureFormat::BC1_RGB => unimplemented!(),
+            basis_universal::TranscoderTextureFormat::PVRTC1_4_RGB => unimplemented!(),
+            basis_universal::TranscoderTextureFormat::PVRTC1_4_RGBA => unimplemented!(),
+            basis_universal::TranscoderTextureFormat::ATC_RGB => unimplemented!(),
+            basis_universal::TranscoderTextureFormat::ATC_RGBA => unimplemented!(),
+            basis_universal::TranscoderTextureFormat::FXT1_RGB => unimplemented!(),
+            basis_universal::TranscoderTextureFormat::PVRTC2_4_RGB => unimplemented!(),
+            basis_universal::TranscoderTextureFormat::PVRTC2_4_RGBA => unimplemented!(),
+            basis_universal::TranscoderTextureFormat::ETC2_EAC_R11 => unimplemented!(),
+            basis_universal::TranscoderTextureFormat::ETC2_EAC_RG11 => unimplemented!(),
+            basis_universal::TranscoderTextureFormat::RGBA32 => unimplemented!(),
+            basis_universal::TranscoderTextureFormat::RGB565 => unimplemented!(),
+            basis_universal::TranscoderTextureFormat::BGR565 => unimplemented!(),
+            basis_universal::TranscoderTextureFormat::RGBA4444 => unimplemented!(),
+        };
+
+        if is_srgb {
+            let srgb_format = non_srgb_format.add_srgb_suffix();
+
+            assert_ne!(
+                srgb_format, non_srgb_format,
+                "Selected texture format {:?} doesn't support srgb",
+                srgb_format
+            );
+
+            srgb_format
+        } else {
+            non_srgb_format
+        }
+    }
 }
 
 impl TextureCompressor {
@@ -194,10 +240,13 @@ impl TextureCompressor {
 
         Ok(CompressedTexture {
             format: gpu_texture_format,
-            width: img_width,
-            height: img_height,
-            raw: full_mip_chain_bytes,
-            mip_count: mip_levels,
+            raw_image: RawImage {
+                width: img_width,
+                height: img_height,
+                depth: 1,
+                mip_count: mip_levels,
+                raw: full_mip_chain_bytes,
+            },
         })
     }
 }
