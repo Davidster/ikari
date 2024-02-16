@@ -1158,8 +1158,6 @@ pub async fn init_game_state<'a>(
         )
     };
 
-    // logger_log(&format!("{:?}", &revolver));
-
     Ok(GameState {
         state_update_time_accumulator: 0.0,
         is_playing_animations: true,
@@ -1594,14 +1592,12 @@ pub fn update_game_state(
                     let mut audio_manager_guard = audio_manager_clone.lock().unwrap();
                     audio_manager_guard.play_sound(bgm_sound_index_clone);
                 });
-                // logger_log("loaded bgm sound");
             }
         }
         if let Some(asset_id) = asset_id_map_guard.get(&"src/sounds/gunshot.wav".to_string()) {
             if let Entry::Occupied(entry) = loaded_audio_guard.entry(*asset_id) {
                 let (_, gunshot_sound_index) = entry.remove_entry();
                 game_state.gunshot_sound_index = Some(gunshot_sound_index);
-                // logger_log("loaded gunshot sound");
                 // audio_manager_guard.set_sound_volume(gunshot_sound_index, 0.001);
             }
         }
@@ -1637,14 +1633,14 @@ pub fn update_game_state(
     // "src/models/gltf/free_low_poly_forest/scene.gltf"
 
     let time_tracker = engine_state.time();
-    let global_time_seconds = time_tracker.global_time_seconds();
+    let global_time_seconds = time_tracker.global_time().as_secs_f32();
 
     // results in ~60 state changes per second
     let min_update_timestep_seconds = 1.0 / 60.0;
     // if frametime takes longer than this, we give up on trying to catch up completely
     // prevents the game from getting stuck in a spiral of death
     let max_delay_catchup_seconds = 0.25;
-    let mut frame_time_seconds = time_tracker.last_frame_time_seconds();
+    let mut frame_time_seconds = time_tracker.last_frame_time().as_secs_f64();
     if frame_time_seconds > max_delay_catchup_seconds {
         frame_time_seconds = max_delay_catchup_seconds;
     }
@@ -1655,10 +1651,6 @@ pub fn update_game_state(
     game_state
         .player_controller
         .update(&mut engine_state.physics_state);
-    // logger_log(&format!(
-    //     "camera pose: {:?}",
-    //     game_state.camera_controller.current_pose
-    // ));
 
     let new_player_transform = game_state
         .player_controller
@@ -1706,7 +1698,7 @@ pub fn update_game_state(
                 .iter_mut()
                 .find(|animation| animation.name == Some(String::from("jump_up_root_motion")))
                 .map(|animation| animation.state.current_time_seconds * 2.0)
-                .unwrap_or(global_time_seconds as f32 * 0.5);
+                .unwrap_or(global_time_seconds * 0.5);
 
             if CREATE_POINT_SHADOW_MAP_DEBUG_OBJECTS {
                 // t = 8.14; // puts the shadow at the corner of the box
@@ -1805,12 +1797,6 @@ pub fn update_game_state(
             .set_rotation(rotational_displacement * node.transform.rotation());
     }
 
-    // logger_log(&format!("Frame time: {:?}", frame_time_seconds));
-    // logger_log(&format!(
-    //     "state_update_time_accumulator: {:?}",
-    //     game_state.state_update_time_accumulator
-    // ));
-
     // remove physics balls over time
     game_state.ball_spawner_acc += frame_time_seconds;
     let rate = 0.1; // lower value spawns balls more quickly
@@ -1846,9 +1832,6 @@ pub fn update_game_state(
         // logger_log(&format!("Ball count: {:?}", new_ball_count));
     }
 
-    // let physics_time_step_start = Instant::now();
-
-    // logger_log(&format!("Physics step time: {:?}", physics_time_step_start.elapsed()));
     let physics_state = &mut engine_state.physics_state;
     let ball_body = &physics_state.rigid_body_set[game_state.bouncing_ball_body_handle];
     if let Some(node) = engine_state
@@ -1919,7 +1902,6 @@ pub fn update_game_state(
                 }
             }
 
-            // logger_log("Fired!");
             let player_position = game_state
                 .player_controller
                 .position(&engine_state.physics_state);
@@ -1954,10 +1936,6 @@ pub fn update_game_state(
                 // the ray travelled a distance equal to `ray.dir * toi`.
                 let _hit_point = ray.point_at(collision_point_distance); // Same as: `ray.origin + ray.dir * toi`
 
-                // logger_log(&format!(
-                //     "Collider {:?} hit at point {}",
-                //     collider_handle, _hit_point
-                // ));
                 if let Some(rigid_body_handle) = engine_state
                     .physics_state
                     .collider_set
@@ -1971,10 +1949,6 @@ pub fn update_game_state(
                         .enumerate()
                         .find(|(_, ball)| ball.rigid_body_handle() == rigid_body_handle)
                     {
-                        // logger_log(&format!(
-                        //     "Hit physics ball {:?} hit at point {}",
-                        //     ball_index, hit_point
-                        // ));
                         // ball.toggle_wireframe(&mut engine_state.scene);
                         ball.destroy(&mut engine_state.scene, &mut engine_state.physics_state);
                         game_state.physics_balls.remove(ball_index);

@@ -1,3 +1,5 @@
+use std::collections::hash_map::Entry;
+
 use crate::camera::*;
 use crate::renderer::BaseRenderer;
 use crate::renderer::RendererConstantData;
@@ -5,6 +7,7 @@ use crate::renderer::FAR_PLANE_DISTANCE;
 use crate::renderer::NEAR_PLANE_DISTANCE;
 use crate::renderer::USE_LABELS;
 use crate::sampler_cache::*;
+use crate::wasm_not_sync::WasmNotArc;
 
 use anyhow::*;
 use glam::f32::Vec3;
@@ -336,7 +339,6 @@ impl Texture {
                 {
                     let buffer_slice = output_buffer.slice(..);
 
-                    // TODO: make sure this works on the web
                     let (tx, rx) = futures_intrusive::channel::shared::oneshot_channel();
                     buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
                         tx.send(result).unwrap();
@@ -1352,14 +1354,6 @@ fn generate_mipmaps_for_texture(
     mip_level_count: u32,
     format: wgpu::TextureFormat,
 ) -> Result<()> {
-    // TODO: don't crate the pipeline each time we generate mipmaps! 😠
-    let blit_shader = base_renderer
-        .device
-        .create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: None,
-            source: wgpu::ShaderSource::Wgsl(include_str!("./shaders/blit.wgsl").into()),
-        });
-
     let single_texture_bind_group_layout =
         base_renderer
             .device
@@ -1385,39 +1379,61 @@ fn generate_mipmaps_for_texture(
                 label: USE_LABELS.then_some("single_texture_bind_group_layout"),
             });
 
-    let mip_pipeline_layout =
-        base_renderer
-            .device
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: USE_LABELS.then_some("Mesh Pipeline Layout"),
-                bind_group_layouts: &[&single_texture_bind_group_layout],
-                push_constant_ranges: &[],
-            });
+    let mip_render_pipeline = {
+        let mut mip_render_cache_guard = base_renderer.mip_pipeline_cache.lock().unwrap();
+        let pipeline =
+            match mip_render_cache_guard.entry(format) {
+                Entry::Occupied(pipeline) => pipeline.get().clone(),
+                Entry::Vacant(_) => {
+                    let blit_shader =
+                        base_renderer
+                            .device
+                            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                                label: None,
+                                source: wgpu::ShaderSource::Wgsl(
+                                    include_str!("./shaders/blit.wgsl").into(),
+                                ),
+                            });
 
-    let mip_render_pipeline =
-        base_renderer
-            .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: USE_LABELS.then_some("mip_render_pipeline"),
-                layout: Some(&mip_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &blit_shader,
-                    entry_point: "vs_main",
-                    buffers: &[],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &blit_shader,
-                    entry_point: "fs_main",
-                    targets: &[Some(format.into())],
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: Default::default(),
-                multiview: None,
-            });
+                    let mip_pipeline_layout = base_renderer.device.create_pipeline_layout(
+                        &wgpu::PipelineLayoutDescriptor {
+                            label: USE_LABELS.then_some("Mip Renderer Pipeline Layout"),
+                            bind_group_layouts: &[&single_texture_bind_group_layout],
+                            push_constant_ranges: &[],
+                        },
+                    );
+
+                    let mip_render_pipeline = base_renderer.device.create_render_pipeline(
+                        &wgpu::RenderPipelineDescriptor {
+                            label: USE_LABELS.then_some("mip_render_pipeline"),
+                            layout: Some(&mip_pipeline_layout),
+                            vertex: wgpu::VertexState {
+                                module: &blit_shader,
+                                entry_point: "vs_main",
+                                buffers: &[],
+                            },
+                            fragment: Some(wgpu::FragmentState {
+                                module: &blit_shader,
+                                entry_point: "fs_main",
+                                targets: &[Some(format.into())],
+                            }),
+                            primitive: wgpu::PrimitiveState {
+                                topology: wgpu::PrimitiveTopology::TriangleList,
+                                ..Default::default()
+                            },
+                            depth_stencil: None,
+                            multisample: Default::default(),
+                            multiview: None,
+                        },
+                    );
+                    WasmNotArc::new(mip_render_pipeline)
+                }
+            };
+        if let Entry::Vacant(entry) = mip_render_cache_guard.entry(format) {
+            entry.insert(pipeline.clone());
+        }
+        pipeline
+    };
 
     let mip_texure_views = (0..mip_level_count)
         .map(|mip| {

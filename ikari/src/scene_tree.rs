@@ -71,11 +71,6 @@ impl SceneTree {
         let mut tree = old_scene_tree.unwrap_or(SceneTree { node_list: vec![] });
         tree.node_list.clear();
 
-        // logger_log(&format!(
-        //     "node_list capacity: {:?}",
-        //     tree.node_list.capacity(),
-        // ));
-
         let _offset = ROOT_AABB_SIZE * 0.02 * std::f32::consts::PI * Vec3::new(1.0, 1.0, 1.0);
         let root_aabb_max = ROOT_AABB_SIZE * Vec3::new(1.0, 1.0, 1.0);
         let root = SceneTreeNode {

@@ -65,15 +65,6 @@ impl BallComponent {
         let new_rotation = rotational_displacement * curr_rotation;
         self.transform.set_rotation(new_rotation);
 
-        // nice log thingy
-        // logger_log(&format!(
-        //     "[{}:{}] {} = {:#?}",
-        //     file!(),
-        //     line!(),
-        //     "direction",
-        //     self.direction
-        // ));
-
         // do collision
         let pos_2d = Vec2::new(new_position.x, new_position.z);
         let ball_edges: Vec<_> = [
