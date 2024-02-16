@@ -12,6 +12,8 @@ const MINIZ_OXIDE_COMPRESSION_LEVEL: u8 = 6;
 #[derive(Debug)]
 pub struct TextureCompressor;
 
+// TODO: there's a bunch of wasm32 checks here. use the module style instead like in file_manager.rs
+
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug)]
 pub struct TextureCompressionArgs<'a> {
@@ -32,6 +34,7 @@ pub struct CompressedTexture {
     pub raw_image: RawImage,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl CompressedTexture {
     /// Warning: this will give the wrong result for Astc-formatted hdr textures
     pub fn format_wgpu(&self, is_srgb: bool) -> wgpu::TextureFormat {
