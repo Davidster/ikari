@@ -10,38 +10,27 @@ Hopefully one day it will be used in a real game 😃
 
 ## Features:
 
-- Physically-Based Rendering materials (PBR)
-- Image-Based Lighting
-- Point and directional lights
-- Soft shadow edges with randomized Percentage Closer Filtering
-- Cascaded shadow mapping
-- Adjustable Bloom
-- Adjustable camera exposure
-- Skeletal animations
-- Auto-generated box collision meshes, including support for skinned characters
-- [Rapier](https://rapier.rs/) integration for physics
-- [Oddio](https://github.com/Ralith/oddio) integration for audio
-- [Iced](https://github.com/iced-rs/iced) integration for UI
-- [Tracy profiler](https://github.com/wolfpld/tracy)
-  - on-demand profile data dumps
-- [wgpu-profiler](https://github.com/Wumpf/wgpu-profiler)
-- Dynamic render scale
-  - Can be used to do supersampling anti-aliasing
-- glTF asset import
-  - Supports scene graph, meshes, materials, animations, and skinning
 - Linux, Windows & MacOS support
 - Web support via WASM/WebGPU
-- Wireframe mode
-- Unlit & transparent materials
-- Skyboxes and HDR environment maps
-  - Can load them in the background and blend two at a time
-- BCN texture compression
-- Orthographic main camera support
-- Scene graph
-- CPU-side frustum culling
-- Mipmapping
-- Reverse-Z for better depth accuracy / less z-fighting
-- Forward rendered with optional depth prepass
+- Rendering
+  - Forward rendered with optional depth prepass
+  - PBR + IBL
+  - Soft shadows via PCF + poisson disk random sample
+  - Cascaded shadow mapping
+  - Bloom
+  - Mesh skinning
+  - Dynamic render scale / SSAA
+  - GLTF
+  - Skybox/environment map blending
+  - BCN texture compression
+  - Orthographic camera
+  - Unlit & transparent materials
+- Integrations
+  - [Rapier](https://rapier.rs/) physics
+  - [Oddio](https://github.com/Ralith/oddio) audio
+  - [Iced](https://github.com/iced-rs/iced) UI
+  - [Tracy profiler](https://github.com/wolfpld/tracy) CPU profiling + dumps
+  - [wgpu-profiler](https://github.com/Wumpf/wgpu-profiler) GPU profiling
 
 ## Try it out
 
