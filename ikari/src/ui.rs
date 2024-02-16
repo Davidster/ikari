@@ -184,7 +184,6 @@ where
                     queue,
                     encoder,
                     None,
-                    // TODO: pass this in render params instead of storing it in self?
                     self.surface_format,
                     texture_view,
                     primitive,

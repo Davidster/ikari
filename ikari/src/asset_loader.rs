@@ -405,7 +405,7 @@ impl AssetLoader {
 impl AssetBinder {
     pub fn new() -> Self {
         #[cfg(not(target_arch = "wasm32"))]
-        let scene_binder = Box::new(ThreadedSceneBinder::new(WasmNotArc::new(
+        let scene_binder = Box::new(TimeSlicedSceneBinder::new(WasmNotArc::new(
             WasmNotMutex::new(HashMap::new()),
         )));
 

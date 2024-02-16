@@ -479,6 +479,7 @@ pub struct BaseRenderer {
     pub queue: wgpu::Queue,
     pub adapter: wgpu::Adapter,
     pub limits: wgpu::Limits,
+    pub mip_pipeline_cache: Mutex<HashMap<wgpu::TextureFormat, WasmNotArc<wgpu::RenderPipeline>>>,
     default_texture_cache: Mutex<HashMap<DefaultTextureType, WasmNotArc<Texture>>>,
     pub sampler_cache: Mutex<SamplerCache>,
 }
@@ -595,6 +596,7 @@ impl BaseRenderer {
             queue,
             limits,
 
+            mip_pipeline_cache: Mutex::new(HashMap::new()),
             default_texture_cache: Mutex::new(HashMap::new()),
             sampler_cache: Mutex::new(SamplerCache::default()),
         })
