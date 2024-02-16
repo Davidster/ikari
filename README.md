@@ -12,6 +12,7 @@ Hopefully one day it will be used in a real game 😃
 
 - Linux, Windows & MacOS support
 - Web support via WASM/WebGPU
+- CLI for asset pre-processing
 - Rendering
   - Forward rendered with optional depth prepass
   - PBR + IBL
