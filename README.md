@@ -14,6 +14,7 @@ Hopefully one day it will be used in a real game 😃
 - Image-Based Lighting
 - Point and directional lights
 - Soft shadow edges with randomized Percentage Closer Filtering
+- Cascaded shadow mapping
 - Adjustable Bloom
 - Adjustable camera exposure
 - Skeletal animations
@@ -33,11 +34,14 @@ Hopefully one day it will be used in a real game 😃
 - Wireframe mode
 - Unlit & transparent materials
 - Skyboxes and HDR environment maps
+  - Can load them in the background and blend two at a time
 - BCN texture compression
+- Orthographic main camera support
 - Scene graph
 - CPU-side frustum culling
 - Mipmapping
 - Reverse-Z for better depth accuracy / less z-fighting
+- Forward rendered with optional depth prepass
 
 ## Try it out
 
