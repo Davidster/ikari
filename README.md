@@ -36,7 +36,7 @@ Hopefully one day it will be used in a real game 😃
 
 ```sh
 # native
-cargo run --features="tracy" --bin example_game
+cargo run --bin example_game
 # web
 rustup target add wasm32-unknown-unknown
 cargo build_web --release --bin example_game
