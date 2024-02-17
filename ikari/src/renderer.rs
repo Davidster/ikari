@@ -2277,7 +2277,6 @@ impl Renderer {
                 wgpu::TextureFormat::Rgba16Float,
                 None,
                 &texture_er,
-                false,
             )?
         };
 
@@ -2294,7 +2293,6 @@ impl Renderer {
                     wgpu::TextureFormat::Rgba8UnormSrgb,
                     None,
                     background_texture_er,
-                    false, // an artifact occurs between the edges of the texture with mipmaps enabled
                 )?,
                 diffuse_environment_map: Texture::create_diffuse_env_map(
                     base,

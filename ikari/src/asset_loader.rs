@@ -912,7 +912,6 @@ pub fn bind_skybox(
                 wgpu::TextureFormat::Rgba8UnormSrgb,
                 Some("cubemap_skybox_texture"),
                 &er_background_texture,
-                false, // an artifact occurs between the edges of the texture with mipmaps enabled
             )?
         }
         BindableSkyboxBackground::Cube(image) => Texture::create_cubemap(
@@ -972,7 +971,6 @@ pub fn bind_skybox(
                 wgpu::TextureFormat::Rgba16Float,
                 None,
                 &er_hdr_env_texture,
-                false,
             )?;
 
             generate_diffuse_and_specular_maps(&hdr_env_texture)

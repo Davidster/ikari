@@ -1,6 +1,5 @@
 use std::collections::hash_map::Entry;
 
-
 use crate::camera::*;
 use crate::renderer::BaseRenderer;
 use crate::renderer::RendererConstantData;
@@ -12,7 +11,6 @@ use crate::wasm_not_sync::WasmNotArc;
 
 use anyhow::*;
 use glam::f32::Vec3;
-
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -575,7 +573,6 @@ impl Texture {
         format: wgpu::TextureFormat,
         label: Option<&str>,
         er_texture: &Texture,
-        generate_mipmaps: bool,
     ) -> Result<Self> {
         let equirectangular_to_cubemap_pipeline = match format {
             wgpu::TextureFormat::Rgba8UnormSrgb => {
@@ -596,18 +593,12 @@ impl Texture {
             depth_or_array_layers: 6,
         };
 
-        let mip_level_count = if generate_mipmaps {
-            size.max_mips(wgpu::TextureDimension::D2)
-        } else {
-            1
-        };
-
         let cubemap_texture = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
                 label: if USE_LABELS { label } else { None },
                 size,
-                mip_level_count,
+                mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format,
@@ -752,10 +743,6 @@ impl Texture {
                 );
             }
             base_renderer.queue.submit(Some(encoder.finish()));
-        }
-
-        if generate_mipmaps {
-            todo!("Call generate_mipmaps_for_texture for each side of the cubemap");
         }
 
         let view = cubemap_texture.create_view(&wgpu::TextureViewDescriptor {
