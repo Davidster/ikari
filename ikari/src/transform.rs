@@ -2,7 +2,7 @@ use rapier3d_f64::prelude::*;
 
 use glam::{
     f32::{Mat3, Mat4, Quat, Vec3},
-    Affine3A,
+    Affine3A, Vec3A,
 };
 use std::ops::{Deref, DerefMut, Mul};
 
@@ -35,8 +35,7 @@ impl Transform {
     pub const IDENTITY: Self = Self(Affine3A::IDENTITY);
 
     pub fn position(&self) -> Vec3 {
-        let (_, _, position) = self.to_scale_rotation_translation();
-        position
+        self.translation.into()
     }
 
     pub fn rotation(&self) -> Quat {

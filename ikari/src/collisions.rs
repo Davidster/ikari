@@ -43,6 +43,15 @@ pub struct Sphere {
     pub radius: f32,
 }
 
+impl Default for Sphere {
+    fn default() -> Self {
+        Self {
+            center: Default::default(),
+            radius: 1.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IntersectionResult {
     FullyContained,
@@ -360,6 +369,7 @@ impl From<CameraFrustumDescriptor> for Frustum {
 }
 
 impl CameraFrustumDescriptor {
+    // TODO: this function is slow due to the calls to to_convex_polyhedron. should cache the convex polyhedra.
     pub fn frustum_intersection_test(&self, other: &CameraFrustumDescriptor) -> bool {
         rapier3d_f64::parry::query::intersection_test(
             &rapier3d_f64::na::Isometry::identity(),

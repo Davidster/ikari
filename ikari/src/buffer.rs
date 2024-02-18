@@ -153,7 +153,7 @@ impl<T: bytemuck::Pod, ID> ChunkedBuffer<T, ID> {
     /// Only supports replace() for now, could maybe create an add_all function if we keep track of the biggest chunk length and fix the padding
     /// at the end of the buffer
     #[profiling::function]
-    pub fn replace(&mut self, chunks: impl Iterator<Item = (ID, Vec<T>)>, alignment: usize) {
+    pub fn replace(&mut self, chunks: impl Iterator<Item = (ID, Box<[T]>)>, alignment: usize) {
         self.clear();
 
         let stride = std::mem::size_of::<T>();

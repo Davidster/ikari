@@ -25,7 +25,7 @@ pub struct GameContext<'a, GameState> {
     pub game_state: &'a mut GameState,
     pub engine_state: &'a mut EngineState,
     pub renderer: &'a mut Renderer,
-    pub surface_data: &'a mut SurfaceData<'static>,
+    pub surface_data: &'a mut SurfaceData,
     pub window: &'a winit::window::Window,
     pub elwt: &'a winit::event_loop::EventLoopWindowTarget<()>,
 }
@@ -44,7 +44,7 @@ pub fn run<
     mut game_state: GameStateType,
     mut engine_state: EngineState,
     mut renderer: Renderer,
-    mut surface_data: SurfaceData<'static>,
+    mut surface_data: SurfaceData,
     mut on_update: OnUpdateFunction,
     mut on_window_event: OnWindowEventFunction,
     mut on_device_event: OnDeviceEventFunction,
@@ -77,6 +77,10 @@ pub fn run<
 
     event_loop
         .run(move |event, elwt| {
+            if elwt.exiting() {
+                return;
+            }
+
             match event {
                 Event::WindowEvent {
                     event: WindowEvent::RedrawRequested,

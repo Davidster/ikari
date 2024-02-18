@@ -56,11 +56,11 @@ pub fn build_scene_tree(
         if node.visual.is_none() || !node.visual.as_ref().unwrap().cullable {
             continue;
         }
-        if let Some(node_bounding_sphere) =
-            scene.get_node_bounding_sphere_opt(node.id(), &renderer.data.lock().unwrap())
-        {
-            scene_tree.insert(node.id(), node_bounding_sphere);
-        }
+
+        scene_tree.insert(
+            node.id(),
+            scene.get_node_bounding_sphere_opt(node.id(), &renderer.data.lock().unwrap()),
+        );
     }
 
     scene_tree
