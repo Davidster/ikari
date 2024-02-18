@@ -636,13 +636,15 @@ pub enum CullingFrustumLock {
     None,
 }
 
+type MeshMaterialIndexPair = (usize, usize);
+
 pub struct RendererPrivateData {
     // cpu
     all_bone_transforms: AllBoneTransforms,
-    all_pbr_instances: ChunkedBuffer<GpuPbrMeshInstance, (usize, usize)>,
+    all_pbr_instances: ChunkedBuffer<GpuPbrMeshInstance, MeshMaterialIndexPair>,
     all_pbr_instances_culling_masks: Vec<BitVec>,
     pbr_mesh_index_to_gpu_instances:
-        HashMap<(usize, usize), (SmallVec<[GpuPbrMeshInstance; 1]>, BitVec)>,
+        HashMap<MeshMaterialIndexPair, (SmallVec<[GpuPbrMeshInstance; 1]>, BitVec)>,
     all_unlit_instances: ChunkedBuffer<GpuUnlitMeshInstance, usize>,
     all_transparent_instances: ChunkedBuffer<GpuUnlitMeshInstance, usize>,
     all_wireframe_instances: ChunkedBuffer<GpuWireframeMeshInstance, usize>,
@@ -3534,8 +3536,8 @@ impl Renderer {
     fn get_node_cam_intersection_result(
         node: &GameNode,
         node_bounding_sphere: Sphere,
-        data: &RendererData,
-        scene: &Scene,
+        _data: &RendererData,
+        _scene: &Scene,
         camera_culling_frustum: &Frustum,
     ) -> Option<IntersectionResult> {
         node.visual.as_ref()?;
@@ -5369,6 +5371,7 @@ impl Renderer {
     }
 
     #[profiling::function]
+    #[allow(clippy::too_many_arguments)]
     pub fn prepare_and_cull_instances(
         engine_state: &EngineState,
         data: &RendererData,
@@ -5426,9 +5429,9 @@ impl Renderer {
                             node,
                             data,
                             engine_state,
-                            &culling_frustum,
-                            &point_lights_frusta,
-                            &resolved_directional_light_cascades,
+                            culling_frustum,
+                            point_lights_frusta,
+                            resolved_directional_light_cascades,
                             &mut tmp_node_culling_mask,
                         );
 

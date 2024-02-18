@@ -2,7 +2,7 @@ use rapier3d_f64::prelude::*;
 
 use glam::{
     f32::{Mat3, Mat4, Quat, Vec3},
-    Affine3A, Vec3A,
+    Affine3A,
 };
 use std::ops::{Deref, DerefMut, Mul};
 
