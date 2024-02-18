@@ -27,6 +27,8 @@ use anyhow::Result;
 use glam::f32::{Mat4, Vec3};
 use glam::Vec4;
 
+use rapier3d_f64::parry::query::PointQuery;
+use smallvec::{smallvec, SmallVec};
 use wgpu::util::DeviceExt;
 
 pub(crate) const USE_LABELS: bool = true;
@@ -160,6 +162,7 @@ pub struct CascadeProjectionVolume {
     pub direction: Vec3,
     /// side length of a pixel of the shadow map in world units
     pub pixel_size: f32,
+    pub aabb: rapier3d_f64::prelude::Aabb,
 }
 
 impl CascadeProjectionVolume {
@@ -481,8 +484,8 @@ pub struct BaseRenderer {
     pub sampler_cache: Mutex<SamplerCache>,
 }
 
-pub struct SurfaceData<'window> {
-    pub surface: wgpu::Surface<'window>,
+pub struct SurfaceData {
+    pub surface: wgpu::Surface<'static>,
     pub surface_config: wgpu::SurfaceConfiguration,
 }
 
@@ -496,7 +499,7 @@ impl BaseRenderer {
         backends: wgpu::Backends,
         dxc_path: Option<PathBuf>,
         window: Arc<winit::window::Window>,
-    ) -> Result<(Self, SurfaceData<'static>)> {
+    ) -> Result<(Self, SurfaceData)> {
         let window_size = window.inner_size();
 
         let instance = Self::make_instance(backends, dxc_path);
@@ -633,11 +636,15 @@ pub enum CullingFrustumLock {
     None,
 }
 
+type MeshMaterialIndexPair = (usize, usize);
+
 pub struct RendererPrivateData {
     // cpu
     all_bone_transforms: AllBoneTransforms,
-    all_pbr_instances: ChunkedBuffer<GpuPbrMeshInstance, (usize, usize)>,
+    all_pbr_instances: ChunkedBuffer<GpuPbrMeshInstance, MeshMaterialIndexPair>,
     all_pbr_instances_culling_masks: Vec<BitVec>,
+    pbr_mesh_index_to_gpu_instances:
+        HashMap<MeshMaterialIndexPair, (SmallVec<[GpuPbrMeshInstance; 1]>, BitVec)>,
     all_unlit_instances: ChunkedBuffer<GpuUnlitMeshInstance, usize>,
     all_transparent_instances: ChunkedBuffer<GpuUnlitMeshInstance, usize>,
     all_wireframe_instances: ChunkedBuffer<GpuWireframeMeshInstance, usize>,
@@ -2611,6 +2618,7 @@ impl Renderer {
                     animated_bone_transforms: vec![],
                     identity_slice: (0, 0),
                 },
+                pbr_mesh_index_to_gpu_instances: HashMap::new(),
                 all_pbr_instances: ChunkedBuffer::new(),
                 all_pbr_instances_culling_masks: vec![],
                 all_unlit_instances: ChunkedBuffer::new(),
@@ -3206,6 +3214,7 @@ impl Renderer {
                     let culling_frustum_intersection_result =
                         Self::get_node_cam_intersection_result(
                             scene.get_node(node_id).unwrap(),
+                            bounding_sphere,
                             data,
                             scene,
                             main_culling_frustum,
@@ -3526,8 +3535,9 @@ impl Renderer {
 
     fn get_node_cam_intersection_result(
         node: &GameNode,
-        data: &RendererData,
-        scene: &Scene,
+        node_bounding_sphere: Sphere,
+        _data: &RendererData,
+        _scene: &Scene,
         camera_culling_frustum: &Frustum,
     ) -> Option<IntersectionResult> {
         node.visual.as_ref()?;
@@ -3536,12 +3546,6 @@ impl Renderer {
         if node.skin_index.is_some() || !node.visual.as_ref().unwrap().cullable {
             return None;
         }
-
-        let node_bounding_sphere = scene.get_node_bounding_sphere_opt(node.id(), data);
-
-        node_bounding_sphere?;
-
-        let node_bounding_sphere = node_bounding_sphere.unwrap();
 
         Some(camera_culling_frustum.sphere_intersection_test(node_bounding_sphere))
     }
@@ -3560,50 +3564,31 @@ impl Renderer {
         camera_culling_frustum: &Frustum,
         point_lights_frusta: &PointLightFrustaWithCullingInfo,
         resolved_directional_light_cascades: &[Vec<ResolvedDirectionalLightCascade>],
-    ) -> BitVec {
-        let directional_light_camera_count: usize = engine_state
-            .scene
-            .directional_lights
-            .iter()
-            .map(|light| light.shadow_mapping_config.num_cascades as usize)
-            .sum();
-        let point_light_camera_count = engine_state.scene.point_lights.len() * 6;
-        let camera_count = 1 + directional_light_camera_count + point_light_camera_count;
-
+        culling_mask: &mut BitVec,
+    ) {
         if DISABLE_FRUSTUM_CULLING
             || USE_ORTHOGRAPHIC_CAMERA
             || !data.enable_directional_shadow_culling
         {
-            return BitVec::repeat(true, camera_count);
+            culling_mask.set_elements(usize::MAX);
         }
 
         if node.visual.is_none() {
-            return BitVec::repeat(false, camera_count);
+            culling_mask.set_elements(0);
         }
 
         /* bounding boxes will be wrong for skinned meshes so we currently can't cull them */
         if node.skin_index.is_some() || !node.visual.as_ref().unwrap().cullable {
-            return BitVec::repeat(true, camera_count);
+            culling_mask.set_elements(usize::MAX);
         }
 
         let node_bounding_sphere = engine_state
             .scene
             .get_node_bounding_sphere_opt(node.id(), data);
-
-        if node_bounding_sphere.is_none() {
-            return BitVec::repeat(false, camera_count);
-        }
-
-        let node_bounding_sphere = node_bounding_sphere.unwrap();
-
-        let node_bounding_sphere_parry = Ball::new(node_bounding_sphere.radius as f64);
-        let node_bounding_sphere_parry_isometry = rapier3d_f64::na::Isometry::from_parts(
-            nalgebra::Translation3::new(
-                node_bounding_sphere.center.x as f64,
-                node_bounding_sphere.center.y as f64,
-                node_bounding_sphere.center.z as f64,
-            ),
-            Default::default(),
+        let node_bounding_sphere_point = rapier3d_f64::na::Point3::new(
+            node_bounding_sphere.center.x as f64,
+            node_bounding_sphere.center.y as f64,
+            node_bounding_sphere.center.z as f64,
         );
 
         let is_touching_frustum = |frustum: &Frustum| {
@@ -3613,7 +3598,7 @@ impl Renderer {
             )
         };
 
-        let mut culling_mask = BitVec::repeat(false, camera_count);
+        culling_mask.set_elements(0);
         let mut mask_pos = 0;
 
         let is_node_on_screen = is_touching_frustum(camera_culling_frustum);
@@ -3644,41 +3629,12 @@ impl Renderer {
                     break;
                 }
 
-                let transform = projection_volume.box_transform();
-
-                let cascade_box_collider = Cuboid::new(Vector3::new(
-                    transform.scale().x as f64,
-                    transform.scale().y as f64,
-                    transform.scale().z as f64,
-                ));
-                let cascade_box_isometry = Isometry::from_parts(
-                    nalgebra::Translation3::new(
-                        transform.position().x as f64,
-                        transform.position().y as f64,
-                        transform.position().z as f64,
-                    ),
-                    nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
-                        transform.rotation().w as f64,
-                        transform.rotation().x as f64,
-                        transform.rotation().y as f64,
-                        transform.rotation().z as f64,
-                    )),
-                );
-
-                if let Some(_contact) = rapier3d_f64::parry::query::contact(
-                    &cascade_box_isometry,
-                    &cascade_box_collider,
-                    &node_bounding_sphere_parry_isometry,
-                    &node_bounding_sphere_parry,
-                    0.0,
-                )
-                .unwrap()
+                if projection_volume
+                    .aabb
+                    .distance_to_local_point(&node_bounding_sphere_point, true)
+                    < node_bounding_sphere.radius.into()
                 {
                     culling_mask.set(mask_pos, true);
-
-                    // if contact.dist.abs() > 2.0 * node_bounding_sphere.radius as f64 {
-                    //     fully_contained_cascades += 1;
-                    // }
                 }
 
                 mask_pos += 1;
@@ -3711,8 +3667,6 @@ impl Renderer {
                 }
             }
         }
-
-        culling_mask
     }
 
     fn get_environment_textures_bind_group(
@@ -3955,12 +3909,46 @@ impl Renderer {
                     - directional_light.direction
                         * (projection_half_depth - projection_volume_half_thickness);
 
+                let transform = {
+                    let mut transform = Transform::from(
+                        look_in_dir(projection_center, directional_light.direction)
+                            .to_cols_array_2d(),
+                    );
+
+                    transform.set_scale(Vec3::new(
+                        projection_volume_half_thickness,
+                        projection_volume_half_thickness,
+                        projection_half_depth,
+                    ));
+                    transform
+                };
+
+                let projection_collider = Cuboid::new(Vector3::new(
+                    transform.scale().x as f64,
+                    transform.scale().y as f64,
+                    transform.scale().z as f64,
+                ));
+                let projection_isometry = Isometry::from_parts(
+                    nalgebra::Translation3::new(
+                        transform.position().x as f64,
+                        transform.position().y as f64,
+                        transform.position().z as f64,
+                    ),
+                    nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
+                        transform.rotation().w as f64,
+                        transform.rotation().x as f64,
+                        transform.rotation().y as f64,
+                        transform.rotation().z as f64,
+                    )),
+                );
+
                 let projection_volume = CascadeProjectionVolume {
                     half_thickness: projection_volume_half_thickness,
                     half_depth: projection_half_depth,
                     center: projection_center,
                     direction: directional_light.direction,
                     pixel_size,
+                    aabb: projection_collider.aabb(&projection_isometry),
                 };
 
                 resolved_cascades.push(ResolvedDirectionalLightCascade {
@@ -3981,8 +3969,7 @@ impl Renderer {
             &resolved_directional_light_cascades,
         );
 
-        // TODO: compute node bounding spheres here too?
-        engine_state.scene.recompute_global_node_transforms();
+        engine_state.scene.recompute_global_node_transforms(data);
 
         let limits = &self.base.limits;
         let queue = &self.base.queue;
@@ -4006,10 +3993,7 @@ impl Renderer {
         // and use it for the whole group, meaning frustum culling can be much less effective
         // for large groups of instances because if only one of them is visible by the camera
         // then all the rest of them need to be drawn
-        let mut pbr_mesh_index_to_gpu_instances: HashMap<
-            (usize, usize),
-            (Vec<GpuPbrMeshInstance>, BitVec),
-        > = HashMap::new();
+        private_data.pbr_mesh_index_to_gpu_instances.clear();
         let mut unlit_mesh_index_to_gpu_instances: HashMap<usize, Vec<GpuUnlitMeshInstance>> =
             HashMap::new();
         let mut wireframe_mesh_index_to_gpu_instances: HashMap<
@@ -4067,289 +4051,26 @@ impl Renderer {
             })
             .collect();
 
-        {
-            // TODO: culling is very slow. should do an optimization pass
-
-            profiling::scope!("Prepare/cull instance lists");
-
-            let start = crate::time::Instant::now();
-
-            let mut total_object_count = 0;
-            let mut culled_object_counts: Vec<usize> = vec![];
-            let mut completely_culled_object_count: usize = 0;
-
-            for node in engine_state.scene.nodes() {
-                let transform = Mat4::from(
-                    engine_state
-                        .scene
-                        .get_global_transform_for_node_opt(node.id()),
-                );
-                if let Some(GameNodeVisual {
-                    mesh_index,
-                    material,
-                    wireframe,
-                    ..
-                }) = node.visual.clone()
-                {
-                    let (scale, _, translation) = transform.to_scale_rotation_translation();
-                    let aabb_world_space = data.binded_meshes[mesh_index]
-                        .bounding_box
-                        .scale_translate(scale, translation);
-                    let closest_point_to_player =
-                        aabb_world_space.find_closest_surface_point(camera_position);
-                    let distance_from_player = closest_point_to_player.distance(camera_position);
-
-                    match (material, data.enable_wireframe_mode, wireframe) {
-                        (
-                            Material::Pbr {
-                                binded_material_index,
-                                dynamic_pbr_params,
-                            },
-                            false,
-                            false,
-                        ) => {
-                            total_object_count += 1;
-
-                            let culling_mask = Self::get_node_culling_mask(
-                                node,
-                                data,
-                                engine_state,
-                                &culling_frustum,
-                                &point_lights_frusta,
-                                &resolved_directional_light_cascades,
-                            );
-
-                            if culled_object_counts.is_empty() {
-                                culled_object_counts = vec![0; culling_mask.len()];
-                            }
-
-                            let mut completely_culled = true;
-
-                            for (i, element) in culling_mask.iter().by_vals().enumerate() {
-                                if element {
-                                    completely_culled = false;
-                                    culled_object_counts[i] += 1;
-                                }
-                            }
-
-                            if completely_culled {
-                                completely_culled_object_count += 1;
-                                continue;
-                            }
-
-                            let gpu_instance = GpuPbrMeshInstance::new(
-                                transform,
-                                dynamic_pbr_params.unwrap_or_else(|| {
-                                    data.binded_pbr_materials[binded_material_index]
-                                        .dynamic_pbr_params
-                                }),
-                            );
-
-                            match pbr_mesh_index_to_gpu_instances
-                                .entry((mesh_index, binded_material_index))
-                            {
-                                Entry::Occupied(mut entry) => {
-                                    entry.get_mut().0.push(gpu_instance);
-                                    // combine instance culling masks
-                                    *entry.get_mut().1 |= culling_mask;
-                                }
-                                Entry::Vacant(entry) => {
-                                    entry.insert((vec![gpu_instance], culling_mask));
-                                }
-                            }
-                        }
-                        (material, enable_wireframe_mode, is_node_wireframe) => {
-                            let (color, is_transparent) = match material {
-                                Material::Unlit { color } => {
-                                    ([color.x, color.y, color.z, 1.0], false)
-                                }
-                                Material::Transparent {
-                                    color,
-                                    premultiplied_alpha,
-                                } => {
-                                    (
-                                        if premultiplied_alpha {
-                                            [color.x, color.y, color.z, color.w]
-                                        } else {
-                                            // transparent pipeline requires alpha to be premultiplied.
-                                            [
-                                                color.w * color.x,
-                                                color.w * color.y,
-                                                color.w * color.z,
-                                                color.w,
-                                            ]
-                                        },
-                                        true,
-                                    )
-                                }
-                                Material::Pbr {
-                                    binded_material_index,
-                                    dynamic_pbr_params,
-                                } => {
-                                    // fancy logic for picking what the wireframe lines
-                                    // color will be by checking the pbr material
-                                    let DynamicPbrParams {
-                                        base_color_factor,
-                                        emissive_factor,
-                                        ..
-                                    } = dynamic_pbr_params.unwrap_or_else(|| {
-                                        data.binded_pbr_materials[binded_material_index]
-                                            .dynamic_pbr_params
-                                    });
-                                    let should_take_color = |as_slice: &[f32]| {
-                                        let is_all_zero = as_slice.iter().all(|&x| x == 0.0);
-                                        let is_all_one = as_slice.iter().all(|&x| x == 1.0);
-                                        !is_all_zero && !is_all_one
-                                    };
-                                    let base_color_factor_arr: [f32; 4] = base_color_factor.into();
-                                    let emissive_factor_arr: [f32; 3] = emissive_factor.into();
-                                    (
-                                        if should_take_color(&base_color_factor_arr[0..3]) {
-                                            [
-                                                base_color_factor.x,
-                                                base_color_factor.y,
-                                                base_color_factor.z,
-                                                base_color_factor.w,
-                                            ]
-                                        } else if should_take_color(&emissive_factor_arr) {
-                                            [
-                                                emissive_factor.x,
-                                                emissive_factor.y,
-                                                emissive_factor.z,
-                                                1.0,
-                                            ]
-                                        } else {
-                                            DEFAULT_WIREFRAME_COLOR
-                                        },
-                                        false,
-                                    )
-                                }
-                            };
-
-                            if enable_wireframe_mode || is_node_wireframe {
-                                let wireframe_mesh_index = data
-                                    .binded_wireframe_meshes
-                                    .iter()
-                                    .enumerate()
-                                    .find(|(_, wireframe_mesh)| {
-                                        wireframe_mesh.source_mesh_index == mesh_index
-                                    })
-                                    .map(|(index, _)| index);
-
-                                if wireframe_mesh_index.is_none() {
-                                    if is_node_wireframe {
-                                        log::error!("Attempted to draw mesh in wireframe mode without binding a corresponding wireframe mesh. Mesh will not be draw. mesh_index={mesh_index:?} node={node:?}");
-                                    }
-                                    continue;
-                                }
-
-                                let wireframe_mesh_index = wireframe_mesh_index
-                                    .expect("Should have checked that it isn't None");
-
-                                let gpu_instance = GpuWireframeMeshInstance {
-                                    color,
-                                    model_transform: transform,
-                                };
-                                match wireframe_mesh_index_to_gpu_instances
-                                    .entry(wireframe_mesh_index)
-                                {
-                                    Entry::Occupied(mut entry) => {
-                                        entry.get_mut().push(gpu_instance);
-                                    }
-                                    Entry::Vacant(entry) => {
-                                        entry.insert(vec![gpu_instance]);
-                                    }
-                                }
-                            } else if is_transparent {
-                                let gpu_instance = GpuTransparentMeshInstance {
-                                    color,
-                                    model_transform: transform,
-                                };
-                                transparent_meshes.push((
-                                    mesh_index,
-                                    gpu_instance,
-                                    distance_from_player,
-                                ));
-                            } else {
-                                let gpu_instance = GpuUnlitMeshInstance {
-                                    color,
-                                    model_transform: transform,
-                                };
-                                match unlit_mesh_index_to_gpu_instances.entry(mesh_index) {
-                                    Entry::Occupied(mut entry) => {
-                                        entry.get_mut().push(gpu_instance);
-                                    }
-                                    Entry::Vacant(entry) => {
-                                        entry.insert(vec![gpu_instance]);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // TODO: move to UI?
-
-            log::debug!("Culling time: {:?}", start.elapsed());
-
-            log::debug!("Culling stats:");
-            log::debug!("  Total renderable objects: {}", total_object_count);
-            log::debug!(
-                "  Completely culled: {} ({:.2}%)",
-                completely_culled_object_count,
-                100.0 * completely_culled_object_count as f32 / total_object_count as f32
-            );
-            log::debug!(
-                "  Main camera: {} ({:.2}%)",
-                culled_object_counts[0],
-                100.0 * culled_object_counts[0] as f32 / total_object_count as f32
-            );
-
-            let mut directional_light_index_acc = 1;
-
-            for (light_index, cascades) in resolved_directional_light_cascades.iter().enumerate() {
-                log::debug!("  Directional light: {}", light_index);
-
-                for cascade_index in 0..cascades.len() {
-                    let cull_index = 1 + light_index + cascade_index;
-                    directional_light_index_acc += 1;
-                    log::debug!(
-                        "    Cascade {}: {} ({:.2}%)",
-                        cascade_index,
-                        culled_object_counts[cull_index],
-                        100.0 * culled_object_counts[cull_index] as f32 / total_object_count as f32
-                    );
-                }
-            }
-
-            for (light_index, frusta) in point_lights_frusta.iter().enumerate() {
-                log::debug!("  Point light: {}", light_index);
-
-                match &frusta {
-                    Some(frusta) => {
-                        for frustum_index in 0..frusta.0.len() {
-                            let cull_index = directional_light_index_acc + frustum_index;
-                            log::debug!(
-                                "    Frustum {}: {} ({:.2}%)",
-                                frustum_index,
-                                culled_object_counts[cull_index],
-                                100.0 * culled_object_counts[cull_index] as f32
-                                    / total_object_count as f32
-                            );
-                        }
-                    }
-                    None => {
-                        log::debug!("    N/A");
-                    }
-                }
-            }
-        }
+        Self::prepare_and_cull_instances(
+            engine_state,
+            data,
+            private_data,
+            &culling_frustum,
+            &point_lights_frusta,
+            &resolved_directional_light_cascades,
+            &mut wireframe_mesh_index_to_gpu_instances,
+            &mut unlit_mesh_index_to_gpu_instances,
+            &mut transparent_meshes,
+            camera_position,
+        );
 
         let min_storage_buffer_offset_alignment =
             self.base.limits.min_storage_buffer_offset_alignment;
 
-        let mut pbr_mesh_instances: Vec<_> = pbr_mesh_index_to_gpu_instances.into_iter().collect();
+        let mut pbr_mesh_instances: Vec<_> = private_data
+            .pbr_mesh_index_to_gpu_instances
+            .drain()
+            .collect();
 
         // TODO: sort opaque instances front to back to maximize z-buffer early outs
         pbr_mesh_instances.sort_by_key(|((_, material_index), _)| *material_index);
@@ -4363,7 +4084,7 @@ impl Renderer {
         private_data.all_pbr_instances.replace(
             pbr_mesh_instances
                 .into_iter()
-                .map(|(key, (instances, _))| (key, instances)),
+                .map(|(key, (instances, _))| (key, instances.into_boxed_slice())),
             min_storage_buffer_offset_alignment as usize,
         );
 
@@ -4401,7 +4122,9 @@ impl Renderer {
         }
 
         private_data.all_unlit_instances.replace(
-            unlit_mesh_index_to_gpu_instances.into_iter(),
+            unlit_mesh_index_to_gpu_instances
+                .into_iter()
+                .map(|(key, instances)| (key, instances.into_boxed_slice())),
             min_storage_buffer_offset_alignment as usize,
         );
 
@@ -4435,7 +4158,7 @@ impl Renderer {
         private_data.all_transparent_instances.replace(
             transparent_meshes
                 .into_iter()
-                .map(|(mesh_index, instance, _)| (mesh_index, vec![instance])),
+                .map(|(mesh_index, instance, _)| (mesh_index, Box::from([instance]))),
             min_storage_buffer_offset_alignment as usize,
         );
 
@@ -4459,7 +4182,9 @@ impl Renderer {
         }
 
         private_data.all_wireframe_instances.replace(
-            wireframe_mesh_index_to_gpu_instances.into_iter(),
+            wireframe_mesh_index_to_gpu_instances
+                .into_iter()
+                .map(|(key, instances)| (key, instances.into_boxed_slice())),
             min_storage_buffer_offset_alignment as usize,
         );
 
@@ -5643,5 +5368,313 @@ impl Renderer {
             .lock()
             .unwrap()
             .process_finished_frame(self.base.queue.get_timestamp_period())
+    }
+
+    #[profiling::function]
+    #[allow(clippy::too_many_arguments)]
+    pub fn prepare_and_cull_instances(
+        engine_state: &EngineState,
+        data: &RendererData,
+        private_data: &mut RendererPrivateData,
+        culling_frustum: &Frustum,
+        point_lights_frusta: &PointLightFrustaWithCullingInfo,
+        resolved_directional_light_cascades: &[Vec<ResolvedDirectionalLightCascade>],
+        wireframe_mesh_index_to_gpu_instances: &mut HashMap<usize, Vec<GpuWireframeMeshInstance>>,
+        unlit_mesh_index_to_gpu_instances: &mut HashMap<usize, Vec<GpuUnlitMeshInstance>>,
+        transparent_meshes: &mut Vec<(usize, GpuTransparentMeshInstance, f32)>,
+        camera_position: Vec3,
+    ) {
+        let start = crate::time::Instant::now();
+
+        let mut total_object_count = 0;
+        let mut completely_culled_object_count: usize = 0;
+
+        let directional_light_camera_count: usize = engine_state
+            .scene
+            .directional_lights
+            .iter()
+            .map(|light| light.shadow_mapping_config.num_cascades as usize)
+            .sum();
+        let point_light_camera_count = engine_state.scene.point_lights.len() * 6;
+        let camera_count = 1 + directional_light_camera_count + point_light_camera_count;
+
+        let mut tmp_node_culling_mask = BitVec::repeat(false, camera_count);
+        let mut culled_object_counts: Vec<usize> = vec![0; camera_count];
+
+        for node in engine_state.scene.nodes() {
+            let transform = Mat4::from(
+                engine_state
+                    .scene
+                    .get_global_transform_for_node_opt(node.id()),
+            );
+            if let Some(GameNodeVisual {
+                mesh_index,
+                material,
+                wireframe,
+                ..
+            }) = node.visual.clone()
+            {
+                match (material, data.enable_wireframe_mode, wireframe) {
+                    (
+                        Material::Pbr {
+                            binded_material_index,
+                            dynamic_pbr_params,
+                        },
+                        false,
+                        false,
+                    ) => {
+                        total_object_count += 1;
+
+                        Self::get_node_culling_mask(
+                            node,
+                            data,
+                            engine_state,
+                            culling_frustum,
+                            point_lights_frusta,
+                            resolved_directional_light_cascades,
+                            &mut tmp_node_culling_mask,
+                        );
+
+                        let mut completely_culled = true;
+
+                        for element in tmp_node_culling_mask.iter().by_vals() {
+                            if element {
+                                completely_culled = false;
+                                break;
+                            }
+                        }
+
+                        if log::log_enabled!(log::Level::Debug) {
+                            for (i, element) in tmp_node_culling_mask.iter().by_vals().enumerate() {
+                                if element {
+                                    culled_object_counts[i] += 1;
+                                }
+                            }
+
+                            if completely_culled {
+                                completely_culled_object_count += 1;
+                            }
+                        }
+
+                        if completely_culled {
+                            continue;
+                        }
+
+                        let gpu_instance = GpuPbrMeshInstance::new(
+                            transform,
+                            dynamic_pbr_params.unwrap_or_else(|| {
+                                data.binded_pbr_materials[binded_material_index].dynamic_pbr_params
+                            }),
+                        );
+
+                        match private_data
+                            .pbr_mesh_index_to_gpu_instances
+                            .entry((mesh_index, binded_material_index))
+                        {
+                            Entry::Occupied(mut entry) => {
+                                entry.get_mut().0.push(gpu_instance);
+                                // combine instance culling masks
+                                *entry.get_mut().1 |= &tmp_node_culling_mask;
+                            }
+                            Entry::Vacant(entry) => {
+                                entry.insert((
+                                    smallvec![gpu_instance],
+                                    tmp_node_culling_mask.clone(),
+                                ));
+                            }
+                        }
+                    }
+                    (material, enable_wireframe_mode, is_node_wireframe) => {
+                        let (color, is_transparent) = match material {
+                            Material::Unlit { color } => ([color.x, color.y, color.z, 1.0], false),
+                            Material::Transparent {
+                                color,
+                                premultiplied_alpha,
+                            } => {
+                                (
+                                    if premultiplied_alpha {
+                                        [color.x, color.y, color.z, color.w]
+                                    } else {
+                                        // transparent pipeline requires alpha to be premultiplied.
+                                        [
+                                            color.w * color.x,
+                                            color.w * color.y,
+                                            color.w * color.z,
+                                            color.w,
+                                        ]
+                                    },
+                                    true,
+                                )
+                            }
+                            Material::Pbr {
+                                binded_material_index,
+                                dynamic_pbr_params,
+                            } => {
+                                // fancy logic for picking what the wireframe lines
+                                // color will be by checking the pbr material
+                                let DynamicPbrParams {
+                                    base_color_factor,
+                                    emissive_factor,
+                                    ..
+                                } = dynamic_pbr_params.unwrap_or_else(|| {
+                                    data.binded_pbr_materials[binded_material_index]
+                                        .dynamic_pbr_params
+                                });
+                                let should_take_color = |as_slice: &[f32]| {
+                                    let is_all_zero = as_slice.iter().all(|&x| x == 0.0);
+                                    let is_all_one = as_slice.iter().all(|&x| x == 1.0);
+                                    !is_all_zero && !is_all_one
+                                };
+                                let base_color_factor_arr: [f32; 4] = base_color_factor.into();
+                                let emissive_factor_arr: [f32; 3] = emissive_factor.into();
+                                (
+                                    if should_take_color(&base_color_factor_arr[0..3]) {
+                                        [
+                                            base_color_factor.x,
+                                            base_color_factor.y,
+                                            base_color_factor.z,
+                                            base_color_factor.w,
+                                        ]
+                                    } else if should_take_color(&emissive_factor_arr) {
+                                        [
+                                            emissive_factor.x,
+                                            emissive_factor.y,
+                                            emissive_factor.z,
+                                            1.0,
+                                        ]
+                                    } else {
+                                        DEFAULT_WIREFRAME_COLOR
+                                    },
+                                    false,
+                                )
+                            }
+                        };
+
+                        if enable_wireframe_mode || is_node_wireframe {
+                            let wireframe_mesh_index = data
+                                .binded_wireframe_meshes
+                                .iter()
+                                .enumerate()
+                                .find(|(_, wireframe_mesh)| {
+                                    wireframe_mesh.source_mesh_index == mesh_index
+                                })
+                                .map(|(index, _)| index);
+
+                            if wireframe_mesh_index.is_none() {
+                                if is_node_wireframe {
+                                    log::error!("Attempted to draw mesh in wireframe mode without binding a corresponding wireframe mesh. Mesh will not be draw. mesh_index={mesh_index:?} node={node:?}");
+                                }
+                                continue;
+                            }
+
+                            let wireframe_mesh_index = wireframe_mesh_index
+                                .expect("Should have checked that it isn't None");
+
+                            let gpu_instance = GpuWireframeMeshInstance {
+                                color,
+                                model_transform: transform,
+                            };
+                            match wireframe_mesh_index_to_gpu_instances.entry(wireframe_mesh_index)
+                            {
+                                Entry::Occupied(mut entry) => {
+                                    entry.get_mut().push(gpu_instance);
+                                }
+                                Entry::Vacant(entry) => {
+                                    entry.insert(vec![gpu_instance]);
+                                }
+                            }
+                        } else if is_transparent {
+                            let (scale, _, translation) = transform.to_scale_rotation_translation();
+                            let aabb_world_space = data.binded_meshes[mesh_index]
+                                .bounding_box
+                                .scale_translate(scale, translation);
+                            let closest_point_to_player =
+                                aabb_world_space.find_closest_surface_point(camera_position);
+                            let distance_from_player =
+                                closest_point_to_player.distance(camera_position);
+
+                            let gpu_instance = GpuTransparentMeshInstance {
+                                color,
+                                model_transform: transform,
+                            };
+                            transparent_meshes.push((
+                                mesh_index,
+                                gpu_instance,
+                                distance_from_player,
+                            ));
+                        } else {
+                            let gpu_instance = GpuUnlitMeshInstance {
+                                color,
+                                model_transform: transform,
+                            };
+                            match unlit_mesh_index_to_gpu_instances.entry(mesh_index) {
+                                Entry::Occupied(mut entry) => {
+                                    entry.get_mut().push(gpu_instance);
+                                }
+                                Entry::Vacant(entry) => {
+                                    entry.insert(vec![gpu_instance]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // TODO: move to UI?
+
+        log::debug!("Culling time: {:?}", start.elapsed());
+
+        log::debug!("Culling stats:");
+        log::debug!("  Total renderable objects: {}", total_object_count);
+        log::debug!(
+            "  Completely culled: {} ({:.2}%)",
+            completely_culled_object_count,
+            100.0 * completely_culled_object_count as f32 / total_object_count as f32
+        );
+        log::debug!(
+            "  Main camera: {} ({:.2}%)",
+            culled_object_counts[0],
+            100.0 * culled_object_counts[0] as f32 / total_object_count as f32
+        );
+
+        let mut directional_light_index_acc = 1;
+
+        for (light_index, cascades) in resolved_directional_light_cascades.iter().enumerate() {
+            log::debug!("  Directional light: {}", light_index);
+
+            for cascade_index in 0..cascades.len() {
+                let cull_index = 1 + light_index + cascade_index;
+                directional_light_index_acc += 1;
+                log::debug!(
+                    "    Cascade {}: {} ({:.2}%)",
+                    cascade_index,
+                    culled_object_counts[cull_index],
+                    100.0 * culled_object_counts[cull_index] as f32 / total_object_count as f32
+                );
+            }
+        }
+
+        for (light_index, frusta) in point_lights_frusta.iter().enumerate() {
+            log::debug!("  Point light: {}", light_index);
+
+            match &frusta {
+                Some(frusta) => {
+                    for frustum_index in 0..frusta.0.len() {
+                        let cull_index = directional_light_index_acc + frustum_index;
+                        log::debug!(
+                            "    Frustum {}: {} ({:.2}%)",
+                            frustum_index,
+                            culled_object_counts[cull_index],
+                            100.0 * culled_object_counts[cull_index] as f32
+                                / total_object_count as f32
+                        );
+                    }
+                }
+                None => {
+                    log::debug!("    N/A");
+                }
+            }
+        }
     }
 }

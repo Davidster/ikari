@@ -35,8 +35,7 @@ impl Transform {
     pub const IDENTITY: Self = Self(Affine3A::IDENTITY);
 
     pub fn position(&self) -> Vec3 {
-        let (_, _, position) = self.to_scale_rotation_translation();
-        position
+        self.translation.into()
     }
 
     pub fn rotation(&self) -> Quat {

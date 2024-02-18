@@ -66,6 +66,7 @@ use winit::keyboard::NamedKey;
 // graphics settings
 pub const INITIAL_ENABLE_VSYNC: bool = true;
 pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
+pub const INITIAL_ENABLE_SHADOWS: bool = true;
 pub const INITIAL_ENABLE_DIRECTIONAL_SHADOW_CULLING: bool = true;
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
@@ -256,10 +257,10 @@ async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
     )
 }
 
-pub async fn init_game_state<'a>(
+pub async fn init_game_state(
     engine_state: &mut EngineState,
     renderer: &mut Renderer,
-    surface_data: &mut SurfaceData<'a>,
+    surface_data: &mut SurfaceData,
     window: &winit::window::Window,
 ) -> Result<GameState> {
     log::info!("Controls:");
@@ -285,6 +286,7 @@ pub async fn init_game_state<'a>(
 
     {
         let mut renderer_data_guard = renderer.data.lock().unwrap();
+        renderer_data_guard.enable_shadows = INITIAL_ENABLE_SHADOWS;
         renderer_data_guard.enable_bloom = INITIAL_ENABLE_BLOOM;
         renderer_data_guard.bloom_threshold = INITIAL_BLOOM_THRESHOLD;
         renderer_data_guard.bloom_ramp_size = INITIAL_BLOOM_RAMP_SIZE;

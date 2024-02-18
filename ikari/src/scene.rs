@@ -16,6 +16,7 @@ pub struct Scene {
     empty_node_indices: Vec<usize>,
     // node_transforms: Vec<Mat4>,
     global_node_transforms: Vec<crate::transform::Transform>,
+    global_node_bounding_spheres: Vec<Sphere>,
     pub skins: Vec<Skin>,
     pub animations: Vec<Animation>,
     // skeleton skin node index -> parent_index_map
@@ -153,6 +154,7 @@ impl Scene {
             nodes: Vec::new(),
             empty_node_indices: Vec::new(),
             global_node_transforms: Vec::new(),
+            global_node_bounding_spheres: Vec::new(),
             skins: Vec::new(),
             animations,
             skeleton_parent_index_maps: Default::default(),
@@ -201,8 +203,6 @@ impl Scene {
 
         scene.rebuild_skeleton_parent_index_maps();
 
-        scene.recompute_global_node_transforms();
-
         scene
     }
 
@@ -227,23 +227,36 @@ impl Scene {
     // TODO: compute this for the required nodes in the ancestry tree whenever a node's position is updated?
     //       but expose API for updating node transform cheaply and then calling this function at the end.
     #[profiling::function]
-    pub fn recompute_global_node_transforms(&mut self) {
+    pub fn recompute_global_node_transforms(&mut self, renderer_data: &mut RendererData) {
         if self.nodes.len() <= self.global_node_transforms.len() {
             self.global_node_transforms.truncate(self.nodes.len());
+            self.global_node_bounding_spheres.truncate(self.nodes.len());
         } else {
             // eliminate potential allocations in the subsequent push() calls
             self.global_node_transforms
                 .reserve_exact(self.nodes.len() - self.global_node_transforms.len());
+            self.global_node_bounding_spheres
+                .reserve_exact(self.nodes.len() - self.global_node_bounding_spheres.len());
         }
         for (node_index, (node, _)) in self.nodes.iter().enumerate() {
             let transform = node
                 .as_ref()
                 .map(|node| self.get_global_transform_for_node_internal(node.id()))
-                .unwrap_or(crate::transform::Transform::IDENTITY);
+                .unwrap_or_default();
+            let bounding_sphere = node
+                .as_ref()
+                .and_then(|node| node.visual.as_ref())
+                .map(|visual| {
+                    build_mesh_bounding_sphere(visual.mesh_index, &transform, renderer_data)
+                })
+                .unwrap_or_default();
+
             if node_index < self.global_node_transforms.len() {
                 self.global_node_transforms[node_index] = transform;
+                self.global_node_bounding_spheres[node_index] = bounding_sphere;
             } else {
                 self.global_node_transforms.push(transform);
+                self.global_node_bounding_spheres.push(bounding_sphere);
             }
         }
     }
@@ -347,17 +360,10 @@ impl Scene {
     pub fn get_node_bounding_sphere_opt(
         &self,
         node_id: GameNodeId,
-        renderer_data: &RendererData,
-    ) -> Option<Sphere> {
-        self.get_node(node_id)
-            .and_then(|node| node.visual.as_ref())
-            .map(|visual| {
-                build_mesh_bounding_sphere(
-                    visual.mesh_index,
-                    &self.get_global_transform_for_node_opt(node_id),
-                    renderer_data,
-                )
-            })
+        _renderer_data: &RendererData,
+    ) -> Sphere {
+        let GameNodeId(node_index, _) = node_id;
+        self.global_node_bounding_spheres[node_index as usize]
     }
 
     pub fn _get_skeleton_skin_node_id(&self, node_id: GameNodeId) -> Option<GameNodeId> {
