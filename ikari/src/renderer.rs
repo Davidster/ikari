@@ -3334,8 +3334,14 @@ impl Renderer {
                     };
                     let debug_culling_frustum_mesh = debug_frustum_descriptor.to_basic_mesh();
 
-                    let collision_based_color = if frustum_descriptor
-                        .frustum_intersection_test(main_culling_frustum_desc)
+                    let identity = rapier3d_f64::na::Isometry::identity();
+                    let collision_based_color = if rapier3d_f64::parry::query::intersection_test(
+                        &identity,
+                        &frustum_descriptor.to_convex_polyhedron(),
+                        &identity,
+                        &main_culling_frustum_desc.to_convex_polyhedron(),
+                    )
+                    .unwrap()
                     {
                         Vec4::new(0.0, 1.0, 0.0, 0.1)
                     } else {
@@ -4038,7 +4044,13 @@ impl Renderer {
                                     // that are inside the main view so we can completely skip the shadow map
                                     // render pass for this light view
                                     let is_light_view_culled = if USE_EXTRA_SHADOW_MAP_CULLING {
-                                        !desc.frustum_intersection_test(&culling_frustum_desc)
+                                        !rapier3d_f64::parry::query::intersection_test(
+                                            &rapier3d_f64::na::Isometry::identity(),
+                                            &desc.to_convex_polyhedron(),
+                                            &rapier3d_f64::na::Isometry::identity(),
+                                            &culling_frustum_desc.to_convex_polyhedron(),
+                                        )
+                                        .unwrap()
                                     } else {
                                         false
                                     };

@@ -369,17 +369,7 @@ impl From<CameraFrustumDescriptor> for Frustum {
 }
 
 impl CameraFrustumDescriptor {
-    // TODO: this function is slow due to the calls to to_convex_polyhedron. should cache the convex polyhedra.
-    pub fn frustum_intersection_test(&self, other: &CameraFrustumDescriptor) -> bool {
-        rapier3d_f64::parry::query::intersection_test(
-            &rapier3d_f64::na::Isometry::identity(),
-            &self.to_convex_polyhedron(),
-            &rapier3d_f64::na::Isometry::identity(),
-            &other.to_convex_polyhedron(),
-        )
-        .unwrap()
-    }
-
+    /// this is not free. consider caching the result
     pub fn to_convex_polyhedron(&self) -> ConvexPolyhedron {
         let points: Vec<_> = self
             .to_basic_mesh()
