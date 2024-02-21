@@ -73,14 +73,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn surface_blit_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let is_srgb = TONE_MAPPING_CONFIG.exposure_srgb.y > 0.0;
-    let sample = textureSample(texture_1, sampler_1, in.tex_coords);
-    if is_srgb {
-        let gamma_corrected = pow(sample.rgb, vec3<f32>(1.0/2.2));
-        return vec4<f32>(gamma_corrected, sample.w);
-    } else {
-        return sample;
-    }
+    return textureSample(texture_1, sampler_1, in.tex_coords);
 }
 
 @fragment

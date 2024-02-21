@@ -1,5 +1,4 @@
 use crate::collisions::*;
-use crate::renderer::*;
 use crate::scene::*;
 
 use glam::f32::Vec3;

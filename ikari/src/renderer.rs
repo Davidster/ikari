@@ -518,6 +518,7 @@ impl BaseRenderer {
         // surface_config.format = wgpu::TextureFormat::Bgra8UnormSrgb;
         surface_config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
         surface_config.present_mode = wgpu::PresentMode::AutoNoVsync;
+        surface_config.view_formats = vec![surface_config.format.add_srgb_suffix()];
         surface.configure(&base.device, &surface_config);
 
         let capabilities = surface.get_capabilities(&base.adapter);
@@ -676,7 +677,6 @@ pub struct RendererPrivateData {
     environment_textures_bind_group: wgpu::BindGroup,
     shading_and_bloom_textures_bind_group: wgpu::BindGroup,
     tone_mapping_texture_bind_group: wgpu::BindGroup,
-    pre_gamma_fb_bind_group: Option<wgpu::BindGroup>,
     shading_texture_bind_group: wgpu::BindGroup,
     bloom_pingpong_texture_bind_groups: [wgpu::BindGroup; 2],
 
@@ -697,9 +697,7 @@ pub struct RendererPrivateData {
 
     point_shadow_map_textures: Texture,
     directional_shadow_map_textures: Texture,
-    // only needed if the surface is not srgb, to be able to render the UI in the same resolution as
-    // the surface and before the gamma correction that will happen in the surface blit pipeline
-    pre_gamma_fb: Option<Texture>,
+
     shading_texture: Texture,
     tone_mapping_texture: Texture,
     depth_texture: Texture,
@@ -861,8 +859,7 @@ pub struct RendererConstantData {
     pub wireframe_pipeline: wgpu::RenderPipeline,
     pub skybox_pipeline: wgpu::RenderPipeline,
     pub tone_mapping_pipeline: wgpu::RenderPipeline,
-    pub surface_blit_pipeline: Option<wgpu::RenderPipeline>,
-    pub pre_gamma_surface_blit_pipeline: Option<wgpu::RenderPipeline>,
+    pub surface_blit_pipeline: wgpu::RenderPipeline,
     pub point_shadow_map_pipeline: wgpu::RenderPipeline,
     pub directional_shadow_map_pipeline: wgpu::RenderPipeline,
     pub bloom_threshold_pipeline: wgpu::RenderPipeline,
@@ -1546,77 +1543,45 @@ impl Renderer {
             .device
             .create_render_pipeline(&bloom_blur_pipeline_descriptor);
 
-        let surface_pipelines = {
-            let surface_blit_color_targets = &[Some(wgpu::ColorTargetState {
-                format: framebuffer_format,
-                blend: Some(wgpu::BlendState::REPLACE),
-                write_mask: wgpu::ColorWrites::ALL,
-            })];
-            let surface_blit_pipeline_layout =
-                base.device
-                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: None,
-                        bind_group_layouts: &[
-                            &single_texture_bind_group_layout,
-                            &single_uniform_bind_group_layout,
-                        ],
-                        push_constant_ranges: &[],
-                    });
-            let surface_blit_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-                label: USE_LABELS.then_some("Surface Blit Render Pipeline"),
-                layout: Some(&surface_blit_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &blit_shader,
-                    entry_point: "vs_main",
-                    buffers: &[],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &blit_shader,
-                    entry_point: "surface_blit_fs_main",
-                    targets: surface_blit_color_targets,
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview: None,
-            };
-            let surface_blit_pipeline = base
-                .device
-                .create_render_pipeline(&surface_blit_pipeline_descriptor);
-
-            let mut pre_gamma_surface_blit_pipeline_descriptor =
-                surface_blit_pipeline_descriptor.clone();
-            let pre_gamma_surface_blit_pipeline_layout =
-                base.device
-                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: None,
-                        bind_group_layouts: &[&single_texture_bind_group_layout],
-                        push_constant_ranges: &[],
-                    });
-            pre_gamma_surface_blit_pipeline_descriptor.layout =
-                Some(&pre_gamma_surface_blit_pipeline_layout);
-            pre_gamma_surface_blit_pipeline_descriptor.fragment = Some(wgpu::FragmentState {
+        let surface_blit_color_targets = &[Some(wgpu::ColorTargetState {
+            format: framebuffer_format.add_srgb_suffix(),
+            blend: Some(wgpu::BlendState::REPLACE),
+            write_mask: wgpu::ColorWrites::ALL,
+        })];
+        let surface_blit_pipeline_layout =
+            base.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: None,
+                    bind_group_layouts: &[
+                        &single_texture_bind_group_layout,
+                        &single_uniform_bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
+                });
+        let surface_blit_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: USE_LABELS.then_some("Surface Blit Render Pipeline"),
+            layout: Some(&surface_blit_pipeline_layout),
+            vertex: wgpu::VertexState {
                 module: &blit_shader,
-                entry_point: "fs_main",
-                targets: fragment_shader_color_targets,
-            });
-            let pre_gamma_surface_blit_pipeline = base
-                .device
-                .create_render_pipeline(&pre_gamma_surface_blit_pipeline_descriptor);
-
-            Some((surface_blit_pipeline, pre_gamma_surface_blit_pipeline))
+                entry_point: "vs_main",
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &blit_shader,
+                entry_point: "surface_blit_fs_main",
+                targets: surface_blit_color_targets,
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
         };
-
-        let (surface_blit_pipeline, pre_gamma_surface_blit_pipeline) = match surface_pipelines {
-            Some((surface_blit_pipeline, pre_gamma_surface_blit_pipeline)) => (
-                Some(surface_blit_pipeline),
-                Some(pre_gamma_surface_blit_pipeline),
-            ),
-            None => (None, None),
-        };
+        let surface_blit_pipeline = base
+            .device
+            .create_render_pipeline(&surface_blit_pipeline_descriptor);
 
         let tone_mapping_colors_targets = &[Some(wgpu::ColorTargetState {
             format: wgpu::TextureFormat::Rgba16Float,
@@ -1991,7 +1956,6 @@ impl Renderer {
             skybox_pipeline,
             tone_mapping_pipeline,
             surface_blit_pipeline,
-            pre_gamma_surface_blit_pipeline,
             point_shadow_map_pipeline,
             directional_shadow_map_pipeline,
             bloom_threshold_pipeline,
@@ -2005,10 +1969,6 @@ impl Renderer {
             sphere_mesh_index: 0,
             plane_mesh_index: 0,
         };
-
-        let pre_gamma_fb = (!framebuffer_format.is_srgb()).then(|| {
-            Texture::create_scaled_surface_texture(&base, framebuffer_size, 1.0, "pre_gamma_fb")
-        });
 
         let shading_texture = Texture::create_scaled_surface_texture(
             &base,
@@ -2037,7 +1997,6 @@ impl Renderer {
             "tone_mapping_texture",
         );
 
-        let pre_gamma_fb_bind_group;
         let shading_texture_bind_group;
         let tone_mapping_texture_bind_group;
         let shading_and_bloom_textures_bind_group;
@@ -2045,25 +2004,6 @@ impl Renderer {
         {
             let sampler_cache_guard = base.sampler_cache.lock().unwrap();
 
-            pre_gamma_fb_bind_group = pre_gamma_fb.as_ref().map(|pre_gamma_fb| {
-                base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &constant_data.single_texture_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(&pre_gamma_fb.view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard
-                                    .get_sampler_by_index(pre_gamma_fb.sampler_index),
-                            ),
-                        },
-                    ],
-                    label: USE_LABELS.then_some("pre_gamma_fb_bind_group"),
-                })
-            });
             shading_texture_bind_group =
                 base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: &constant_data.single_texture_bind_group_layout,
@@ -2651,7 +2591,6 @@ impl Renderer {
                 environment_textures_bind_group,
                 shading_and_bloom_textures_bind_group,
                 tone_mapping_texture_bind_group,
-                pre_gamma_fb_bind_group,
                 shading_texture_bind_group,
                 bloom_pingpong_texture_bind_groups,
 
@@ -2673,7 +2612,6 @@ impl Renderer {
                 point_shadow_map_textures,
                 directional_shadow_map_textures,
 
-                pre_gamma_fb,
                 shading_texture,
                 tone_mapping_texture,
                 depth_texture,
@@ -2986,14 +2924,6 @@ impl Renderer {
         let mut private_data_guard = self.private_data.lock().unwrap();
         let render_scale = data_guard.render_scale;
 
-        private_data_guard.pre_gamma_fb = private_data_guard.pre_gamma_fb.is_some().then(|| {
-            Texture::create_scaled_surface_texture(
-                &self.base,
-                new_unscaled_framebuffer_size,
-                1.0,
-                "pre_gamma_fb",
-            )
-        });
         private_data_guard.shading_texture = Texture::create_scaled_surface_texture(
             &self.base,
             new_unscaled_framebuffer_size,
@@ -3032,35 +2962,6 @@ impl Renderer {
         let two_texture_bind_group_layout = &self.constant_data.two_texture_bind_group_layout;
 
         let sampler_cache_guard = self.base.sampler_cache.lock().unwrap();
-        private_data_guard.pre_gamma_fb_bind_group = private_data_guard
-            .pre_gamma_fb_bind_group
-            .is_some()
-            .then(|| {
-                device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: single_texture_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(
-                                &private_data_guard.pre_gamma_fb.as_ref().unwrap().view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard.get_sampler_by_index(
-                                    private_data_guard
-                                        .pre_gamma_fb
-                                        .as_ref()
-                                        .unwrap()
-                                        .sampler_index,
-                                ),
-                            ),
-                        },
-                    ],
-                    label: USE_LABELS.then_some("pre_gamma_fb_bind_group"),
-                })
-            });
 
         private_data_guard.shading_texture_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -4092,7 +3993,7 @@ impl Renderer {
 
         if PRESORT_INSTANCES_BY_MESH_MATERIAL {
             pbr_mesh_instances.sort_by_key(|((mesh_index, material_index), _)| {
-                (*mesh_index as u128) << 64 + *material_index as u128
+                ((*mesh_index as u128) << 64) + *material_index as u128
             });
         }
 
@@ -4528,16 +4429,7 @@ impl Renderer {
         queue.write_buffer(
             &private_data.tone_mapping_config_buffer,
             0,
-            bytemuck::cast_slice(&[
-                data.tone_mapping_exposure,
-                if surface_config.format.is_srgb() {
-                    0f32
-                } else {
-                    1f32
-                },
-                0f32,
-                0f32,
-            ]),
+            bytemuck::cast_slice(&[data.tone_mapping_exposure, 0f32, 0f32, 0f32]),
         );
         queue.write_buffer(
             &private_data.bloom_config_buffers[0],
@@ -4592,9 +4484,13 @@ impl Renderer {
         let mut profiler_guard = self.profiler.lock().unwrap();
         let profiler: &mut wgpu_profiler::GpuProfiler = &mut profiler_guard;
 
-        let surface_texture_view = surface_texture
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let surface_texture_view =
+            surface_texture
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor {
+                    format: Some(surface_texture.texture.format().add_srgb_suffix()),
+                    ..Default::default()
+                });
 
         let mut encoder = self
             .base
@@ -5188,54 +5084,7 @@ impl Renderer {
             }
         }
 
-        if let (Some(pre_gamma_fb), Some(pre_gamma_surface_blit_pipeline)) = (
-            &private_data.pre_gamma_fb,
-            &self.constant_data.pre_gamma_surface_blit_pipeline,
-        ) {
-            {
-                let pass_label = "Pre-gamma Surface blit";
-
-                let mut profiler_scope =
-                    profiler.scope(pass_label, &mut encoder, &self.base.device);
-
-                let mut render_pass = profiler_scope.scoped_render_pass(
-                    pass_label,
-                    &self.base.device,
-                    wgpu::RenderPassDescriptor {
-                        label: USE_LABELS.then_some(pass_label),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &pre_gamma_fb.view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(black),
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                        occlusion_query_set: None,
-                        timestamp_writes: None, // overwritten by wgpu_profiler
-                    },
-                );
-
-                render_pass.set_pipeline(pre_gamma_surface_blit_pipeline);
-                render_pass.set_bind_group(0, &private_data.tone_mapping_texture_bind_group, &[]);
-                render_pass.draw(0..3, 0..1);
-            }
-
-            // TODO: pass a separate encoder to the ui overlay so it can be profiled?
-            {
-                let profiler_scope = profiler.scope("UI overlay", &mut encoder, &self.base.device);
-
-                ui_overlay.render(
-                    &self.base.device,
-                    &self.base.queue,
-                    profiler_scope.recorder,
-                    &pre_gamma_fb.view,
-                );
-            }
-        }
-
-        if let Some(surface_blit_pipeline) = self.constant_data.surface_blit_pipeline.as_ref() {
+        {
             let pass_label = "Surface blit";
 
             let mut profiler_scope = profiler.scope(pass_label, &mut encoder, &self.base.device);
@@ -5259,29 +5108,21 @@ impl Renderer {
                 },
             );
 
-            render_pass.set_pipeline(surface_blit_pipeline);
-            render_pass.set_bind_group(
-                0,
-                private_data
-                    .pre_gamma_fb_bind_group
-                    .as_ref()
-                    .unwrap_or(&private_data.tone_mapping_texture_bind_group),
-                &[],
-            );
+            render_pass.set_pipeline(&self.constant_data.surface_blit_pipeline);
+            render_pass.set_bind_group(0, &private_data.tone_mapping_texture_bind_group, &[]);
             render_pass.set_bind_group(1, &private_data.tone_mapping_config_bind_group, &[]);
             render_pass.draw(0..3, 0..1);
         }
 
-        if private_data.pre_gamma_fb.is_none() {
+        {
             let profiler_scope = profiler.scope("UI overlay", &mut encoder, &self.base.device);
 
-            // TODO: pass a separate encoder to the ui overlay so it can be profiled
             ui_overlay.render(
                 &self.base.device,
                 &self.base.queue,
                 profiler_scope.recorder,
                 &surface_texture_view,
-            )
+            );
         }
 
         profiler.resolve_queries(&mut encoder);
