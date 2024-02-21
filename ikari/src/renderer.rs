@@ -37,6 +37,7 @@ pub(crate) const DISABLE_FRUSTUM_CULLING: bool = false;
 pub(crate) const USE_EXTRA_SHADOW_MAP_CULLING: bool = true;
 pub(crate) const DRAW_FRUSTUM_BOUNDING_SPHERE_FOR_SHADOW_MAPS: bool = false;
 pub(crate) const ENABLE_GRAPHICS_API_VALIDATION: bool = false;
+pub(crate) const PRESORT_INSTANCES_BY_MESH_MATERIAL: bool = false;
 
 pub const MAX_LIGHT_COUNT: usize = 32;
 pub const MAX_SHADOW_CASCADES: usize = 4;
@@ -650,7 +651,7 @@ pub struct RendererPrivateData {
     all_pbr_instances: ChunkedBuffer<GpuPbrMeshInstance, MeshMaterialIndexPair>,
     all_pbr_instances_culling_masks: Vec<BitVec>,
     pbr_mesh_index_to_gpu_instances:
-        HashMap<MeshMaterialIndexPair, (SmallVec<[GpuPbrMeshInstance; 1]>, BitVec)>,
+        HashMap<MeshMaterialIndexPair, (SmallVec<[GpuPbrMeshInstance; 1]>, BitVec, f32)>,
     all_unlit_instances: ChunkedBuffer<GpuUnlitMeshInstance, usize>,
     all_transparent_instances: ChunkedBuffer<GpuUnlitMeshInstance, usize>,
     all_wireframe_instances: ChunkedBuffer<GpuWireframeMeshInstance, usize>,
@@ -3594,9 +3595,7 @@ impl Renderer {
             culling_mask.set_elements(usize::MAX);
         }
 
-        let node_bounding_sphere = engine_state
-            .scene
-            .get_node_bounding_sphere_opt(node.id(), data);
+        let node_bounding_sphere = engine_state.scene.get_node_bounding_sphere_opt(node.id());
         let node_bounding_sphere_point = rapier3d_f64::na::Point3::new(
             node_bounding_sphere.center.x as f64,
             node_bounding_sphere.center.y as f64,
@@ -4052,6 +4051,7 @@ impl Renderer {
                                     let is_light_view_culled = if USE_EXTRA_SHADOW_MAP_CULLING {
                                         !rapier3d_f64::parry::query::intersection_test(
                                             &rapier3d_f64::na::Isometry::identity(),
+                                            // TODO: this is SLOW. cache the result and use isometry to move it.
                                             &desc.to_convex_polyhedron(),
                                             &rapier3d_f64::na::Isometry::identity(),
                                             &culling_frustum_desc.to_convex_polyhedron(),
@@ -4090,19 +4090,29 @@ impl Renderer {
             .drain()
             .collect();
 
-        // TODO: sort opaque instances front to back to maximize z-buffer early outs
-        pbr_mesh_instances.sort_by_key(|((_, material_index), _)| *material_index);
-        pbr_mesh_instances.sort_by_key(|((mesh_index, _), _)| *mesh_index);
+        if PRESORT_INSTANCES_BY_MESH_MATERIAL {
+            pbr_mesh_instances.sort_by_key(|((mesh_index, material_index), _)| {
+                (*mesh_index as u128) << 64 + *material_index as u128
+            });
+        }
+
+        pbr_mesh_instances.sort_by(
+            |(_, (_, _, dist_sq_from_player_a)), (_, (_, _, dist_sq_from_player_b))| {
+                dist_sq_from_player_a
+                    .partial_cmp(dist_sq_from_player_b)
+                    .unwrap()
+            },
+        );
 
         private_data.all_pbr_instances_culling_masks = pbr_mesh_instances
             .iter()
-            .map(|(_, (_, culling_mask))| culling_mask.clone())
+            .map(|(_, (_, culling_mask, _))| culling_mask.clone())
             .collect();
 
         private_data.all_pbr_instances.replace(
             pbr_mesh_instances
                 .into_iter()
-                .map(|(key, (instances, _))| (key, instances.into_boxed_slice())),
+                .map(|(key, (instances, _, _))| (key, instances.into_boxed_slice())),
             min_storage_buffer_offset_alignment as usize,
         );
 
@@ -4166,9 +4176,9 @@ impl Renderer {
 
         // draw furthest transparent meshes first
         transparent_meshes.sort_by(
-            |(_, _, distance_from_player_a), (_, _, distance_from_player_b)| {
-                distance_from_player_b
-                    .partial_cmp(distance_from_player_a)
+            |(_, _, dist_sq_from_player_a), (_, _, dist_sq_from_player_b)| {
+                dist_sq_from_player_b
+                    .partial_cmp(dist_sq_from_player_a)
                     .unwrap()
             },
         );
@@ -5432,6 +5442,13 @@ impl Renderer {
                 ..
             }) = node.visual.clone()
             {
+                let node_bounding_sphere =
+                    engine_state.scene.get_node_bounding_sphere_opt(node.id());
+                let dist_sq_from_player = node_bounding_sphere
+                    .center
+                    .distance_squared(camera_position)
+                    - node_bounding_sphere.radius;
+
                 match (material, data.enable_wireframe_mode, wireframe) {
                     (
                         Material::Pbr {
@@ -5498,6 +5515,7 @@ impl Renderer {
                                 entry.insert((
                                     smallvec![gpu_instance],
                                     tmp_node_culling_mask.clone(),
+                                    dist_sq_from_player,
                                 ));
                             }
                         }
@@ -5602,15 +5620,6 @@ impl Renderer {
                                 }
                             }
                         } else if is_transparent {
-                            let (scale, _, translation) = transform.to_scale_rotation_translation();
-                            let aabb_world_space = data.binded_meshes[mesh_index]
-                                .bounding_box
-                                .scale_translate(scale, translation);
-                            let closest_point_to_player =
-                                aabb_world_space.find_closest_surface_point(camera_position);
-                            let distance_from_player =
-                                closest_point_to_player.distance(camera_position);
-
                             let gpu_instance = GpuTransparentMeshInstance {
                                 color,
                                 model_transform: transform,
@@ -5618,7 +5627,7 @@ impl Renderer {
                             transparent_meshes.push((
                                 mesh_index,
                                 gpu_instance,
-                                distance_from_player,
+                                dist_sq_from_player,
                             ));
                         } else {
                             let gpu_instance = GpuUnlitMeshInstance {

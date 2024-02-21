@@ -357,11 +357,7 @@ impl Scene {
             })
     }
 
-    pub fn get_node_bounding_sphere_opt(
-        &self,
-        node_id: GameNodeId,
-        _renderer_data: &RendererData,
-    ) -> Sphere {
+    pub fn get_node_bounding_sphere_opt(&self, node_id: GameNodeId) -> Sphere {
         let GameNodeId(node_index, _) = node_id;
         self.global_node_bounding_spheres[node_index as usize]
     }
