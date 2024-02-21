@@ -74,20 +74,5 @@ opt-level = 1
 [profile.dev.package."*"]
 opt-level = 3
 
-[profile.dev.package."wgpu-core"]
-debug-assertions = false
-
-[profile.dev.package."wgpu-types"]
-debug-assertions = false
-
-# [profile.dev.package."wgpu"]
-# debug-assertions = false
-
-# [profile.dev.package."wgpu-hal"]
-# debug-assertions = false
-
-# [profile.dev.package."wgpu-types"]
-# debug-assertions = false
-
 [profile.release]
 debug = true

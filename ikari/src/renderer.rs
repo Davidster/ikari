@@ -36,6 +36,7 @@ pub(crate) const USE_ORTHOGRAPHIC_CAMERA: bool = false;
 pub(crate) const DISABLE_FRUSTUM_CULLING: bool = false;
 pub(crate) const USE_EXTRA_SHADOW_MAP_CULLING: bool = true;
 pub(crate) const DRAW_FRUSTUM_BOUNDING_SPHERE_FOR_SHADOW_MAPS: bool = false;
+pub(crate) const ENABLE_GRAPHICS_API_VALIDATION: bool = false;
 
 pub const MAX_LIGHT_COUNT: usize = 32;
 pub const MAX_SHADOW_CASCADES: usize = 4;
@@ -542,6 +543,11 @@ impl BaseRenderer {
             dx12_shader_compiler: wgpu::Dx12Compiler::Dxc {
                 dxil_path: dxc_path.clone(),
                 dxc_path,
+            },
+            flags: if ENABLE_GRAPHICS_API_VALIDATION {
+                wgpu::InstanceFlags::debugging()
+            } else {
+                wgpu::InstanceFlags::empty()
             },
             ..Default::default()
         })
