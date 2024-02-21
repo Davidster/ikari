@@ -20,8 +20,8 @@ authors = [
 winit = { version = "0.29", git = "https://github.com/iced-rs/winit.git", rev = "b91e39ece2c0d378c3b80da7f3ab50e17bb798a5" }
 ikari = { version = "0.0.1", path = "./ikari" }
 log = "0.4"
-wgpu = { version = "0.19" }
-wgpu-profiler = { git = "https://github.com/Davidster/wgpu-profiler", branch = "fix_test_and_wasm_build" }
+wgpu = "0.19"
+wgpu-profiler = "0.16.1"
 anyhow = { version = "1.0", features = ["backtrace"] }
 env_logger = { version = "0.10", default-features = false, features = [
   "auto-color",
@@ -55,18 +55,12 @@ web-sys = { version = "0.3.64", features = [
 wasm-bindgen = { version = "0.2.87", features = ["serde-serialize"] }
 wasm-bindgen-futures = "0.4.37"
 
-iced = { git = "https://github.com/Davidster/iced.git", branch = "master", features = [
-  "canvas",
-] }
-iced_wgpu = { git = "https://github.com/Davidster/iced.git", branch = "master" }
-iced_winit = { git = "https://github.com/Davidster/iced.git", branch = "master" }
+iced = { version = "0.12", features = ["canvas"] }
+iced_wgpu = "0.12"
+iced_winit = "0.12"
 
 [patch.crates-io]
-iced_core = { git = "https://github.com/Davidster/iced.git", branch = "master" }
-iced_style = { git = "https://github.com/Davidster/iced.git", branch = "master" }
-iced_renderer = { git = "https://github.com/Davidster/iced.git", branch = "master" }
-iced_graphics = { git = "https://github.com/Davidster/iced.git", branch = "master" }
-iced_widget = { git = "https://github.com/Davidster/iced.git", branch = "master" }
+winit = { version = "0.29", git = "https://github.com/iced-rs/winit.git", rev = "b91e39ece2c0d378c3b80da7f3ab50e17bb798a5" }
 
 [profile.dev]
 opt-level = 1

@@ -657,52 +657,47 @@ impl runtime::Program for UiOverlay {
             // vsync
             #[cfg(not(target_arch = "wasm32"))]
             {
-                options = options.push(checkbox(
-                    "Enable VSync",
-                    self.enable_vsync,
-                    Message::ToggleVSync,
-                ));
+                options = options.push(
+                    checkbox("Enable VSync", self.enable_vsync).on_toggle(Message::ToggleVSync),
+                );
             }
 
-            options = options.push(checkbox(
-                "Enable Depth Pre-pass",
-                self.enable_depth_prepass,
-                Message::ToggleDepthPrepass,
-            ));
+            options = options.push(
+                checkbox("Enable Depth Pre-pass", self.enable_depth_prepass)
+                    .on_toggle(Message::ToggleDepthPrepass),
+            );
 
-            options = options.push(checkbox(
-                "Enable Directional Shadow Culling",
-                self.enable_directional_shadow_culling,
-                Message::ToggleDirectionalShadowCulling,
-            ));
+            options = options.push(
+                checkbox(
+                    "Enable Directional Shadow Culling",
+                    self.enable_directional_shadow_culling,
+                )
+                .on_toggle(Message::ToggleDirectionalShadowCulling),
+            );
 
             // camera debug
-            options = options.push(checkbox(
-                "Show Camera Pose",
-                self.is_showing_camera_pose,
-                Message::ToggleCameraPose,
-            ));
+            options = options.push(
+                checkbox("Show Camera Pose", self.is_showing_camera_pose)
+                    .on_toggle(Message::ToggleCameraPose),
+            );
 
             // cursor marker debug
-            options = options.push(checkbox(
-                "Show Cursor Marker",
-                self.is_showing_cursor_marker,
-                Message::ToggleCursorMarker,
-            ));
+            options = options.push(
+                checkbox("Show Cursor Marker", self.is_showing_cursor_marker)
+                    .on_toggle(Message::ToggleCursorMarker),
+            );
 
             // audio stats debug
-            options = options.push(checkbox(
-                "Show Audio Stats",
-                self.is_showing_audio_stats,
-                Message::ToggleAudioStats,
-            ));
+            options = options.push(
+                checkbox("Show Audio Stats", self.is_showing_audio_stats)
+                    .on_toggle(Message::ToggleAudioStats),
+            );
 
             // fps overlay
-            options = options.push(checkbox(
-                "Show FPS Chart",
-                self.is_showing_fps_chart,
-                Message::ToggleFpsChart,
-            ));
+            options = options.push(
+                checkbox("Show FPS Chart", self.is_showing_fps_chart)
+                    .on_toggle(Message::ToggleFpsChart),
+            );
 
             if self
                 .fps_chart
@@ -710,20 +705,18 @@ impl runtime::Program for UiOverlay {
                 .iter()
                 .any(|list| !list.is_empty())
             {
-                options = options.push(checkbox(
-                    "Show Detailed GPU Frametimes",
-                    self.is_showing_gpu_spans,
-                    Message::ToggleGpuSpans,
-                ));
+                options = options.push(
+                    checkbox("Show Detailed GPU Frametimes", self.is_showing_gpu_spans)
+                        .on_toggle(Message::ToggleGpuSpans),
+                );
             }
 
             // frustum culling debug
             options = options.push(separator_line.clone());
-            options = options.push(checkbox(
-                "Enable Frustum Culling Debug",
-                self.draw_culling_frustum,
-                Message::ToggleDrawCullingFrustum,
-            ));
+            options = options.push(
+                checkbox("Enable Frustum Culling Debug", self.draw_culling_frustum)
+                    .on_toggle(Message::ToggleDrawCullingFrustum),
+            );
             if self.draw_culling_frustum {
                 options = options.push(Text::new("Lock Culling Frustum"));
                 for mode in CullingFrustumLockMode::ALL {
@@ -737,35 +730,36 @@ impl runtime::Program for UiOverlay {
             }
 
             // point light frusta debug
-            options = options.push(checkbox(
-                "Enable Point Light Frustum Culling Debug",
-                self.draw_point_light_culling_frusta,
-                Message::ToggleDrawPointLightCullingFrusta,
-            ));
+            options = options.push(
+                checkbox(
+                    "Enable Point Light Frustum Culling Debug",
+                    self.draw_point_light_culling_frusta,
+                )
+                .on_toggle(Message::ToggleDrawPointLightCullingFrusta),
+            );
 
             // directional light frusta debug
-            options = options.push(checkbox(
-                "Enable Directional Light Frustum Culling Debug",
-                self.draw_directional_light_culling_frusta,
-                Message::ToggleDrawDirectionalLightCullingFrusta,
-            ));
+            options = options.push(
+                checkbox(
+                    "Enable Directional Light Frustum Culling Debug",
+                    self.draw_directional_light_culling_frusta,
+                )
+                .on_toggle(Message::ToggleDrawDirectionalLightCullingFrusta),
+            );
             // shadow debug
             options = options.push(separator_line.clone());
-            options = options.push(checkbox(
-                "Enable Shadow Debug",
-                self.enable_shadow_debug,
-                Message::ToggleShadowDebug,
-            ));
-            options = options.push(checkbox(
-                "Enable Cascade Debug",
-                self.enable_cascade_debug,
-                Message::ToggleCascadeDebug,
-            ));
-            options = options.push(checkbox(
-                "Enable Soft Shadows",
-                self.enable_soft_shadows,
-                Message::ToggleSoftShadows,
-            ));
+            options = options.push(
+                checkbox("Enable Shadow Debug", self.enable_shadow_debug)
+                    .on_toggle(Message::ToggleShadowDebug),
+            );
+            options = options.push(
+                checkbox("Enable Cascade Debug", self.enable_cascade_debug)
+                    .on_toggle(Message::ToggleCascadeDebug),
+            );
+            options = options.push(
+                checkbox("Enable Soft Shadows", self.enable_soft_shadows)
+                    .on_toggle(Message::ToggleSoftShadows),
+            );
             options = options.push(Text::new(format!(
                 "Skybox weight: {:.5}",
                 self.skybox_weight
