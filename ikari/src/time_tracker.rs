@@ -26,7 +26,7 @@ impl TimeTracker {
     }
 
     pub fn last_frame_time(&self) -> Duration {
-        self.last_frame_start_instant.elapsed()
+        self.current_frame_start_instant - self.last_frame_start_instant
     }
 }
 
