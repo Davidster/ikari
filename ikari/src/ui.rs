@@ -64,13 +64,7 @@ where
             ..Default::default()
         };
 
-        // we need to output to Rgba16Float format when not srgb since the renderer will render the ui overlay into
-        // an intermediate Rgba16Float framebuffer and perform the gamma correction there manually. see pre_gamma_fb
-        let surface_format = if surface_format.is_srgb() {
-            surface_format
-        } else {
-            wgpu::TextureFormat::Rgba16Float
-        };
+        let surface_format = surface_format.add_srgb_suffix();
 
         let mut debug = runtime::Debug::new();
         let wgpu_renderer = iced_wgpu::Renderer::new(

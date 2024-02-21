@@ -86,7 +86,7 @@ https://user-images.githubusercontent.com/2389735/180101651-86ba2084-4196-494b-9
 ## Profiling
 You can profile ikari with [tracy](https://github.com/wolfpld/tracy) via [profiling](https://github.com/aclysma/profiling) crate.
 To do that you have to:
-- Download [tracy 0.9](https://github.com/wolfpld/tracy/releases/tag/v0.9)
+- Download [tracy 0.10](https://github.com/wolfpld/tracy/releases/tag/v0.10)
 - Build ikari by adding --features="tracy" to the cargo command
 - Run ikari and tracy (in any order), when the game is loading tracy will start profiling
 
@@ -103,10 +103,10 @@ Based on instructions from here: https://github.com/wolfpld/tracy/issues/484
   - cd libcapstone
   - PATH=/usr/local/bin:/usr/bin:/bin CC=clang CXX=clang++ make -j12
   - sudo make install
-- Install tracy 0.9
+- Install tracy 0.10
   - Clone https://github.com/wolfpld/tracy
   - cd tracy/profiler/build/unix
-  - git checkout v0.9
+  - git checkout v0.10
   - PATH=/usr/local/bin:/usr/bin:/bin CC=clang CXX=clang++ make -j12
 - Run tracy
   - ./Tracy_release
@@ -136,7 +136,7 @@ rm capstone.rb
 - Install tracy
 ```sh
 cd tracy/profiler/build/unix
-git checkout v0.9
+git checkout v0.10
 # you might need to mess around with clang for this to work, not sure if the system default clang is able to perform the compilation
 make -I/opt/homebrew/Cellar/capstone/4.0.2/include/capstone -j12
 ```
