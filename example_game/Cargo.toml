@@ -35,12 +35,12 @@ iced_wgpu.workspace = true
 iced_winit.workspace = true
 tracing-tracy = { version = "0.10.3", features = ["ondemand"], optional = true }
 
-plotters-iced = { git = "https://github.com/Davidster/plotters-iced.git", branch = "iced_0_12" }
-plotters = { version = "0.3", default-features = false, features = [
+plotters-iced = "0.10.0"
+plotters = { version = "0.3.5", default-features = false, features = [
   "line_series",
 ] }
 
-iced_aw = { git = "https://github.com/Davidster/iced_aw.git", branch = "my_iced_fork", default-features = false, features = [
+iced_aw = { git = "https://github.com/iced-rs/iced_aw.git", rev = "ed594559ac8f5d84c5931a850663f1d17571aa80", default-features = false, features = [
   "modal",
   "card",
   "floating_element",
