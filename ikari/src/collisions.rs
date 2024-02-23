@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use glam::f32::Vec3;
 use rand::Rng;
 use rand::SeedableRng;
@@ -369,7 +371,7 @@ impl From<CameraFrustumDescriptor> for Frustum {
 }
 
 impl CameraFrustumDescriptor {
-    /// this is not free. consider caching the result
+    /// this is SLOW. takes about 2 microseconds. consider caching the result
     pub fn to_convex_polyhedron(&self) -> ConvexPolyhedron {
         let points: Vec<_> = self
             .to_basic_mesh()
@@ -390,6 +392,26 @@ impl CameraFrustumDescriptor {
             .as_convex_polyhedron()
             .unwrap()
             .clone()
+    }
+
+    pub fn to_convex_polyhedron_2(&self) -> ConvexPolyhedron {
+        let points: Vec<_> = self
+            .to_basic_mesh()
+            .vertices
+            .iter()
+            .map(|vertex| {
+                Point::from([
+                    vertex.position[0] as f64,
+                    vertex.position[1] as f64,
+                    vertex.position[2] as f64,
+                ])
+            })
+            .collect();
+        ConvexPolyhedron::from_convex_hull(&points).unwrap()
+    }
+
+    pub fn to_convex_polyhedron_3(&self, points: Rc<Vec<Point<Real>>>) -> ConvexPolyhedron {
+        ConvexPolyhedron::from_convex_hull(&points).unwrap()
     }
 
     /// here we're less worried about the bounding sphere being optimally tight
@@ -505,5 +527,55 @@ impl CameraFrustumDescriptor {
                 .collect(),
             indices: indices.to_vec(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use crate::time::Instant;
+    use crate::{math::deg_to_rad, renderer::FOV_Y_DEG};
+
+    use super::*;
+
+    #[test]
+    fn benchmark_to_convex_polyhedron() {
+        let frustum = CameraFrustumDescriptor {
+            focal_point: Vec3::new(1.0, 2.0, 3.0),
+            forward_vector: Vec3::new(1.0, 2.0, 3.0).normalize(),
+            aspect_ratio: 0.6,
+            near_plane_distance: 0.1,
+            far_plane_distance: 100.0,
+            fov_y_rad: deg_to_rad(FOV_Y_DEG),
+        };
+
+        fn bench<F: Fn() -> ConvexPolyhedron>(f: F) {
+            let start = Instant::now();
+            let res = f();
+            // dbg!(res);
+            for _ in 0..1000 {
+                f();
+            }
+            dbg!(start.elapsed());
+        }
+
+        let points: Rc<Vec<_>> = Rc::new(
+            frustum
+                .to_basic_mesh()
+                .vertices
+                .iter()
+                .map(|vertex| {
+                    Point::from([
+                        vertex.position[0] as f64,
+                        vertex.position[1] as f64,
+                        vertex.position[2] as f64,
+                    ])
+                })
+                .collect(),
+        );
+        bench(|| frustum.to_convex_polyhedron_3(points.clone()));
+        bench(|| frustum.to_convex_polyhedron());
+        bench(|| frustum.to_convex_polyhedron_2());
     }
 }
