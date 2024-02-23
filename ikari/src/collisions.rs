@@ -369,7 +369,7 @@ impl From<CameraFrustumDescriptor> for Frustum {
 }
 
 impl CameraFrustumDescriptor {
-    /// this is not free. consider caching the result
+    /// this is SLOW. takes about 2 microseconds. consider caching the result
     pub fn to_convex_polyhedron(&self) -> ConvexPolyhedron {
         let points: Vec<_> = self
             .to_basic_mesh()

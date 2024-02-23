@@ -5151,6 +5151,14 @@ impl Renderer {
         culling_mask_camera_index: usize,
         cubemap_face_index: Option<u32>,
     ) {
+        // early out if all objects are culled from current pass
+        if (0..private_data.all_pbr_instances.chunks().len()).all(|pbr_instance_chunk_index| {
+            !private_data.all_pbr_instances_culling_masks[pbr_instance_chunk_index]
+                [culling_mask_camera_index]
+        }) {
+            return;
+        }
+
         let mut profiler_scope = profiler.scope(profiler_label, encoder, &base.device);
 
         let mut render_pass = profiler_scope.scoped_render_pass(
@@ -5178,12 +5186,10 @@ impl Renderer {
         if !is_shadow {
             render_pass.set_bind_group(1, &private_data.environment_textures_bind_group, &[]);
         }
+
         for (pbr_instance_chunk_index, pbr_instance_chunk) in
             private_data.all_pbr_instances.chunks().iter().enumerate()
         {
-            // TODO: if none of the instances pass the culling test, we should
-            //       early out at the beginning of this function to avoid creating
-            //       the render pass / clearing the texture at all.
             if !private_data.all_pbr_instances_culling_masks[pbr_instance_chunk_index]
                 [culling_mask_camera_index]
             {
