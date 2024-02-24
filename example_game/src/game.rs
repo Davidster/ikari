@@ -64,7 +64,7 @@ use winit::keyboard::Key;
 use winit::keyboard::NamedKey;
 
 // graphics settings
-pub const INITIAL_ENABLE_VSYNC: bool = true;
+pub const INITIAL_ENABLE_VSYNC: bool = false;
 pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
 pub const INITIAL_ENABLE_SHADOWS: bool = true;
 pub const INITIAL_ENABLE_DIRECTIONAL_SHADOW_CULLING: bool = true;
