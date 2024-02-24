@@ -1129,7 +1129,7 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
 }
 
 @fragment
-fn depth_prepass_fs_main(in: VertexOutput) -> FragmentOutput {
+fn depth_prepass_fs_main(in: VertexOutput) {
     let base_color_t = textureSample(
         diffuse_texture,
         diffuse_sampler,
@@ -1139,8 +1139,4 @@ fn depth_prepass_fs_main(in: VertexOutput) -> FragmentOutput {
     if base_color_t.a <= in.alpha_cutoff {
         discard;
     }
-
-    var out: FragmentOutput;
-    out.color = vec4(0.0, 0.0, 0.0, 0.0);
-    return out;
 }
