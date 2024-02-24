@@ -878,16 +878,14 @@ fn do_fragment_shade(
         if n_dot_l > 0.0 {
             if light_index < DIRECTIONAL_LIGHT_SHOW_MAP_COUNT {
 
-                var shadow_cascade_index = light_index;
+                var shadow_cascade_index = light_index * MAX_SHADOW_CASCADES;
                 var shadow_cascade_dist = 0.0;
 
                 // dist = directional_lights.cascades[light_index * MAX_SHADOW_CASCADES].distance.x;
                 for (var cascade_index = 0u; cascade_index < MAX_SHADOW_CASCADES; cascade_index = cascade_index + 1u) {
-                    shadow_cascade_dist = directional_lights.cascades[light_index * MAX_SHADOW_CASCADES + cascade_index].distance_and_pixel_size.x;
-                    debug_cascade_index = i32(shadow_cascade_index);
+                    shadow_cascade_dist = directional_lights.cascades[shadow_cascade_index].distance_and_pixel_size.x;
                     if shadow_cascade_dist == 0.0 || 
                         to_viewer_vec_length < shadow_cascade_dist {
-
                         if (shadow_cascade_dist == 0.0) {
                             debug_cascade_index = -1;
                         }
@@ -895,6 +893,7 @@ fn do_fragment_shade(
                         break;
                     }
                     shadow_cascade_index = shadow_cascade_index + 1u;
+                    debug_cascade_index = debug_cascade_index + 1;
                 }
 
                 let shadow_cascade_pixel_size = directional_lights.cascades[shadow_cascade_index].distance_and_pixel_size.y;
@@ -931,7 +930,7 @@ fn do_fragment_shade(
                                 directional_shadow_map_textures,
                                 shadow_map_sampler,
                                 light_space_position_uv + sample_jitter,
-                                i32(light_index + shadow_cascade_index),
+                                i32(shadow_cascade_index),
                                 0.0
                             ).r;
 
@@ -964,7 +963,7 @@ fn do_fragment_shade(
                                         directional_shadow_map_textures,
                                         shadow_map_sampler,
                                         light_space_position_uv + sample_jitter,
-                                        i32(light_index + shadow_cascade_index),
+                                        i32(shadow_cascade_index),
                                         0.0
                                     ).r;
                                     
@@ -980,7 +979,7 @@ fn do_fragment_shade(
                             directional_shadow_map_textures,
                             shadow_map_sampler,
                             light_space_position_uv,
-                            i32(light_index + shadow_cascade_index),
+                            i32(shadow_cascade_index),
                             0.0
                         ).r;
                         if current_depth - bias < closest_depth {

@@ -234,6 +234,7 @@ impl DirectionalLightCascadeUniform {
     }
 }
 
+// TODO: add some preallocs
 fn make_directional_light_uniform_buffer(
     lights: &[DirectionalLight],
     all_resolved_cascades: &[Vec<ResolvedDirectionalLightCascade>],
@@ -4511,7 +4512,8 @@ impl Renderer {
                         .texture
                         .create_view(&wgpu::TextureViewDescriptor {
                             dimension: Some(wgpu::TextureViewDimension::D2),
-                            base_array_layer: cascade_index + light_index as u32,
+                            base_array_layer: cascade_index
+                                + MAX_SHADOW_CASCADES as u32 * light_index as u32,
                             array_layer_count: Some(1),
                             ..Default::default()
                         });
@@ -4551,12 +4553,12 @@ impl Renderer {
                             [culling_mask_camera_index],
                         true,
                         culling_mask_camera_index,
-                        None,
                     );
 
                     culling_mask_camera_index += 1;
                 }
             }
+
             for light_index in 0..engine_state.scene.point_lights.len() {
                 if light_index >= POINT_LIGHT_SHOW_MAP_COUNT as usize {
                     continue;
@@ -4618,6 +4620,15 @@ impl Renderer {
                             shadow_render_pass_desc,
                         );
 
+                        render_pass.set_viewport(
+                            (face_index * POINT_LIGHT_SHADOW_MAP_RESOLUTION as usize) as f32,
+                            0.0,
+                            POINT_LIGHT_SHADOW_MAP_RESOLUTION as f32,
+                            POINT_LIGHT_SHADOW_MAP_RESOLUTION as f32,
+                            0.0,
+                            1.0,
+                        );
+
                         Self::render_pbr_meshes(
                             data,
                             private_data,
@@ -4627,7 +4638,6 @@ impl Renderer {
                                 [culling_mask_camera_index],
                             true,
                             culling_mask_camera_index,
-                            Some(face_index.try_into().unwrap()),
                         );
 
                         culling_mask_camera_index += 1;
@@ -4678,7 +4688,6 @@ impl Renderer {
                 &private_data.camera_lights_and_pbr_shader_options_bind_groups[0],
                 false,
                 0, // use main camera culling mask
-                None,
             );
         }
 
@@ -4728,7 +4737,6 @@ impl Renderer {
                 &private_data.camera_lights_and_pbr_shader_options_bind_groups[0],
                 false,
                 0, // use main camera culling mask
-                None,
             );
         }
 
@@ -5169,7 +5177,6 @@ impl Renderer {
         camera_lights_shader_options_bind_group: &'a wgpu::BindGroup,
         is_shadow: bool,
         culling_mask_camera_index: usize,
-        cubemap_face_index: Option<u32>,
     ) {
         // early out if all objects are culled from current pass
         if (0..private_data.all_pbr_instances.chunks().len()).all(|pbr_instance_chunk_index| {
@@ -5177,17 +5184,6 @@ impl Renderer {
                 [culling_mask_camera_index]
         }) {
             return;
-        }
-
-        if let Some(cubemap_face_index) = cubemap_face_index {
-            render_pass.set_viewport(
-                (cubemap_face_index * POINT_LIGHT_SHADOW_MAP_RESOLUTION) as f32,
-                0.0,
-                POINT_LIGHT_SHADOW_MAP_RESOLUTION as f32,
-                POINT_LIGHT_SHADOW_MAP_RESOLUTION as f32,
-                0.0,
-                1.0,
-            )
         }
 
         render_pass.set_pipeline(pipeline);
