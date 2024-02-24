@@ -59,7 +59,7 @@ glam.workspace = true
 approx = "0.5"
 
 # audio
-cpal = { git = "https://github.com/DouglasDwyer/cpal.git", rev = "91aeb4d6b02c25791f636fdf92a73637597c077a" }
+cpal = { git = "https://github.com/RustAudio/cpal.git", rev = "6c3d11b8f6af5c6202278560860a8c565162fd51" }
 oddio = "0.6"
 symphonia = { version = "0.5.3", features = ["mp3", "wav"] }
 
@@ -85,6 +85,6 @@ wasm-bindgen-futures.workspace = true
 web-sys.workspace = true
 getrandom = { version = "0.2.10", features = ["js"] }
 wasm-bindgen.workspace = true
-cpal = { git = "https://github.com/DouglasDwyer/cpal.git", rev = "91aeb4d6b02c25791f636fdf92a73637597c077a", features = [
+cpal = { git = "https://github.com/RustAudio/cpal.git", rev = "6c3d11b8f6af5c6202278560860a8c565162fd51", features = [
     "wasm-bindgen",
 ] }
