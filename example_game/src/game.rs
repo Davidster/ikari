@@ -64,7 +64,7 @@ use winit::keyboard::Key;
 use winit::keyboard::NamedKey;
 
 // graphics settings
-pub const INITIAL_ENABLE_VSYNC: bool = true;
+pub const INITIAL_ENABLE_VSYNC: bool = false;
 pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
 pub const INITIAL_ENABLE_SHADOWS: bool = true;
 pub const INITIAL_ENABLE_DIRECTIONAL_SHADOW_CULLING: bool = true;
@@ -390,12 +390,6 @@ pub async fn init_game_state(
 
     // add lights to the scene
     engine_state.scene.directional_lights = vec![
-        // DirectionalLight {
-        //     direction: (-Vec3::new(1.0, 5.0, -10.0)).normalize(),
-        //     color: _DIRECTIONAL_LIGHT_COLOR_A,
-        //     intensity: 1.0,
-        //     shadow_mapping_config: Default::default(),
-        // },
         DirectionalLight {
             direction: (-Vec3::new(-1.0, 10.0, 10.0)).normalize(),
             color: DIRECTIONAL_LIGHT_COLOR_B,
@@ -407,6 +401,12 @@ pub async fn init_game_state(
                 ..Default::default()
             },
         },
+        // DirectionalLight {
+        //     direction: (-Vec3::new(1.0, 5.0, -10.0)).normalize(),
+        //     color: _DIRECTIONAL_LIGHT_COLOR_A,
+        //     intensity: 1.0,
+        //     shadow_mapping_config: Default::default(),
+        // },
         // DirectionalLight {
         //     direction: (-Vec3::new(10.0, 10.0, 1.0)).normalize(),
         //     color: DIRECTIONAL_LIGHT_COLOR_B,

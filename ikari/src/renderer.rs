@@ -234,6 +234,7 @@ impl DirectionalLightCascadeUniform {
     }
 }
 
+// TODO: add some preallocs
 fn make_directional_light_uniform_buffer(
     lights: &[DirectionalLight],
     all_resolved_cascades: &[Vec<ResolvedDirectionalLightCascade>],
@@ -4511,7 +4512,8 @@ impl Renderer {
                         .texture
                         .create_view(&wgpu::TextureViewDescriptor {
                             dimension: Some(wgpu::TextureViewDimension::D2),
-                            base_array_layer: cascade_index + light_index as u32,
+                            base_array_layer: cascade_index
+                                + MAX_SHADOW_CASCADES as u32 * light_index as u32,
                             array_layer_count: Some(1),
                             ..Default::default()
                         });
@@ -4532,25 +4534,31 @@ impl Renderer {
                         occlusion_query_set: None,
                         timestamp_writes: None, // overwritten by wgpu_profiler
                     };
+
+                    let mut profiler_scope =
+                        profiler.scope(pass_label, &mut encoder, &self.base.device);
+
+                    let mut render_pass = profiler_scope.scoped_render_pass(
+                        pass_label,
+                        &self.base.device,
+                        shadow_render_pass_desc,
+                    );
+
                     Self::render_pbr_meshes(
-                        &self.base,
                         data,
                         private_data,
-                        profiler,
-                        pass_label,
-                        &mut encoder,
-                        shadow_render_pass_desc,
+                        &mut render_pass,
                         &self.constant_data.directional_shadow_map_pipeline,
                         &private_data.camera_lights_and_pbr_shader_options_bind_groups
                             [culling_mask_camera_index],
                         true,
                         culling_mask_camera_index,
-                        None,
                     );
 
                     culling_mask_camera_index += 1;
                 }
             }
+
             for light_index in 0..engine_state.scene.point_lights.len() {
                 if light_index >= POINT_LIGHT_SHOW_MAP_COUNT as usize {
                     continue;
@@ -4559,6 +4567,41 @@ impl Renderer {
                     .scene
                     .get_node(engine_state.scene.point_lights[light_index].node_id)
                 {
+                    let pass_label = "Point light shadow map";
+
+                    let texture_view = private_data.point_shadow_map_textures.texture.create_view(
+                        &wgpu::TextureViewDescriptor {
+                            dimension: Some(wgpu::TextureViewDimension::D2),
+                            base_array_layer: light_index.try_into().unwrap(),
+                            array_layer_count: Some(1),
+                            ..Default::default()
+                        },
+                    );
+
+                    let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
+                        label: USE_LABELS.then_some(pass_label),
+                        color_attachments: &[],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &texture_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(1.0),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        occlusion_query_set: None,
+                        timestamp_writes: None, // overwritten by wgpu_profiler
+                    };
+
+                    let mut profiler_scope =
+                        profiler.scope(pass_label, &mut encoder, &self.base.device);
+
+                    let mut render_pass = profiler_scope.scoped_render_pass(
+                        pass_label,
+                        &self.base.device,
+                        shadow_render_pass_desc,
+                    );
+
                     build_cubemap_face_camera_views(
                         light_node.transform.position(),
                         POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
@@ -4569,53 +4612,24 @@ impl Renderer {
                     .copied()
                     .enumerate()
                     .for_each(|(face_index, _face_view_proj_matrices)| {
-                        let face_texture_view = private_data
-                            .point_shadow_map_textures
-                            .texture
-                            .create_view(&wgpu::TextureViewDescriptor {
-                                dimension: Some(wgpu::TextureViewDimension::D2),
-                                base_array_layer: light_index.try_into().unwrap(),
-                                array_layer_count: Some(1),
-                                ..Default::default()
-                            });
-
-                        let pass_label = "Point light shadow map";
-
-                        let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
-                            label: USE_LABELS.then_some(pass_label),
-                            color_attachments: &[],
-                            depth_stencil_attachment: Some(
-                                wgpu::RenderPassDepthStencilAttachment {
-                                    view: &face_texture_view,
-                                    depth_ops: Some(wgpu::Operations {
-                                        load: if face_index == 0 {
-                                            wgpu::LoadOp::Clear(1.0)
-                                        } else {
-                                            wgpu::LoadOp::Load
-                                        },
-                                        store: wgpu::StoreOp::Store,
-                                    }),
-                                    stencil_ops: None,
-                                },
-                            ),
-                            occlusion_query_set: None,
-                            timestamp_writes: None, // overwritten by wgpu_profiler
-                        };
+                        render_pass.set_viewport(
+                            (face_index * POINT_LIGHT_SHADOW_MAP_RESOLUTION as usize) as f32,
+                            0.0,
+                            POINT_LIGHT_SHADOW_MAP_RESOLUTION as f32,
+                            POINT_LIGHT_SHADOW_MAP_RESOLUTION as f32,
+                            0.0,
+                            1.0,
+                        );
 
                         Self::render_pbr_meshes(
-                            &self.base,
                             data,
                             private_data,
-                            profiler,
-                            pass_label,
-                            &mut encoder,
-                            shadow_render_pass_desc,
+                            &mut render_pass,
                             &self.constant_data.point_shadow_map_pipeline,
                             &private_data.camera_lights_and_pbr_shader_options_bind_groups
                                 [culling_mask_camera_index],
                             true,
                             culling_mask_camera_index,
-                            Some(face_index.try_into().unwrap()),
                         );
 
                         culling_mask_camera_index += 1;
@@ -4649,64 +4663,74 @@ impl Renderer {
                 timestamp_writes: None, // overwritten by wgpu_profiler
             };
 
+            let mut profiler_scope =
+                profiler.scope(depth_prepass_pass_label, &mut encoder, &self.base.device);
+
+            let mut render_pass = profiler_scope.scoped_render_pass(
+                depth_prepass_pass_label,
+                &self.base.device,
+                depth_prepass_render_pass_desc,
+            );
+
             Self::render_pbr_meshes(
-                &self.base,
                 data,
                 private_data,
-                profiler,
-                depth_prepass_pass_label,
-                &mut encoder,
-                depth_prepass_render_pass_desc,
+                &mut render_pass,
                 &self.constant_data.depth_prepass_pipeline,
                 &private_data.camera_lights_and_pbr_shader_options_bind_groups[0],
                 false,
                 0, // use main camera culling mask
-                None,
             );
         }
 
-        let pbr_meshes_pass_label = "Pbr meshes";
+        {
+            let pbr_meshes_pass_label = "Pbr meshes";
 
-        let shading_render_pass_desc = wgpu::RenderPassDescriptor {
-            label: USE_LABELS.then_some(pbr_meshes_pass_label),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &private_data.shading_texture.view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(black),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &private_data.depth_texture.view,
-                depth_ops: Some(wgpu::Operations {
-                    load: if data.enable_depth_prepass {
-                        wgpu::LoadOp::Load
-                    } else {
-                        wgpu::LoadOp::Clear(0.0)
+            let shading_render_pass_desc = wgpu::RenderPassDescriptor {
+                label: USE_LABELS.then_some(pbr_meshes_pass_label),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &private_data.shading_texture.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(black),
+                        store: wgpu::StoreOp::Store,
                     },
-                    store: wgpu::StoreOp::Store,
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &private_data.depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: if data.enable_depth_prepass {
+                            wgpu::LoadOp::Load
+                        } else {
+                            wgpu::LoadOp::Clear(0.0)
+                        },
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
                 }),
-                stencil_ops: None,
-            }),
-            occlusion_query_set: None,
-            timestamp_writes: None, // overwritten by wgpu_profiler
-        };
+                occlusion_query_set: None,
+                timestamp_writes: None, // overwritten by wgpu_profiler
+            };
 
-        Self::render_pbr_meshes(
-            &self.base,
-            data,
-            private_data,
-            profiler,
-            pbr_meshes_pass_label,
-            &mut encoder,
-            shading_render_pass_desc,
-            &self.constant_data.mesh_pipeline,
-            &private_data.camera_lights_and_pbr_shader_options_bind_groups[0],
-            false,
-            0, // use main camera culling mask
-            None,
-        );
+            let mut profiler_scope =
+                profiler.scope(pbr_meshes_pass_label, &mut encoder, &self.base.device);
+
+            let mut render_pass = profiler_scope.scoped_render_pass(
+                pbr_meshes_pass_label,
+                &self.base.device,
+                shading_render_pass_desc,
+            );
+
+            Self::render_pbr_meshes(
+                data,
+                private_data,
+                &mut render_pass,
+                &self.constant_data.mesh_pipeline,
+                &private_data.camera_lights_and_pbr_shader_options_bind_groups[0],
+                false,
+                0, // use main camera culling mask
+            );
+        }
 
         {
             let pass_label = "Unlit and wireframe";
@@ -5138,18 +5162,13 @@ impl Renderer {
 
     #[allow(clippy::too_many_arguments)]
     fn render_pbr_meshes<'a>(
-        base: &BaseRenderer,
-        data: &RendererData,
-        private_data: &RendererPrivateData,
-        profiler: &wgpu_profiler::GpuProfiler,
-        profiler_label: &str,
-        encoder: &mut wgpu::CommandEncoder,
-        render_pass_descriptor: wgpu::RenderPassDescriptor<'a, 'a>,
+        data: &'a RendererData,
+        private_data: &'a RendererPrivateData,
+        render_pass: &mut wgpu::RenderPass<'a>,
         pipeline: &'a wgpu::RenderPipeline,
         camera_lights_shader_options_bind_group: &'a wgpu::BindGroup,
         is_shadow: bool,
         culling_mask_camera_index: usize,
-        cubemap_face_index: Option<u32>,
     ) {
         // early out if all objects are culled from current pass
         if (0..private_data.all_pbr_instances.chunks().len()).all(|pbr_instance_chunk_index| {
@@ -5157,27 +5176,6 @@ impl Renderer {
                 [culling_mask_camera_index]
         }) {
             return;
-        }
-
-        let mut profiler_scope = profiler.scope(profiler_label, encoder, &base.device);
-
-        let mut render_pass = profiler_scope.scoped_render_pass(
-            render_pass_descriptor
-                .label
-                .unwrap_or("render_pbr_meshes unlabelled"),
-            &base.device,
-            render_pass_descriptor,
-        );
-
-        if let Some(cubemap_face_index) = cubemap_face_index {
-            render_pass.set_viewport(
-                (cubemap_face_index * POINT_LIGHT_SHADOW_MAP_RESOLUTION) as f32,
-                0.0,
-                POINT_LIGHT_SHADOW_MAP_RESOLUTION as f32,
-                POINT_LIGHT_SHADOW_MAP_RESOLUTION as f32,
-                0.0,
-                1.0,
-            )
         }
 
         render_pass.set_pipeline(pipeline);
