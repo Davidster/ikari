@@ -4567,6 +4567,41 @@ impl Renderer {
                     .scene
                     .get_node(engine_state.scene.point_lights[light_index].node_id)
                 {
+                    let pass_label = "Point light shadow map";
+
+                    let texture_view = private_data.point_shadow_map_textures.texture.create_view(
+                        &wgpu::TextureViewDescriptor {
+                            dimension: Some(wgpu::TextureViewDimension::D2),
+                            base_array_layer: light_index.try_into().unwrap(),
+                            array_layer_count: Some(1),
+                            ..Default::default()
+                        },
+                    );
+
+                    let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
+                        label: USE_LABELS.then_some(pass_label),
+                        color_attachments: &[],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &texture_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(1.0),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        occlusion_query_set: None,
+                        timestamp_writes: None, // overwritten by wgpu_profiler
+                    };
+
+                    let mut profiler_scope =
+                        profiler.scope(pass_label, &mut encoder, &self.base.device);
+
+                    let mut render_pass = profiler_scope.scoped_render_pass(
+                        pass_label,
+                        &self.base.device,
+                        shadow_render_pass_desc,
+                    );
+
                     build_cubemap_face_camera_views(
                         light_node.transform.position(),
                         POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
@@ -4577,49 +4612,6 @@ impl Renderer {
                     .copied()
                     .enumerate()
                     .for_each(|(face_index, _face_view_proj_matrices)| {
-                        let face_texture_view = private_data
-                            .point_shadow_map_textures
-                            .texture
-                            .create_view(&wgpu::TextureViewDescriptor {
-                                dimension: Some(wgpu::TextureViewDimension::D2),
-                                base_array_layer: light_index.try_into().unwrap(),
-                                array_layer_count: Some(1),
-                                ..Default::default()
-                            });
-
-                        let pass_label = "Point light shadow map";
-
-                        let shadow_render_pass_desc = wgpu::RenderPassDescriptor {
-                            label: USE_LABELS.then_some(pass_label),
-                            color_attachments: &[],
-                            depth_stencil_attachment: Some(
-                                wgpu::RenderPassDepthStencilAttachment {
-                                    view: &face_texture_view,
-                                    depth_ops: Some(wgpu::Operations {
-                                        // TODO: wtf is this?
-                                        load: if face_index == 0 {
-                                            wgpu::LoadOp::Clear(1.0)
-                                        } else {
-                                            wgpu::LoadOp::Load
-                                        },
-                                        store: wgpu::StoreOp::Store,
-                                    }),
-                                    stencil_ops: None,
-                                },
-                            ),
-                            occlusion_query_set: None,
-                            timestamp_writes: None, // overwritten by wgpu_profiler
-                        };
-
-                        let mut profiler_scope =
-                            profiler.scope(pass_label, &mut encoder, &self.base.device);
-
-                        let mut render_pass = profiler_scope.scoped_render_pass(
-                            pass_label,
-                            &self.base.device,
-                            shadow_render_pass_desc,
-                        );
-
                         render_pass.set_viewport(
                             (face_index * POINT_LIGHT_SHADOW_MAP_RESOLUTION as usize) as f32,
                             0.0,
