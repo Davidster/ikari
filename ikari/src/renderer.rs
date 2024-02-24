@@ -1415,13 +1415,14 @@ impl Renderer {
             .device
             .create_render_pipeline(&mesh_pipeline_descriptor);
 
-        // depth_prepass_fs_main
         let mut depth_prepass_pipeline_descriptor = mesh_pipeline_descriptor.clone();
-        depth_prepass_pipeline_descriptor.fragment = Some(wgpu::FragmentState {
+        let depth_prepass_pipeline_descriptor_vertex = wgpu::VertexState {
             module: &textured_mesh_shader,
-            entry_point: "depth_prepass_fs_main",
-            targets: &[],
-        });
+            entry_point: "depth_prepass_vs_main",
+            buffers: &[Vertex::desc()],
+        };
+        depth_prepass_pipeline_descriptor.vertex = depth_prepass_pipeline_descriptor_vertex;
+        depth_prepass_pipeline_descriptor.fragment = None;
         let depth_prepass_pipeline = base
             .device
             .create_render_pipeline(&depth_prepass_pipeline_descriptor);

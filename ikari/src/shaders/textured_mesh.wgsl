@@ -116,6 +116,12 @@ struct VertexOutput {
     @location(13) object_tangent: vec3<f32>,
 }
 
+struct DepthPrepassVertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) tex_coords: vec2<f32>,
+    @location(1) alpha_cutoff: f32,
+}
+
 struct FragmentOutput {
     @location(0) color: vec4<f32>,
 }
@@ -286,6 +292,31 @@ fn vs_main(
         instance.mrno[3],
         instance.alpha_cutoff[0],
     );
+}
+
+@vertex
+fn depth_prepass_vs_main(
+    vshader_input: VertexInput,
+    @builtin(instance_index) instance_index: u32,
+) -> DepthPrepassVertexOutput {
+    let instance = instances_uniform.value[instance_index];
+
+    let model_transform = mat4x4<f32>(
+        instance.model_transform_0,
+        instance.model_transform_1,
+        instance.model_transform_2,
+        instance.model_transform_3,
+    );
+
+    let object_position = vec4<f32>(vshader_input.object_position, 1.0);
+    var clip_position = CAMERA.view_proj * model_transform * object_position;
+
+    var out: DepthPrepassVertexOutput;
+    out.clip_position = clip_position;
+    out.tex_coords = vshader_input.object_tex_coords;
+    out.alpha_cutoff = instance.alpha_cutoff[0];
+
+    return out;
 }
 
 @vertex
@@ -1129,7 +1160,7 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
 }
 
 @fragment
-fn depth_prepass_fs_main(in: VertexOutput) -> FragmentOutput {
+fn depth_prepass_fs_main(in: DepthPrepassVertexOutput) {
     let base_color_t = textureSample(
         diffuse_texture,
         diffuse_sampler,
@@ -1139,8 +1170,4 @@ fn depth_prepass_fs_main(in: VertexOutput) -> FragmentOutput {
     if base_color_t.a <= in.alpha_cutoff {
         discard;
     }
-
-    var out: FragmentOutput;
-    out.color = vec4(0.0, 0.0, 0.0, 0.0);
-    return out;
 }
