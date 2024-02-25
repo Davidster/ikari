@@ -401,6 +401,60 @@ impl Texture {
         }
     }
 
+    pub fn create_new_bloom_texture(
+        base_renderer: &BaseRenderer,
+        scaled_framebuffer_size: wgpu::Extent3d,
+        format: wgpu::TextureFormat,
+        mip_level_count: u32,
+        label: &str,
+    ) -> Self {
+        let size = wgpu::Extent3d {
+            width: scaled_framebuffer_size.width / 2,
+            height: scaled_framebuffer_size.height / 2,
+            depth_or_array_layers: 1,
+        };
+
+        let texture = base_renderer
+            .device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: USE_LABELS.then_some(label),
+                size,
+                mip_level_count,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+
+        let view = texture.create_view(&Default::default());
+        let sampler_index = base_renderer
+            .sampler_cache
+            .lock()
+            .unwrap()
+            .get_sampler_index(
+                &base_renderer.device,
+                &SamplerDescriptor {
+                    address_mode_u: wgpu::AddressMode::ClampToEdge,
+                    address_mode_v: wgpu::AddressMode::ClampToEdge,
+                    address_mode_w: wgpu::AddressMode::ClampToEdge,
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    mipmap_filter: wgpu::FilterMode::Nearest,
+                    ..Default::default()
+                },
+            );
+
+        Self {
+            texture,
+            view,
+            sampler_index,
+            size,
+        }
+    }
+
     pub fn create_depth_texture(
         base_renderer: &BaseRenderer,
         (width, height): (u32, u32),

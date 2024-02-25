@@ -5,19 +5,33 @@ struct BloomConfig {
     padding: f32,
 }
 
+struct NewBloomDownscaleConfig {
+    src_texture_resolution: vec4<f32>,
+}
+
+struct NewBloomUpscaleConfig {
+    filter_radius: vec4<f32>,
+}
+
 struct ToneMappingConfigUniform {
-    exposure_srgb: vec4<f32>,
+    exposure_bloom_factor: vec4<f32>,
 }
 
 @group(1) @binding(0)
 var<uniform> BLOOM_CONFIG: BloomConfig;
 
 @group(1) @binding(0)
+var<uniform> NEW_BLOOM_DOWNSCALE_CONFIG: NewBloomDownscaleConfig;
+
+@group(1) @binding(0)
+var<uniform> NEW_BLOOM_UPSCALE_CONFIG: NewBloomUpscaleConfig;
+
+@group(1) @binding(0)
 var<uniform> TONE_MAPPING_CONFIG: ToneMappingConfigUniform;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(2) tex_coords: vec2<f32>,
+    @location(0) tex_coords: vec2<f32>,
 }
 
 // should be called with 3 vertex indices: 0, 1, 2
@@ -78,13 +92,18 @@ fn surface_blit_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 @fragment
 fn tone_mapping_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let exposure = TONE_MAPPING_CONFIG.exposure_srgb.x;
+    let exposure = TONE_MAPPING_CONFIG.exposure_bloom_factor.x;
+    let bloom_factor = TONE_MAPPING_CONFIG.exposure_bloom_factor.y;
     let shaded_color = textureSample(texture_1, sampler_1, in.tex_coords).rgb;
     let bloom_color = textureSample(texture_2, sampler_2, in.tex_coords).rgb;
-    let final_color_hdr = shaded_color + bloom_color;
-    // return final_color_hdr / (final_color_hdr + 1.0);
+
+    var final_color_hdr: vec3<f32>;
+    if bloom_factor == -1.0 {
+        final_color_hdr = shaded_color + bloom_color;
+    } else {
+        final_color_hdr = mix(shaded_color, bloom_color, bloom_factor);
+    }
     return vec4<f32>(1.0 - exp(-final_color_hdr * exposure), 1.0);
-    // return vec4<f32>(final_color_hdr, 1.0);
 }
 
 @fragment
@@ -140,6 +159,87 @@ fn bloom_blur_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             ).rgb * gaussian_blur_weights[i];
         }
     }
+    return vec4<f32>(result, 1.0);
+}
+
+// https://learnopengl.com/Guest-Articles/2022/Phys.-Based-Bloom
+@fragment 
+fn new_bloom_downscale_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let src_texel_size = 1.0 / NEW_BLOOM_DOWNSCALE_CONFIG.src_texture_resolution.xy;
+    let x = src_texel_size.x;
+    let y = src_texel_size.y;
+
+    // Take 13 samples around current texel:
+    // a - b - c
+    // - j - k -
+    // d - e - f
+    // - l - m -
+    // g - h - i
+    // === ('e' is the current texel) ===
+    let a = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x - 2.0 * x, in.tex_coords.y + 2.0 * y)).rgb;
+    let b = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x,           in.tex_coords.y + 2.0 * y)).rgb;
+    let c = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x + 2.0 * x, in.tex_coords.y + 2.0 * y)).rgb;
+
+    let d = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x - 2.0 * x, in.tex_coords.y)).rgb;
+    let e = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x,           in.tex_coords.y)).rgb;
+    let f = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x + 2.0 * x, in.tex_coords.y)).rgb;
+
+    let g = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x - 2.0 * x, in.tex_coords.y - 2.0 * y)).rgb;
+    let h = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x,           in.tex_coords.y - 2.0 * y)).rgb;
+    let i = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x + 2.0 * x, in.tex_coords.y - 2.0 * y)).rgb;
+
+    let j = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x - x, in.tex_coords.y + y)).rgb;
+    let k = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x + x, in.tex_coords.y + y)).rgb;
+    let l = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x - x, in.tex_coords.y - y)).rgb;
+    let m = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x + x, in.tex_coords.y - y)).rgb;
+
+    // Apply weighted distribution:
+    // 0.5 + 0.125 + 0.125 + 0.125 + 0.125 = 1
+    // a,b,d,e * 0.125
+    // b,c,e,f * 0.125
+    // d,e,g,h * 0.125
+    // e,f,h,i * 0.125
+    // j,k,l,m * 0.5
+    // This shows 5 square areas that are being sampled. But some of them overlap,
+    // so to have an energy preserving downsample we need to make some adjustments.
+    // The weights are the distributed, so that the sum of j,k,l,m (e.g.)
+    // contribute 0.5 to the final color output. The code below is written
+    // to effectively yield this sum. We get:
+    // 0.125*5 + 0.03125*4 + 0.0625*4 = 1
+    let result = 0.125*e + 0.03125*(a+c+g+i) + 0.0625*(b+d+f+h) + 0.125*(j+k+l+m);
+    return vec4<f32>(result, 1.0);
+}
+
+// https://learnopengl.com/Guest-Articles/2022/Phys.-Based-Bloom
+@fragment 
+fn new_bloom_upscale_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    // The filter kernel is applied with a radius, specified in texture
+    // coordinates, so that the radius will vary across mip resolutions.
+    let x = NEW_BLOOM_UPSCALE_CONFIG.filter_radius.x;
+    let y = NEW_BLOOM_UPSCALE_CONFIG.filter_radius.x;
+
+    // Take 9 samples around current texel:
+    // a - b - c
+    // d - e - f
+    // g - h - i
+    // === ('e' is the current texel) ===     
+    let a = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x - x, in.tex_coords.y + y)).rgb;
+    let b = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x,     in.tex_coords.y + y)).rgb;
+    let c = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x + x, in.tex_coords.y + y)).rgb;
+
+    let d = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x - x, in.tex_coords.y)).rgb;
+    let e = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x,     in.tex_coords.y)).rgb;
+    let f = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x + x, in.tex_coords.y)).rgb;
+
+    let g = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x - x, in.tex_coords.y - y)).rgb;
+    let h = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x,     in.tex_coords.y - y)).rgb;
+    let i = textureSample(texture_1, sampler_1, vec2<f32>(in.tex_coords.x + x, in.tex_coords.y - y)).rgb;
+
+    // Apply weighted distribution, by using a 3x3 tent filter:
+    //  1   | 1 2 1 |
+    // -- * | 2 4 2 |
+    // 16   | 1 2 1 |
+    let result = (1.0 / 16.0) * (4.0*e + 2.0*(b+d+f+h) + 1.0*(a+c+g+i));
     return vec4<f32>(result, 1.0);
 }
 
