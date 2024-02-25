@@ -240,7 +240,8 @@ fn make_directional_light_uniform_buffer(
     lights: &[DirectionalLight],
     all_resolved_cascades: &[Vec<ResolvedDirectionalLightCascade>],
 ) -> Vec<u8> {
-    let mut light_uniforms = Vec::new();
+    let mut light_uniforms = vec![];
+    light_uniforms.reserve_exact(MAX_LIGHT_COUNT);
 
     let active_light_count = lights.len();
     let mut active_lights = lights
@@ -251,7 +252,9 @@ fn make_directional_light_uniform_buffer(
     light_uniforms.resize(MAX_LIGHT_COUNT, DirectionalLightUniform::default());
 
     let mut cascade_uniforms = vec![];
+    cascade_uniforms.reserve_exact(MAX_LIGHT_COUNT * MAX_SHADOW_CASCADES);
     let mut tmp_cascade_distances = vec![];
+    tmp_cascade_distances.reserve_exact(MAX_SHADOW_CASCADES);
 
     for light_index in 0..active_light_count {
         let light_direction = lights[light_index].direction;
@@ -578,8 +581,8 @@ impl BaseRenderer {
         optional_features |= wgpu_profiler::GpuProfiler::ALL_WGPU_TIMER_FEATURES;
 
         // uses half of the memory of a rgba16f texture, so it saves a nice chunk of VRAM for bloom effect
-        // without a big difference in quality
-        // it should be available "everywhere we care about". see https://github.com/gpuweb/gpuweb/issues/3566
+        // without a big difference in visual quality
+        // it should be available "everywhere we would care about". see https://github.com/gpuweb/gpuweb/issues/3566
         optional_features |= wgpu::Features::RG11B10UFLOAT_RENDERABLE;
 
         // panic if these features are missing
@@ -614,7 +617,6 @@ impl BaseRenderer {
             adapter,
             queue,
             limits,
-
             mip_pipeline_cache: Mutex::new(HashMap::new()),
             default_texture_cache: Mutex::new(HashMap::new()),
             sampler_cache: Mutex::new(SamplerCache::default()),
