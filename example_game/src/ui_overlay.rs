@@ -21,6 +21,7 @@ use ikari::player_controller::ControlledViewDirection;
 use ikari::profile_dump::can_generate_profile_dump;
 use ikari::profile_dump::generate_profile_dump;
 use ikari::profile_dump::PendingPerfDump;
+use ikari::renderer::BloomType;
 use ikari::renderer::CullingFrustumLockMode;
 use ikari::renderer::MIN_SHADOW_MAP_BIAS;
 use ikari::time::Instant;
@@ -30,6 +31,7 @@ use plotters_iced::{Chart, ChartWidget, DrawingBackend};
 
 use ikari::time::Duration;
 
+use crate::game::INITIAL_BLOOM_TYPE;
 use crate::game::INITIAL_ENABLE_CASCADE_DEBUG;
 use crate::game::INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG;
 use crate::game::INITIAL_ENABLE_DEPTH_PREPASS;
@@ -41,6 +43,8 @@ use crate::game::INITIAL_ENABLE_SOFT_SHADOWS;
 use crate::game::INITIAL_ENABLE_VSYNC;
 use crate::game::INITIAL_IS_SHOWING_CAMERA_POSE;
 use crate::game::INITIAL_IS_SHOWING_CURSOR_MARKER;
+use crate::game::INITIAL_NEW_BLOOM_INTENSITY;
+use crate::game::INITIAL_NEW_BLOOM_RADIUS;
 use crate::game::INITIAL_SHADOW_BIAS;
 use crate::game::INITIAL_SKYBOX_WEIGHT;
 use crate::game::INITIAL_SOFT_SHADOW_FACTOR;
@@ -73,6 +77,9 @@ pub enum Message {
     AudioSoundStatsChanged((GameFilePath, AudioSoundStats)),
     #[allow(dead_code)]
     ToggleVSync(bool),
+    BloomTypeChanged(BloomType),
+    NewBloomRadiusChanged(f32),
+    NewBloomIntensityChanged(f32),
     ToggleDepthPrepass(bool),
     ToggleDirectionalShadowCulling(bool),
     ToggleCameraPose(bool),
@@ -113,6 +120,9 @@ pub struct UiOverlay {
     audio_sound_stats: BTreeMap<String, AudioSoundStats>,
 
     pub enable_vsync: bool,
+    pub bloom_type: BloomType,
+    pub new_bloom_radius: f32,
+    pub new_bloom_intensity: f32,
     pub enable_depth_prepass: bool,
     pub enable_directional_shadow_culling: bool,
     pub enable_soft_shadows: bool,
@@ -289,6 +299,9 @@ impl UiOverlay {
             was_exit_button_pressed: false,
             is_showing_audio_stats: false,
             enable_vsync: INITIAL_ENABLE_VSYNC,
+            bloom_type: INITIAL_BLOOM_TYPE,
+            new_bloom_radius: INITIAL_NEW_BLOOM_RADIUS,
+            new_bloom_intensity: INITIAL_NEW_BLOOM_INTENSITY,
             enable_depth_prepass: INITIAL_ENABLE_DEPTH_PREPASS,
             enable_directional_shadow_culling: INITIAL_ENABLE_DIRECTIONAL_SHADOW_CULLING,
             enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
@@ -469,6 +482,15 @@ impl runtime::Program for UiOverlay {
             Message::ToggleVSync(new_state) => {
                 self.enable_vsync = new_state;
             }
+            Message::BloomTypeChanged(new_state) => {
+                self.bloom_type = new_state;
+            }
+            Message::NewBloomRadiusChanged(new_state) => {
+                self.new_bloom_radius = new_state;
+            }
+            Message::NewBloomIntensityChanged(new_state) => {
+                self.new_bloom_intensity = new_state;
+            }
             Message::ToggleDepthPrepass(new_state) => {
                 self.enable_depth_prepass = new_state;
             }
@@ -569,6 +591,8 @@ impl runtime::Program for UiOverlay {
             )));
         }
 
+        // rows = rows.push(text(&format!("Bloom type: {}", self.bloom_type)));
+
         if self.is_showing_camera_pose {
             if let Some((camera_position, camera_direction)) = self.camera_pose {
                 rows = rows.push(text(&format!(
@@ -665,6 +689,42 @@ impl runtime::Program for UiOverlay {
             options = options.push(
                 checkbox("Enable Depth Pre-pass", self.enable_depth_prepass)
                     .on_toggle(Message::ToggleDepthPrepass),
+            );
+
+            options = options.push(Text::new("Bloom Type"));
+            for mode in BloomType::ALL {
+                options = options.push(radio(
+                    format!("{mode}"),
+                    mode,
+                    Some(self.bloom_type),
+                    Message::BloomTypeChanged,
+                ));
+            }
+
+            options = options.push(Text::new(format!(
+                "New Bloom Radius: {:.4}",
+                self.new_bloom_radius
+            )));
+            options = options.push(
+                slider(
+                    0.0001..=0.025,
+                    self.new_bloom_radius,
+                    Message::NewBloomRadiusChanged,
+                )
+                .step(0.0001),
+            );
+
+            options = options.push(Text::new(format!(
+                "New Bloom Intensity: {:.4}",
+                self.new_bloom_intensity
+            )));
+            options = options.push(
+                slider(
+                    0.001..=0.25,
+                    self.new_bloom_intensity,
+                    Message::NewBloomIntensityChanged,
+                )
+                .step(0.001),
             );
 
             options = options.push(

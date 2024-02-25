@@ -30,6 +30,7 @@ use ikari::engine_state::EngineState;
 use ikari::file_manager::{FileManager, GamePathMaker};
 use ikari::gameloop::GameContext;
 use ikari::math::deg_to_rad;
+use ikari::math::lerp_vec;
 use ikari::mesh::BasicMesh;
 use ikari::mesh::DynamicPbrParams;
 use ikari::mesh::PbrTextures;
@@ -38,6 +39,7 @@ use ikari::physics::rapier3d_f64::prelude::*;
 use ikari::physics::PhysicsState;
 use ikari::player_controller::ControlledViewDirection;
 use ikari::player_controller::PlayerController;
+use ikari::renderer::BloomType;
 use ikari::renderer::DirectionalLight;
 use ikari::renderer::DirectionalLightShadowMappingConfig;
 use ikari::renderer::PointLight;
@@ -72,8 +74,10 @@ pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
 pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
-pub const INITIAL_ENABLE_BLOOM: bool = true;
-pub const INITIAL_IS_SHOWING_CAMERA_POSE: bool = true;
+pub const INITIAL_NEW_BLOOM_RADIUS: f32 = 0.005;
+pub const INITIAL_NEW_BLOOM_INTENSITY: f32 = 0.04;
+pub const INITIAL_BLOOM_TYPE: BloomType = BloomType::New;
+pub const INITIAL_IS_SHOWING_CAMERA_POSE: bool = false;
 pub const INITIAL_IS_SHOWING_CURSOR_MARKER: bool = false;
 pub const INITIAL_ENABLE_SHADOW_DEBUG: bool = false;
 pub const INITIAL_ENABLE_CASCADE_DEBUG: bool = false;
@@ -95,13 +99,11 @@ pub const PLAYER_MOVEMENT_SPEED: f32 = 6.0;
 pub const CREATE_POINT_SHADOW_MAP_DEBUG_OBJECTS: bool = false;
 pub const REMOVE_LARGE_OBJECTS_FROM_FOREST: bool = false;
 
-// pub const LIGHT_COLOR_A: Vec3 = Vec3::new(0.996, 0.973, 0.663);
-// pub const LIGHT_COLOR_B: Vec3 = Vec3::new(0.25, 0.973, 0.663);
-
 // linear colors, not srgb
 pub const _DIRECTIONAL_LIGHT_COLOR_A: Vec3 = Vec3::new(0.84922975, 0.81581426, 0.8832506);
 pub const DIRECTIONAL_LIGHT_COLOR_B: Vec3 = Vec3::new(0.81115574, 0.77142686, 0.8088144);
 pub const POINT_LIGHT_COLOR: Vec3 = Vec3::new(0.93126976, 0.7402633, 0.49407062);
+pub const POINT_LIGHT_COLOR_B: Vec3 = Vec3::new(0.25, 0.973, 0.663);
 // pub const LIGHT_COLOR_C: Vec3 =
 //     Vec3::new(from_srgb(0.631), from_srgb(0.565), from_srgb(0.627));
 
@@ -287,7 +289,7 @@ pub async fn init_game_state(
     {
         let mut renderer_data_guard = renderer.data.lock().unwrap();
         renderer_data_guard.enable_shadows = INITIAL_ENABLE_SHADOWS;
-        renderer_data_guard.enable_bloom = INITIAL_ENABLE_BLOOM;
+        renderer_data_guard.bloom_type = INITIAL_BLOOM_TYPE;
         renderer_data_guard.bloom_threshold = INITIAL_BLOOM_THRESHOLD;
         renderer_data_guard.bloom_ramp_size = INITIAL_BLOOM_RAMP_SIZE;
         renderer_data_guard.tone_mapping_exposure = INITIAL_TONE_MAPPING_EXPOSURE;
@@ -480,7 +482,7 @@ pub async fn init_game_state(
                     .visual(Some(GameNodeVisual::from_mesh_mat(
                         renderer.constant_data.sphere_mesh_index,
                         Material::Unlit {
-                            color: color * intensity,
+                            color: color * intensity * 10.0,
                         },
                     )))
                     .transform(transform)
@@ -1253,7 +1255,15 @@ pub fn process_window_input(
                             render_data_guard.enable_shadows = !render_data_guard.enable_shadows;
                         }
                         "b" => {
-                            render_data_guard.enable_bloom = !render_data_guard.enable_bloom;
+                            game_state
+                                .ui_overlay
+                                .queue_message(Message::BloomTypeChanged(match render_data_guard
+                                    .bloom_type
+                                {
+                                    BloomType::Disabled => BloomType::Old,
+                                    BloomType::Old => BloomType::New,
+                                    BloomType::New => BloomType::Disabled,
+                                }));
                         }
                         "f" => {
                             render_data_guard.enable_wireframe_mode =
@@ -1700,11 +1710,8 @@ pub fn update_game_state(
             t
         };
 
-        // point_light_0.color = lerp_vec(
-        //     LIGHT_COLOR_A,
-        //     LIGHT_COLOR_B,
-        //     (global_time_seconds * 2.0).sin(),
-        // );
+        point_light_0.color = lerp_vec(POINT_LIGHT_COLOR, POINT_LIGHT_COLOR_B, (2.0 * t).sin());
+
         let node_id = point_light_0.node_id;
         if let Some(node) = engine_state.scene.get_node_mut(node_id) {
             let center = if CREATE_POINT_SHADOW_MAP_DEBUG_OBJECTS {
@@ -1751,7 +1758,7 @@ pub fn update_game_state(
                 .get_node_mut(*node_id)
                 .and_then(|node| node.visual.as_mut())
             {
-                *color = point_light.color * point_light.intensity;
+                *color = point_light.color * point_light.intensity * 10.0;
             }
         });
 
@@ -2030,6 +2037,9 @@ pub fn update_game_state(
             elwt.exit();
         }
 
+        renderer_data_guard.bloom_type = ui_state.bloom_type;
+        renderer_data_guard.new_bloom_radius = ui_state.new_bloom_radius;
+        renderer_data_guard.new_bloom_intensity = ui_state.new_bloom_intensity;
         renderer_data_guard.enable_depth_prepass = ui_state.enable_depth_prepass;
         renderer_data_guard.enable_directional_shadow_culling =
             ui_state.enable_directional_shadow_culling;
