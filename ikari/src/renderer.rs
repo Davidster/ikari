@@ -4854,12 +4854,12 @@ impl Renderer {
             queue.write_buffer(
                 &private_data.new_bloom_downscale_config_buffers[mip_index as usize],
                 0,
-                bytemuck::cast_slice(dbg!(&[
+                bytemuck::cast_slice(&[
                     (private_data.new_bloom_texture.size.width / 2u32.pow(mip_index)) as f32,
                     (private_data.new_bloom_texture.size.height / 2u32.pow(mip_index)) as f32,
                     0.0f32,
                     0.0f32,
-                ])),
+                ]),
             );
         }
         queue.write_buffer(
