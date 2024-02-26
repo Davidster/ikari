@@ -5877,9 +5877,9 @@ impl Renderer {
                         }
 
                         if log::log_enabled!(log::Level::Debug) {
-                            for (i, element) in tmp_node_culling_mask.iter().by_vals().enumerate() {
+                            for (camera_index, element) in tmp_node_culling_mask.iter().by_vals().enumerate() {
                                 if element {
-                                    culled_object_counts[i] += 1;
+                                    culled_object_counts[camera_index] += 1;
                                 }
                             }
 
