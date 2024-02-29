@@ -7,6 +7,7 @@ use crate::math::*;
 use crate::mesh::*;
 use crate::physics::rapier3d_f64::na::Vector3;
 use crate::physics::rapier3d_f64::prelude::*;
+use crate::raw_image::RawImage;
 use crate::sampler_cache::*;
 use crate::scene::*;
 use crate::skinning::*;
@@ -54,7 +55,7 @@ pub const POINT_LIGHT_SHOW_MAP_COUNT: u32 = 2;
 pub const DIRECTIONAL_LIGHT_SHOW_MAP_COUNT: u32 = 2;
 pub const DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH: f32 = 50.0;
 pub const MIN_SHADOW_MAP_BIAS: f32 = 0.00005;
-pub const NEW_BLOOM_MIP_LEVEL_COUNT: u32 = 5;
+pub const NEW_BLOOM_TARGET_MIP_COUNT: u32 = 5;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -358,7 +359,6 @@ fn make_pbr_shader_options_uniform_buffer(
 pub struct BindableTexture {
     pub raw_image: RawImage,
     pub name: Option<String>,
-    pub format: Option<wgpu::TextureFormat>,
     pub sampler_descriptor: crate::sampler_cache::SamplerDescriptor,
 }
 
@@ -726,6 +726,8 @@ pub struct RendererPrivateData {
     new_bloom_texture: Texture,
     new_bloom_texture_mip_views: Vec<wgpu::TextureView>,
     brdf_lut: Texture,
+
+    new_bloom_mip_count: u32,
 }
 
 #[derive(Debug)]
@@ -793,14 +795,13 @@ impl SkyboxPaths {
 #[derive(Debug)]
 pub enum BindableSkyboxBackground {
     Cube(RawImage),
-    CompressedCube(RawImage),
     Equirectangular(RawImage),
 }
 
 #[derive(Debug)]
 pub enum BindableSkyboxHDREnvironment {
     Equirectangular(RawImage),
-    ProcessedCube {
+    Cube {
         diffuse: RawImage,
         specular: RawImage,
     },
@@ -2116,15 +2117,18 @@ impl Renderer {
                 "bloom_texture_2",
             ),
         ];
+
         let new_bloom_texture = Texture::create_new_bloom_texture(
             &base,
             shading_texture.size,
             new_bloom_texture_format,
-            NEW_BLOOM_MIP_LEVEL_COUNT,
+            NEW_BLOOM_TARGET_MIP_COUNT,
             "new_bloom_texture",
         );
 
-        let new_bloom_texture_mip_views = (0..NEW_BLOOM_MIP_LEVEL_COUNT)
+        let new_bloom_mip_count = new_bloom_texture.texture.mip_level_count();
+
+        let new_bloom_texture_mip_views = (0..new_bloom_mip_count)
             .map(|mip_index| {
                 new_bloom_texture
                     .texture
@@ -2317,7 +2321,7 @@ impl Renderer {
                     label: USE_LABELS.then_some("new_bloom_texture_bind_group"),
                 });
 
-            new_bloom_texture_mip_bind_groups = (0..NEW_BLOOM_MIP_LEVEL_COUNT)
+            new_bloom_texture_mip_bind_groups = (0..new_bloom_mip_count)
                 .map(|mip_index| {
                     base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         layout: &constant_data.single_texture_bind_group_layout,
@@ -2358,7 +2362,7 @@ impl Renderer {
                 }),
         ];
 
-        let new_bloom_downscale_config_buffers = (0..NEW_BLOOM_MIP_LEVEL_COUNT)
+        let new_bloom_downscale_config_buffers = (0..NEW_BLOOM_TARGET_MIP_COUNT)
             .map(|mip_index| {
                 base.device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -2397,7 +2401,7 @@ impl Renderer {
             }),
         ];
 
-        let new_bloom_downscale_config_bind_groups = (0..NEW_BLOOM_MIP_LEVEL_COUNT as usize)
+        let new_bloom_downscale_config_bind_groups = (0..new_bloom_downscale_config_buffers.len())
             .map(|mip_index| {
                 base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: &constant_data.single_uniform_bind_group_layout,
@@ -2454,12 +2458,14 @@ impl Renderer {
         let sky_color = [8, 113, 184, 255];
         let sun_color = [253, 251, 211, 255];
         let background_texture_er = {
-            let image = image::RgbaImage::from_pixel(skybox_dim, skybox_dim, sky_color.into());
-            Texture::from_decoded_image(
+            let image = RawImage::from_dynamic_image(
+                image::RgbaImage::from_pixel(skybox_dim, skybox_dim, sky_color.into()).into(),
+                true,
+            );
+            Texture::from_raw_image(
                 &base,
-                &image.into(),
+                &image,
                 Some("skybox_image texture"),
-                wgpu::TextureFormat::Rgba8UnormSrgb.into(),
                 false,
                 &SamplerDescriptor {
                     mag_filter: wgpu::FilterMode::Nearest,
@@ -2475,17 +2481,17 @@ impl Renderer {
                 sun_color.map(|val| Float16(half::f16::from_f32(0.2 * val as f32 / 255.0)));
             let mut image_raw: Vec<[Float16; 4]> = Vec::with_capacity(pixel_count as usize);
             image_raw.resize(pixel_count as usize, color_hdr);
-            let texture_er = Texture::from_decoded_image(
+            let texture_er = Texture::from_raw_image(
                 &base,
                 &RawImage {
-                    raw: bytemuck::cast_slice(&image_raw).to_vec(),
                     width: skybox_dim,
                     height: skybox_dim,
                     depth: 1,
                     mip_count: 1,
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    bytes: bytemuck::cast_slice(&image_raw).to_vec(),
                 },
                 None,
-                wgpu::TextureFormat::Rgba16Float.into(),
                 false,
                 &SamplerDescriptor {
                     address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -2903,6 +2909,8 @@ impl Renderer {
                 new_bloom_texture,
                 new_bloom_texture_mip_views,
                 brdf_lut,
+
+                new_bloom_mip_count,
             }),
 
             profiler: Mutex::new(profiler),
@@ -3235,11 +3243,17 @@ impl Renderer {
             &self.base,
             private_data_guard.shading_texture.size,
             private_data_guard.new_bloom_texture.texture.format(),
-            NEW_BLOOM_MIP_LEVEL_COUNT,
+            NEW_BLOOM_TARGET_MIP_COUNT,
             "new_bloom_texture",
         );
 
-        private_data_guard.new_bloom_texture_mip_views = (0..NEW_BLOOM_MIP_LEVEL_COUNT)
+        private_data_guard.new_bloom_mip_count = private_data_guard
+            .new_bloom_texture
+            .texture
+            .mip_level_count();
+
+        private_data_guard.new_bloom_texture_mip_views = (0..private_data_guard
+            .new_bloom_mip_count)
             .map(|mip_index| {
                 private_data_guard.new_bloom_texture.texture.create_view(
                     &wgpu::TextureViewDescriptor {
@@ -3457,7 +3471,8 @@ impl Renderer {
                     label: USE_LABELS.then_some("new_bloom_texture_bind_group"),
                 });
 
-        private_data_guard.new_bloom_texture_mip_bind_groups = (0..NEW_BLOOM_MIP_LEVEL_COUNT)
+        private_data_guard.new_bloom_texture_mip_bind_groups = (0..private_data_guard
+            .new_bloom_mip_count)
             .map(|mip_index| {
                 self.base
                     .device
@@ -4852,7 +4867,7 @@ impl Renderer {
             0,
             bytemuck::cast_slice(&[1.0f32, data.bloom_threshold, data.bloom_ramp_size, 0.0f32]),
         );
-        for mip_index in 0..NEW_BLOOM_MIP_LEVEL_COUNT {
+        for mip_index in 0..private_data.new_bloom_mip_count {
             queue.write_buffer(
                 &private_data.new_bloom_downscale_config_buffers[mip_index as usize],
                 0,
@@ -5358,7 +5373,7 @@ impl Renderer {
             BloomType::New => {
                 private_data.new_bloom_cleared = false;
 
-                for mip_index in 0..NEW_BLOOM_MIP_LEVEL_COUNT as usize {
+                for mip_index in 0..private_data.new_bloom_mip_count as usize {
                     let pass_label = "New Bloom Downscale";
 
                     let mut profiler_scope =
@@ -5400,7 +5415,7 @@ impl Renderer {
                     render_pass.draw(0..3, 0..1);
                 }
 
-                for mip_index in (1..NEW_BLOOM_MIP_LEVEL_COUNT as usize).rev() {
+                for mip_index in (1..private_data.new_bloom_mip_count as usize).rev() {
                     let pass_label = "New Bloom Upscale";
 
                     let mut profiler_scope =
@@ -5877,7 +5892,9 @@ impl Renderer {
                         }
 
                         if log::log_enabled!(log::Level::Debug) {
-                            for (camera_index, element) in tmp_node_culling_mask.iter().by_vals().enumerate() {
+                            for (camera_index, element) in
+                                tmp_node_culling_mask.iter().by_vals().enumerate()
+                            {
                                 if element {
                                     culled_object_counts[camera_index] += 1;
                                 }

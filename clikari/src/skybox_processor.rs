@@ -2,11 +2,11 @@ use std::path::PathBuf;
 
 use ikari::{
     file_manager::native_fs,
+    raw_image::RawImage,
     renderer::{
         BaseRenderer, BindedSkybox, Renderer, SkyboxBackgroundPath, SkyboxEnvironmentHDRPath,
         SkyboxPaths,
     },
-    texture::RawImage,
     texture_compression::TextureCompressionArgs,
 };
 
@@ -115,7 +115,8 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
             height: texture.size.height,
             depth: all_texture_bytes.len() as u32,
             mip_count: texture.texture.mip_level_count(),
-            raw: all_texture_bytes.iter().flatten().copied().collect(),
+            format: texture.texture.format(),
+            bytes: all_texture_bytes.iter().flatten().copied().collect(),
         })?;
 
         let full_file_path =
@@ -134,7 +135,8 @@ pub async fn run_internal(args: SkyboxProcessorArgs) -> anyhow::Result<()> {
             height: texture.size.height,
             depth: all_texture_bytes.len() as u32,
             mip_count: texture.texture.mip_level_count(),
-            raw: all_texture_bytes.iter().flatten().copied().collect(),
+            format: texture.texture.format(),
+            bytes: all_texture_bytes.iter().flatten().copied().collect(),
         })?;
 
         let full_file_path =

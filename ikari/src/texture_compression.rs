@@ -1,7 +1,7 @@
 use rmp_serde::Serializer;
 use serde::Serialize;
 
-use crate::{file_manager::GameFilePath, texture::RawImage};
+use crate::{file_manager::GameFilePath, raw_image::RawImage};
 
 #[cfg(not(target_arch = "wasm32"))]
 const BASISU_COMPRESSION_FORMAT: basis_universal::BasisTextureFormat =
@@ -27,61 +27,51 @@ pub struct TextureCompressionArgs<'a> {
     pub thread_count: u32,
 }
 
+/// Warning: this will give the wrong result for Astc-formatted hdr textures
 #[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug)]
-pub struct CompressedTexture {
-    pub format: basis_universal::transcoding::TranscoderTextureFormat,
-    pub raw_image: RawImage,
-}
+pub fn basis_u_texture_format_to_wgpu(
+    format: basis_universal::transcoding::TranscoderTextureFormat,
+    is_srgb: bool,
+) -> wgpu::TextureFormat {
+    let pre_srgb_format = match format {
+        basis_universal::TranscoderTextureFormat::ETC2_RGBA => wgpu::TextureFormat::Etc2Rgba8Unorm,
+        basis_universal::TranscoderTextureFormat::BC3_RGBA => wgpu::TextureFormat::Bc3RgbaUnorm,
+        basis_universal::TranscoderTextureFormat::BC4_R => wgpu::TextureFormat::Bc4RUnorm,
+        basis_universal::TranscoderTextureFormat::BC5_RG => wgpu::TextureFormat::Bc5RgUnorm,
+        basis_universal::TranscoderTextureFormat::BC7_RGBA => wgpu::TextureFormat::Bc7RgbaUnorm,
 
-#[cfg(not(target_arch = "wasm32"))]
-impl CompressedTexture {
-    /// Warning: this will give the wrong result for Astc-formatted hdr textures
-    pub fn format_wgpu(&self, is_srgb: bool) -> wgpu::TextureFormat {
-        let non_srgb_format = match self.format {
-            basis_universal::TranscoderTextureFormat::ETC2_RGBA => {
-                wgpu::TextureFormat::Etc2Rgba8Unorm
-            }
-            basis_universal::TranscoderTextureFormat::BC3_RGBA => wgpu::TextureFormat::Bc3RgbaUnorm,
-            basis_universal::TranscoderTextureFormat::BC4_R => wgpu::TextureFormat::Bc4RUnorm,
-            basis_universal::TranscoderTextureFormat::BC5_RG => wgpu::TextureFormat::Bc5RgUnorm,
-            basis_universal::TranscoderTextureFormat::BC7_RGBA => wgpu::TextureFormat::Bc7RgbaUnorm,
+        basis_universal::TranscoderTextureFormat::ASTC_4x4_RGBA => wgpu::TextureFormat::Astc {
+            block: wgpu::AstcBlock::B4x4,
+            channel: wgpu::AstcChannel::Unorm,
+        },
+        basis_universal::TranscoderTextureFormat::ETC1_RGB => unimplemented!(),
+        basis_universal::TranscoderTextureFormat::BC1_RGB => unimplemented!(),
+        basis_universal::TranscoderTextureFormat::PVRTC1_4_RGB => unimplemented!(),
+        basis_universal::TranscoderTextureFormat::PVRTC1_4_RGBA => unimplemented!(),
+        basis_universal::TranscoderTextureFormat::ATC_RGB => unimplemented!(),
+        basis_universal::TranscoderTextureFormat::ATC_RGBA => unimplemented!(),
+        basis_universal::TranscoderTextureFormat::FXT1_RGB => unimplemented!(),
+        basis_universal::TranscoderTextureFormat::PVRTC2_4_RGB => unimplemented!(),
+        basis_universal::TranscoderTextureFormat::PVRTC2_4_RGBA => unimplemented!(),
+        basis_universal::TranscoderTextureFormat::ETC2_EAC_R11 => unimplemented!(),
+        basis_universal::TranscoderTextureFormat::ETC2_EAC_RG11 => unimplemented!(),
+        basis_universal::TranscoderTextureFormat::RGBA32 => unimplemented!(),
+        basis_universal::TranscoderTextureFormat::RGB565 => unimplemented!(),
+        basis_universal::TranscoderTextureFormat::BGR565 => unimplemented!(),
+        basis_universal::TranscoderTextureFormat::RGBA4444 => unimplemented!(),
+    };
 
-            basis_universal::TranscoderTextureFormat::ASTC_4x4_RGBA => wgpu::TextureFormat::Astc {
-                block: wgpu::AstcBlock::B4x4,
-                channel: wgpu::AstcChannel::Unorm,
-            },
-            basis_universal::TranscoderTextureFormat::ETC1_RGB => unimplemented!(),
-            basis_universal::TranscoderTextureFormat::BC1_RGB => unimplemented!(),
-            basis_universal::TranscoderTextureFormat::PVRTC1_4_RGB => unimplemented!(),
-            basis_universal::TranscoderTextureFormat::PVRTC1_4_RGBA => unimplemented!(),
-            basis_universal::TranscoderTextureFormat::ATC_RGB => unimplemented!(),
-            basis_universal::TranscoderTextureFormat::ATC_RGBA => unimplemented!(),
-            basis_universal::TranscoderTextureFormat::FXT1_RGB => unimplemented!(),
-            basis_universal::TranscoderTextureFormat::PVRTC2_4_RGB => unimplemented!(),
-            basis_universal::TranscoderTextureFormat::PVRTC2_4_RGBA => unimplemented!(),
-            basis_universal::TranscoderTextureFormat::ETC2_EAC_R11 => unimplemented!(),
-            basis_universal::TranscoderTextureFormat::ETC2_EAC_RG11 => unimplemented!(),
-            basis_universal::TranscoderTextureFormat::RGBA32 => unimplemented!(),
-            basis_universal::TranscoderTextureFormat::RGB565 => unimplemented!(),
-            basis_universal::TranscoderTextureFormat::BGR565 => unimplemented!(),
-            basis_universal::TranscoderTextureFormat::RGBA4444 => unimplemented!(),
-        };
+    let format = if is_srgb {
+        pre_srgb_format.add_srgb_suffix()
+    } else {
+        pre_srgb_format
+    };
 
-        if is_srgb {
-            let srgb_format = non_srgb_format.add_srgb_suffix();
-
-            assert_ne!(
-                srgb_format, non_srgb_format,
-                "Selected texture format {:?} doesn't support srgb",
-                srgb_format
-            );
-
-            srgb_format
-        } else {
-            non_srgb_format
-        }
+    if is_srgb && format == pre_srgb_format {
+        log::error!("Interpreting texture as srgb with a texture format that doesn't support srgb ({pre_srgb_format:?})");
     }
+
+    format
 }
 
 impl TextureCompressor {
@@ -151,7 +141,7 @@ impl TextureCompressor {
         //
         // Compressing with invalid parameters may cause undefined behavior.
         // (The underlying C++ library does not thoroughly validate parameters)
-        // see https://docs.rs/basis-universal/0.2.0/basis_universal/encoding/struct.Compressor.html#method.process
+        // see https://docs.rs/basis-universal/0.3.1/basis_universal/encoding/struct.Compressor.html#method.process
         unsafe {
             basisu_compressor.init(&params);
 
@@ -183,8 +173,9 @@ impl TextureCompressor {
     pub fn transcode_image(
         &self,
         img_bytes: &[u8],
+        is_srgb: bool,
         is_normal_map: bool,
-    ) -> anyhow::Result<CompressedTexture> {
+    ) -> anyhow::Result<RawImage> {
         basis_universal::transcoder_init();
 
         let miniz_decoded_data = miniz_oxide::inflate::decompress_to_vec(img_bytes)
@@ -241,15 +232,13 @@ impl TextureCompressor {
             };
         }
 
-        Ok(CompressedTexture {
-            format: gpu_texture_format,
-            raw_image: RawImage {
-                width: img_width,
-                height: img_height,
-                depth: 1,
-                mip_count: mip_levels,
-                raw: full_mip_chain_bytes,
-            },
+        Ok(RawImage {
+            width: img_width,
+            height: img_height,
+            depth: 1,
+            mip_count: mip_levels,
+            bytes: full_mip_chain_bytes,
+            format: basis_u_texture_format_to_wgpu(gpu_texture_format, is_srgb),
         })
     }
 }

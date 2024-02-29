@@ -39,6 +39,7 @@ use ikari::physics::rapier3d_f64::prelude::*;
 use ikari::physics::PhysicsState;
 use ikari::player_controller::ControlledViewDirection;
 use ikari::player_controller::PlayerController;
+use ikari::raw_image::RawImage;
 use ikari::renderer::BloomType;
 use ikari::renderer::DirectionalLight;
 use ikari::renderer::DirectionalLightShadowMappingConfig;
@@ -46,9 +47,7 @@ use ikari::renderer::PointLight;
 use ikari::renderer::RendererData;
 use ikari::renderer::SkyboxPaths;
 use ikari::renderer::SkyboxSlot;
-use ikari::renderer::{
-    BaseRenderer, Renderer, SkyboxBackgroundPath, SkyboxEnvironmentHDRPath, SurfaceData,
-};
+use ikari::renderer::{Renderer, SkyboxBackgroundPath, SkyboxEnvironmentHDRPath, SurfaceData};
 use ikari::sampler_cache::SamplerDescriptor;
 use ikari::scene::GameNodeDesc;
 use ikari::scene::GameNodeDescBuilder;
@@ -228,35 +227,27 @@ fn get_misc_gltf_path() -> &'static str {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
+async fn get_rainbow_img_raw() -> Result<RawImage> {
     let texture_compressor = ikari::texture_compression::TextureCompressor;
-    let rainbow_texture_path = "src/textures/rainbow_gradient_vertical_compressed.bin";
-    let rainbow_texture_bytes =
-        FileManager::read(&GAME_PATH_MAKER.make(rainbow_texture_path)).await?;
-    let rainbow_texture = texture_compressor.transcode_image(&rainbow_texture_bytes, false)?;
-    Texture::from_decoded_image(
-        renderer_base,
-        &rainbow_texture.raw_image,
-        Some(rainbow_texture_path),
-        Some(rainbow_texture.format_wgpu(true)),
+    texture_compressor.transcode_image(
+        &FileManager::read(
+            &GAME_PATH_MAKER.make("src/textures/rainbow_gradient_vertical_compressed.bin"),
+        )
+        .await?,
+        true,
         false,
-        &Default::default(),
     )
 }
 
 #[cfg(target_arch = "wasm32")]
-async fn get_rainbow_texture(renderer_base: &BaseRenderer) -> Result<Texture> {
-    let rainbow_texture_path = "src/textures/rainbow_gradient_vertical.jpg";
-    let rainbow_texture_bytes =
-        FileManager::read(&GAME_PATH_MAKER.make(rainbow_texture_path)).await?;
-    Texture::from_encoded_image(
-        renderer_base,
-        &rainbow_texture_bytes,
-        Some(rainbow_texture_path),
-        wgpu::TextureFormat::Rgba8Unorm.into(),
-        false,
-        &Default::default(),
-    )
+async fn get_rainbow_img_raw() -> Result<RawImage> {
+    Ok(RawImage::from_dynamic_image(
+        image::load_from_memory(
+            &FileManager::read(&GAME_PATH_MAKER.make("src/textures/rainbow_gradient_vertical.jpg"))
+                .await?,
+        )?,
+        true,
+    ))
 }
 
 pub async fn init_game_state(
@@ -321,21 +312,21 @@ pub async fn init_game_state(
 
             // player's revolver
             // https://done3d.com/colt-python-8-inch/
-            gltf_paths.push("src/models/gltf/ColtPython/colt_python.glb");
+            gltf_paths.push("src/models/gltf/ColtPython/colt_python.gltf");
 
             // forest
             // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
-            gltf_paths.push("src/models/gltf/free_low_poly_forest/scene.glb");
+            gltf_paths.push("src/models/gltf/free_low_poly_forest/scene.gltf");
 
             // legendary robot
             // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-            gltf_paths.push("src/models/gltf/LegendaryRobot/Legendary_Robot.glb");
+            gltf_paths.push("src/models/gltf/LegendaryRobot/Legendary_Robot.gltf");
 
             // maze
-            gltf_paths.push("src/models/gltf/TestLevel/test_level.glb");
+            gltf_paths.push("src/models/gltf/TestLevel/test_level.gltf");
 
             // other
-            // gltf_paths.push(get_misc_gltf_path());
+            gltf_paths.push(get_misc_gltf_path());
 
             for path in gltf_paths {
                 asset_id_map.lock().unwrap().insert(
@@ -509,16 +500,28 @@ pub async fn init_game_state(
     //     &Default::default(),
     // )?;
 
-    let rainbow_texture = get_rainbow_texture(&renderer.base).await?;
+    let rainbow_img_raw = get_rainbow_img_raw().await?;
+    let rainbow_texture = Texture::from_raw_image(
+        &renderer.base,
+        &rainbow_img_raw,
+        Some("rainbow_texture"),
+        false,
+        &Default::default(),
+    )?;
 
     let brick_normal_map_path = "src/textures/brick_normal_map.jpg";
-    let brick_normal_map_bytes =
-        FileManager::read(&GAME_PATH_MAKER.make(brick_normal_map_path)).await?;
-    let brick_normal_map = Texture::from_encoded_image(
+
+    let brick_normal_map_raw = RawImage::from_dynamic_image(
+        image::load_from_memory(
+            &FileManager::read(&GAME_PATH_MAKER.make(brick_normal_map_path)).await?,
+        )?,
+        false,
+    );
+    FileManager::read(&GAME_PATH_MAKER.make(brick_normal_map_path)).await?;
+    let brick_normal_map = Texture::from_raw_image(
         &renderer.base,
-        &brick_normal_map_bytes,
+        &brick_normal_map_raw,
         Some(brick_normal_map_path),
-        wgpu::TextureFormat::Rgba8Unorm.into(),
         false,
         &Default::default(),
     )?;
@@ -562,7 +565,7 @@ pub async fn init_game_state(
         },
     )?; */
 
-    let checkerboard_texture_img = {
+    let checkerboard_img_raw = {
         let mut img = image::RgbaImage::new(1024, 1024);
         for x in 0..img.width() {
             for y in 0..img.height() {
@@ -580,13 +583,12 @@ pub async fn init_game_state(
                 );
             }
         }
-        img
+        RawImage::from_dynamic_image(img.into(), true)
     };
-    let checkerboard_texture = Texture::from_decoded_image(
+    let checkerboard_texture = Texture::from_raw_image(
         &renderer.base,
-        &checkerboard_texture_img.into(),
+        &checkerboard_img_raw,
         Some("checkerboard_texture"),
-        None,
         true,
         &SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -1028,7 +1030,7 @@ pub async fn init_game_state(
     scene.remove_node(bouncing_ball_node_id);
 
     // add crosshair to scene
-    let crosshair_texture_img = {
+    let crosshair_img_raw = {
         let thickness = 8;
         let gap = 30;
         let bar_length = 14;
@@ -1055,15 +1057,15 @@ pub async fn init_game_state(
                 );
             }
         }
-        img
+
+        RawImage::from_dynamic_image(img.into(), true)
     };
     #[allow(unused_assignments)]
     let mut crosshair_node_id: Option<GameNodeId> = None;
-    let crosshair_texture = Texture::from_decoded_image(
+    let crosshair_texture = Texture::from_raw_image(
         &renderer.base,
-        &crosshair_texture_img.into(),
+        &crosshair_img_raw,
         Some("crosshair_texture"),
-        None,
         false,
         &SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -1416,7 +1418,7 @@ pub fn update_game_state(
             renderer_data_guard.camera_node_id,
         ) {
             if let Some(asset_id) =
-                asset_id_map_guard.get(&"src/models/gltf/ColtPython/colt_python.glb".to_string())
+                asset_id_map_guard.get(&"src/models/gltf/ColtPython/colt_python.gltf".to_string())
             {
                 if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
                     let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
@@ -1458,7 +1460,7 @@ pub fn update_game_state(
         }
 
         if let Some(asset_id) =
-            asset_id_map_guard.get(&"src/models/gltf/free_low_poly_forest/scene.glb".to_string())
+            asset_id_map_guard.get(&"src/models/gltf/free_low_poly_forest/scene.gltf".to_string())
         {
             if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
                 let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
@@ -1498,7 +1500,7 @@ pub fn update_game_state(
         }
 
         if let Some(asset_id) = asset_id_map_guard
-            .get(&"src/models/gltf/LegendaryRobot/Legendary_Robot.glb".to_string())
+            .get(&"src/models/gltf/LegendaryRobot/Legendary_Robot.gltf".to_string())
         {
             if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
                 let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
@@ -1520,7 +1522,7 @@ pub fn update_game_state(
         }
 
         if let Some(asset_id) =
-            asset_id_map_guard.get(&"src/models/gltf/TestLevel/test_level.glb".to_string())
+            asset_id_map_guard.get(&"src/models/gltf/TestLevel/test_level.gltf".to_string())
         {
             if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
                 let (_, (other_scene, other_render_buffers)) = entry.remove_entry();

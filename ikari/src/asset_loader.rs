@@ -4,6 +4,8 @@ use crate::file_manager::FileManager;
 use crate::file_manager::GameFilePath;
 use crate::gltf_loader::*;
 use crate::mesh::*;
+use crate::raw_image::RawImage;
+use crate::raw_image::RawImageDepthJoiner;
 use crate::renderer::*;
 use crate::sampler_cache::*;
 use crate::scene::*;
@@ -16,6 +18,7 @@ use crate::wasm_not_sync::{WasmNotSend, WasmNotSync};
 
 use anyhow::bail;
 use anyhow::Result;
+use gltf::Gltf;
 use image::Pixel;
 use std::collections::HashMap;
 
@@ -145,22 +148,21 @@ impl AssetLoader {
                                 "Load scene",
                                 &next_scene_params.path.relative_path.to_string_lossy()
                             );
+
+                            // TODO: move this stuff into build_scene?
                             let gltf_slice;
                             {
-                                profiling::scope!("Read root file");
+                                profiling::scope!("Read gltf file");
                                 gltf_slice = FileManager::read(&next_scene_params.path).await?;
                             }
 
-                            let (document, buffers, images);
+                            let gltf;
                             {
-                                profiling::scope!("Parse root & children");
-                                (document, buffers, images) = gltf::import_slice(&gltf_slice)?;
+                                profiling::scope!("Parse gltf file");
+                                gltf = Gltf::from_slice(&gltf_slice)?;
                             }
-                            let (other_scene, other_scene_bindable_data) = build_scene(
-                                (&document, &buffers, &images),
-                                next_scene_params.clone(),
-                            )
-                            .await?;
+                            let (other_scene, other_scene_bindable_data) =
+                                build_scene(gltf, next_scene_params.clone()).await?;
 
                             anyhow::Ok((other_scene, other_scene_bindable_data))
                         };
@@ -459,89 +461,98 @@ impl Default for AssetBinder {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+async fn load_skybox_image_raw_compressed(
+    face_image_paths: &[GameFilePath; 6],
+) -> Result<BindableSkyboxBackground> {
+    let mut joiner = RawImageDepthJoiner::with_capacity(
+        TextureCompressor.transcode_image(
+            &FileManager::read(
+                &crate::texture_compression::texture_path_to_compressed_path(&face_image_paths[0]),
+            )
+            .await?,
+            true,
+            false,
+        )?,
+        6,
+    );
+
+    for face_image_path in &face_image_paths[1..] {
+        joiner.append_image(
+            TextureCompressor.transcode_image(
+                &FileManager::read(
+                    &crate::texture_compression::texture_path_to_compressed_path(face_image_path),
+                )
+                .await?,
+                true,
+                false,
+            )?,
+        );
+    }
+
+    Ok(BindableSkyboxBackground::Cube(joiner.complete()))
+}
+
+async fn load_skybox_image_raw(
+    face_image_paths: &[GameFilePath; 6],
+) -> Result<BindableSkyboxBackground> {
+    let mut joiner = RawImageDepthJoiner::with_capacity(
+        RawImage::from_dynamic_image(
+            image::load_from_memory(&FileManager::read(&face_image_paths[0]).await?)?,
+            true,
+        ),
+        6,
+    );
+
+    for face_image_path in &face_image_paths[1..] {
+        joiner.append_image(RawImage::from_dynamic_image(
+            image::load_from_memory(&FileManager::read(face_image_path).await?)?,
+            true,
+        ));
+    }
+
+    Ok(BindableSkyboxBackground::Cube(joiner.complete()))
+}
+
 pub async fn make_bindable_skybox(paths: &SkyboxPaths) -> Result<BindableSkybox> {
     let background = match &paths.background {
         SkyboxBackgroundPath::Equirectangular(image_path) => {
-            BindableSkyboxBackground::Equirectangular(
-                image::load_from_memory(&FileManager::read(image_path).await?)?
-                    .to_rgba8()
-                    .into(),
-            )
+            BindableSkyboxBackground::Equirectangular(RawImage::from_dynamic_image(
+                image::load_from_memory(&FileManager::read(image_path).await?)?,
+                true,
+            ))
         }
         SkyboxBackgroundPath::Cube(face_image_paths) => {
-            async fn to_img(img_path: &GameFilePath) -> Result<image::DynamicImage> {
-                Ok(
-                    image::load_from_memory(&FileManager::read(img_path).await?)?
-                        .to_rgba8()
-                        .into(),
-                )
+            let mut joiner = RawImageDepthJoiner::with_capacity(
+                RawImage::from_dynamic_image(
+                    image::load_from_memory(&FileManager::read(&face_image_paths[0]).await?)?,
+                    true,
+                ),
+                6,
+            );
+
+            for face_image_path in &face_image_paths[1..] {
+                joiner.append_image(RawImage::from_dynamic_image(
+                    image::load_from_memory(&FileManager::read(face_image_path).await?)?,
+                    true,
+                ));
             }
 
-            let first_img = to_img(&face_image_paths[0]).await?;
-            let mut raw =
-                Vec::with_capacity((first_img.width() * first_img.height() * 4 * 6) as usize);
-            raw.extend_from_slice(first_img.as_bytes());
-            for path in &face_image_paths[1..] {
-                raw.extend_from_slice(to_img(path).await?.as_bytes());
-            }
-
-            BindableSkyboxBackground::Cube(RawImage {
-                width: first_img.width(),
-                height: first_img.height(),
-                depth: 6,
-                mip_count: 1,
-                raw,
-            })
+            BindableSkyboxBackground::Cube(joiner.complete())
         }
         #[cfg(not(target_arch = "wasm32"))]
         SkyboxBackgroundPath::ProcessedCube(face_image_paths) => {
-            async fn to_img(
-                img_path: &GameFilePath,
-            ) -> Result<crate::texture_compression::CompressedTexture> {
-                TextureCompressor.transcode_image(
-                    &FileManager::read(
-                        &crate::texture_compression::texture_path_to_compressed_path(img_path),
-                    )
-                    .await?,
-                    false,
-                )
+            match load_skybox_image_raw_compressed(face_image_paths).await {
+                Ok(compressed_cube) => compressed_cube,
+                Err(error) => {
+                    log::error!("Failed to load compressed version of some face of skybox {face_image_paths:?}. Will fallback to uncompressed version.\n{error:?}");
+                    load_skybox_image_raw(face_image_paths).await?
+                }
             }
-
-            let first_img = to_img(&face_image_paths[0]).await?;
-            let mut raw = vec![];
-            raw.extend_from_slice(&first_img.raw_image.raw);
-            for path in &face_image_paths[1..] {
-                raw.extend_from_slice(&to_img(path).await?.raw_image.raw);
-            }
-
-            BindableSkyboxBackground::CompressedCube(RawImage {
-                width: first_img.raw_image.width,
-                height: first_img.raw_image.height,
-                depth: 6,
-                mip_count: 1,
-                raw,
-            })
         }
         #[cfg(target_arch = "wasm32")]
         SkyboxBackgroundPath::ProcessedCube(face_image_paths) => {
-            async fn to_img(img_path: &GameFilePath) -> Result<image::RgbaImage> {
-                Ok(image::load_from_memory(&FileManager::read(img_path).await?)?.to_rgba8())
-            }
-
-            let first_img = to_img(&face_image_paths[0]).await?;
-            let mut raw = vec![];
-            raw.extend_from_slice(first_img.as_raw());
-            for path in &face_image_paths[1..] {
-                raw.extend_from_slice(to_img(path).await?.as_raw());
-            }
-
-            BindableSkyboxBackground::Cube(RawImage {
-                width: first_img.width(),
-                height: first_img.height(),
-                depth: 6,
-                mip_count: 1,
-                raw,
-            })
+            load_skybox_image_raw(face_image_paths).await?
         }
     };
 
@@ -575,11 +586,12 @@ pub async fn make_bindable_skybox(paths: &SkyboxPaths) -> Result<BindableSkybox>
                     height,
                     depth: 1,
                     mip_count: 1,
-                    raw: bytemuck::cast_slice(&skybox_rad_texture_decoded).to_vec(),
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    bytes: bytemuck::cast_slice(&skybox_rad_texture_decoded).to_vec(),
                 }));
         }
         Some(SkyboxEnvironmentHDRPath::ProcessedCube { diffuse, specular }) => {
-            bindable_environment_hdr = Some(BindableSkyboxHDREnvironment::ProcessedCube {
+            bindable_environment_hdr = Some(BindableSkyboxHDREnvironment::Cube {
                 diffuse: TextureCompressor
                     .transcode_float_image(&FileManager::read(diffuse).await?)?,
                 specular: TextureCompressor
@@ -889,11 +901,10 @@ pub fn bind_skybox(
 
     let background = match bindable_skybox.background {
         BindableSkyboxBackground::Equirectangular(image) => {
-            let er_background_texture = Texture::from_decoded_image(
+            let er_background_texture = Texture::from_raw_image(
                 base_renderer,
                 &image,
                 Some("er_skybox_texture"),
-                Some(wgpu::TextureFormat::Rgba8UnormSrgb),
                 false,
                 &SamplerDescriptor {
                     address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -914,18 +925,9 @@ pub fn bind_skybox(
                 &er_background_texture,
             )?
         }
-        BindableSkyboxBackground::Cube(image) => Texture::create_cubemap(
-            base_renderer,
-            image.slice(),
-            Some("cubemap_skybox_texture"),
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-        ),
-        BindableSkyboxBackground::CompressedCube(image) => Texture::create_cubemap(
-            base_renderer,
-            image.slice(),
-            Some("cubemap_skybox_texture"),
-            wgpu::TextureFormat::Bc7RgbaUnormSrgb,
-        ),
+        BindableSkyboxBackground::Cube(image) => {
+            Texture::create_cubemap(base_renderer, &image, Some("cubemap_skybox_texture"))
+        }
     };
 
     let generate_diffuse_and_specular_maps = |hdr_env_texture: &Texture| {
@@ -948,11 +950,10 @@ pub fn bind_skybox(
     let (diffuse_environment_map, specular_environment_map) = match bindable_skybox.environment_hdr
     {
         Some(BindableSkyboxHDREnvironment::Equirectangular(image)) => {
-            let er_hdr_env_texture = Texture::from_decoded_image(
+            let er_hdr_env_texture = Texture::from_raw_image(
                 base_renderer,
                 &image,
                 None,
-                Some(wgpu::TextureFormat::Rgba16Float),
                 false,
                 &SamplerDescriptor {
                     address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -975,19 +976,9 @@ pub fn bind_skybox(
 
             generate_diffuse_and_specular_maps(&hdr_env_texture)
         }
-        Some(BindableSkyboxHDREnvironment::ProcessedCube { diffuse, specular }) => (
-            Texture::create_cubemap(
-                base_renderer,
-                diffuse.slice(),
-                Some("diffuse env map"),
-                wgpu::TextureFormat::Rgba16Float,
-            ),
-            Texture::create_cubemap(
-                base_renderer,
-                specular.slice(),
-                Some("specular env map"),
-                wgpu::TextureFormat::Rgba16Float,
-            ),
+        Some(BindableSkyboxHDREnvironment::Cube { diffuse, specular }) => (
+            Texture::create_cubemap(base_renderer, &diffuse, Some("diffuse env map")),
+            Texture::create_cubemap(base_renderer, &specular, Some("specular env map")),
         ),
         None => generate_diffuse_and_specular_maps(&background),
     };
@@ -1056,14 +1047,12 @@ fn bind_texture(
     let BindableTexture {
         raw_image,
         name,
-        format,
         sampler_descriptor,
     } = bindable_texture;
-    Texture::from_decoded_image(
+    Texture::from_raw_image(
         base_renderer,
         raw_image,
         name.as_deref(),
-        *format,
         raw_image.mip_count <= 1,
         sampler_descriptor,
     )

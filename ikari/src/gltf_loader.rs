@@ -1,22 +1,25 @@
 use crate::asset_loader::SceneAssetLoadParams;
 use crate::collisions::Aabb;
+use crate::file_manager::FileManager;
 use crate::file_manager::GameFilePath;
 use crate::mesh::*;
+use crate::raw_image::RawImage;
 use crate::renderer::*;
 use crate::sampler_cache::*;
 use crate::scene::*;
-use crate::texture::RawImage;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::texture_compression::*;
 use crate::transform::*;
 
+use std::borrow::Cow;
 use std::collections::{hash_map::Entry, HashMap};
-#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
 use anyhow::{bail, Result};
 use approx::abs_diff_eq;
+use base64::prelude::*;
 use glam::f32::{Mat4, Vec2, Vec3, Vec4};
+use gltf::Gltf;
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct ChannelPropertyStr<'a>(&'a str);
@@ -34,13 +37,13 @@ impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
 
 #[profiling::function]
 pub async fn build_scene(
-    (document, buffers, images): (
-        &gltf::Document,
-        &Vec<gltf::buffer::Data>,
-        &Vec<gltf::image::Data>,
-    ),
+    gltf: Gltf,
     params: SceneAssetLoadParams,
 ) -> Result<(Scene, BindableSceneData)> {
+    let document = &gltf.document;
+
+    let buffers = load_buffers(document, gltf.blob, &params.path).await?;
+
     let scene_index = document
         .default_scene()
         .map(|scene| scene.index())
@@ -49,7 +52,7 @@ pub async fn build_scene(
     let materials: Vec<_> = document.materials().collect();
     let material_count = materials.len();
 
-    let textures = get_textures(document, images, materials, &params.path).await?;
+    let textures = get_textures(document, &buffers, materials, &params.path).await?;
 
     // gltf node index -> gltf parent node index
     let gltf_parent_index_map: HashMap<usize, usize> = document
@@ -134,7 +137,7 @@ pub async fn build_scene(
 
         for (_gltf_mesh_index, (mesh, primitives)) in supported_meshes.iter().enumerate() {
             for primitive in primitives.iter() {
-                let (geometry, wireframe_indices) = build_geometry(primitive, buffers)?;
+                let (geometry, wireframe_indices) = build_geometry(primitive, &buffers)?;
                 bindable_meshes.push(geometry);
                 let mesh_index = bindable_meshes.len() - 1;
 
@@ -207,7 +210,7 @@ pub async fn build_scene(
         }
     }
 
-    let animations = get_animations(document, buffers)?;
+    let animations = get_animations(document, &buffers)?;
 
     let skins: Vec<_> = {
         profiling::scope!("skins");
@@ -227,7 +230,7 @@ pub async fn build_scene(
                         if data_type != gltf::accessor::DataType::F32 {
                             bail!("Expected f32 data but found: {:?}", data_type);
                         }
-                        let matrices_u8 = get_buffer_slice_from_accessor(accessor, buffers);
+                        let matrices_u8 = get_buffer_slice_from_accessor(accessor, &buffers);
                         Ok(bytemuck::cast_slice::<_, [[f32; 4]; 4]>(matrices_u8)
                             .to_vec()
                             .iter()
@@ -327,17 +330,105 @@ pub async fn build_scene(
     Ok((scene, bindable_scene_data))
 }
 
+// adapted from https://github.com/gltf-rs/gltf/blob/d7750db79f029d91f57d26afd0d641f5ffdd1453/src/import.rs#L15
+enum GltfUri<'a> {
+    /// `data:[<media type>];base64,<data>`.
+    Data(Option<&'a str>, &'a str),
+
+    /// `../foo`, etc.
+    Relative(Cow<'a, str>),
+
+    /// Placeholder for an unsupported URI scheme identifier.
+    Unsupported(&'a str),
+}
+
+impl<'a> GltfUri<'a> {
+    fn parse(uri: &str) -> GltfUri<'_> {
+        if uri.contains(':') {
+            if let Some(rest) = uri.strip_prefix("data:") {
+                let mut it = rest.split(";base64,");
+
+                match (it.next(), it.next()) {
+                    (match0_opt, Some(match1)) => GltfUri::Data(match0_opt, match1),
+                    (Some(match0), _) => GltfUri::Data(None, match0),
+                    _ => GltfUri::Unsupported(uri),
+                }
+            } else {
+                GltfUri::Unsupported(uri)
+            }
+        } else {
+            GltfUri::Relative(urlencoding::decode(uri).unwrap())
+        }
+    }
+
+    fn resolve_relative_path(&self, base_path: &GameFilePath) -> Option<GameFilePath> {
+        if let GltfUri::Relative(relative_path) = self {
+            let mut resolved_path = base_path.clone();
+            resolved_path.relative_path = base_path
+                .relative_path
+                .parent()
+                .unwrap()
+                .join(PathBuf::from(relative_path.clone().into_owned()));
+            Some(resolved_path)
+        } else {
+            None
+        }
+    }
+
+    async fn read(&self, base_path: &GameFilePath) -> Result<Vec<u8>> {
+        match self {
+            GltfUri::Data(_, base64) => BASE64_STANDARD
+                .decode(base64)
+                .map_err(|err| anyhow::anyhow!("{err}",)),
+            GltfUri::Relative(_) => {
+                FileManager::read(&self.resolve_relative_path(base_path).unwrap()).await
+            }
+            GltfUri::Unsupported(uri) => Err(anyhow::anyhow!("Unsupported gltf uri: {:?}", uri)),
+        }
+    }
+}
+
+#[profiling::function]
+async fn load_buffers(
+    document: &gltf::Document,
+    mut blob: Option<Vec<u8>>,
+    gltf_path: &GameFilePath,
+) -> Result<Vec<gltf::buffer::Data>> {
+    let mut buffers = Vec::new();
+
+    for buffer in document.buffers() {
+        let mut data = match buffer.source() {
+            gltf::buffer::Source::Uri(uri) => GltfUri::parse(uri).read(gltf_path).await,
+            gltf::buffer::Source::Bin => blob.take().ok_or(anyhow::anyhow!("Missing blob")),
+        }?;
+
+        // satisfy chunk alignment. see https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#chunks-overview
+        while data.len() % 4 != 0 {
+            data.push(0);
+        }
+
+        if data.len() < buffer.length() {
+            log::error!(
+                "Loaded data length didn't match buffer length for buffer {}",
+                buffer.name().unwrap_or(&format!("{:?}", buffer.index()))
+            );
+        }
+
+        buffers.push(gltf::buffer::Data(data));
+    }
+
+    Ok(buffers)
+}
+
 #[profiling::function]
 async fn get_textures(
     document: &gltf::Document,
-    images: &[gltf::image::Data],
+    buffers: &[gltf::buffer::Data],
     materials: Vec<gltf::Material<'_>>,
     gltf_path: &GameFilePath,
 ) -> Result<Vec<BindableTexture>> {
     let mut textures: Vec<BindableTexture> = vec![];
     for texture in document.textures() {
-        let source_image_index = texture.source().index();
-
         let is_srgb = materials.iter().any(|material| {
             [
                 material.emissive_texture(),
@@ -354,14 +445,8 @@ async fn get_textures(
                     && material.normal_texture().unwrap().texture().index() == texture.index()
             });
 
-        let (raw_image, texture_format) = get_raw_image_and_format(
-            gltf_path,
-            &texture,
-            &images[source_image_index],
-            is_srgb,
-            is_normal_map,
-        )
-        .await?;
+        let raw_image =
+            get_raw_image_and_format(buffers, gltf_path, &texture, is_srgb, is_normal_map).await?;
 
         let gltf_sampler = texture.sampler();
         let default_sampler = SamplerDescriptor {
@@ -406,7 +491,6 @@ async fn get_textures(
         textures.push(BindableTexture {
             raw_image,
             name: texture.name().map(|name| name.to_string()),
-            format: texture_format.into(),
             sampler_descriptor: SamplerDescriptor {
                 address_mode_u,
                 address_mode_v,
@@ -514,141 +598,75 @@ fn get_keyframe_times(
 #[cfg(not(target_arch = "wasm32"))]
 #[profiling::function]
 async fn get_raw_image_and_format(
+    buffers: &[gltf::buffer::Data],
     gltf_path: &GameFilePath,
     texture: &gltf::Texture<'_>,
-    image_data: &gltf::image::Data,
     is_srgb: bool,
     is_normal_map: bool,
-) -> Result<(RawImage, wgpu::TextureFormat)> {
+) -> Result<RawImage> {
     use crate::file_manager::FileManager;
 
-    let compressed_image = match texture.source().source() {
+    match texture.source().source() {
         gltf::image::Source::Uri { uri, .. } => {
-            let compressed_texture_path = texture_path_to_compressed_path(&{
-                let mut texture_path = gltf_path.clone();
-                texture_path.relative_path = gltf_path
-                    .relative_path
-                    .parent()
-                    .unwrap()
-                    .join(PathBuf::from(uri));
-                texture_path
-            });
-            if compressed_texture_path.resolve().try_exists()? {
-                let texture_compressor = TextureCompressor;
-                let texture_bytes = FileManager::read(&compressed_texture_path).await?;
-                Some(texture_compressor.transcode_image(&texture_bytes, is_normal_map)?)
-            } else {
-                None
+            let parsed_uri = GltfUri::parse(uri);
+
+            if let Some(path) = parsed_uri.resolve_relative_path(gltf_path) {
+                let compressed_texture_path = texture_path_to_compressed_path(&path);
+
+                match FileManager::read(&compressed_texture_path).await.and_then(
+                    |compressed_texture_bytes| {
+                        TextureCompressor.transcode_image(
+                            &compressed_texture_bytes,
+                            is_srgb,
+                            is_normal_map,
+                        )
+                    },
+                ) {
+                    Ok(transcoded_img_raw) => {
+                        return Ok(transcoded_img_raw);
+                    }
+                    Err(error) => {
+                        log::error!("Failed to load compressed version of texture {path:?} from gltf {gltf_path:?}. Will fallback to uncompressed version.\n{error:?}");
+                    }
+                };
             }
+
+            Ok(RawImage::from_dynamic_image(
+                image::load_from_memory(&parsed_uri.read(gltf_path).await?)?,
+                is_srgb,
+            ))
         }
-        gltf::image::Source::View { .. } => None,
-    };
-
-    let mip_count = compressed_image
-        .as_ref()
-        .map(|compressed_image| compressed_image.raw_image.mip_count)
-        .unwrap_or(1);
-    let (image_width, image_height) = compressed_image
-        .as_ref()
-        .map(|data| (data.raw_image.width, data.raw_image.height))
-        .unwrap_or((image_data.width, image_data.height));
-
-    let (image_pixels, texture_format) = match compressed_image {
-        Some(compressed_image) => {
-            let format_wgpu = compressed_image.format_wgpu(is_srgb);
-            (compressed_image.raw_image.raw, format_wgpu)
-        }
-        None => get_uncompressed_image_and_format(image_data, is_srgb)?,
-    };
-
-    Ok((
-        RawImage {
-            raw: image_pixels,
-            width: image_width,
-            height: image_height,
-            depth: 1,
-            mip_count,
-        },
-        texture_format,
-    ))
+        gltf::image::Source::View { view, .. } => Ok(RawImage::from_dynamic_image(
+            image::load_from_memory(
+                &buffers[view.buffer().index()][view.offset()..(view.offset() + view.length())],
+            )?,
+            is_srgb,
+        )),
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 async fn get_raw_image_and_format(
-    _gltf_path: &GameFilePath,
-    _texture: &gltf::Texture<'_>,
-    image_data: &gltf::image::Data,
+    buffers: &[gltf::buffer::Data],
+    gltf_path: &GameFilePath,
+    texture: &gltf::Texture<'_>,
     is_srgb: bool,
     _is_normal_map: bool,
-) -> Result<(RawImage, wgpu::TextureFormat)> {
-    let (image_pixels, texture_format) = get_uncompressed_image_and_format(image_data, is_srgb)?;
-    Ok((
-        RawImage {
-            raw: image_pixels,
-            width: image_data.width,
-            height: image_data.height,
-            depth: 1,
-            mip_count: 1,
-        },
-        texture_format,
-    ))
-}
-
-fn get_uncompressed_image_and_format(
-    image_data: &gltf::image::Data,
-    srgb: bool,
-) -> Result<(Vec<u8>, wgpu::TextureFormat)> {
-    let image_pixels = &image_data.pixels;
-    let (image_pixels, texture_format) = match (image_data.format, srgb) {
-        (gltf::image::Format::R8G8B8, srgb) => {
-            let image = image::RgbImage::from_raw(
-                image_data.width,
-                image_data.height,
-                image_pixels.to_vec(),
-            )
-            .ok_or_else(|| anyhow::anyhow!("Failed to decode R8G8B8 image"))?;
-            let image_pixels_conv = image::DynamicImage::ImageRgb8(image).to_rgba8().to_vec();
-            anyhow::Ok((
-                image_pixels_conv,
-                if srgb {
-                    wgpu::TextureFormat::Rgba8UnormSrgb
-                } else {
-                    wgpu::TextureFormat::Rgba8Unorm
-                },
+) -> Result<RawImage> {
+    match texture.source().source() {
+        gltf::image::Source::Uri { uri, .. } => {
+            let parsed_uri = GltfUri::parse(uri);
+            Ok(RawImage::from_dynamic_image(
+                image::load_from_memory(&parsed_uri.read(gltf_path).await?)?,
+                is_srgb,
             ))
         }
-        (gltf::image::Format::R8G8, true) => {
-            // srgb is true meaning this is a color image, so the red channel is luma and g is alpha
-            Ok((
-                image_pixels
-                    .chunks(2)
-                    .flat_map(|pixel| [pixel[0], pixel[0], pixel[0], pixel[1]])
-                    .collect(),
-                wgpu::TextureFormat::Rgba8UnormSrgb,
-            ))
-        }
-        _ => {
-            let texture_format = texture_format_to_wgpu(image_data.format, srgb)?;
-            Ok((image_pixels.to_vec(), texture_format))
-        }
-    }?;
-    Ok((image_pixels, texture_format))
-}
-
-fn texture_format_to_wgpu(format: gltf::image::Format, srgb: bool) -> Result<wgpu::TextureFormat> {
-    match (format, srgb) {
-        (gltf::image::Format::R8, false) => Ok(wgpu::TextureFormat::R8Unorm),
-        (gltf::image::Format::R8G8, false) => Ok(wgpu::TextureFormat::Rg8Unorm),
-        (gltf::image::Format::R8G8B8A8, false) => Ok(wgpu::TextureFormat::Rgba8Unorm),
-        (gltf::image::Format::R8G8B8A8, true) => Ok(wgpu::TextureFormat::Rgba8UnormSrgb),
-        (gltf::image::Format::R16, false) => Ok(wgpu::TextureFormat::R16Unorm),
-        (gltf::image::Format::R16G16, false) => Ok(wgpu::TextureFormat::Rg16Unorm),
-        (gltf::image::Format::R16G16B16A16, false) => Ok(wgpu::TextureFormat::Rgba16Unorm),
-        _ => bail!(
-            "Unsupported texture format combo: {:?}, srgb={:?}",
-            format,
-            srgb
-        ),
+        gltf::image::Source::View { view, .. } => Ok(RawImage::from_dynamic_image(
+            image::load_from_memory(
+                &buffers[view.buffer().index()][view.offset()..(view.offset() + view.length())],
+            )?,
+            is_srgb,
+        )),
     }
 }
 

@@ -179,6 +179,9 @@ name = "arrayvec"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96d30a06541fbafbc7f82ed10c06164cfbd2c401138f6addd8404629c4b16711"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "as-raw-xcb-connection"
@@ -454,6 +457,9 @@ name = "bitflags"
 version = "2.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed570934406eb16438a4e976b1b4500774099c13b8cb96eec99f620f05090ddf"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "bitvec"
@@ -2264,6 +2270,7 @@ dependencies = [
  "anyhow",
  "approx",
  "async-std",
+ "base64 0.21.7",
  "basis-universal",
  "bitvec",
  "byte-unit",
@@ -2296,6 +2303,7 @@ dependencies = [
  "smallvec",
  "symphonia",
  "twox-hash",
+ "urlencoding",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm_thread",
@@ -2339,6 +2347,7 @@ checksum = "824b2ae422412366ba479e8111fd301f7b5faece8149317bb81925979a53f520"
 dependencies = [
  "equivalent",
  "hashbrown 0.14.3",
+ "serde",
 ]
 
 [[package]]
@@ -2841,6 +2850,7 @@ dependencies = [
  "log",
  "num-traits",
  "rustc-hash",
+ "serde",
  "spirv",
  "termcolor",
  "thiserror",
@@ -3817,6 +3827,18 @@ name = "robust"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cbf4a6aa5f6d6888f39e980649f3ad6b666acdce1d78e95b8a2cb076e687ae30"
+
+[[package]]
+name = "ron"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b91f7eff05f748767f183df4320a63d6936e9c6107d97c9e6bdd9784f4289c94"
+dependencies = [
+ "base64 0.21.7",
+ "bitflags 2.4.2",
+ "serde",
+ "serde_derive",
+]
 
 [[package]]
 name = "roxmltree"
@@ -5364,6 +5386,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "profiling",
  "raw-window-handle 0.6.0",
+ "serde",
  "smallvec",
  "static_assertions",
  "wasm-bindgen",
@@ -5392,7 +5415,9 @@ dependencies = [
  "parking_lot 0.12.1",
  "profiling",
  "raw-window-handle 0.6.0",
+ "ron",
  "rustc-hash",
+ "serde",
  "smallvec",
  "thiserror",
  "web-sys",
@@ -5464,6 +5489,7 @@ checksum = "895fcbeb772bfb049eb80b2d6e47f6c9af235284e9703c96fc0218a42ffd5af2"
 dependencies = [
  "bitflags 2.4.2",
  "js-sys",
+ "serde",
  "web-sys",
 ]
 
