@@ -1,6 +1,7 @@
 use std::collections::hash_map::Entry;
 
 use crate::camera::*;
+use crate::raw_image::RawImage;
 use crate::renderer::BaseRenderer;
 use crate::renderer::RendererConstantData;
 use crate::renderer::FAR_PLANE_DISTANCE;
@@ -12,8 +13,6 @@ use crate::wasm_not_sync::WasmNotArc;
 use anyhow::*;
 use glam::f32::Vec3;
 
-use serde::Deserialize;
-use serde::Serialize;
 use wgpu::util::DeviceExt;
 
 #[derive(Debug)]
@@ -22,48 +21,6 @@ pub struct Texture {
     pub view: wgpu::TextureView,
     pub sampler_index: usize,
     pub size: wgpu::Extent3d,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct RawImage {
-    pub width: u32,
-    pub height: u32,
-    pub depth: u32,
-    pub mip_count: u32,
-    pub raw: Vec<u8>,
-}
-
-impl RawImage {
-    pub fn slice(&self) -> RawImageSlice {
-        RawImageSlice {
-            width: self.width,
-            height: self.height,
-            depth: self.depth,
-            mip_count: self.mip_count,
-            raw: &self.raw,
-        }
-    }
-}
-
-impl<P: image::Pixel<Subpixel = u8>> From<image::ImageBuffer<P, Vec<u8>>> for RawImage {
-    fn from(value: image::ImageBuffer<P, Vec<u8>>) -> Self {
-        Self {
-            width: value.width(),
-            height: value.height(),
-            depth: 1,
-            mip_count: 1,
-            raw: value.into_raw(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct RawImageSlice<'a> {
-    pub width: u32,
-    pub height: u32,
-    pub depth: u32,
-    pub mip_count: u32,
-    pub raw: &'a [u8],
 }
 
 // TODO: maybe implement some functions on the BaseRendererState so we have the device and queue for free?
@@ -83,46 +40,27 @@ impl Texture {
         unpadded_bytes_per_row + padded_bytes_per_row_padding
     }
 
-    // supports jpg and png
-    pub fn from_encoded_image(
+    pub fn from_raw_image(
         base_renderer: &BaseRenderer,
-        encoded_img_bytes: &[u8],
+        raw_image: &RawImage,
         label: Option<&str>,
-        format: Option<wgpu::TextureFormat>,
-        generate_mipmaps: bool,
-        sampler_descriptor: &SamplerDescriptor,
-    ) -> Result<Self> {
-        let img = image::load_from_memory(encoded_img_bytes)?;
-        let img_as_rgba = img.to_rgba8();
-        Self::from_decoded_image(
-            base_renderer,
-            &img_as_rgba.into(),
-            label,
-            format,
-            generate_mipmaps,
-            sampler_descriptor,
-        )
-    }
-
-    pub fn from_decoded_image(
-        base_renderer: &BaseRenderer,
-        img: &RawImage,
-        label: Option<&str>,
-        format: Option<wgpu::TextureFormat>,
         generate_mipmaps: bool,
         sampler_descriptor: &SamplerDescriptor,
     ) -> Result<Self> {
         let size = wgpu::Extent3d {
-            width: img.width,
-            height: img.height,
+            width: raw_image.width,
+            height: raw_image.height,
             depth_or_array_layers: 1,
         };
 
-        if generate_mipmaps && img.mip_count != 1 {
-            panic!("Generating mips on textures that have baked mips is not supported");
+        if generate_mipmaps && raw_image.mip_count != 1 {
+            log::error!("Generating mips on textures that have baked mips is not supported");
         }
 
-        let format = format.unwrap_or(wgpu::TextureFormat::Rgba8UnormSrgb);
+        let generate_mipmaps = generate_mipmaps && raw_image.mip_count == 1;
+
+        let format = raw_image.format;
+
         let texture = if generate_mipmaps {
             let mip_level_count = size.max_mips(wgpu::TextureDimension::D2);
             let texture = base_renderer
@@ -147,12 +85,12 @@ impl Texture {
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                 },
-                &img.raw,
+                &raw_image.bytes,
                 wgpu::ImageDataLayout {
                     offset: 0,
                     // queue.write_texture is exempt from COPY_BYTES_PER_ROW_ALIGNMENT requirement
-                    bytes_per_row: Some(format.block_copy_size(None).unwrap() * img.width),
-                    rows_per_image: Some(img.height),
+                    bytes_per_row: Some(format.block_copy_size(None).unwrap() * raw_image.width),
+                    rows_per_image: Some(raw_image.height),
                 },
                 size,
             );
@@ -179,7 +117,7 @@ impl Texture {
                 &wgpu::TextureDescriptor {
                     label: if USE_LABELS { label } else { None },
                     size,
-                    mip_level_count: img.mip_count,
+                    mip_level_count: raw_image.mip_count,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
                     format,
@@ -187,7 +125,7 @@ impl Texture {
                     view_formats: &[],
                 },
                 wgpu::util::TextureDataOrder::LayerMajor,
-                &img.raw,
+                &raw_image.bytes,
             )
         };
 
@@ -207,16 +145,15 @@ impl Texture {
     }
 
     pub fn _from_color_srgb(base_renderer: &BaseRenderer, color: [u8; 4]) -> Result<Self> {
-        let one_pixel_image = {
+        let one_pixel_img_raw = {
             let mut img = image::RgbaImage::new(1, 1);
             img.put_pixel(0, 0, image::Rgba(color));
-            img
+            RawImage::from_dynamic_image(img.into(), true)
         };
-        Texture::from_decoded_image(
+        Texture::from_raw_image(
             base_renderer,
-            &one_pixel_image.into(),
-            Some("from_color texture"),
-            wgpu::TextureFormat::Rgba8UnormSrgb.into(),
+            &one_pixel_img_raw,
+            Some("from_color_srgb texture"),
             false,
             &SamplerDescriptor {
                 mag_filter: wgpu::FilterMode::Nearest,
@@ -227,16 +164,15 @@ impl Texture {
     }
 
     pub fn from_color(base_renderer: &BaseRenderer, color: [u8; 4]) -> Result<Self> {
-        let one_pixel_image = {
+        let one_pixel_img_raw = {
             let mut img = image::RgbaImage::new(1, 1);
             img.put_pixel(0, 0, image::Rgba(color));
-            img
+            RawImage::from_dynamic_image(img.into(), false)
         };
-        Texture::from_decoded_image(
+        Texture::from_raw_image(
             base_renderer,
-            &one_pixel_image.into(),
+            &one_pixel_img_raw,
             Some("from_color texture"),
-            wgpu::TextureFormat::Rgba8Unorm.into(),
             false,
             &SamplerDescriptor {
                 mag_filter: wgpu::FilterMode::Nearest,
@@ -247,16 +183,15 @@ impl Texture {
     }
 
     pub fn _from_gray(base_renderer: &BaseRenderer, gray_value: u8) -> Result<Self> {
-        let one_pixel_gray_image = {
+        let one_pixel_img_raw = {
             let mut img = image::GrayImage::new(1, 1);
             img.put_pixel(0, 0, image::Luma([gray_value]));
-            img
+            RawImage::from_dynamic_image(img.into(), false)
         };
-        Texture::from_decoded_image(
+        Texture::from_raw_image(
             base_renderer,
-            &one_pixel_gray_image.into(),
+            &one_pixel_img_raw,
             Some("from_gray texture"),
-            wgpu::TextureFormat::R8Unorm.into(),
             false,
             &SamplerDescriptor {
                 mag_filter: wgpu::FilterMode::Nearest,
@@ -405,21 +340,25 @@ impl Texture {
         base_renderer: &BaseRenderer,
         scaled_framebuffer_size: wgpu::Extent3d,
         format: wgpu::TextureFormat,
-        mip_level_count: u32,
+        target_mip_count: u32,
         label: &str,
     ) -> Self {
         let size = wgpu::Extent3d {
-            width: scaled_framebuffer_size.width / 2,
-            height: scaled_framebuffer_size.height / 2,
+            width: (scaled_framebuffer_size.width / 2).max(1),
+            height: (scaled_framebuffer_size.height / 2).max(1),
             depth_or_array_layers: 1,
         };
+
+        let mip_count = size
+            .max_mips(wgpu::TextureDimension::D2)
+            .min(target_mip_count);
 
         let texture = base_renderer
             .device
             .create_texture(&wgpu::TextureDescriptor {
                 label: USE_LABELS.then_some(label),
                 size,
-                mip_level_count,
+                mip_level_count: mip_count,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format,
@@ -832,9 +771,8 @@ impl Texture {
     /// Each image should have the same dimensions!
     pub fn create_cubemap(
         base_renderer: &BaseRenderer,
-        image: RawImageSlice,
+        image: &RawImage,
         label: Option<&str>,
-        format: wgpu::TextureFormat,
     ) -> Self {
         let size = wgpu::Extent3d {
             width: image.width,
@@ -850,14 +788,14 @@ impl Texture {
                 mip_level_count: image.mip_count,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format,
+                format: image.format,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::COPY_SRC
                     | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             },
             wgpu::util::TextureDataOrder::LayerMajor,
-            image.raw,
+            &image.bytes,
         );
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor {

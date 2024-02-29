@@ -18,6 +18,7 @@ pub mod mesh;
 pub mod physics;
 pub mod player_controller;
 pub mod profile_dump;
+pub mod raw_image;
 pub mod renderer;
 pub mod sampler_cache;
 pub mod scene;

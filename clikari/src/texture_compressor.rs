@@ -19,7 +19,7 @@ const DEFAULT_THREADS_PER_TEXTURE: u32 = 4;
 
 pub struct TextureCompressorArgs {
     pub search_folder: PathBuf,
-    pub threads_per_texture: Option<u32>,
+    pub threads_per_texture: Option<u32>, // TODO: change this api so that we have a way to NOT use all cores of the machine :)
     pub force: bool,
 }
 
