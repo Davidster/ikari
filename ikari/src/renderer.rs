@@ -236,7 +236,6 @@ impl DirectionalLightCascadeUniform {
     }
 }
 
-// TODO: add some preallocs
 fn make_directional_light_uniform_buffer(
     lights: &[DirectionalLight],
     all_resolved_cascades: &[Vec<ResolvedDirectionalLightCascade>],
