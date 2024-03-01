@@ -36,10 +36,19 @@ impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
 }
 
 #[profiling::function]
-pub async fn build_scene(
-    gltf: Gltf,
-    params: SceneAssetLoadParams,
-) -> Result<(Scene, BindableSceneData)> {
+pub async fn load_scene(params: SceneAssetLoadParams) -> Result<(Scene, BindableSceneData)> {
+    let gltf_slice;
+    {
+        profiling::scope!("Read gltf/glb file");
+        gltf_slice = FileManager::read(&params.path).await?;
+    }
+
+    let gltf;
+    {
+        profiling::scope!("Parse gltf/glb file");
+        gltf = Gltf::from_slice(&gltf_slice)?;
+    }
+
     let document = &gltf.document;
 
     let buffers = load_buffers(document, gltf.blob, &params.path).await?;
@@ -52,7 +61,7 @@ pub async fn build_scene(
     let materials: Vec<_> = document.materials().collect();
     let material_count = materials.len();
 
-    let textures = get_textures(document, &buffers, materials, &params.path).await?;
+    let textures = load_raw_textures(document, &buffers, materials, &params.path).await?;
 
     // gltf node index -> gltf parent node index
     let gltf_parent_index_map: HashMap<usize, usize> = document
@@ -137,7 +146,7 @@ pub async fn build_scene(
 
         for (_gltf_mesh_index, (mesh, primitives)) in supported_meshes.iter().enumerate() {
             for primitive in primitives.iter() {
-                let (geometry, wireframe_indices) = build_geometry(primitive, &buffers)?;
+                let (geometry, wireframe_indices) = load_geometry(primitive, &buffers)?;
                 bindable_meshes.push(geometry);
                 let mesh_index = bindable_meshes.len() - 1;
 
@@ -421,7 +430,7 @@ async fn load_buffers(
 }
 
 #[profiling::function]
-async fn get_textures(
+async fn load_raw_textures(
     document: &gltf::Document,
     buffers: &[gltf::buffer::Data],
     materials: Vec<gltf::Material<'_>>,
@@ -446,7 +455,7 @@ async fn get_textures(
             });
 
         let raw_image =
-            get_raw_image_and_format(buffers, gltf_path, &texture, is_srgb, is_normal_map).await?;
+            load_raw_image(buffers, gltf_path, &texture, is_srgb, is_normal_map).await?;
 
         let gltf_sampler = texture.sampler();
         let default_sampler = SamplerDescriptor {
@@ -595,17 +604,36 @@ fn get_keyframe_times(
     Ok(keyframe_times)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 #[profiling::function]
-async fn get_raw_image_and_format(
+async fn load_raw_image(
     buffers: &[gltf::buffer::Data],
     gltf_path: &GameFilePath,
     texture: &gltf::Texture<'_>,
     is_srgb: bool,
     is_normal_map: bool,
 ) -> Result<RawImage> {
-    use crate::file_manager::FileManager;
+    #[cfg(not(target_arch = "wasm32"))]
+    match try_load_raw_image_compressed(gltf_path, texture, is_srgb, is_normal_map).await {
+        Some(Ok(raw_image)) => {
+            dbg!("got compressed!", &gltf_path.relative_path);
+            return Ok(raw_image);
+        }
+        Some(Err(error)) => {
+            log::error!("Failed to load compressed version of texture from gltf {gltf_path:?}. Will fallback to uncompressed version.\n{error:?}");
+        }
+        None => {}
+    }
 
+    load_raw_image_uncompressed(buffers, gltf_path, texture, is_srgb, is_normal_map).await
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn try_load_raw_image_compressed(
+    gltf_path: &GameFilePath,
+    texture: &gltf::Texture<'_>,
+    is_srgb: bool,
+    is_normal_map: bool,
+) -> Option<Result<RawImage>> {
     match texture.source().source() {
         gltf::image::Source::Uri { uri, .. } => {
             let parsed_uri = GltfUri::parse(uri);
@@ -613,7 +641,7 @@ async fn get_raw_image_and_format(
             if let Some(path) = parsed_uri.resolve_relative_path(gltf_path) {
                 let compressed_texture_path = texture_path_to_compressed_path(&path);
 
-                match FileManager::read(&compressed_texture_path).await.and_then(
+                Some(FileManager::read(&compressed_texture_path).await.and_then(
                     |compressed_texture_bytes| {
                         TextureCompressor.transcode_image(
                             &compressed_texture_bytes,
@@ -621,37 +649,21 @@ async fn get_raw_image_and_format(
                             is_normal_map,
                         )
                     },
-                ) {
-                    Ok(transcoded_img_raw) => {
-                        return Ok(transcoded_img_raw);
-                    }
-                    Err(error) => {
-                        log::error!("Failed to load compressed version of texture {path:?} from gltf {gltf_path:?}. Will fallback to uncompressed version.\n{error:?}");
-                    }
-                };
+                ))
+            } else {
+                None
             }
-
-            Ok(RawImage::from_dynamic_image(
-                image::load_from_memory(&parsed_uri.read(gltf_path).await?)?,
-                is_srgb,
-            ))
         }
-        gltf::image::Source::View { view, .. } => Ok(RawImage::from_dynamic_image(
-            image::load_from_memory(
-                &buffers[view.buffer().index()][view.offset()..(view.offset() + view.length())],
-            )?,
-            is_srgb,
-        )),
+        gltf::image::Source::View { .. } => None,
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-async fn get_raw_image_and_format(
+async fn load_raw_image_uncompressed(
     buffers: &[gltf::buffer::Data],
     gltf_path: &GameFilePath,
     texture: &gltf::Texture<'_>,
     is_srgb: bool,
-    _is_normal_map: bool,
+    _is_normal_map: bool, // prevents clippy warning on wasm build
 ) -> Result<RawImage> {
     match texture.source().source() {
         gltf::image::Source::Uri { uri, .. } => {
@@ -755,7 +767,7 @@ pub fn get_buffer_slice_from_accessor<'a>(
 }
 
 #[profiling::function]
-pub fn build_geometry(
+pub fn load_geometry(
     primitive_group: &gltf::mesh::Primitive,
     buffers: &[gltf::buffer::Data],
 ) -> Result<(BindableGeometryBuffers, BindableIndices)> {

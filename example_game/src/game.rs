@@ -312,7 +312,7 @@ pub async fn init_game_state(
 
             // player's revolver
             // https://done3d.com/colt-python-8-inch/
-            gltf_paths.push("src/models/gltf/ColtPython/colt_python.gltf");
+            gltf_paths.push("src/models/gltf/ColtPython/colt_python.glb");
 
             // forest
             // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
@@ -1418,7 +1418,7 @@ pub fn update_game_state(
             renderer_data_guard.camera_node_id,
         ) {
             if let Some(asset_id) =
-                asset_id_map_guard.get(&"src/models/gltf/ColtPython/colt_python.gltf".to_string())
+                asset_id_map_guard.get(&"src/models/gltf/ColtPython/colt_python.glb".to_string())
             {
                 if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
                     let (_, (other_scene, other_render_buffers)) = entry.remove_entry();

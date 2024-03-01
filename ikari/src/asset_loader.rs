@@ -18,7 +18,6 @@ use crate::wasm_not_sync::{WasmNotSend, WasmNotSync};
 
 use anyhow::bail;
 use anyhow::Result;
-use gltf::Gltf;
 use image::Pixel;
 use std::collections::HashMap;
 
@@ -143,30 +142,12 @@ impl AssetLoader {
                         let (next_scene_id, next_scene_params) =
                             pending_scenes.lock().unwrap().remove(0);
 
-                        let do_load = || async {
-                            profiling::scope!(
-                                "Load scene",
-                                &next_scene_params.path.relative_path.to_string_lossy()
-                            );
+                        profiling::scope!(
+                            "Load scene",
+                            &next_scene_params.path.relative_path.to_string_lossy()
+                        );
 
-                            // TODO: move this stuff into build_scene?
-                            let gltf_slice;
-                            {
-                                profiling::scope!("Read gltf file");
-                                gltf_slice = FileManager::read(&next_scene_params.path).await?;
-                            }
-
-                            let gltf;
-                            {
-                                profiling::scope!("Parse gltf file");
-                                gltf = Gltf::from_slice(&gltf_slice)?;
-                            }
-                            let (other_scene, other_scene_bindable_data) =
-                                build_scene(gltf, next_scene_params.clone()).await?;
-
-                            anyhow::Ok((other_scene, other_scene_bindable_data))
-                        };
-                        match do_load().await {
+                        match load_scene(next_scene_params.clone()).await {
                             Ok(result) => {
                                 let _replaced_ignored = bindable_scenes
                                     .lock()
