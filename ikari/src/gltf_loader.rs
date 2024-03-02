@@ -35,7 +35,7 @@ impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
     }
 }
 
-pub async fn load_scene(params: SceneAssetLoadParams) -> Result<(Scene, BindableSceneData)> {
+pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
     profiling::scope!("load_scene", &params.path.relative_path.to_string_lossy());
 
     let start_time = crate::time::Instant::now();
@@ -306,59 +306,36 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<(Scene, Bindable
             .collect::<Result<Vec<_>, _>>()?
     };
 
-    let bindable_scene_data = BindableSceneData {
-        bindable_meshes,
-        bindable_wireframe_meshes,
-        bindable_pbr_materials,
-        textures,
-    };
-
     if log::log_enabled!(log::Level::Debug) {
-        let vertex_count = bindable_scene_data
-            .bindable_meshes
+        let vertex_count = bindable_meshes
             .iter()
             .fold(0, |acc, mesh| acc + mesh.vertices.len());
         let vertex_bytes = vertex_count * std::mem::size_of::<Vertex>();
-        let index_count = bindable_scene_data
-            .bindable_meshes
-            .iter()
-            .fold(0, |acc, mesh| {
-                acc + match &mesh.indices {
-                    BindableIndices::U16(indices) => indices.len(),
-                    BindableIndices::U32(indices) => indices.len(),
-                }
-            });
-        let index_bytes = bindable_scene_data
-            .bindable_meshes
-            .iter()
-            .fold(0, |acc, mesh| {
-                acc + match &mesh.indices {
-                    BindableIndices::U16(indices) => indices.len() * std::mem::size_of::<u16>(),
-                    BindableIndices::U32(indices) => indices.len() * std::mem::size_of::<u32>(),
-                }
-            });
-        let wireframe_index_count =
-            bindable_scene_data
-                .bindable_wireframe_meshes
-                .iter()
-                .fold(0, |acc, mesh| {
-                    acc + match &mesh.indices {
-                        BindableIndices::U16(indices) => indices.len(),
-                        BindableIndices::U32(indices) => indices.len(),
-                    }
-                });
-        let wireframe_index_bytes =
-            bindable_scene_data
-                .bindable_wireframe_meshes
-                .iter()
-                .fold(0, |acc, mesh| {
-                    acc + match &mesh.indices {
-                        BindableIndices::U16(indices) => indices.len() * std::mem::size_of::<u16>(),
-                        BindableIndices::U32(indices) => indices.len() * std::mem::size_of::<u32>(),
-                    }
-                });
-        let texture_bytes = bindable_scene_data
-            .textures
+        let index_count = bindable_meshes.iter().fold(0, |acc, mesh| {
+            acc + match &mesh.indices {
+                BindableIndices::U16(indices) => indices.len(),
+                BindableIndices::U32(indices) => indices.len(),
+            }
+        });
+        let index_bytes = bindable_meshes.iter().fold(0, |acc, mesh| {
+            acc + match &mesh.indices {
+                BindableIndices::U16(indices) => indices.len() * std::mem::size_of::<u16>(),
+                BindableIndices::U32(indices) => indices.len() * std::mem::size_of::<u32>(),
+            }
+        });
+        let wireframe_index_count = bindable_wireframe_meshes.iter().fold(0, |acc, mesh| {
+            acc + match &mesh.indices {
+                BindableIndices::U16(indices) => indices.len(),
+                BindableIndices::U32(indices) => indices.len(),
+            }
+        });
+        let wireframe_index_bytes = bindable_wireframe_meshes.iter().fold(0, |acc, mesh| {
+            acc + match &mesh.indices {
+                BindableIndices::U16(indices) => indices.len() * std::mem::size_of::<u16>(),
+                BindableIndices::U32(indices) => indices.len() * std::mem::size_of::<u32>(),
+            }
+        });
+        let texture_bytes = textures
             .iter()
             .fold(0, |acc, texture| acc + texture.raw_image.bytes.len());
 
@@ -374,13 +351,10 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<(Scene, Bindable
         log::debug!("  - skin count: {}", skins.len());
         log::debug!("  - animation count: {}", animations.len());
         log::debug!("  Render buffers:");
-        log::debug!(
-            "    - Mesh count: {}",
-            bindable_scene_data.bindable_meshes.len()
-        );
+        log::debug!("    - Mesh count: {}", bindable_meshes.len());
         log::debug!(
             "    - Wireframe mesh count: {}",
-            bindable_scene_data.bindable_wireframe_meshes.len()
+            bindable_wireframe_meshes.len()
         );
         log::debug!(
             "    - Vertex count: {vertex_count} ({})",
@@ -394,13 +368,10 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<(Scene, Bindable
             "    - Wireframe index count: {wireframe_index_count} ({})",
             format_data_size(wireframe_index_bytes)
         );
-        log::debug!(
-            "    - PBR material count: {}",
-            bindable_scene_data.bindable_pbr_materials.len()
-        );
+        log::debug!("    - PBR material count: {}", bindable_pbr_materials.len());
         log::debug!(
             "    - Texture count: {} ({})",
-            bindable_scene_data.textures.len(),
+            textures.len(),
             format_data_size(texture_bytes)
         );
         log::debug!(
@@ -409,9 +380,14 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<(Scene, Bindable
         );
     }
 
-    let scene = Scene::new(nodes, skins, animations);
-
-    Ok((scene, bindable_scene_data))
+    Ok(BindableScene {
+        path: params.path,
+        scene: Scene::new(nodes, skins, animations),
+        bindable_meshes,
+        bindable_wireframe_meshes,
+        bindable_pbr_materials,
+        textures,
+    })
 }
 
 // adapted from https://github.com/gltf-rs/gltf/blob/d7750db79f029d91f57d26afd0d641f5ffdd1453/src/import.rs#L15

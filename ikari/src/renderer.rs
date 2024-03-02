@@ -730,15 +730,19 @@ pub struct RendererPrivateData {
 }
 
 #[derive(Debug)]
-pub struct BindableSceneData {
+pub struct BindableScene {
+    pub path: GameFilePath,
+    pub scene: Scene,
     pub bindable_meshes: Vec<BindableGeometryBuffers>,
     pub bindable_wireframe_meshes: Vec<BindableWireframeMesh>,
     pub bindable_pbr_materials: Vec<BindablePbrMaterial>,
     pub textures: Vec<BindableTexture>,
 }
 
-#[derive(Debug, Default)]
-pub struct BindedSceneData {
+#[derive(Debug)]
+pub struct BindedScene {
+    pub path: GameFilePath,
+    pub scene: Scene,
     pub binded_meshes: Vec<BindedGeometryBuffers>,
     pub binded_wireframe_meshes: Vec<BindedWireframeMesh>,
     pub binded_pbr_materials: Vec<BindedPbrMaterial>,

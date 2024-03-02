@@ -1418,15 +1418,13 @@ pub fn update_game_state(
             renderer_data_guard.camera_node_id,
         ) {
             if let Some(asset_id) =
-                asset_id_map_guard.get(&"src/models/gltf/ColtPython/colt_python.gltf".to_string())
+                asset_id_map_guard.get(&"src/models/gltf/ColtPython/colt_python.glb".to_string())
             {
                 if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
-                    let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
-                    engine_state.scene.merge_scene(
-                        &mut renderer_data_guard,
-                        other_scene,
-                        other_render_buffers,
-                    );
+                    let (_, other_loaded_scene) = entry.remove_entry();
+                    engine_state
+                        .scene
+                        .merge_scene(&mut renderer_data_guard, other_loaded_scene);
 
                     let node_id = engine_state.scene.nodes().last().unwrap().id();
                     let animation_index = engine_state.scene.animations.len() - 1;
@@ -1463,24 +1461,23 @@ pub fn update_game_state(
             asset_id_map_guard.get(&"src/models/gltf/free_low_poly_forest/scene.gltf".to_string())
         {
             if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
-                let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
+                let (_, mut other_loaded_scene) = entry.remove_entry();
                 // hack to get the terrain to be at the same height as the ground.
-                let node_has_parent: Vec<_> = other_scene
+                let node_has_parent: Vec<_> = other_loaded_scene
+                    .scene
                     .nodes()
                     .map(|node| node.parent_id.is_some())
                     .collect();
-                for (i, node) in other_scene.nodes_mut().enumerate() {
+                for (i, node) in other_loaded_scene.scene.nodes_mut().enumerate() {
                     if node_has_parent[i] {
                         continue;
                     }
                     node.transform
                         .set_position(node.transform.position() + Vec3::new(0.0, 29.0, 0.0));
                 }
-                engine_state.scene.merge_scene(
-                    &mut renderer_data_guard,
-                    other_scene,
-                    other_render_buffers,
-                );
+                engine_state
+                    .scene
+                    .merge_scene(&mut renderer_data_guard, other_loaded_scene);
 
                 if REMOVE_LARGE_OBJECTS_FROM_FOREST {
                     let node_ids: Vec<_> =
@@ -1503,8 +1500,9 @@ pub fn update_game_state(
             .get(&"src/models/gltf/LegendaryRobot/Legendary_Robot.gltf".to_string())
         {
             if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
-                let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
-                if let Some(jump_up_animation) = other_scene
+                let (_, mut other_loaded_scene) = entry.remove_entry();
+                if let Some(jump_up_animation) = other_loaded_scene
+                    .scene
                     .animations
                     .iter_mut()
                     .find(|animation| animation.name == Some(String::from("jump_up_root_motion")))
@@ -1513,11 +1511,9 @@ pub fn update_game_state(
                     jump_up_animation.state.is_playing = true;
                     jump_up_animation.state.loop_type = LoopType::Wrap;
                 }
-                engine_state.scene.merge_scene(
-                    &mut renderer_data_guard,
-                    other_scene,
-                    other_render_buffers,
-                );
+                engine_state
+                    .scene
+                    .merge_scene(&mut renderer_data_guard, other_loaded_scene);
             }
         }
 
@@ -1525,13 +1521,11 @@ pub fn update_game_state(
             asset_id_map_guard.get(&"src/models/gltf/TestLevel/test_level.gltf".to_string())
         {
             if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
-                let (_, (other_scene, other_render_buffers)) = entry.remove_entry();
+                let (_, other_loaded_scene) = entry.remove_entry();
                 let skip_nodes = engine_state.scene.node_count();
-                engine_state.scene.merge_scene(
-                    &mut renderer_data_guard,
-                    other_scene,
-                    other_render_buffers,
-                );
+                engine_state
+                    .scene
+                    .merge_scene(&mut renderer_data_guard, other_loaded_scene);
 
                 let test_level_node_ids: Vec<_> = engine_state
                     .scene
@@ -1564,16 +1558,14 @@ pub fn update_game_state(
 
         if let Some(asset_id) = asset_id_map_guard.get(&get_misc_gltf_path().to_string()) {
             if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
-                let (_, (mut other_scene, other_render_buffers)) = entry.remove_entry();
-                for animation in other_scene.animations.iter_mut() {
+                let (_, mut other_loaded_scene) = entry.remove_entry();
+                for animation in other_loaded_scene.scene.animations.iter_mut() {
                     animation.state.is_playing = true;
                     animation.state.loop_type = LoopType::Wrap;
                 }
-                engine_state.scene.merge_scene(
-                    &mut renderer_data_guard,
-                    other_scene,
-                    other_render_buffers,
-                );
+                engine_state
+                    .scene
+                    .merge_scene(&mut renderer_data_guard, other_loaded_scene);
             }
         }
     }
