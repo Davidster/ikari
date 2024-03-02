@@ -2025,6 +2025,7 @@ impl Renderer {
                 entry_point: "shadow_map_vs_main",
                 buffers: &[Vertex::desc()],
             },
+            // TODO: use a fragent shader here with alpha cutoff setup
             fragment: None,
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
