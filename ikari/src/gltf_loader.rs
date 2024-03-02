@@ -615,7 +615,6 @@ async fn load_raw_image(
     #[cfg(not(target_arch = "wasm32"))]
     match try_load_raw_image_compressed(gltf_path, texture, is_srgb, is_normal_map).await {
         Some(Ok(raw_image)) => {
-            dbg!("got compressed!", &gltf_path.relative_path);
             return Ok(raw_image);
         }
         Some(Err(error)) => {
