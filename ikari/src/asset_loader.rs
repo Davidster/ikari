@@ -1059,7 +1059,7 @@ fn bind_mesh(
     let vertex_buffer = GpuBuffer::from_bytes(
         &base_renderer.device,
         vertex_buffer_bytes,
-        std::mem::size_of::<Vertex>(),
+        std::mem::size_of::<ShaderVertex>(),
         wgpu::BufferUsages::VERTEX,
     );
 

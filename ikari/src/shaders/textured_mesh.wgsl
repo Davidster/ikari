@@ -89,13 +89,12 @@ var<storage, read> shadow_instances_uniform: InstancesUniform;
 
 struct VertexInput {
     @location(0) object_position: vec3<f32>,
-    @location(1) object_normal: vec3<f32>,
-    @location(2) object_tex_coords: vec2<f32>,
-    @location(3) object_tangent: vec3<f32>,
-    @location(4) object_bitangent: vec3<f32>,
+    @location(1) bone_weights: vec4<f32>,
+    @location(2) object_normal: vec2<f32>,
+    @location(3) object_tangent: vec2<f32>,
+    @location(4) object_tex_coords: vec2<f32>,
     @location(5) object_color: vec4<f32>,
-    @location(6) bone_indices: vec4<u32>,
-    @location(7) bone_weights: vec4<f32>,
+    @location(6) bone_indices: vec4<u32>, 
 }
 
 struct VertexOutput {
@@ -113,7 +112,6 @@ struct VertexOutput {
     @location(10) normal_scale: f32,
     @location(11) occlusion_strength: f32,
     @location(12) alpha_cutoff: f32,
-    @location(13) object_tangent: vec3<f32>,
 }
 
 struct FragmentOutput {
@@ -208,6 +206,26 @@ fn get_cascade_debug_enabled() -> bool {
     return shader_options.options_2[1] > 0.0;
 }
 
+fn oct_wrap(v: vec2<f32>) -> vec2<f32>
+{
+    return ( 1.0 - abs( v.yx ) ) * ( select(vec2(-1.0), vec2(1.0), v.xy >= vec2(0.0)) );
+}
+
+// https://knarkowicz.wordpress.com/2014/04/16/octahedron-normal-vector-encoding/
+// https://cesium.com/blog/2015/05/18/vertex-compression/
+// https://jcgt.org/published/0003/02/01/
+fn oct_decode_unit_vector(in: vec2<f32>) -> vec3<f32>
+{
+    var encN = in;
+    encN = encN * 2.0 - 1.0;
+
+    var n: vec3<f32>;
+    n.z = 1.0 - abs( encN.x ) - abs( encN.y );
+    n = vec3(select(oct_wrap( encN.xy ), encN.xy, n.z >= 0.0), n.z);
+    n = normalize( n );
+    return n;
+}
+
 fn do_vertex_shade(
     vshader_input: VertexInput,
     camera_view_proj: mat4x4<f32>,
@@ -221,22 +239,23 @@ fn do_vertex_shade(
     occlusion_strength: f32,
     alpha_cutoff: f32
 ) -> VertexOutput {
-    var out: VertexOutput;
-    out.world_normal = vshader_input.object_normal;
+    let object_normal = oct_decode_unit_vector(vshader_input.object_normal);
+    let object_tangent = oct_decode_unit_vector(vshader_input.object_tangent);
 
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
     let skinned_model_transform = model_transform * skin_transform;
     let world_position = skinned_model_transform * object_position;
     let clip_position = camera_view_proj * skinned_model_transform * object_position;
-    let world_normal = normalize((skinned_model_transform * vec4<f32>(vshader_input.object_normal, 0.0)).xyz);
-    let world_tangent = normalize((skinned_model_transform * vec4<f32>(vshader_input.object_tangent, 0.0)).xyz);
-    let world_bitangent = normalize((skinned_model_transform * vec4<f32>(vshader_input.object_bitangent, 0.0)).xyz);
+    
+    let world_normal = normalize((skinned_model_transform * vec4<f32>(object_normal, 0.0)).xyz);
+    let world_tangent = normalize((skinned_model_transform * vec4<f32>(object_tangent, 0.0)).xyz);
+    let world_bitangent = cross(world_normal, world_tangent);
 
+    var out: VertexOutput;
     out.clip_position = clip_position;
     out.world_position = world_position.xyz;
     out.world_normal = world_normal;
     out.world_tangent = world_tangent;
-    out.object_tangent = vshader_input.object_tangent;
     out.world_bitangent = world_bitangent;
     out.tex_coords = vshader_input.object_tex_coords;
     out.vertex_color = vshader_input.object_color;
@@ -1091,6 +1110,9 @@ fn do_fragment_shade(
 
     // let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
     let final_color = vec4<f32>(combined_irradiance_hdr, 1.0);
+    // let final_color = vec4<f32>(world_normal * 0.5 + 0.5, 1.0);
+    // let final_color = vec4<f32>(tex_coords, 0.0, 1.0);
+    // let final_color = vec4<f32>(base_color, 1.0);
 
     var out: FragmentOutput;
     out.color = final_color;

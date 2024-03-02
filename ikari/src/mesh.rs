@@ -1,4 +1,4 @@
-use crate::texture::*;
+use crate::{renderer::Float16, texture::*};
 
 use std::{
     collections::{hash_map, HashMap},
@@ -8,9 +8,19 @@ use std::{
 use anyhow::{bail, Result};
 use glam::{
     f32::{Vec2, Vec3, Vec4},
-    Mat4,
+    Mat4, UVec4, Vec2Swizzles, Vec3Swizzles,
 };
 use obj::raw::parse_obj;
+
+pub struct Vertex {
+    pub position: Vec3,
+    pub bone_weights: Vec4,
+    pub normal: Vec3,
+    pub tangent: Vec3,
+    pub tex_coords: Vec2,
+    pub color: Vec4,
+    pub bone_indices: UVec4,
+}
 
 // TODO: vertex data can be compressed a lot.
 // use 2 values instad of 3 for normal, tangent.
@@ -20,34 +30,111 @@ use obj::raw::parse_obj;
 // use u8 for bone indices,
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct Vertex {
+pub struct ShaderVertex {
     pub position: [f32; 3],
-    pub normal: [f32; 3],
-    pub tex_coords: [f32; 2],
-    pub tangent: [f32; 3],
-    pub bitangent: [f32; 3],
-    pub color: [f32; 4],
-    pub bone_indices: [u32; 4],
-    pub bone_weights: [f32; 4],
+    pub bone_weights: [Float16; 4],
+    pub normal: [Float16; 2],
+    pub tangent: [Float16; 2],
+    pub tex_coords: [u16; 2],
+    pub color: [u8; 4],
+    pub bone_indices: [u8; 4],
 }
 
-impl Vertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
-        0 => Float32x3,
-        1 => Float32x3,
-        2 => Float32x2,
-        3 => Float32x3,
-        4 => Float32x3,
-        5 => Float32x4,
-        6 => Uint32x4,
-        7 => Float32x4,
+impl ShaderVertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
+        0 => Float32x3, // position
+        1 => Float16x4, // bone_weights
+        2 => Float16x2, // normal
+        3 => Float16x2, // tangent
+        4 => Unorm16x2, // tex_coords
+        5 => Unorm8x4,  // color
+        6 => Uint8x4,  // bone_indices
     ];
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<ShaderVertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &Self::ATTRIBS,
+        }
+    }
+}
+
+// https://knarkowicz.wordpress.com/2014/04/16/octahedron-normal-vector-encoding/
+// https://cesium.com/blog/2015/05/18/vertex-compression/
+// https://jcgt.org/published/0003/02/01/
+pub fn oct_encode_unit_vector(mut n: Vec3) -> [Float16; 2] {
+    n = n / (n.x.abs() + n.y.abs() + n.z.abs());
+    let mut result_vec2 = if n.z >= 0.0 { n.xy() } else { oct_wrap(n.xy()) };
+    result_vec2 = result_vec2 * Vec2::splat(0.5) + Vec2::splat(0.5);
+    [
+        Float16(half::f16::from_f32(result_vec2.x)),
+        Float16(half::f16::from_f32(result_vec2.y)),
+    ]
+}
+
+fn oct_wrap(v: Vec2) -> Vec2 {
+    (Vec2::splat(1.0) - v.yx().abs())
+        * Vec2::new(
+            if v.x >= 0.0 { 1.0 } else { -1.0 },
+            if v.y >= 0.0 { 1.0 } else { -1.0 },
+        )
+}
+
+impl Default for ShaderVertex {
+    fn default() -> Self {
+        Self {
+            position: Default::default(),
+            normal: oct_encode_unit_vector([0.0, 1.0, 0.0].into()),
+            tangent: oct_encode_unit_vector([1.0, 0.0, 0.0].into()),
+            tex_coords: Default::default(),
+            color: [255, 255, 255, 255],
+            bone_indices: Default::default(),
+            bone_weights: [
+                Float16(half::f16::from_f32(1.0)),
+                Float16(half::f16::from_f32(0.0)),
+                Float16(half::f16::from_f32(0.0)),
+                Float16(half::f16::from_f32(0.0)),
+            ],
+        }
+    }
+}
+
+impl From<Vertex> for ShaderVertex {
+    fn from(value: Vertex) -> Self {
+        let convert_bone_index = |bone_index: u32| -> u8 {
+            bone_index.try_into().unwrap_or_else(|_| {
+                log::error!("Failed to convert bone index {} from u32 to u8. Does the character have more than 255 bones?", bone_index);
+                0
+            })
+        };
+
+        Self {
+            position: value.position.into(),
+            normal: oct_encode_unit_vector(value.normal),
+            tangent: oct_encode_unit_vector(value.tangent),
+            tex_coords: [
+                ((value.tex_coords.x * (u16::MAX as f32)).round() % (u16::MAX as f32 + 1.0)) as u16,
+                ((value.tex_coords.y * (u16::MAX as f32)).round() % (u16::MAX as f32 + 1.0)) as u16,
+            ],
+            color: [
+                (value.color.x * u8::MAX as f32).round() as u8,
+                (value.color.y * u8::MAX as f32).round() as u8,
+                (value.color.z * u8::MAX as f32).round() as u8,
+                (value.color.w * u8::MAX as f32).round() as u8,
+            ],
+            bone_indices: [
+                convert_bone_index(value.bone_indices.x),
+                convert_bone_index(value.bone_indices.y),
+                convert_bone_index(value.bone_indices.z),
+                convert_bone_index(value.bone_indices.w),
+            ],
+            bone_weights: [
+                Float16(half::f16::from_f32(value.bone_weights.x)),
+                Float16(half::f16::from_f32(value.bone_weights.y)),
+                Float16(half::f16::from_f32(value.bone_weights.z)),
+                Float16(half::f16::from_f32(value.bone_weights.w)),
+            ],
         }
     }
 }
@@ -56,13 +143,12 @@ impl Default for Vertex {
     fn default() -> Self {
         Self {
             position: Default::default(),
-            normal: [0.0, 1.0, 0.0],
+            normal: [0.0, 1.0, 0.0].into(),
             tex_coords: Default::default(),
-            tangent: [1.0, 0.0, 0.0],
-            bitangent: [0.0, 0.0, 1.0],
-            color: [1.0, 1.0, 1.0, 1.0],
+            tangent: [1.0, 0.0, 0.0].into(),
+            color: [1.0, 1.0, 1.0, 1.0].into(),
             bone_indices: Default::default(),
-            bone_weights: [1.0, 0.0, 0.0, 0.0],
+            bone_weights: [1.0, 0.0, 0.0, 0.0].into(),
         }
     }
 }
@@ -165,7 +251,7 @@ pub struct PbrTextures<'a> {
 }
 
 pub struct BasicMesh {
-    pub vertices: Vec<Vertex>,
+    pub vertices: Vec<ShaderVertex>,
     pub indices: Vec<u16>,
 }
 
@@ -197,7 +283,7 @@ impl BasicMesh {
             }
         }
 
-        let mut composite_index_map: HashMap<(usize, usize, usize), Vertex> = HashMap::new();
+        let mut composite_index_map: HashMap<(usize, usize, usize), ShaderVertex> = HashMap::new();
         triangles.iter().for_each(|points| {
             let points_with_attribs: Vec<_> = points
                 .iter()
@@ -228,7 +314,7 @@ impl BasicMesh {
                 f * (delta_uv_2.y * edge_1.z - delta_uv_1.y * edge_2.z),
             );
 
-            let bitangent = Vec3::new(
+            let _bitangent = Vec3::new(
                 f * (-delta_uv_2.x * edge_1.x + delta_uv_1.x * edge_2.x),
                 f * (-delta_uv_2.x * edge_1.y + delta_uv_1.x * edge_2.y),
                 f * (-delta_uv_2.x * edge_1.z + delta_uv_1.x * edge_2.z),
@@ -236,22 +322,21 @@ impl BasicMesh {
 
             points_with_attribs
                 .iter()
+                .copied()
                 .for_each(|(key, position, normal, tex_coords)| {
-                    if let hash_map::Entry::Vacant(vacant_entry) = composite_index_map.entry(*key) {
-                        let to_arr = |vec: &Vec3| [vec.x, vec.y, vec.z];
-                        vacant_entry.insert(Vertex {
-                            position: to_arr(position),
-                            normal: to_arr(normal),
-                            tex_coords: [tex_coords.x, tex_coords.y],
-                            tangent: to_arr(&tangent),
-                            bitangent: to_arr(&bitangent),
+                    if let hash_map::Entry::Vacant(vacant_entry) = composite_index_map.entry(key) {
+                        vacant_entry.insert(ShaderVertex::from(Vertex {
+                            position,
+                            normal,
+                            tangent,
+                            tex_coords,
                             ..Default::default()
-                        });
+                        }));
                     }
                 });
         });
         let mut index_map: HashMap<(usize, usize, usize), usize> = HashMap::new();
-        let mut vertices: Vec<Vertex> = Vec::new();
+        let mut vertices: Vec<ShaderVertex> = Vec::new();
         composite_index_map
             .iter()
             .enumerate()

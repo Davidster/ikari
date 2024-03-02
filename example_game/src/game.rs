@@ -34,6 +34,7 @@ use ikari::math::lerp_vec;
 use ikari::mesh::BasicMesh;
 use ikari::mesh::DynamicPbrParams;
 use ikari::mesh::PbrTextures;
+use ikari::mesh::ShaderVertex;
 use ikari::mesh::Vertex;
 use ikari::physics::rapier3d_f64::prelude::*;
 use ikari::physics::PhysicsState;
@@ -915,7 +916,7 @@ pub async fn init_game_state(
     // );
 
     // create the floor and add it to the scene
-    let floor_pbr_mesh_index = Renderer::bind_pbr_material(
+    let floor_material_index = Renderer::bind_pbr_material(
         &renderer.base,
         &renderer.constant_data,
         &mut renderer.data.lock().unwrap(),
@@ -933,7 +934,7 @@ pub async fn init_game_state(
         GameNodeDescBuilder::new()
             .visual(Some(GameNodeVisual::make_pbr(
                 renderer.constant_data.plane_mesh_index,
-                floor_pbr_mesh_index,
+                floor_material_index,
             )))
             .transform(floor_transform)
             .build(),
@@ -1080,15 +1081,17 @@ pub async fn init_game_state(
     let crosshair_quad = BasicMesh {
         vertices: [[1.0, 1.0], [1.0, -1.0], [-1.0, -1.0], [-1.0, 1.0]]
             .iter()
-            .map(|position| Vertex {
-                position: [0.0, position[1], position[0]],
-                normal: [0.0, 0.0, 1.0],
-                tex_coords: [0.5 * (position[0] + 1.0), 0.5 * (1.0 - position[1])],
-                tangent: [1.0, 0.0, 0.0],
-                bitangent: [0.0, -1.0, 0.0],
-                color: [1.0, 1.0, 1.0, 1.0],
-                bone_indices: [0, 1, 2, 3],
-                bone_weights: [1.0, 0.0, 0.0, 0.0],
+            .map(|position| {
+                Vertex {
+                    position: [0.0, position[1], position[0]].into(),
+                    normal: [0.0, 0.0, 1.0].into(),
+                    tex_coords: [0.5 * (position[0] + 1.0), 0.5 * (1.0 - position[1])].into(),
+                    tangent: [1.0, 0.0, 0.0].into(),
+                    color: [1.0, 1.0, 1.0, 1.0].into(),
+                    bone_indices: [0, 1, 2, 3].into(),
+                    bone_weights: [1.0, 0.0, 0.0, 0.0].into(),
+                }
+                .into()
             })
             .collect(),
         indices: vec![0, 2, 1, 0, 3, 2],

@@ -18,6 +18,7 @@ use crate::wasm_not_sync::WasmNotArc;
 
 use std::collections::{hash_map::Entry, HashMap};
 use std::num::NonZeroU64;
+use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -63,6 +64,14 @@ pub struct Float16(pub half::f16);
 
 unsafe impl bytemuck::Pod for Float16 {}
 unsafe impl bytemuck::Zeroable for Float16 {}
+
+impl Deref for Float16 {
+    type Target = half::f16;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -390,7 +399,7 @@ impl BindableIndices {
 
 #[derive(Debug)]
 pub struct BindableGeometryBuffers {
-    pub vertices: Vec<Vertex>,
+    pub vertices: Vec<ShaderVertex>,
     pub indices: BindableIndices,
     pub bounding_box: crate::collisions::Aabb,
 }
@@ -1435,7 +1444,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &textured_mesh_shader,
@@ -1494,7 +1503,7 @@ impl Renderer {
         let mut unlit_mesh_pipeline_descriptor = mesh_pipeline_descriptor.clone();
         unlit_mesh_pipeline_descriptor.label = Some("Unlit Mesh Render Pipeline");
         unlit_mesh_pipeline_descriptor.layout = Some(&unlit_mesh_pipeline_layout);
-        let unlit_mesh_pipeline_v_buffers = &[Vertex::desc()];
+        let unlit_mesh_pipeline_v_buffers = &[ShaderVertex::desc()];
         unlit_mesh_pipeline_descriptor.vertex = wgpu::VertexState {
             module: &unlit_mesh_shader,
             entry_point: "vs_main",
@@ -1529,7 +1538,7 @@ impl Renderer {
 
         let mut wireframe_pipeline_descriptor = unlit_mesh_pipeline_descriptor.clone();
         wireframe_pipeline_descriptor.label = Some("Wireframe Render Pipeline");
-        let wireframe_mesh_pipeline_v_buffers = &[Vertex::desc()];
+        let wireframe_mesh_pipeline_v_buffers = &[ShaderVertex::desc()];
         wireframe_pipeline_descriptor.vertex.buffers = wireframe_mesh_pipeline_v_buffers;
         wireframe_pipeline_descriptor.primitive = wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::LineList,
@@ -1786,7 +1795,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
@@ -1825,7 +1834,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
@@ -1877,7 +1886,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
@@ -1915,7 +1924,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
@@ -1986,7 +1995,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
                 entry_point: "shadow_map_vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &textured_mesh_shader,
@@ -2027,7 +2036,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
                 entry_point: "shadow_map_vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &textured_mesh_shader,
@@ -3123,7 +3132,7 @@ impl Renderer {
         let vertex_buffer = GpuBuffer::from_bytes(
             device,
             bytemuck::cast_slice(&mesh.vertices),
-            std::mem::size_of::<Vertex>(),
+            std::mem::size_of::<ShaderVertex>(),
             wgpu::BufferUsages::VERTEX,
         );
 

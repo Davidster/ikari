@@ -279,7 +279,7 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
                                     .zip(vertex.bone_weights.iter())
                                     .any(|(v_bone_index, v_bone_weight)| {
                                         *v_bone_index as usize == bone_index
-                                            && *v_bone_weight > vertex_weight_threshold
+                                            && v_bone_weight.to_f32() > vertex_weight_threshold
                                     })
                             })
                             .map(|vertex| {
@@ -310,7 +310,7 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
         let vertex_count = bindable_meshes
             .iter()
             .fold(0, |acc, mesh| acc + mesh.vertices.len());
-        let vertex_bytes = vertex_count * std::mem::size_of::<Vertex>();
+        let vertex_bytes = vertex_count * std::mem::size_of::<ShaderVertex>();
         let index_count = bindable_meshes.iter().fold(0, |acc, mesh| {
             acc + match &mesh.indices {
                 BindableIndices::U16(indices) => indices.len(),
@@ -910,19 +910,17 @@ pub fn load_geometry(
 
     let mut vertices = Vec::with_capacity(vertex_position_count);
     for index in 0..vertex_position_count {
-        let to_arr = |vec: &Vec3| [vec.x, vec.y, vec.z];
-        let (tangent, bitangent) = vertex_tangents_and_bitangents[index];
+        let (tangent, _bitangent) = vertex_tangents_and_bitangents[index];
 
-        vertices.push(Vertex {
-            position: vertex_positions[index].into(),
-            normal: vertex_normals[index].into(),
-            tex_coords: vertex_tex_coords[index],
-            tangent: to_arr(&tangent),
-            bitangent: to_arr(&bitangent),
-            color: vertex_colors[index],
-            bone_indices: vertex_bone_indices[index],
-            bone_weights: vertex_bone_weights[index],
-        });
+        vertices.push(ShaderVertex::from(Vertex {
+            position: vertex_positions[index],
+            normal: vertex_normals[index],
+            tangent,
+            tex_coords: vertex_tex_coords[index].into(),
+            color: vertex_colors[index].into(),
+            bone_indices: vertex_bone_indices[index].into(),
+            bone_weights: vertex_bone_weights[index].into(),
+        }));
     }
 
     let make_bindable_indices = |indices: &Vec<u32>| {

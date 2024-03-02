@@ -498,7 +498,7 @@ impl CameraFrustumDescriptor {
         BasicMesh {
             vertices: vertices
                 .iter()
-                .map(|pos| Vertex {
+                .map(|pos| ShaderVertex {
                     position: pos.to_array(),
                     ..Default::default()
                 })
