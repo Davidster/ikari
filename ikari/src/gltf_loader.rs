@@ -35,8 +35,10 @@ impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
     }
 }
 
-#[profiling::function]
 pub async fn load_scene(params: SceneAssetLoadParams) -> Result<(Scene, BindableSceneData)> {
+    profiling::scope!("load_scene", &params.path.relative_path.to_string_lossy());
+
+    let start_time = crate::time::Instant::now();
     let gltf_slice;
     {
         profiling::scope!("Read gltf/glb file");
@@ -311,28 +313,101 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<(Scene, Bindable
         textures,
     };
 
-    log::debug!("Scene loaded ({:?}):", params.path.relative_path);
+    if log::log_enabled!(log::Level::Debug) {
+        let vertex_count = bindable_scene_data
+            .bindable_meshes
+            .iter()
+            .fold(0, |acc, mesh| acc + mesh.vertices.len());
+        let vertex_bytes = vertex_count * std::mem::size_of::<Vertex>();
+        let index_count = bindable_scene_data
+            .bindable_meshes
+            .iter()
+            .fold(0, |acc, mesh| {
+                acc + match &mesh.indices {
+                    BindableIndices::U16(indices) => indices.len(),
+                    BindableIndices::U32(indices) => indices.len(),
+                }
+            });
+        let index_bytes = bindable_scene_data
+            .bindable_meshes
+            .iter()
+            .fold(0, |acc, mesh| {
+                acc + match &mesh.indices {
+                    BindableIndices::U16(indices) => indices.len() * std::mem::size_of::<u16>(),
+                    BindableIndices::U32(indices) => indices.len() * std::mem::size_of::<u32>(),
+                }
+            });
+        let wireframe_index_count =
+            bindable_scene_data
+                .bindable_wireframe_meshes
+                .iter()
+                .fold(0, |acc, mesh| {
+                    acc + match &mesh.indices {
+                        BindableIndices::U16(indices) => indices.len(),
+                        BindableIndices::U32(indices) => indices.len(),
+                    }
+                });
+        let wireframe_index_bytes =
+            bindable_scene_data
+                .bindable_wireframe_meshes
+                .iter()
+                .fold(0, |acc, mesh| {
+                    acc + match &mesh.indices {
+                        BindableIndices::U16(indices) => indices.len() * std::mem::size_of::<u16>(),
+                        BindableIndices::U32(indices) => indices.len() * std::mem::size_of::<u32>(),
+                    }
+                });
+        let texture_bytes = bindable_scene_data
+            .textures
+            .iter()
+            .fold(0, |acc, texture| acc + texture.raw_image.bytes.len());
 
-    log::debug!("  - node count: {:?}", nodes.len());
-    log::debug!("  - skin count: {:?}", skins.len());
-    log::debug!("  - animation count: {:?}", animations.len());
-    log::debug!("  Render buffers:");
-    log::debug!(
-        "    - Mesh count: {:?}",
-        bindable_scene_data.bindable_meshes.len()
-    );
-    log::debug!(
-        "    - Wireframe mesh count: {:?}",
-        bindable_scene_data.bindable_wireframe_meshes.len()
-    );
-    log::debug!(
-        "    - PBR material count: {:?}",
-        bindable_scene_data.bindable_pbr_materials.len()
-    );
-    log::debug!(
-        "    - Texture count: {:?}",
-        bindable_scene_data.textures.len()
-    );
+        let format_data_size = |bytes| size::Size::from_bytes(bytes).format().to_string();
+
+        log::debug!(
+            "Scene {:?} loaded in {:?}:",
+            params.path.relative_path,
+            start_time.elapsed()
+        );
+
+        log::debug!("  - node count: {}", nodes.len());
+        log::debug!("  - skin count: {}", skins.len());
+        log::debug!("  - animation count: {}", animations.len());
+        log::debug!("  Render buffers:");
+        log::debug!(
+            "    - Mesh count: {}",
+            bindable_scene_data.bindable_meshes.len()
+        );
+        log::debug!(
+            "    - Wireframe mesh count: {}",
+            bindable_scene_data.bindable_wireframe_meshes.len()
+        );
+        log::debug!(
+            "    - Vertex count: {vertex_count} ({})",
+            format_data_size(vertex_bytes)
+        );
+        log::debug!(
+            "    - Index count: {index_count} ({})",
+            format_data_size(index_bytes)
+        );
+        log::debug!(
+            "    - Wireframe index count: {wireframe_index_count} ({})",
+            format_data_size(wireframe_index_bytes)
+        );
+        log::debug!(
+            "    - PBR material count: {}",
+            bindable_scene_data.bindable_pbr_materials.len()
+        );
+        log::debug!(
+            "    - Texture count: {} ({})",
+            bindable_scene_data.textures.len(),
+            format_data_size(texture_bytes)
+        );
+        log::debug!(
+            "    - Total GPU memory footprint: {}",
+            format_data_size(vertex_bytes + index_bytes + wireframe_index_bytes + texture_bytes)
+        );
+    }
 
     let scene = Scene::new(nodes, skins, animations);
 

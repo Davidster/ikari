@@ -1418,7 +1418,7 @@ pub fn update_game_state(
             renderer_data_guard.camera_node_id,
         ) {
             if let Some(asset_id) =
-                asset_id_map_guard.get(&"src/models/gltf/ColtPython/colt_python.glb".to_string())
+                asset_id_map_guard.get(&"src/models/gltf/ColtPython/colt_python.gltf".to_string())
             {
                 if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
                     let (_, (other_scene, other_render_buffers)) = entry.remove_entry();

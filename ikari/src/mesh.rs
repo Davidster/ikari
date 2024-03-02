@@ -12,6 +12,12 @@ use glam::{
 };
 use obj::raw::parse_obj;
 
+// TODO: vertex data can be compressed a lot.
+// use 2 values instad of 3 for normal, tangent.
+// use less precision for normal, tangent, bone weights?
+// don't store bitangent
+// use [u8; 3] for color
+// use u8 for bone indices,
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {

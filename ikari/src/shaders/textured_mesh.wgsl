@@ -127,7 +127,7 @@ struct ShadowMappingVertexOutput {
     @location(2) alpha_cutoff: f32,
 }
 
-struct ShadowMappingFragmentOutput {
+struct PointShadowMappingFragmentOutput {
     @builtin(frag_depth) depth: f32,
 }
 
@@ -325,9 +325,22 @@ fn shadow_map_vs_main(
 }
 
 @fragment
+fn directional_shadow_map_fs_main(in: ShadowMappingVertexOutput) {
+    let base_color_alpha = textureSample(
+        shadow_diffuse_texture,
+        shadow_diffuse_sampler,
+        in.tex_coords
+    ).a;
+
+    if base_color_alpha <= in.alpha_cutoff {
+        discard;
+    }
+}
+
+@fragment
 fn point_shadow_map_fs_main(
     in: ShadowMappingVertexOutput
-) -> ShadowMappingFragmentOutput {
+) -> PointShadowMappingFragmentOutput {
 
     let base_color_alpha = textureSample(
         shadow_diffuse_texture,
@@ -339,7 +352,7 @@ fn point_shadow_map_fs_main(
         discard;
     }
 
-    var out: ShadowMappingFragmentOutput;
+    var out: PointShadowMappingFragmentOutput;
     let light_distance = length(in.world_position - CAMERA.position.xyz);
     out.depth = light_distance / CAMERA.far_plane_distance;
     return out;

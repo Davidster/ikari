@@ -49,7 +49,7 @@ pub struct AssetLoader {
 
     audio_manager: Arc<Mutex<AudioManager>>,
     pending_scenes: Arc<Mutex<Vec<(AssetId, SceneAssetLoadParams)>>>,
-    bindable_scenes: Arc<Mutex<HashMap<AssetId, (Scene, BindableSceneData)>>>,
+    bindable_scenes: Arc<Mutex<HashMap<AssetId, (Scene, BindableSceneData, GameFilePath)>>>,
 
     pending_skyboxes: Arc<Mutex<Vec<(AssetId, SkyboxPaths)>>>,
     bindable_skyboxes: Arc<Mutex<HashMap<AssetId, BindableSkybox>>>,
@@ -142,17 +142,12 @@ impl AssetLoader {
                         let (next_scene_id, next_scene_params) =
                             pending_scenes.lock().unwrap().remove(0);
 
-                        profiling::scope!(
-                            "Load scene",
-                            &next_scene_params.path.relative_path.to_string_lossy()
-                        );
-
                         match load_scene(next_scene_params.clone()).await {
-                            Ok(result) => {
-                                let _replaced_ignored = bindable_scenes
-                                    .lock()
-                                    .unwrap()
-                                    .insert(next_scene_id, result);
+                            Ok((scene, bindable_scene_data)) => {
+                                let _replaced_ignored = bindable_scenes.lock().unwrap().insert(
+                                    next_scene_id,
+                                    (scene, bindable_scene_data, next_scene_params.path),
+                                );
                             }
                             Err(err) => {
                                 log::error!(
@@ -290,7 +285,7 @@ impl AssetLoader {
                         "Streamed in {:?} samples ({:?} seconds) from file: {:?}",
                         sample_count,
                         sample_count as f32 / device_sample_rate as f32,
-                        audio_file_streamer.file_path(),
+                        audio_file_streamer.file_path().relative_path,
                     );
 
                     audio_manager
@@ -609,7 +604,15 @@ impl ThreadedSceneBinder {
         renderer_constant_data: &RendererConstantData,
         bind_group_cache: &mut BindGroupCache,
         bindable_scene: BindableSceneData,
+        scene_asset_path: &GameFilePath,
     ) -> Result<BindedSceneData> {
+        profiling::scope!(
+            "bind_scene",
+            &scene_asset_path.relative_path.to_string_lossy()
+        );
+
+        let start_time = crate::time::Instant::now();
+
         let mut textures: Vec<Texture> = Vec::with_capacity(bindable_scene.textures.len());
         for bindable_texture in bindable_scene.textures.iter() {
             textures.push(bind_texture(base_renderer, bindable_texture)?);
@@ -640,6 +643,12 @@ impl ThreadedSceneBinder {
         for wireframe_mesh in bindable_scene.bindable_wireframe_meshes.iter() {
             binded_wireframe_meshes.push(bind_wireframe_mesh(base_renderer, wireframe_mesh)?);
         }
+
+        log::debug!(
+            "Scene {:?} binded in {:?}:",
+            scene_asset_path.relative_path,
+            start_time.elapsed()
+        );
 
         Ok(BindedSceneData {
             binded_meshes,
@@ -674,7 +683,7 @@ impl BindScene for ThreadedSceneBinder {
         }
 
         crate::thread::spawn(move || {
-            for (scene_id, (scene, bindable_scene)) in bindable_scenes {
+            for (scene_id, (scene, bindable_scene, scene_asset_path)) in bindable_scenes {
                 let mut bind_group_caches_guard = bind_group_caches_clone.lock().unwrap();
                 let bind_group_cache = bind_group_caches_guard.entry(scene_id).or_default();
 
@@ -683,6 +692,7 @@ impl BindScene for ThreadedSceneBinder {
                     &renderer_constant_data.clone(),
                     bind_group_cache,
                     bindable_scene,
+                    &scene_asset_path,
                 );
                 match binded_scene_result {
                     Ok(result) => {
@@ -822,7 +832,8 @@ impl BindScene for TimeSlicedSceneBinder {
             while start_time.elapsed().as_secs_f32() < SLICE_BUDGET_SECONDS {
                 let scene_id = scene_id;
 
-                let (scene, bindable_scene) = bindable_scenes_guard.remove(&scene_id).unwrap();
+                let (scene, bindable_scene, scene_asset_path) =
+                    bindable_scenes_guard.remove(&scene_id).unwrap();
 
                 let mut bind_group_caches_guard = self.bind_group_caches.lock().unwrap();
                 let bind_group_cache = bind_group_caches_guard.entry(scene_id).or_default();
@@ -845,7 +856,8 @@ impl BindScene for TimeSlicedSceneBinder {
                     }
                     Ok(None) => {
                         // not done binding this scene yet, add it back to the map to be processed next frame
-                        bindable_scenes_guard.insert(scene_id, (scene, bindable_scene));
+                        bindable_scenes_guard
+                            .insert(scene_id, (scene, bindable_scene, scene_asset_path));
                     }
                     Err(err) => {
                         log::error!(
@@ -1021,6 +1033,7 @@ impl BindSkybox for TimeSlicedSkyboxBinder {
     }
 }
 
+#[profiling::function]
 fn bind_texture(
     base_renderer: &BaseRenderer,
     bindable_texture: &BindableTexture,
@@ -1039,6 +1052,7 @@ fn bind_texture(
     )
 }
 
+#[profiling::function]
 fn bind_mesh(
     base_renderer: &BaseRenderer,
     mesh: &BindableGeometryBuffers,
@@ -1068,6 +1082,7 @@ fn bind_mesh(
     Ok(geometry_buffers)
 }
 
+#[profiling::function]
 fn bind_pbr_material(
     base_renderer: &BaseRenderer,
     renderer_constant_data: &RendererConstantData,
@@ -1106,6 +1121,7 @@ fn bind_pbr_material(
     })
 }
 
+#[profiling::function]
 fn bind_wireframe_mesh(
     base_renderer: &BaseRenderer,
     wireframe_mesh: &BindableWireframeMesh,
@@ -1116,6 +1132,7 @@ fn bind_wireframe_mesh(
     })
 }
 
+#[profiling::function]
 fn bind_index_buffer(
     base_renderer: &BaseRenderer,
     indices: &BindableIndices,
