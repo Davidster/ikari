@@ -666,6 +666,7 @@ fn do_fragment_shade(
     ).rgb;
     let metallicness = metallic_roughness.z * metallicness_factor;
     let roughness = metallic_roughness.y * roughness_factor;
+    // let roughness = 1.0;
     let ambient_occlusion = textureSample(
         ambient_occlusion_map_texture,
         ambient_occlusion_map_sampler,
@@ -1083,6 +1084,7 @@ fn do_fragment_shade(
     }
 
     let fresnel_ambient = fresnel_func_schlick_with_roughness(n_dot_v, f0, a);
+    // let fresnel_ambient = 0.0;
     // mip level count - 1
     
     // let pre_filtered_color = textureSample(
@@ -1097,7 +1099,7 @@ fn do_fragment_shade(
 
     let ambient_diffuse_irradiance = env_map_diffuse_irradiance * base_color;
 
-    let ambient_irradiance_pre_ao = ((kd_ambient * ambient_diffuse_irradiance + ambient_specular_irradiance) + total_light_irradiance);
+    let ambient_irradiance_pre_ao = ((kd_ambient * ambient_diffuse_irradiance + ambient_specular_irradiance) * 0.2 + total_light_irradiance);
     let ambient_irradiance = mix(
         ambient_irradiance_pre_ao,
         ambient_irradiance_pre_ao * ambient_occlusion,

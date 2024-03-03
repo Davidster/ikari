@@ -153,6 +153,16 @@ pub fn get_skybox_path() -> SkyboxPaths {
             GAME_PATH_MAKER.make("src/textures/milkyway/radiance.hdr"),
         ));
 
+    // Immenstädter Horn
+    // https://polyhaven.com/a/immenstadter_horn
+    let _background = SkyboxBackgroundPath::Equirectangular(
+        GAME_PATH_MAKER.make("src/skyboxes/immenstadter/lilienstein.jpg"),
+    );
+    let _environment_hdr: Option<SkyboxEnvironmentHDRPath> =
+        Some(SkyboxEnvironmentHDRPath::Equirectangular(
+            GAME_PATH_MAKER.make("src/skyboxes/immenstadter/lilienstein_4k.hdr"),
+        ));
+
     let preprocessed_skybox_folder = "milkyway";
     // let preprocessed_skybox_folder = "photosphere_small";
 
@@ -317,7 +327,7 @@ pub async fn init_game_state(
 
             // forest
             // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
-            gltf_paths.push("src/models/gltf/free_low_poly_forest/scene.gltf");
+            // gltf_paths.push("src/models/gltf/free_low_poly_forest/scene.gltf");
 
             // legendary robot
             // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
@@ -325,6 +335,8 @@ pub async fn init_game_state(
 
             // maze
             gltf_paths.push("src/models/gltf/TestLevel/test_level.gltf");
+
+            gltf_paths.push("src/models/gltf/bistro/bistro.glb");
 
             // other
             gltf_paths.push(get_misc_gltf_path());
@@ -695,7 +707,7 @@ pub async fn init_game_state(
         ball_node_ids.push(node.id());
     }
 
-    let physics_ball_count = 500;
+    let physics_ball_count = 0;
     let physics_balls: Vec<_> = (0..physics_ball_count)
         .map(|_| {
             PhysicsBall::new_random(
@@ -930,15 +942,15 @@ pub async fn init_game_state(
         .position(Vec3::new(0.0, -0.01, 0.0))
         .scale(Vec3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH))
         .build();
-    let _floor_node = scene.add_node(
-        GameNodeDescBuilder::new()
-            .visual(Some(GameNodeVisual::make_pbr(
-                renderer.constant_data.plane_mesh_index,
-                floor_material_index,
-            )))
-            .transform(floor_transform)
-            .build(),
-    );
+    // let _floor_node = scene.add_node(
+    //     GameNodeDescBuilder::new()
+    //         .visual(Some(GameNodeVisual::make_pbr(
+    //             renderer.constant_data.plane_mesh_index,
+    //             floor_material_index,
+    //         )))
+    //         .transform(floor_transform)
+    //         .build(),
+    // );
     // let ceiling_transform = TransformBuilder::new()
     //     .position(Vec3::new(0.0, 10.0, 0.0))
     //     .scale(Vec3::new(ARENA_SIDE_LENGTH, 1.0, ARENA_SIDE_LENGTH))
@@ -1458,6 +1470,17 @@ pub fn update_game_state(
         }
 
         if let Some(asset_id) =
+            asset_id_map_guard.get(&"src/models/gltf/bistro/bistro.glb".to_string())
+        {
+            if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
+                let (_, other_loaded_scene) = entry.remove_entry();
+                engine_state
+                    .scene
+                    .merge_scene(&mut renderer_data_guard, other_loaded_scene);
+            }
+        }
+
+        if let Some(asset_id) =
             asset_id_map_guard.get(&"src/models/gltf/free_low_poly_forest/scene.gltf".to_string())
         {
             if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
@@ -1511,6 +1534,20 @@ pub fn update_game_state(
                     jump_up_animation.state.is_playing = true;
                     jump_up_animation.state.loop_type = LoopType::Wrap;
                 }
+
+                for node in other_loaded_scene.scene.nodes_mut() {
+                    // dbg!(&node.name);
+                    // if node.name == Some(String::from("robot")) {
+                    //     node.transform.set_position(Vec3::new(-7.0, 6.5, 7.0));
+                    // }
+                    // if node.name == Some(String::from("Root")) {
+                    //     node.transform.set_position(Vec3::new(-7.0, 6.5, 7.0));
+                    // }
+                    // if let Some(name) = &node.name {
+                    //     dbg!(name);
+                    // }
+                }
+
                 engine_state
                     .scene
                     .merge_scene(&mut renderer_data_guard, other_loaded_scene);
@@ -1712,7 +1749,7 @@ pub fn update_game_state(
                 let cube_radius = 4.0;
                 Vec3::new(20.0, cube_radius, -4.5)
             } else {
-                Vec3::new(0.0, 6.5, 0.0)
+                Vec3::new(-7.0, 6.5, 7.0)
             };
 
             node.transform.set_position(

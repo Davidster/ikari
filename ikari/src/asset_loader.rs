@@ -1033,6 +1033,7 @@ fn bind_texture(
         raw_image,
         name.as_deref(),
         raw_image.mip_count <= 1,
+        // false,
         sampler_descriptor,
     )
 }
