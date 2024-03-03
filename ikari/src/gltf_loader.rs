@@ -16,9 +16,8 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::path::PathBuf;
 
 use anyhow::{bail, Result};
-use approx::abs_diff_eq;
 use base64::prelude::*;
-use glam::f32::{Mat4, Vec2, Vec3, Vec4};
+use glam::f32::{Mat4, Vec3, Vec4};
 use glam::Vec4Swizzles;
 use gltf::Gltf;
 

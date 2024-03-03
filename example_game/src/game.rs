@@ -35,7 +35,6 @@ use ikari::mesh::BasicMesh;
 use ikari::mesh::DynamicPbrParams;
 use ikari::mesh::PbrTextures;
 use ikari::mesh::Vertex;
-use ikari::mesh::VertexTangentHandedness;
 use ikari::physics::rapier3d_f64::prelude::*;
 use ikari::physics::PhysicsState;
 use ikari::player_controller::ControlledViewDirection;
