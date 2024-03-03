@@ -15,7 +15,7 @@ const POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE: f32 = 1000.0;
 const MAX_SHADOW_CASCADES = 4u;
 const MAX_TOTAL_SHADOW_CASCADES = 128u; // MAX_LIGHTS * MAX_SHADOW_CASCADES
 // TODO: pass this from cpu
-const SOFT_SHADOW_MAX_DISTANCE: f32 = 10000.0;
+const SOFT_SHADOW_MAX_DISTANCE: f32 = 300.0;
 
 const MIN_SHADOW_MAP_BIAS: f32 = 0.00005;
 const pi: f32 = 3.141592653589793;
@@ -93,7 +93,7 @@ struct VertexInput {
     @location(2) object_normal: vec2<f32>,
     @location(3) object_tangent: vec2<f32>,
     @location(4) object_tex_coords: vec2<f32>,
-    @location(5) object_color: vec4<f32>,
+    @location(5) object_color_tangent_handedness: vec4<f32>,
     @location(6) bone_indices: vec4<u32>, 
 }
 
@@ -104,7 +104,7 @@ struct VertexOutput {
     @location(2) world_tangent: vec3<f32>,
     @location(3) world_bitangent: vec3<f32>,
     @location(4) tex_coords: vec2<f32>,
-    @location(5) vertex_color: vec4<f32>,
+    @location(5) vertex_color: vec3<f32>,
     @location(6) base_color_factor: vec4<f32>,
     @location(7) emissive_factor: vec4<f32>,
     @location(8) metallicness_factor: f32,
@@ -112,6 +112,7 @@ struct VertexOutput {
     @location(10) normal_scale: f32,
     @location(11) occlusion_strength: f32,
     @location(12) alpha_cutoff: f32,
+    // @location(13) tangent_handedness: f32,
 }
 
 struct FragmentOutput {
@@ -249,7 +250,9 @@ fn do_vertex_shade(
     
     let world_normal = normalize((skinned_model_transform * vec4<f32>(object_normal, 0.0)).xyz);
     let world_tangent = normalize((skinned_model_transform * vec4<f32>(object_tangent, 0.0)).xyz);
-    let world_bitangent = cross(world_normal, world_tangent);
+    // 1.0 or -1.0
+    let tangent_handedness_factor = (vshader_input.object_color_tangent_handedness.w * 2.0 - 1.0);
+    let world_bitangent = tangent_handedness_factor * cross(world_normal, world_tangent);
 
     var out: VertexOutput;
     out.clip_position = clip_position;
@@ -258,7 +261,7 @@ fn do_vertex_shade(
     out.world_tangent = world_tangent;
     out.world_bitangent = world_bitangent;
     out.tex_coords = vshader_input.object_tex_coords;
-    out.vertex_color = vshader_input.object_color;
+    out.vertex_color = vshader_input.object_color_tangent_handedness.rgb;
     out.base_color_factor = base_color_factor;
     out.emissive_factor = emissive_factor;
     out.metallicness_factor = metallicness_factor;
@@ -635,8 +638,9 @@ fn clamp_jittered_cubemap_uv(uv: vec2<f32>, face_slice: f32) -> vec2<f32> {
 fn do_fragment_shade(
     world_position: vec3<f32>,
     world_normal: vec3<f32>,
+    world_tangent: vec3<f32>,
     tex_coords: vec2<f32>,
-    vertex_color: vec4<f32>,
+    vertex_color: vec3<f32>,
     camera_position: vec3<f32>,
     base_color_factor: vec4<f32>,
     emissive_factor: vec4<f32>,
@@ -763,7 +767,7 @@ fn do_fragment_shade(
         var shadow_occlusion_acc = 0.0;
 
         if n_dot_l > 0.0 && light_index < POINT_LIGHT_SHOW_MAP_COUNT {
-            if get_soft_shadows_are_enabled() {
+            if get_soft_shadows_are_enabled() && to_viewer_vec_length < SOFT_SHADOW_MAX_DISTANCE {
                 // soft shadows code path
                 // TODO: dedupe with directional lights
 
@@ -912,16 +916,14 @@ fn do_fragment_shade(
 
                 var shadow_cascade_index = light_index * MAX_SHADOW_CASCADES;
                 var shadow_cascade_dist = 0.0;
+                debug_cascade_index = 0;
 
-                // dist = directional_lights.cascades[light_index * MAX_SHADOW_CASCADES].distance.x;
                 for (var cascade_index = 0u; cascade_index < MAX_SHADOW_CASCADES; cascade_index = cascade_index + 1u) {
                     shadow_cascade_dist = directional_lights.cascades[shadow_cascade_index].distance_and_pixel_size.x;
-                    if shadow_cascade_dist == 0.0 || 
-                        to_viewer_vec_length < shadow_cascade_dist {
-                        if (shadow_cascade_dist == 0.0) {
-                            debug_cascade_index = -1;
-                        }
-
+                    let next_shadow_cascade_dist = directional_lights.cascades[shadow_cascade_index + 1].distance_and_pixel_size.x;
+                    if to_viewer_vec_length < shadow_cascade_dist || 
+                       cascade_index == MAX_SHADOW_CASCADES - 1 || 
+                       next_shadow_cascade_dist == 0.0 {
                         break;
                     }
                     shadow_cascade_index = shadow_cascade_index + 1u;
@@ -938,8 +940,9 @@ fn do_fragment_shade(
                 let current_depth = light_space_position.z; // domain is (0, 1), lower means closer to the light
 
                 // assume we're not in shadow if we're outside the shadow's viewproj area
-                if shadow_cascade_dist != 0.0 && to_viewer_vec_length < shadow_cascade_dist && light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0 {
+                if light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0 {
                     if get_soft_shadows_are_enabled() && to_viewer_vec_length < SOFT_SHADOW_MAX_DISTANCE {
+                        // TODO: revise this metric, not sure if the performance measurements I took were accurate.
                         // soft shadows code path. costs about 0.15ms extra (per shadow map?) per frame
                         // on an RTX 3060 when compared to hard shadows
 
@@ -1110,6 +1113,7 @@ fn do_fragment_shade(
 
     // let final_color = vec4<f32>(combined_irradiance_ldr, 1.0);
     let final_color = vec4<f32>(combined_irradiance_hdr, 1.0);
+    // let final_color = vec4<f32>(world_tangent * 0.5 + 0.5, 1.0);
     // let final_color = vec4<f32>(world_normal * 0.5 + 0.5, 1.0);
     // let final_color = vec4<f32>(tex_coords, 0.0, 1.0);
     // let final_color = vec4<f32>(base_color, 1.0);
@@ -1133,7 +1137,8 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     ) * 2.0 - 1.0;
     let tangent_space_normal = vec3<f32>(
         normal_map_normal.x,
-        -normal_map_normal.y, // I guess this is needed due to differing uv-mapping conventions
+        normal_map_normal.y, // I guess this is needed due to differing uv-mapping conventions
+        // normal_map_normal.z
         sqrt(1.0 - clamp(normal_map_normal.x * normal_map_normal.x - normal_map_normal.y * normal_map_normal.y, 0.0, 1.0))
     );
     // normal scale helpful comment:
@@ -1151,6 +1156,7 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     return do_fragment_shade(
         in.world_position,
         transformed_normal,
+        in.world_tangent,
         in.tex_coords,
         in.vertex_color,
         CAMERA.position.xyz,

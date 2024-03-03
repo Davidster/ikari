@@ -34,8 +34,8 @@ use ikari::math::lerp_vec;
 use ikari::mesh::BasicMesh;
 use ikari::mesh::DynamicPbrParams;
 use ikari::mesh::PbrTextures;
-use ikari::mesh::ShaderVertex;
 use ikari::mesh::Vertex;
+use ikari::mesh::VertexTangentHandedness;
 use ikari::physics::rapier3d_f64::prelude::*;
 use ikari::physics::PhysicsState;
 use ikari::player_controller::ControlledViewDirection;
@@ -209,17 +209,18 @@ fn get_misc_gltf_path() -> &'static str {
     // "src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf"
     // "src/models/gltf/EnvironmentTest/EnvironmentTest.gltf"
     // "src/models/gltf/Arrow/Arrow.gltf"
-    "src/models/gltf/DamagedHelmet/DamagedHelmet.gltf"
+    // "src/models/gltf/DamagedHelmet/DamagedHelmet.gltf"
     // "src/models/gltf/VertexColorTest/VertexColorTest.gltf"
     // "src/models/gltf/Revolver/revolver_low_poly.gltf"
     // "src/models/gltf/NormalTangentMirrorTest/NormalTangentMirrorTest.gltf"
+    // "src/models/gltf/NormalTangentTest/NormalTangentTest.glb"
     // "src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb"
     // "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.gltf"
     // "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf"
     // "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf"
     // "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf"
     // "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf"
-    // "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf"
+    "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf"
     // "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf"
     // "/home/david/Programming/glTF-Sample-Models/2.0/Lantern/glTF/Lantern.gltf"
     // "src/models/gltf/VC/VC.gltf"
@@ -1084,12 +1085,9 @@ pub async fn init_game_state(
             .map(|position| {
                 Vertex {
                     position: [0.0, position[1], position[0]].into(),
-                    normal: [0.0, 0.0, 1.0].into(),
                     tex_coords: [0.5 * (position[0] + 1.0), 0.5 * (1.0 - position[1])].into(),
-                    tangent: [1.0, 0.0, 0.0].into(),
-                    color: [1.0, 1.0, 1.0, 1.0].into(),
-                    bone_indices: [0, 1, 2, 3].into(),
-                    bone_weights: [1.0, 0.0, 0.0, 0.0].into(),
+                    color: [1.0, 1.0, 1.0].into(),
+                    ..Default::default()
                 }
                 .into()
             })

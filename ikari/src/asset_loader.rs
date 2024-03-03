@@ -543,12 +543,7 @@ pub async fn make_bindable_skybox(paths: &SkyboxPaths) -> Result<BindableSkybox>
                 rgb_values
                     .iter()
                     .copied()
-                    .flat_map(|rbg| {
-                        rbg.to_rgba()
-                            .0
-                            .into_iter()
-                            .map(|c| Float16(half::f16::from_f32(c)))
-                    })
+                    .flat_map(|rbg| rbg.to_rgba().0.into_iter().map(Float16::from))
                     .collect()
             };
 

@@ -73,6 +73,12 @@ impl Deref for Float16 {
     }
 }
 
+impl From<f32> for Float16 {
+    fn from(value: f32) -> Self {
+        Self(half::f16::from_f32(value))
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct PointLightUniform {
@@ -2493,8 +2499,7 @@ impl Renderer {
 
         let background_texture_rad = {
             let pixel_count = skybox_dim * skybox_dim;
-            let color_hdr =
-                sun_color.map(|val| Float16(half::f16::from_f32(0.2 * val as f32 / 255.0)));
+            let color_hdr = sun_color.map(|val| Float16::from(0.2 * val as f32 / 255.0));
             let mut image_raw: Vec<[Float16; 4]> = Vec::with_capacity(pixel_count as usize);
             image_raw.resize(pixel_count as usize, color_hdr);
             let texture_er = Texture::from_raw_image(

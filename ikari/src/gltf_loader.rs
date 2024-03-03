@@ -19,21 +19,8 @@ use anyhow::{bail, Result};
 use approx::abs_diff_eq;
 use base64::prelude::*;
 use glam::f32::{Mat4, Vec2, Vec3, Vec4};
+use glam::Vec4Swizzles;
 use gltf::Gltf;
-
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
-pub struct ChannelPropertyStr<'a>(&'a str);
-
-impl From<gltf::animation::Property> for ChannelPropertyStr<'_> {
-    fn from(prop: gltf::animation::Property) -> Self {
-        Self(match prop {
-            gltf::animation::Property::Translation => "Translation",
-            gltf::animation::Property::Scale => "Scale",
-            gltf::animation::Property::Rotation => "Rotation",
-            gltf::animation::Property::MorphTargetWeights => "MorphTargetWeights",
-        })
-    }
-}
 
 pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
     profiling::scope!("load_scene", &params.path.relative_path.to_string_lossy());
@@ -823,21 +810,22 @@ pub fn load_geometry(
 ) -> Result<(BindableGeometryBuffers, BindableIndices)> {
     let vertex_positions = get_vertex_positions(primitive_group, buffers)?;
     let vertex_position_count = vertex_positions.len();
-    let bounding_box = crate::collisions::Aabb::make_from_points(vertex_positions.iter().copied())
-        .expect("Expected model to have at least two vertex positions");
+    let bounding_box =
+        crate::collisions::Aabb::make_from_points(vertex_positions.iter().copied().map(Vec3::from))
+            .expect("Expected model to have at least two vertex positions");
 
     let indices = get_indices(primitive_group, buffers, vertex_position_count)?;
 
     let triangle_count = indices.len() / 3;
 
-    let mut triangles_as_index_tuples = Vec::with_capacity(triangle_count);
+    let mut triangles: Vec<IndexedTriangle> = Vec::with_capacity(triangle_count);
     for triangle_index in 0..triangle_count {
         let i_left = triangle_index * 3;
-        triangles_as_index_tuples.push((
+        triangles.push([
             indices[i_left] as usize,
             indices[i_left + 1] as usize,
             indices[i_left + 2] as usize,
-        ));
+        ]);
     }
 
     let vertex_tex_coords = get_vertex_tex_coords(primitive_group, buffers, vertex_position_count)?;
@@ -846,13 +834,8 @@ pub fn load_geometry(
     let vertex_colors = get_vertex_colors(primitive_group, buffers, vertex_position_count)?;
     let vertex_color_count = vertex_colors.len();
 
-    let vertex_normals = get_vertex_normals(
-        primitive_group,
-        buffers,
-        &triangles_as_index_tuples,
-        &vertex_positions,
-        vertex_position_count,
-    )?;
+    let vertex_normals =
+        get_vertex_normals(primitive_group, buffers, &triangles, &vertex_positions)?;
     let vertex_normal_count = vertex_normals.len();
 
     let vertex_bone_indices =
@@ -899,25 +882,30 @@ pub fn load_geometry(
       );
     }
 
-    let vertex_tangents_and_bitangents = get_vertex_tangents(
+    let vertex_tangents = get_vertex_tangents(
         primitive_group,
         buffers,
-        &vertex_normals,
-        triangles_as_index_tuples,
+        &triangles,
         &vertex_positions,
+        &vertex_normals,
         &vertex_tex_coords,
     )?;
 
     let mut vertices = Vec::with_capacity(vertex_position_count);
     for index in 0..vertex_position_count {
-        let (tangent, _bitangent) = vertex_tangents_and_bitangents[index];
+        let tangent = Vec4::from(vertex_tangents[index]);
 
         vertices.push(ShaderVertex::from(Vertex {
-            position: vertex_positions[index],
-            normal: vertex_normals[index],
-            tangent,
+            position: vertex_positions[index].into(),
+            normal: vertex_normals[index].into(),
+            tangent: tangent.xyz(),
+            tangent_handedness: if tangent.w > 0.0 {
+                VertexTangentHandedness::Right
+            } else {
+                VertexTangentHandedness::Left
+            },
             tex_coords: vertex_tex_coords[index].into(),
-            color: vertex_colors[index].into(),
+            color: Vec4::from(vertex_colors[index]).xyz(),
             bone_indices: vertex_bone_indices[index].into(),
             bone_weights: vertex_bone_weights[index].into(),
         }));
@@ -967,12 +955,12 @@ pub fn load_geometry(
 fn get_vertex_tangents(
     primitive_group: &gltf::Primitive,
     buffers: &[gltf::buffer::Data],
-    vertex_normals: &[Vec3],
-    triangles_as_index_tuples: Vec<(usize, usize, usize)>,
-    vertex_positions: &[Vec3],
+    triangles: &[IndexedTriangle],
+    vertex_positions: &[[f32; 3]],
+    vertex_normals: &[[f32; 3]],
     vertex_tex_coords: &[[f32; 2]],
-) -> Result<Vec<(Vec3, Vec3)>, anyhow::Error> {
-    let vertex_tangents_and_bitangents: Vec<_> = primitive_group
+) -> Result<Vec<[f32; 4]>, anyhow::Error> {
+    Ok(primitive_group
         .attributes()
         .find(|(semantic, _)| *semantic == gltf::Semantic::Tangents)
         .map(|(_, accessor)| {
@@ -984,70 +972,61 @@ fn get_vertex_tangents(
             if data_type != gltf::accessor::DataType::F32 {
                 bail!("Expected f32 data but found: {:?}", data_type);
             }
-            let tangents_u8 = get_buffer_slice_from_accessor(accessor, buffers);
-            let tangents: &[[f32; 4]] = bytemuck::cast_slice(tangents_u8);
-
-            let mut result = Vec::with_capacity(tangents.len());
-            for (vertex_index, tangent_slice) in tangents.iter().enumerate() {
-                let normal = vertex_normals[vertex_index];
-                let tangent = Vec3::new(tangent_slice[0], tangent_slice[1], tangent_slice[2]);
-                // handedness is stored in w component: http://foundationsofgameenginedev.com/FGED2-sample.pdf
-                let coordinate_system_handedness = if tangent_slice[3] > 0.0 { -1.0 } else { 1.0 };
-                let bitangent = coordinate_system_handedness * normal.cross(tangent);
-                result.push((tangent, bitangent));
-            }
-            Ok(result)
+            Ok(bytemuck::cast_slice(get_buffer_slice_from_accessor(accessor, buffers)).to_vec())
         })
         .transpose()?
         .unwrap_or_else(|| {
-            let mut result = Vec::with_capacity(triangles_as_index_tuples.len() * 3);
-            for (index_a, index_b, index_c) in triangles_as_index_tuples {
-                let make_attributed_point = |index| {
-                    (
-                        vertex_positions[index],
-                        vertex_normals[index],
-                        Vec2::from(vertex_tex_coords[index]),
-                    )
-                };
-                let points_with_attribs = [
-                    make_attributed_point(index_a),
-                    make_attributed_point(index_b),
-                    make_attributed_point(index_c),
-                ];
-
-                let edge_1 = points_with_attribs[1].0 - points_with_attribs[0].0;
-                let edge_2 = points_with_attribs[2].0 - points_with_attribs[0].0;
-
-                let delta_uv_1 = points_with_attribs[1].2 - points_with_attribs[0].2;
-                let delta_uv_2 = points_with_attribs[2].2 - points_with_attribs[0].2;
-
-                let f = 1.0 / (delta_uv_1.x * delta_uv_2.y - delta_uv_2.x * delta_uv_1.y);
-
-                let (tangent, bitangent) = {
-                    if abs_diff_eq!(f, 0.0, epsilon = 0.00001) || !f.is_finite() {
-                        (Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0))
-                    } else {
-                        let tangent = Vec3::new(
-                            f * (delta_uv_2.y * edge_1.x - delta_uv_1.y * edge_2.x),
-                            f * (delta_uv_2.y * edge_1.y - delta_uv_1.y * edge_2.y),
-                            f * (delta_uv_2.y * edge_1.z - delta_uv_1.y * edge_2.z),
-                        );
-
-                        let bitangent = Vec3::new(
-                            f * (-delta_uv_2.x * edge_1.x + delta_uv_1.x * edge_2.x),
-                            f * (-delta_uv_2.x * edge_1.y + delta_uv_1.x * edge_2.y),
-                            f * (-delta_uv_2.x * edge_1.z + delta_uv_1.x * edge_2.z),
-                        );
-
-                        (tangent, bitangent)
-                    }
-                };
-
-                result.extend((0..3).map(|_| (tangent, bitangent)));
+            struct TangentCollector<'a> {
+                triangles: &'a [IndexedTriangle],
+                vertex_positions: &'a [[f32; 3]],
+                vertex_normals: &'a [[f32; 3]],
+                vertex_tex_coords: &'a [[f32; 2]],
+                vertex_tangents: Vec<[f32; 4]>,
             }
-            result
-        });
-    Ok(vertex_tangents_and_bitangents)
+
+            impl bevy_mikktspace::Geometry for TangentCollector<'_> {
+                fn num_faces(&self) -> usize {
+                    self.triangles.len()
+                }
+
+                fn num_vertices_of_face(&self, _face_index: usize) -> usize {
+                    3
+                }
+
+                fn position(&self, face_index: usize, face_vertex_index: usize) -> [f32; 3] {
+                    self.vertex_positions[self.triangles[face_index][face_vertex_index]]
+                }
+
+                fn normal(&self, face_index: usize, face_vertex_index: usize) -> [f32; 3] {
+                    self.vertex_normals[self.triangles[face_index][face_vertex_index]]
+                }
+
+                fn tex_coord(&self, face_index: usize, face_vertex_index: usize) -> [f32; 2] {
+                    self.vertex_tex_coords[self.triangles[face_index][face_vertex_index]]
+                }
+
+                fn set_tangent_encoded(
+                    &mut self,
+                    tangent: [f32; 4],
+                    face_index: usize,
+                    face_vertex_index: usize,
+                ) {
+                    self.vertex_tangents[self.triangles[face_index][face_vertex_index]] = tangent;
+                }
+            }
+
+            let mut tangent_collector = TangentCollector {
+                triangles,
+                vertex_positions,
+                vertex_normals,
+                vertex_tex_coords,
+                vertex_tangents: vec![[1.0, 0.0, 0.0, 1.0]; vertex_positions.len()],
+            };
+
+            generate_tangents_for_mesh(&mut tangent_collector);
+
+            tangent_collector.vertex_tangents
+        }))
 }
 
 fn get_vertex_bone_weights(
@@ -1131,11 +1110,10 @@ fn get_vertex_bone_indices(
 fn get_vertex_normals(
     primitive_group: &gltf::Primitive,
     buffers: &[gltf::buffer::Data],
-    triangles_as_index_tuples: &[(usize, usize, usize)],
-    vertex_positions: &[Vec3],
-    vertex_position_count: usize,
-) -> Result<Vec<Vec3>, anyhow::Error> {
-    let vertex_normals: Vec<Vec3> = primitive_group
+    triangles: &[IndexedTriangle],
+    vertex_positions: &[[f32; 3]],
+) -> Result<Vec<[f32; 3]>, anyhow::Error> {
+    let vertex_normals: Vec<_> = primitive_group
         .attributes()
         .find(|(semantic, _)| *semantic == gltf::Semantic::Normals)
         .map(|(_, accessor)| {
@@ -1147,38 +1125,33 @@ fn get_vertex_normals(
             if data_type != gltf::accessor::DataType::F32 {
                 bail!("Expected f32 data but found: {:?}", data_type);
             }
-            let normals_u8 = get_buffer_slice_from_accessor(accessor, buffers);
-            let normals: &[[f32; 3]] = bytemuck::cast_slice(normals_u8);
-            Ok(normals.to_vec().iter().copied().map(Vec3::from).collect())
+            Ok(bytemuck::cast_slice(get_buffer_slice_from_accessor(accessor, buffers)).to_vec())
         })
         .transpose()?
         .unwrap_or_else(|| {
             // compute normals
             // key is flattened vertex position, value is accumulated normal and count
             let mut vertex_normal_accumulators: HashMap<usize, (Vec3, usize)> = HashMap::new();
-            triangles_as_index_tuples
-                .iter()
-                .copied()
-                .for_each(|(index_a, index_b, index_c)| {
-                    let a = vertex_positions[index_a];
-                    let b = vertex_positions[index_b];
-                    let c = vertex_positions[index_c];
-                    let a_to_b = Vec3::new(b[0], b[1], b[2]) - Vec3::new(a[0], a[1], a[2]);
-                    let a_to_c = Vec3::new(c[0], c[1], c[2]) - Vec3::new(a[0], a[1], a[2]);
-                    let normal = a_to_b.cross(a_to_c).normalize();
-                    [index_a, index_b, index_c].iter().for_each(|vertex_index| {
-                        let (accumulated_normal, count) = vertex_normal_accumulators
-                            .entry(*vertex_index)
-                            .or_insert((Vec3::new(0.0, 0.0, 0.0), 0));
-                        *accumulated_normal += normal;
-                        *count += 1;
-                    });
+            triangles.iter().for_each(|indexed_triangle| {
+                let a = vertex_positions[indexed_triangle[0]];
+                let b = vertex_positions[indexed_triangle[1]];
+                let c = vertex_positions[indexed_triangle[2]];
+                let a_to_b = Vec3::new(b[0], b[1], b[2]) - Vec3::new(a[0], a[1], a[2]);
+                let a_to_c = Vec3::new(c[0], c[1], c[2]) - Vec3::new(a[0], a[1], a[2]);
+                let normal = a_to_b.cross(a_to_c).normalize();
+                indexed_triangle.iter().for_each(|vertex_index| {
+                    let (accumulated_normal, count) = vertex_normal_accumulators
+                        .entry(*vertex_index)
+                        .or_insert((Vec3::splat(0.0), 0));
+                    *accumulated_normal += normal;
+                    *count += 1;
                 });
-            (0..vertex_position_count)
+            });
+            (0..vertex_positions.len())
                 .map(|vertex_index| {
                     let (accumulated_normal, count) =
                         vertex_normal_accumulators.get(&vertex_index).unwrap();
-                    *accumulated_normal / (*count as f32)
+                    (*accumulated_normal / (*count as f32)).into()
                 })
                 .collect()
         });
@@ -1188,25 +1161,20 @@ fn get_vertex_normals(
 fn get_vertex_positions(
     primitive_group: &gltf::Primitive,
     buffers: &[gltf::buffer::Data],
-) -> Result<Vec<Vec3>, anyhow::Error> {
-    let vertex_positions: Vec<Vec3> = {
-        let (_, accessor) = primitive_group
-            .attributes()
-            .find(|(semantic, _)| *semantic == gltf::Semantic::Positions)
-            .ok_or_else(|| anyhow::anyhow!("No positions found"))?;
-        let data_type = accessor.data_type();
-        let dimensions = accessor.dimensions();
-        if dimensions != gltf::accessor::Dimensions::Vec3 {
-            bail!("Expected vec3 data but found: {:?}", dimensions);
-        }
-        if data_type != gltf::accessor::DataType::F32 {
-            bail!("Expected f32 data but found: {:?}", data_type);
-        }
-        let positions_u8 = get_buffer_slice_from_accessor(accessor, buffers);
-        let positions: &[[f32; 3]] = bytemuck::cast_slice(positions_u8);
-        anyhow::Ok(positions.to_vec().iter().copied().map(Vec3::from).collect())
-    }?;
-    Ok(vertex_positions)
+) -> Result<Vec<[f32; 3]>, anyhow::Error> {
+    let (_, accessor) = primitive_group
+        .attributes()
+        .find(|(semantic, _)| *semantic == gltf::Semantic::Positions)
+        .ok_or_else(|| anyhow::anyhow!("No positions found"))?;
+    let data_type = accessor.data_type();
+    let dimensions = accessor.dimensions();
+    if dimensions != gltf::accessor::Dimensions::Vec3 {
+        bail!("Expected vec3 data but found: {:?}", dimensions);
+    }
+    if data_type != gltf::accessor::DataType::F32 {
+        bail!("Expected f32 data but found: {:?}", data_type);
+    }
+    anyhow::Ok(bytemuck::cast_slice(get_buffer_slice_from_accessor(accessor, buffers)).to_vec())
 }
 
 fn get_vertex_colors(
@@ -1214,7 +1182,7 @@ fn get_vertex_colors(
     buffers: &[gltf::buffer::Data],
     vertex_position_count: usize,
 ) -> Result<Vec<[f32; 4]>, anyhow::Error> {
-    let vertex_colors: Vec<[f32; 4]> = primitive_group
+    Ok(primitive_group
         .attributes()
         .find(|(semantic, _)| *semantic == gltf::Semantic::Colors(0))
         .map(|(_, accessor)| {
@@ -1257,8 +1225,7 @@ fn get_vertex_colors(
             let mut result = Vec::with_capacity(vertex_position_count);
             result.extend((0..vertex_position_count).map(|_| [1.0, 1.0, 1.0, 1.0]));
             result
-        });
-    Ok(vertex_colors)
+        }))
 }
 
 fn get_vertex_tex_coords(
@@ -1266,7 +1233,7 @@ fn get_vertex_tex_coords(
     buffers: &[gltf::buffer::Data],
     vertex_position_count: usize,
 ) -> Result<Vec<[f32; 2]>, anyhow::Error> {
-    let vertex_tex_coords: Vec<[f32; 2]> = primitive_group
+    Ok(primitive_group
         .attributes()
         .find(|(semantic, _)| *semantic == gltf::Semantic::TexCoords(0))
         .map(|(_, accessor)| {
@@ -1281,17 +1248,17 @@ fn get_vertex_tex_coords(
             Ok(bytemuck::cast_slice(get_buffer_slice_from_accessor(accessor, buffers)).to_vec())
         })
         .transpose()?
-        .unwrap_or_else(|| (0..vertex_position_count).map(|_| [0.5, 0.5]).collect());
-    Ok(vertex_tex_coords)
+        .unwrap_or_else(|| vec![[0.5, 0.5]; vertex_position_count]))
 }
 
+// TODO: return BindableIndices instead of Vec<u32>
 #[profiling::function]
 fn get_indices(
     primitive_group: &gltf::Primitive,
     buffers: &[gltf::buffer::Data],
     vertex_position_count: usize,
 ) -> Result<Vec<u32>, anyhow::Error> {
-    let indices: Vec<u32> = primitive_group
+    primitive_group
         .indices()
         .map(|accessor| {
             let data_type = accessor.data_type();
@@ -1319,6 +1286,5 @@ fn get_indices(
         .unwrap_or_else(|| {
             let vertex_position_count_u32 = u32::try_from(vertex_position_count)?;
             Ok((0..vertex_position_count_u32).collect())
-        })?;
-    Ok(indices)
+        })
 }
