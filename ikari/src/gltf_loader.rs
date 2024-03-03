@@ -815,15 +815,23 @@ pub fn load_geometry(
 
     let indices = get_indices(primitive_group, buffers, vertex_position_count)?;
 
-    let triangle_count = indices.len() / 3;
+    let triangle_count = match &indices {
+        BindableIndices::U16(indices) => indices.len() / 3,
+        BindableIndices::U32(indices) => indices.len() / 3,
+    };
 
     let mut triangles: Vec<IndexedTriangle> = Vec::with_capacity(triangle_count);
     for triangle_index in 0..triangle_count {
+        let get_index = |i| match &indices {
+            BindableIndices::U16(indices) => indices[i] as usize,
+            BindableIndices::U32(indices) => indices[i] as usize,
+        };
+
         let i_left = triangle_index * 3;
         triangles.push([
-            indices[i_left] as usize,
-            indices[i_left + 1] as usize,
-            indices[i_left + 2] as usize,
+            get_index(i_left),
+            get_index(i_left + 1),
+            get_index(i_left + 2),
         ]);
     }
 
@@ -910,41 +918,15 @@ pub fn load_geometry(
         }));
     }
 
-    let make_bindable_indices = |indices: &Vec<u32>| {
-        let mut indices_u16 = Vec::with_capacity(indices.len());
-        for index in indices {
-            match u16::try_from(*index) {
-                Ok(index_u16) => {
-                    indices_u16.push(index_u16);
-                }
-                Err(_) => {
-                    // failed to fit a u16 into a u32, so give up and use u32 indices
-                    return BindableIndices::U32(indices.to_vec());
-                }
-            };
-        }
-        BindableIndices::U16(indices_u16)
+    let bindable_wireframe_indices = match &indices {
+        BindableIndices::U16(indices) => BindableIndices::U16(generate_wireframe_indices(indices)),
+        BindableIndices::U32(indices) => BindableIndices::U32(generate_wireframe_indices(indices)),
     };
-
-    let bindable_indices = make_bindable_indices(&indices);
-
-    let mut wireframe_indices = Vec::with_capacity(indices.len() * 2);
-    for triangle in indices.chunks(3) {
-        wireframe_indices.extend([
-            triangle[0],
-            triangle[1],
-            triangle[1],
-            triangle[2],
-            triangle[2],
-            triangle[0],
-        ]);
-    }
-    let bindable_wireframe_indices = make_bindable_indices(&wireframe_indices);
 
     Ok((
         BindableGeometryBuffers {
             vertices,
-            indices: bindable_indices,
+            indices,
             bounding_box,
         },
         bindable_wireframe_indices,
@@ -1250,40 +1232,50 @@ fn get_vertex_tex_coords(
         .unwrap_or_else(|| vec![[0.5, 0.5]; vertex_position_count]))
 }
 
-// TODO: return BindableIndices instead of Vec<u32>
 #[profiling::function]
 fn get_indices(
     primitive_group: &gltf::Primitive,
     buffers: &[gltf::buffer::Data],
     vertex_position_count: usize,
-) -> Result<Vec<u32>, anyhow::Error> {
+) -> Result<BindableIndices, anyhow::Error> {
     primitive_group
         .indices()
         .map(|accessor| {
             let data_type = accessor.data_type();
             let buffer_slice = get_buffer_slice_from_accessor(accessor, buffers);
-
-            let indices: Vec<u32> = match data_type {
-                gltf::accessor::DataType::U16 => anyhow::Ok(
-                    bytemuck::cast_slice::<_, u16>(buffer_slice)
-                        .iter()
-                        .map(|&x| x as u32)
-                        .collect::<Vec<_>>(),
-                ),
-                gltf::accessor::DataType::U8 => {
-                    anyhow::Ok(buffer_slice.iter().map(|&x| x as u32).collect::<Vec<_>>())
-                }
-                gltf::accessor::DataType::U32 => {
-                    anyhow::Ok(bytemuck::cast_slice::<_, u32>(buffer_slice).to_vec())
-                }
+            match data_type {
+                gltf::accessor::DataType::U16 => anyhow::Ok(BindableIndices::U16(
+                    bytemuck::cast_slice(buffer_slice).to_vec(),
+                )),
+                gltf::accessor::DataType::U8 => anyhow::Ok(BindableIndices::U16(
+                    buffer_slice.iter().map(|x| *x as u16).collect(),
+                )),
+                gltf::accessor::DataType::U32 => anyhow::Ok(BindableIndices::U32(
+                    bytemuck::cast_slice::<_, u32>(buffer_slice).to_vec(),
+                )),
                 data_type => {
                     bail!("Expected u32, u16 or u8 indices but found: {:?}", data_type)
                 }
-            }?;
-            anyhow::Ok(indices)
+            }
         })
         .unwrap_or_else(|| {
-            let vertex_position_count_u32 = u32::try_from(vertex_position_count)?;
-            Ok((0..vertex_position_count_u32).collect())
+            let vertex_position_count = u32::try_from(vertex_position_count)?;
+            Ok(BindableIndices::U32((0..vertex_position_count).collect()))
         })
+}
+
+#[profiling::function]
+fn generate_wireframe_indices<T: Copy>(indices: &[T]) -> Vec<T> {
+    let mut wireframe_indices = Vec::with_capacity(indices.len() * 2);
+    for triangle in indices.chunks(3) {
+        wireframe_indices.extend([
+            triangle[0],
+            triangle[1],
+            triangle[1],
+            triangle[2],
+            triangle[2],
+            triangle[0],
+        ]);
+    }
+    wireframe_indices
 }
