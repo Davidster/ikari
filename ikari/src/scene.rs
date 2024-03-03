@@ -10,7 +10,7 @@ use twox_hash::XxHash64;
 
 const REBUILD_SKELETON_PARENT_MAP_ON_REMOVE: bool = false;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Scene {
     nodes: Vec<(Option<GameNode>, usize)>, // (node, generation number). None means the node was removed from the scene
     empty_node_indices: Vec<usize>,
@@ -265,28 +265,27 @@ impl Scene {
     pub fn merge_scene(
         &mut self,
         renderer_data: &mut RendererData,
-        mut other_scene: Scene,
-        mut other_render_buffers: BindedSceneData,
+        mut other_loaded_scene: BindedScene,
     ) {
         let mesh_index_offset = renderer_data.binded_meshes.len();
         let material_index_offset = renderer_data.binded_pbr_materials.len();
 
-        for binded_wireframe_mesh in &mut other_render_buffers.binded_wireframe_meshes {
+        for binded_wireframe_mesh in &mut other_loaded_scene.binded_wireframe_meshes {
             binded_wireframe_mesh.source_mesh_index += mesh_index_offset;
         }
 
         renderer_data
             .binded_meshes
-            .append(&mut other_render_buffers.binded_meshes);
+            .append(&mut other_loaded_scene.binded_meshes);
         renderer_data
             .binded_wireframe_meshes
-            .append(&mut other_render_buffers.binded_wireframe_meshes);
+            .append(&mut other_loaded_scene.binded_wireframe_meshes);
         renderer_data
             .binded_pbr_materials
-            .append(&mut other_render_buffers.binded_pbr_materials);
+            .append(&mut other_loaded_scene.binded_pbr_materials);
         renderer_data
             .textures
-            .append(&mut other_render_buffers.textures);
+            .append(&mut other_loaded_scene.textures);
 
         let skin_index_offset = self.skins.len();
         let node_index_offset = self.nodes.len();
@@ -295,7 +294,7 @@ impl Scene {
             let new_index = old_index + node_index_offset as u32;
             GameNodeId(new_index, 0)
         };
-        for (node, _) in &mut other_scene.nodes {
+        for (node, _) in &mut other_loaded_scene.scene.nodes {
             if let Some(ref mut node) = node {
                 if let Some(ref mut visual) = node.visual {
                     visual.mesh_index += mesh_index_offset;
@@ -320,7 +319,7 @@ impl Scene {
                 node.id = convert_node_id(node.id);
             }
         }
-        for skin in &mut other_scene.skins {
+        for skin in &mut other_loaded_scene.scene.skins {
             skin.bone_node_ids = skin
                 .bone_node_ids
                 .iter()
@@ -329,15 +328,16 @@ impl Scene {
                 .collect();
             skin.node_id = convert_node_id(skin.node_id);
         }
-        for animation in &mut other_scene.animations {
+        for animation in &mut other_loaded_scene.scene.animations {
             for channel in &mut animation.channels {
                 channel.node_id = convert_node_id(channel.node_id);
             }
         }
 
-        self.nodes.append(&mut other_scene.nodes);
-        self.skins.append(&mut other_scene.skins);
-        self.animations.append(&mut other_scene.animations);
+        self.nodes.append(&mut other_loaded_scene.scene.nodes);
+        self.skins.append(&mut other_loaded_scene.scene.skins);
+        self.animations
+            .append(&mut other_loaded_scene.scene.animations);
         self.rebuild_skeleton_parent_index_maps();
     }
 

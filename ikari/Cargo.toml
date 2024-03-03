@@ -77,6 +77,8 @@ byte-unit = "4.0.19"
 bitvec = "1.0.1"
 base64 = "0.21.7"
 urlencoding = "2.1.3"
+size = "0.4.1"
+bevy_mikktspace = "0.13.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 basis-universal = "0.3.0"

@@ -29,13 +29,12 @@ var<storage, read> instances_uniform: InstancesUniform;
 
 struct VertexInput {
     @location(0) object_position: vec3<f32>,
-    @location(1) object_normal: vec3<f32>,
-    @location(2) object_tex_coords: vec2<f32>,
+    @location(1) bone_weights: vec4<f32>,
+    @location(2) object_normal: vec3<f32>,
     @location(3) object_tangent: vec3<f32>,
-    @location(4) object_bitangent: vec3<f32>,
+    @location(4) object_tex_coords: vec2<f32>,
     @location(5) object_color: vec4<f32>,
-    @location(6) bone_indices: vec4<u32>,
-    @location(7) bone_weights: vec4<f32>,
+    @location(6) bone_indices: vec4<u32>, 
 }
 
 struct VertexOutput {

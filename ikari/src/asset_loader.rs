@@ -8,7 +8,6 @@ use crate::raw_image::RawImage;
 use crate::raw_image::RawImageDepthJoiner;
 use crate::renderer::*;
 use crate::sampler_cache::*;
-use crate::scene::*;
 use crate::texture::*;
 use crate::texture_compression::TextureCompressor;
 use crate::time::*;
@@ -49,7 +48,7 @@ pub struct AssetLoader {
 
     audio_manager: Arc<Mutex<AudioManager>>,
     pending_scenes: Arc<Mutex<Vec<(AssetId, SceneAssetLoadParams)>>>,
-    bindable_scenes: Arc<Mutex<HashMap<AssetId, (Scene, BindableSceneData)>>>,
+    bindable_scenes: Arc<Mutex<HashMap<AssetId, BindableScene>>>,
 
     pending_skyboxes: Arc<Mutex<Vec<(AssetId, SkyboxPaths)>>>,
     bindable_skyboxes: Arc<Mutex<HashMap<AssetId, BindableSkybox>>>,
@@ -73,15 +72,14 @@ trait BindScene: WasmNotSend + WasmNotSync {
         renderer_constant_data: WasmNotArc<RendererConstantData>,
         asset_loader: Arc<AssetLoader>,
     );
-    fn loaded_scenes(&self)
-        -> WasmNotArc<WasmNotMutex<HashMap<AssetId, (Scene, BindedSceneData)>>>;
+    fn loaded_scenes(&self) -> WasmNotArc<WasmNotMutex<HashMap<AssetId, BindedScene>>>;
 }
 
 type BindGroupCache = HashMap<IndexedPbrTextures, WasmNotArc<wgpu::BindGroup>>;
 
 struct TimeSlicedSceneBinder {
-    staged_scenes: WasmNotMutex<HashMap<AssetId, BindedSceneData>>,
-    loaded_scenes: WasmNotArc<WasmNotMutex<HashMap<AssetId, (Scene, BindedSceneData)>>>,
+    staged_scenes: WasmNotMutex<HashMap<AssetId, BindedScene>>,
+    loaded_scenes: WasmNotArc<WasmNotMutex<HashMap<AssetId, BindedScene>>>,
     bind_group_caches: WasmNotArc<WasmNotMutex<HashMap<AssetId, BindGroupCache>>>,
 }
 
@@ -142,17 +140,12 @@ impl AssetLoader {
                         let (next_scene_id, next_scene_params) =
                             pending_scenes.lock().unwrap().remove(0);
 
-                        profiling::scope!(
-                            "Load scene",
-                            &next_scene_params.path.relative_path.to_string_lossy()
-                        );
-
                         match load_scene(next_scene_params.clone()).await {
-                            Ok(result) => {
+                            Ok(bindable_scene) => {
                                 let _replaced_ignored = bindable_scenes
                                     .lock()
                                     .unwrap()
-                                    .insert(next_scene_id, result);
+                                    .insert(next_scene_id, bindable_scene);
                             }
                             Err(err) => {
                                 log::error!(
@@ -290,7 +283,7 @@ impl AssetLoader {
                         "Streamed in {:?} samples ({:?} seconds) from file: {:?}",
                         sample_count,
                         sample_count as f32 / device_sample_rate as f32,
-                        audio_file_streamer.file_path(),
+                        audio_file_streamer.file_path().relative_path,
                     );
 
                     audio_manager
@@ -425,9 +418,7 @@ impl AssetBinder {
         );
     }
 
-    pub fn loaded_scenes(
-        &self,
-    ) -> WasmNotArc<WasmNotMutex<HashMap<AssetId, (Scene, BindedSceneData)>>> {
+    pub fn loaded_scenes(&self) -> WasmNotArc<WasmNotMutex<HashMap<AssetId, BindedScene>>> {
         self.scene_binder.loaded_scenes().clone()
     }
 
@@ -552,12 +543,7 @@ pub async fn make_bindable_skybox(paths: &SkyboxPaths) -> Result<BindableSkybox>
                 rgb_values
                     .iter()
                     .copied()
-                    .flat_map(|rbg| {
-                        rbg.to_rgba()
-                            .0
-                            .into_iter()
-                            .map(|c| Float16(half::f16::from_f32(c)))
-                    })
+                    .flat_map(|rbg| rbg.to_rgba().0.into_iter().map(Float16::from))
                     .collect()
             };
 
@@ -591,13 +577,13 @@ pub async fn make_bindable_skybox(paths: &SkyboxPaths) -> Result<BindableSkybox>
 
 #[cfg(not(target_arch = "wasm32"))]
 struct ThreadedSceneBinder {
-    loaded_scenes: Arc<Mutex<HashMap<AssetId, (Scene, BindedSceneData)>>>,
+    loaded_scenes: Arc<Mutex<HashMap<AssetId, BindedScene>>>,
     bind_group_caches: Arc<Mutex<HashMap<AssetId, BindGroupCache>>>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl ThreadedSceneBinder {
-    pub fn new(loaded_scenes: Arc<Mutex<HashMap<AssetId, (Scene, BindedSceneData)>>>) -> Self {
+    pub fn new(loaded_scenes: Arc<Mutex<HashMap<AssetId, BindedScene>>>) -> Self {
         Self {
             loaded_scenes,
             bind_group_caches: Arc::new(Mutex::new(HashMap::new())),
@@ -608,8 +594,15 @@ impl ThreadedSceneBinder {
         base_renderer: &BaseRenderer,
         renderer_constant_data: &RendererConstantData,
         bind_group_cache: &mut BindGroupCache,
-        bindable_scene: BindableSceneData,
-    ) -> Result<BindedSceneData> {
+        bindable_scene: BindableScene,
+    ) -> Result<BindedScene> {
+        profiling::scope!(
+            "bind_scene",
+            &bindable_scene.path.relative_path.to_string_lossy()
+        );
+
+        let start_time = crate::time::Instant::now();
+
         let mut textures: Vec<Texture> = Vec::with_capacity(bindable_scene.textures.len());
         for bindable_texture in bindable_scene.textures.iter() {
             textures.push(bind_texture(base_renderer, bindable_texture)?);
@@ -641,7 +634,15 @@ impl ThreadedSceneBinder {
             binded_wireframe_meshes.push(bind_wireframe_mesh(base_renderer, wireframe_mesh)?);
         }
 
-        Ok(BindedSceneData {
+        log::debug!(
+            "Scene {:?} binded in {:?}:",
+            bindable_scene.path.relative_path,
+            start_time.elapsed()
+        );
+
+        Ok(BindedScene {
+            path: bindable_scene.path,
+            scene: bindable_scene.scene,
             binded_meshes,
             binded_wireframe_meshes,
             binded_pbr_materials,
@@ -674,22 +675,21 @@ impl BindScene for ThreadedSceneBinder {
         }
 
         crate::thread::spawn(move || {
-            for (scene_id, (scene, bindable_scene)) in bindable_scenes {
+            for (scene_id, bindable_scene) in bindable_scenes {
                 let mut bind_group_caches_guard = bind_group_caches_clone.lock().unwrap();
                 let bind_group_cache = bind_group_caches_guard.entry(scene_id).or_default();
 
-                let binded_scene_result = Self::bind_scene(
+                match Self::bind_scene(
                     &base_renderer.clone(),
                     &renderer_constant_data.clone(),
                     bind_group_cache,
                     bindable_scene,
-                );
-                match binded_scene_result {
-                    Ok(result) => {
+                ) {
+                    Ok(binded_scene) => {
                         let _replaced_ignored = loaded_scenes_clone
                             .lock()
                             .unwrap()
-                            .insert(scene_id, (scene, result));
+                            .insert(scene_id, binded_scene);
                     }
                     Err(err) => {
                         log::error!(
@@ -704,16 +704,14 @@ impl BindScene for ThreadedSceneBinder {
         });
     }
 
-    fn loaded_scenes(&self) -> Arc<Mutex<HashMap<AssetId, (Scene, BindedSceneData)>>> {
+    fn loaded_scenes(&self) -> Arc<Mutex<HashMap<AssetId, BindedScene>>> {
         self.loaded_scenes.clone()
     }
 }
 
 impl TimeSlicedSceneBinder {
     #[allow(dead_code)]
-    pub fn new(
-        loaded_scenes: WasmNotArc<WasmNotMutex<HashMap<AssetId, (Scene, BindedSceneData)>>>,
-    ) -> Self {
+    pub fn new(loaded_scenes: WasmNotArc<WasmNotMutex<HashMap<AssetId, BindedScene>>>) -> Self {
         Self {
             loaded_scenes,
             staged_scenes: WasmNotMutex::new(HashMap::new()),
@@ -724,15 +722,17 @@ impl TimeSlicedSceneBinder {
     fn bind_scene_slice(
         base_renderer: &BaseRenderer,
         renderer_constant_data: &RendererConstantData,
-        staged_scenes: &mut HashMap<AssetId, BindedSceneData>,
+        staged_scenes: &mut HashMap<AssetId, BindedScene>,
         bind_group_cache: &mut BindGroupCache,
         scene_id: AssetId,
-        bindable_scene: &BindableSceneData,
-    ) -> Result<Option<BindedSceneData>> {
+        bindable_scene: &BindableScene,
+    ) -> Result<Option<BindedScene>> {
         {
             let staged_scene = staged_scenes
                 .entry(scene_id)
-                .or_insert_with(|| BindedSceneData {
+                .or_insert_with(|| BindedScene {
+                    path: bindable_scene.path.clone(),
+                    scene: bindable_scene.scene.clone(),
                     binded_meshes: Vec::with_capacity(bindable_scene.bindable_meshes.len()),
                     binded_wireframe_meshes: Vec::with_capacity(
                         bindable_scene.bindable_wireframe_meshes.len(),
@@ -822,30 +822,29 @@ impl BindScene for TimeSlicedSceneBinder {
             while start_time.elapsed().as_secs_f32() < SLICE_BUDGET_SECONDS {
                 let scene_id = scene_id;
 
-                let (scene, bindable_scene) = bindable_scenes_guard.remove(&scene_id).unwrap();
+                let bindable_scene = bindable_scenes_guard.remove(&scene_id).unwrap();
 
                 let mut bind_group_caches_guard = self.bind_group_caches.lock().unwrap();
                 let bind_group_cache = bind_group_caches_guard.entry(scene_id).or_default();
 
-                let binded_scene_result = Self::bind_scene_slice(
+                match Self::bind_scene_slice(
                     &base_renderer,
                     &renderer_constant_data,
                     &mut self.staged_scenes.lock().unwrap(),
                     bind_group_cache,
                     scene_id,
                     &bindable_scene,
-                );
-                match binded_scene_result {
-                    Ok(Some(result)) => {
+                ) {
+                    Ok(Some(binded_scene)) => {
                         let _replaced_ignored = loaded_scenes_clone
                             .lock()
                             .unwrap()
-                            .insert(scene_id, (scene, result));
+                            .insert(scene_id, binded_scene);
                         break;
                     }
                     Ok(None) => {
                         // not done binding this scene yet, add it back to the map to be processed next frame
-                        bindable_scenes_guard.insert(scene_id, (scene, bindable_scene));
+                        bindable_scenes_guard.insert(scene_id, bindable_scene);
                     }
                     Err(err) => {
                         log::error!(
@@ -866,9 +865,7 @@ impl BindScene for TimeSlicedSceneBinder {
         }
     }
 
-    fn loaded_scenes(
-        &self,
-    ) -> WasmNotArc<WasmNotMutex<HashMap<AssetId, (Scene, BindedSceneData)>>> {
+    fn loaded_scenes(&self) -> WasmNotArc<WasmNotMutex<HashMap<AssetId, BindedScene>>> {
         self.loaded_scenes.clone()
     }
 }
@@ -1021,6 +1018,7 @@ impl BindSkybox for TimeSlicedSkyboxBinder {
     }
 }
 
+#[profiling::function]
 fn bind_texture(
     base_renderer: &BaseRenderer,
     bindable_texture: &BindableTexture,
@@ -1039,6 +1037,7 @@ fn bind_texture(
     )
 }
 
+#[profiling::function]
 fn bind_mesh(
     base_renderer: &BaseRenderer,
     mesh: &BindableGeometryBuffers,
@@ -1055,7 +1054,7 @@ fn bind_mesh(
     let vertex_buffer = GpuBuffer::from_bytes(
         &base_renderer.device,
         vertex_buffer_bytes,
-        std::mem::size_of::<Vertex>(),
+        std::mem::size_of::<ShaderVertex>(),
         wgpu::BufferUsages::VERTEX,
     );
 
@@ -1068,6 +1067,7 @@ fn bind_mesh(
     Ok(geometry_buffers)
 }
 
+#[profiling::function]
 fn bind_pbr_material(
     base_renderer: &BaseRenderer,
     renderer_constant_data: &RendererConstantData,
@@ -1106,6 +1106,7 @@ fn bind_pbr_material(
     })
 }
 
+#[profiling::function]
 fn bind_wireframe_mesh(
     base_renderer: &BaseRenderer,
     wireframe_mesh: &BindableWireframeMesh,
@@ -1116,6 +1117,7 @@ fn bind_wireframe_mesh(
     })
 }
 
+#[profiling::function]
 fn bind_index_buffer(
     base_renderer: &BaseRenderer,
     indices: &BindableIndices,

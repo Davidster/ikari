@@ -1,4 +1,4 @@
-use crate::texture::*;
+use crate::{renderer::Float16, texture::*};
 
 use std::{
     collections::{hash_map, HashMap},
@@ -6,42 +6,141 @@ use std::{
 };
 
 use anyhow::{bail, Result};
+use approx::abs_diff_eq;
 use glam::{
     f32::{Vec2, Vec3, Vec4},
-    Mat4,
+    Mat4, UVec4, Vec2Swizzles, Vec3Swizzles, Vec4Swizzles,
 };
 use obj::raw::parse_obj;
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct Vertex {
-    pub position: [f32; 3],
-    pub normal: [f32; 3],
-    pub tex_coords: [f32; 2],
-    pub tangent: [f32; 3],
-    pub bitangent: [f32; 3],
-    pub color: [f32; 4],
-    pub bone_indices: [u32; 4],
-    pub bone_weights: [f32; 4],
+pub enum VertexTangentHandedness {
+    Right,
+    Left,
 }
 
-impl Vertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
-        0 => Float32x3,
-        1 => Float32x3,
-        2 => Float32x2,
-        3 => Float32x3,
-        4 => Float32x3,
-        5 => Float32x4,
-        6 => Uint32x4,
-        7 => Float32x4,
+pub struct Vertex {
+    pub position: Vec3,
+    pub bone_weights: Vec4,
+    pub normal: Vec3,
+    pub tangent: Vec3,
+    pub tangent_handedness: VertexTangentHandedness,
+    pub tex_coords: Vec2,
+    pub color: Vec3,
+    pub bone_indices: UVec4,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ShaderVertex {
+    pub position: [f32; 3],
+    pub bone_weights: [Float16; 4],
+    pub normal: [Float16; 2],
+    pub tangent: [Float16; 2],
+    pub tex_coords: [u16; 2],
+    // taking the alpha channel for tangent handedness which means we don't support transparent vertex colors
+    pub color_and_tangent_handedness: [u8; 4],
+    pub bone_indices: [u8; 4],
+}
+
+pub type IndexedTriangle = [usize; 3];
+
+impl ShaderVertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
+        0 => Float32x3, // position
+        1 => Float16x4, // bone_weights
+        2 => Float16x2, // normal
+        3 => Float16x2, // tangent
+        4 => Unorm16x2, // tex_coords
+        5 => Unorm8x4,  // color_and_tangent_handedness
+        6 => Uint8x4,  // bone_indices
     ];
 
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<ShaderVertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &Self::ATTRIBS,
+        }
+    }
+}
+
+// https://knarkowicz.wordpress.com/2014/04/16/octahedron-normal-vector-encoding/
+// https://cesium.com/blog/2015/05/18/vertex-compression/
+// https://jcgt.org/published/0003/02/01/
+pub fn oct_encode_unit_vector(mut n: Vec3) -> [Float16; 2] {
+    n = n / (n.x.abs() + n.y.abs() + n.z.abs());
+    let mut result_vec2 = if n.z >= 0.0 { n.xy() } else { oct_wrap(n.xy()) };
+    result_vec2 = result_vec2 * Vec2::splat(0.5) + Vec2::splat(0.5);
+    [Float16::from(result_vec2.x), Float16::from(result_vec2.y)]
+}
+
+fn oct_wrap(v: Vec2) -> Vec2 {
+    (Vec2::splat(1.0) - v.yx().abs())
+        * Vec2::new(
+            if v.x >= 0.0 { 1.0 } else { -1.0 },
+            if v.y >= 0.0 { 1.0 } else { -1.0 },
+        )
+}
+
+impl Default for ShaderVertex {
+    fn default() -> Self {
+        Self {
+            position: Default::default(),
+            normal: oct_encode_unit_vector([0.0, 1.0, 0.0].into()),
+            tangent: oct_encode_unit_vector([1.0, 0.0, 0.0].into()),
+            tex_coords: Default::default(),
+            color_and_tangent_handedness: [255, 255, 255, 255],
+            bone_indices: Default::default(),
+            bone_weights: [
+                Float16::from(1.0),
+                Float16::from(0.0),
+                Float16::from(0.0),
+                Float16::from(0.0),
+            ],
+        }
+    }
+}
+
+impl From<Vertex> for ShaderVertex {
+    fn from(value: Vertex) -> Self {
+        let convert_bone_index = |bone_index: u32| -> u8 {
+            bone_index.try_into().unwrap_or_else(|_| {
+                log::error!("Failed to convert bone index {} from u32 to u8. Does the character have more than 255 bones?", bone_index);
+                0
+            })
+        };
+
+        Self {
+            position: value.position.into(),
+            normal: oct_encode_unit_vector(value.normal),
+            tangent: oct_encode_unit_vector(value.tangent),
+            tex_coords: [
+                ((value.tex_coords.x * (u16::MAX as f32)).round() % (u16::MAX as f32 + 1.0)) as u16,
+                ((value.tex_coords.y * (u16::MAX as f32)).round() % (u16::MAX as f32 + 1.0)) as u16,
+            ],
+            color_and_tangent_handedness: [
+                (value.color.x * u8::MAX as f32).round() as u8,
+                (value.color.y * u8::MAX as f32).round() as u8,
+                (value.color.z * u8::MAX as f32).round() as u8,
+                match value.tangent_handedness {
+                    // 255 means 1.0, and 0 means -1.0.
+                    // not sure if 1.0 actually corresponds to 'right handed', but whatever.
+                    VertexTangentHandedness::Right => 255,
+                    VertexTangentHandedness::Left => 0,
+                },
+            ],
+            bone_indices: [
+                convert_bone_index(value.bone_indices.x),
+                convert_bone_index(value.bone_indices.y),
+                convert_bone_index(value.bone_indices.z),
+                convert_bone_index(value.bone_indices.w),
+            ],
+            bone_weights: [
+                Float16::from(value.bone_weights.x),
+                Float16::from(value.bone_weights.y),
+                Float16::from(value.bone_weights.z),
+                Float16::from(value.bone_weights.w),
+            ],
         }
     }
 }
@@ -50,13 +149,13 @@ impl Default for Vertex {
     fn default() -> Self {
         Self {
             position: Default::default(),
-            normal: [0.0, 1.0, 0.0],
+            normal: [0.0, 1.0, 0.0].into(),
             tex_coords: Default::default(),
-            tangent: [1.0, 0.0, 0.0],
-            bitangent: [0.0, 0.0, 1.0],
-            color: [1.0, 1.0, 1.0, 1.0],
+            tangent: [1.0, 0.0, 0.0].into(),
+            tangent_handedness: VertexTangentHandedness::Right,
+            color: [1.0, 1.0, 1.0].into(),
             bone_indices: Default::default(),
-            bone_weights: [1.0, 0.0, 0.0, 0.0],
+            bone_weights: [1.0, 0.0, 0.0, 0.0].into(),
         }
     }
 }
@@ -159,7 +258,7 @@ pub struct PbrTextures<'a> {
 }
 
 pub struct BasicMesh {
-    pub vertices: Vec<Vertex>,
+    pub vertices: Vec<ShaderVertex>,
     pub indices: Vec<u16>,
 }
 
@@ -191,61 +290,88 @@ impl BasicMesh {
             }
         }
 
-        let mut composite_index_map: HashMap<(usize, usize, usize), Vertex> = HashMap::new();
-        triangles.iter().for_each(|points| {
-            let points_with_attribs: Vec<_> = points
-                .iter()
-                .map(|vti| {
-                    let key = (vti.0, vti.2, vti.1);
-                    let pos = obj.positions[vti.0];
-                    let normal = obj.normals[vti.2];
-                    let uv = obj.tex_coords[vti.1];
-                    let position = Vec3::new(pos.0, pos.1, pos.2);
-                    let normal = Vec3::from(normal);
-                    // convert uv format into 0->1 range
-                    let tex_coords = Vec2::new(uv.0, 1.0 - uv.1);
-                    (key, position, normal, tex_coords)
-                })
-                .collect();
+        struct TangentCollector<'a> {
+            obj: &'a obj::raw::RawObj,
+            triangles: &'a [[(usize, usize, usize); 3]],
+            vertex_tangents: Vec<[f32; 4]>,
+        }
 
-            let edge_1 = points_with_attribs[1].1 - points_with_attribs[0].1;
-            let edge_2 = points_with_attribs[2].1 - points_with_attribs[0].1;
+        impl bevy_mikktspace::Geometry for TangentCollector<'_> {
+            fn num_faces(&self) -> usize {
+                self.triangles.len()
+            }
 
-            let delta_uv_1 = points_with_attribs[1].3 - points_with_attribs[0].3;
-            let delta_uv_2 = points_with_attribs[2].3 - points_with_attribs[0].3;
+            fn num_vertices_of_face(&self, _face_index: usize) -> usize {
+                3
+            }
 
-            let f = 1.0 / (delta_uv_1.x * delta_uv_2.y - delta_uv_2.x * delta_uv_1.y);
+            fn position(&self, face_index: usize, face_vertex_index: usize) -> [f32; 3] {
+                let pos = self.obj.positions[self.triangles[face_index][face_vertex_index].0];
+                [pos.0, pos.1, pos.2]
+            }
 
-            let tangent = Vec3::new(
-                f * (delta_uv_2.y * edge_1.x - delta_uv_1.y * edge_2.x),
-                f * (delta_uv_2.y * edge_1.y - delta_uv_1.y * edge_2.y),
-                f * (delta_uv_2.y * edge_1.z - delta_uv_1.y * edge_2.z),
-            );
+            fn normal(&self, face_index: usize, face_vertex_index: usize) -> [f32; 3] {
+                self.obj.normals[self.triangles[face_index][face_vertex_index].2].into()
+            }
 
-            let bitangent = Vec3::new(
-                f * (-delta_uv_2.x * edge_1.x + delta_uv_1.x * edge_2.x),
-                f * (-delta_uv_2.x * edge_1.y + delta_uv_1.x * edge_2.y),
-                f * (-delta_uv_2.x * edge_1.z + delta_uv_1.x * edge_2.z),
-            );
+            fn tex_coord(&self, face_index: usize, face_vertex_index: usize) -> [f32; 2] {
+                let tc = self.obj.tex_coords[self.triangles[face_index][face_vertex_index].1];
+                [tc.0, tc.1]
+            }
 
-            points_with_attribs
-                .iter()
-                .for_each(|(key, position, normal, tex_coords)| {
-                    if let hash_map::Entry::Vacant(vacant_entry) = composite_index_map.entry(*key) {
-                        let to_arr = |vec: &Vec3| [vec.x, vec.y, vec.z];
-                        vacant_entry.insert(Vertex {
-                            position: to_arr(position),
-                            normal: to_arr(normal),
-                            tex_coords: [tex_coords.x, tex_coords.y],
-                            tangent: to_arr(&tangent),
-                            bitangent: to_arr(&bitangent),
-                            ..Default::default()
-                        });
-                    }
-                });
-        });
+            fn set_tangent_encoded(
+                &mut self,
+                tangent: [f32; 4],
+                face_index: usize,
+                face_vertex_index: usize,
+            ) {
+                self.vertex_tangents[face_index * 3 + face_vertex_index] = tangent;
+            }
+        }
+
+        let mut tangent_collector = TangentCollector {
+            obj: &obj,
+            triangles: &triangles,
+            vertex_tangents: vec![[1.0, 0.0, 0.0, 1.0]; triangles.len() * 3],
+        };
+
+        generate_tangents_for_mesh(&mut tangent_collector);
+
+        let mut composite_index_map: HashMap<(usize, usize, usize), ShaderVertex> = HashMap::new();
+        triangles
+            .iter()
+            .enumerate()
+            .for_each(|(triangle_index, triangle_vertices)| {
+                triangle_vertices
+                    .iter()
+                    .enumerate()
+                    .for_each(|(triangle_vertex_index, vti)| {
+                        let key = (vti.0, vti.2, vti.1);
+                        let pos = obj.positions[vti.0];
+                        let normal = obj.normals[vti.2];
+                        let uv = obj.tex_coords[vti.1];
+                        let position = Vec3::new(pos.0, pos.1, pos.2);
+                        let normal = Vec3::from(normal);
+                        // convert uv format into 0->1 range
+                        let tex_coords = Vec2::new(uv.0, 1.0 - uv.1);
+                        let tangent = tangent_collector.vertex_tangents
+                            [triangle_index * 3 + triangle_vertex_index];
+
+                        if let hash_map::Entry::Vacant(vacant_entry) =
+                            composite_index_map.entry(key)
+                        {
+                            vacant_entry.insert(ShaderVertex::from(Vertex {
+                                position,
+                                normal,
+                                tangent: Vec4::from(tangent).xyz(),
+                                tex_coords,
+                                ..Default::default()
+                            }));
+                        }
+                    });
+            });
         let mut index_map: HashMap<(usize, usize, usize), usize> = HashMap::new();
-        let mut vertices: Vec<Vertex> = Vec::new();
+        let mut vertices: Vec<ShaderVertex> = Vec::new();
         composite_index_map
             .iter()
             .enumerate()
@@ -266,5 +392,49 @@ impl BasicMesh {
             })
             .collect();
         Ok(BasicMesh { vertices, indices })
+    }
+}
+
+/// tangent_collector must give triangles. other face types are not supported
+pub fn generate_tangents_for_mesh(tangent_collector: &mut impl bevy_mikktspace::Geometry) {
+    let succeeded = bevy_mikktspace::generate_tangents(tangent_collector);
+    if !succeeded {
+        // do it the old (broken) way
+        for triangle_index in 0..tangent_collector.num_faces() {
+            let edge_1 = Vec3::from(tangent_collector.position(triangle_index, 1))
+                - Vec3::from(tangent_collector.position(triangle_index, 0));
+            let edge_2 = Vec3::from(tangent_collector.position(triangle_index, 2))
+                - Vec3::from(tangent_collector.position(triangle_index, 0));
+
+            let delta_uv_1 = Vec2::from(tangent_collector.tex_coord(triangle_index, 1))
+                - Vec2::from(tangent_collector.tex_coord(triangle_index, 0));
+            let delta_uv_2 = Vec2::from(tangent_collector.tex_coord(triangle_index, 2))
+                - Vec2::from(tangent_collector.tex_coord(triangle_index, 0));
+
+            let f = 1.0 / (delta_uv_1.x * delta_uv_2.y - delta_uv_2.x * delta_uv_1.y);
+            let tangent = {
+                if abs_diff_eq!(f, 0.0, epsilon = 0.00001) || !f.is_finite() {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [
+                        f * (delta_uv_2.y * edge_1.x - delta_uv_1.y * edge_2.x),
+                        f * (delta_uv_2.y * edge_1.y - delta_uv_1.y * edge_2.y),
+                        f * (delta_uv_2.y * edge_1.z - delta_uv_1.y * edge_2.z),
+                    ]
+                }
+            };
+
+            for triangle_vertex_index in 0..3 {
+                tangent_collector.set_tangent(
+                    tangent,
+                    Default::default(),
+                    Default::default(),
+                    Default::default(),
+                    true,
+                    triangle_index,
+                    triangle_vertex_index,
+                );
+            }
+        }
     }
 }

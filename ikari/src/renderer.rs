@@ -18,6 +18,7 @@ use crate::wasm_not_sync::WasmNotArc;
 
 use std::collections::{hash_map::Entry, HashMap};
 use std::num::NonZeroU64;
+use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -63,6 +64,20 @@ pub struct Float16(pub half::f16);
 
 unsafe impl bytemuck::Pod for Float16 {}
 unsafe impl bytemuck::Zeroable for Float16 {}
+
+impl Deref for Float16 {
+    type Target = half::f16;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<f32> for Float16 {
+    fn from(value: f32) -> Self {
+        Self(half::f16::from_f32(value))
+    }
+}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -390,7 +405,7 @@ impl BindableIndices {
 
 #[derive(Debug)]
 pub struct BindableGeometryBuffers {
-    pub vertices: Vec<Vertex>,
+    pub vertices: Vec<ShaderVertex>,
     pub indices: BindableIndices,
     pub bounding_box: crate::collisions::Aabb,
 }
@@ -730,15 +745,19 @@ pub struct RendererPrivateData {
 }
 
 #[derive(Debug)]
-pub struct BindableSceneData {
+pub struct BindableScene {
+    pub path: GameFilePath,
+    pub scene: Scene,
     pub bindable_meshes: Vec<BindableGeometryBuffers>,
     pub bindable_wireframe_meshes: Vec<BindableWireframeMesh>,
     pub bindable_pbr_materials: Vec<BindablePbrMaterial>,
     pub textures: Vec<BindableTexture>,
 }
 
-#[derive(Debug, Default)]
-pub struct BindedSceneData {
+#[derive(Debug)]
+pub struct BindedScene {
+    pub path: GameFilePath,
+    pub scene: Scene,
     pub binded_meshes: Vec<BindedGeometryBuffers>,
     pub binded_wireframe_meshes: Vec<BindedWireframeMesh>,
     pub binded_pbr_materials: Vec<BindedPbrMaterial>,
@@ -1431,7 +1450,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &textured_mesh_shader,
@@ -1490,7 +1509,7 @@ impl Renderer {
         let mut unlit_mesh_pipeline_descriptor = mesh_pipeline_descriptor.clone();
         unlit_mesh_pipeline_descriptor.label = Some("Unlit Mesh Render Pipeline");
         unlit_mesh_pipeline_descriptor.layout = Some(&unlit_mesh_pipeline_layout);
-        let unlit_mesh_pipeline_v_buffers = &[Vertex::desc()];
+        let unlit_mesh_pipeline_v_buffers = &[ShaderVertex::desc()];
         unlit_mesh_pipeline_descriptor.vertex = wgpu::VertexState {
             module: &unlit_mesh_shader,
             entry_point: "vs_main",
@@ -1525,7 +1544,7 @@ impl Renderer {
 
         let mut wireframe_pipeline_descriptor = unlit_mesh_pipeline_descriptor.clone();
         wireframe_pipeline_descriptor.label = Some("Wireframe Render Pipeline");
-        let wireframe_mesh_pipeline_v_buffers = &[Vertex::desc()];
+        let wireframe_mesh_pipeline_v_buffers = &[ShaderVertex::desc()];
         wireframe_pipeline_descriptor.vertex.buffers = wireframe_mesh_pipeline_v_buffers;
         wireframe_pipeline_descriptor.primitive = wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::LineList,
@@ -1782,7 +1801,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
@@ -1821,7 +1840,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
@@ -1873,7 +1892,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
@@ -1911,7 +1930,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
@@ -1982,7 +2001,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
                 entry_point: "shadow_map_vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &textured_mesh_shader,
@@ -2023,10 +2042,13 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
                 entry_point: "shadow_map_vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[ShaderVertex::desc()],
             },
-            // TODO: use a fragent shader here with alpha cutoff setup
-            fragment: None,
+            fragment: Some(wgpu::FragmentState {
+                module: &textured_mesh_shader,
+                entry_point: "directional_shadow_map_fs_main",
+                targets: &[],
+            }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
@@ -2477,8 +2499,7 @@ impl Renderer {
 
         let background_texture_rad = {
             let pixel_count = skybox_dim * skybox_dim;
-            let color_hdr =
-                sun_color.map(|val| Float16(half::f16::from_f32(0.2 * val as f32 / 255.0)));
+            let color_hdr = sun_color.map(|val| Float16::from(0.2 * val as f32 / 255.0));
             let mut image_raw: Vec<[Float16; 4]> = Vec::with_capacity(pixel_count as usize);
             image_raw.resize(pixel_count as usize, color_hdr);
             let texture_er = Texture::from_raw_image(
@@ -3116,7 +3137,7 @@ impl Renderer {
         let vertex_buffer = GpuBuffer::from_bytes(
             device,
             bytemuck::cast_slice(&mesh.vertices),
-            std::mem::size_of::<Vertex>(),
+            std::mem::size_of::<ShaderVertex>(),
             wgpu::BufferUsages::VERTEX,
         );
 

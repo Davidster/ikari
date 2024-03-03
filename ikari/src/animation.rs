@@ -5,7 +5,7 @@ use std::ops::{Add, Mul};
 
 use glam::f32::{Quat, Vec3};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Animation {
     pub name: Option<String>,
     pub length_seconds: f32,
@@ -14,7 +14,7 @@ pub struct Animation {
     pub state: AnimationState,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Channel {
     pub node_id: GameNodeId,
     pub property: gltf::animation::Property,
