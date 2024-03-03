@@ -56,8 +56,9 @@ pub const DEFAULT_FONT_NAME: &str = "Lato";
 pub const KOOKY_FONT_BYTES: &[u8] = include_bytes!("./fonts/Pacifico-Regular.ttf");
 pub const KOOKY_FONT_NAME: &str = "Pacifico";
 
-const FRAME_TIME_HISTORY_SIZE: usize = 720;
+const FRAME_TIME_HISTORY_SIZE: usize = 5 * 144 + 1; // 1 more than 5 seconds of 144hz
 const FRAME_TIMES_MOVING_AVERAGE_ALPHA: f64 = 0.01;
+const SHOW_BLOOM_TYPE: bool = false;
 pub(crate) const THEME: iced::Theme = iced::Theme::Dark;
 
 #[derive(Debug, Clone)]
@@ -160,7 +161,7 @@ impl container::StyleSheet for ContainerStyle {
 
 #[derive(Debug, Clone)]
 struct FpsChart {
-    recent_frame_times: Vec<Duration>,
+    recent_frame_times: Vec<(Instant, Duration)>,
     recent_gpu_frame_times: Vec<Vec<wgpu_profiler::GpuTimerQueryResult>>,
     avg_frame_time_millis: Option<f64>,
     avg_gpu_frame_time_millis: Option<f64>,
@@ -172,10 +173,10 @@ impl Chart<Message> for FpsChart {
 
     fn build_chart<DB: DrawingBackend>(&self, _state: &Self::State, mut builder: ChartBuilder<DB>) {
         let result: Result<(), String> = (|| {
-            let oldest_ft_age_secs = 5.0f32;
+            let oldest_ft_age_secs = self.recent_frame_times[0].0.elapsed().as_secs_f32();
             let mut frame_times_with_ages = Vec::new();
             let mut acc = std::time::Duration::from_secs(0);
-            for frame_time in self.recent_frame_times.iter().rev() {
+            for (_, frame_time) in self.recent_frame_times.iter().rev() {
                 frame_times_with_ages.push((
                     -acc.as_secs_f32(),
                     (1.0 / frame_time.as_secs_f32()).round() as i32,
@@ -374,7 +375,9 @@ impl runtime::Program for UiOverlay {
                         None => frame_time_ms,
                     });
 
-                self.fps_chart.recent_frame_times.push(frame_duration);
+                self.fps_chart
+                    .recent_frame_times
+                    .push((Instant::now(), frame_duration));
                 if self.fps_chart.recent_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
                     self.fps_chart.recent_frame_times.remove(0);
                 }
@@ -591,7 +594,9 @@ impl runtime::Program for UiOverlay {
             )));
         }
 
-        // rows = rows.push(text(&format!("Bloom type: {}", self.bloom_type)));
+        if SHOW_BLOOM_TYPE {
+            rows = rows.push(text(&format!("Bloom type: {}", self.bloom_type)));
+        }
 
         if self.is_showing_camera_pose {
             if let Some((camera_position, camera_direction)) = self.camera_pose {

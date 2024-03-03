@@ -1097,7 +1097,7 @@ fn do_fragment_shade(
 
     let ambient_diffuse_irradiance = env_map_diffuse_irradiance * base_color;
 
-    let ambient_irradiance_pre_ao = (kd_ambient * ambient_diffuse_irradiance + ambient_specular_irradiance);
+    let ambient_irradiance_pre_ao = ((kd_ambient * ambient_diffuse_irradiance + ambient_specular_irradiance) + total_light_irradiance);
     let ambient_irradiance = mix(
         ambient_irradiance_pre_ao,
         ambient_irradiance_pre_ao * ambient_occlusion,
@@ -1105,7 +1105,7 @@ fn do_fragment_shade(
     );
     // let ambient_irradiance = ambient_irradiance_pre_ao;
 
-    let combined_irradiance_hdr = ambient_irradiance + total_light_irradiance + emissive;
+    let combined_irradiance_hdr = ambient_irradiance + emissive;
     // let combined_irradiance_hdr = total_light_irradiance;
     // let combined_irradiance_ldr = (combined_irradiance_hdr / (combined_irradiance_hdr + vec3<f32>(1.0, 1.0, 1.0))) + emissive;
 
