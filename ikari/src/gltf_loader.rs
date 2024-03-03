@@ -108,7 +108,7 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
                 log::warn!(
                     "{:?}: Loading gltf materials in alpha blending mode is not current supported. Material {:?} will be rendered as opaque.",
                     params.path.relative_path,
-                    primitive.material().index()
+                    primitive.material().name().unwrap_or(&format!("{}", primitive.material().index().unwrap()))
                 );
             }
 

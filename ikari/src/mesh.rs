@@ -36,7 +36,7 @@ pub struct ShaderVertex {
     pub bone_weights: [Float16; 4],
     pub normal: [Float16; 2],
     pub tangent: [Float16; 2],
-    pub tex_coords: [u16; 2],
+    pub tex_coords: [Float16; 2],
     // taking the alpha channel for tangent handedness which means we don't support transparent vertex colors
     pub color_and_tangent_handedness: [u8; 4],
     pub bone_indices: [u8; 4],
@@ -50,7 +50,7 @@ impl ShaderVertex {
         1 => Float16x4, // bone_weights
         2 => Float16x2, // normal
         3 => Float16x2, // tangent
-        4 => Unorm16x2, // tex_coords
+        4 => Float16x2, // tex_coords
         5 => Unorm8x4,  // color_and_tangent_handedness
         6 => Uint8x4,  // bone_indices
     ];
@@ -88,7 +88,7 @@ impl Default for ShaderVertex {
             position: Default::default(),
             normal: oct_encode_unit_vector([0.0, 1.0, 0.0].into()),
             tangent: oct_encode_unit_vector([1.0, 0.0, 0.0].into()),
-            tex_coords: Default::default(),
+            tex_coords: [Float16::from(0.0), Float16::from(0.0)],
             color_and_tangent_handedness: [255, 255, 255, 255],
             bone_indices: Default::default(),
             bone_weights: [
@@ -115,8 +115,8 @@ impl From<Vertex> for ShaderVertex {
             normal: oct_encode_unit_vector(value.normal),
             tangent: oct_encode_unit_vector(value.tangent),
             tex_coords: [
-                ((value.tex_coords.x * (u16::MAX as f32)).round() % (u16::MAX as f32 + 1.0)) as u16,
-                ((value.tex_coords.y * (u16::MAX as f32)).round() % (u16::MAX as f32 + 1.0)) as u16,
+                Float16::from(value.tex_coords.x),
+                Float16::from(value.tex_coords.y),
             ],
             color_and_tangent_handedness: [
                 (value.color.x * u8::MAX as f32).round() as u8,
