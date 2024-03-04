@@ -1892,6 +1892,7 @@ checksum = "bc52e53916c08643f1b56ec082790d1e86a32e58dc5268f897f313fbae7b4872"
 dependencies = [
  "cfg-if",
  "crunchy",
+ "serde",
 ]
 
 [[package]]

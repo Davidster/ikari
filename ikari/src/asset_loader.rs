@@ -538,12 +538,12 @@ pub async fn make_bindable_skybox(paths: &SkyboxPaths) -> Result<BindableSkybox>
                 let metadata = skybox_rad_texture_decoder.metadata();
                 (metadata.width, metadata.height)
             };
-            let skybox_rad_texture_decoded: Vec<Float16> = {
+            let skybox_rad_texture_decoded: Vec<F16> = {
                 let rgb_values = skybox_rad_texture_decoder.read_image_hdr()?;
                 rgb_values
                     .iter()
                     .copied()
-                    .flat_map(|rbg| rbg.to_rgba().0.into_iter().map(Float16::from))
+                    .flat_map(|rbg| rbg.to_rgba().0.into_iter().map(F16::from))
                     .collect()
             };
 

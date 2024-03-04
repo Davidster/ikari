@@ -1,4 +1,4 @@
-use crate::{renderer::Float16, texture::*};
+use crate::{renderer::F16, texture::*};
 
 use std::{
     collections::{hash_map, HashMap},
@@ -33,10 +33,10 @@ pub struct Vertex {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ShaderVertex {
     pub position: [f32; 3],
-    pub bone_weights: [Float16; 4],
-    pub normal: [Float16; 2],
-    pub tangent: [Float16; 2],
-    pub tex_coords: [Float16; 2],
+    pub bone_weights: [F16; 4],
+    pub normal: [F16; 2],
+    pub tangent: [F16; 2],
+    pub tex_coords: [F16; 2],
     // taking the alpha channel for tangent handedness which means we don't support transparent vertex colors
     pub color_and_tangent_handedness: [u8; 4],
     pub bone_indices: [u8; 4],
@@ -67,11 +67,11 @@ impl ShaderVertex {
 // https://knarkowicz.wordpress.com/2014/04/16/octahedron-normal-vector-encoding/
 // https://cesium.com/blog/2015/05/18/vertex-compression/
 // https://jcgt.org/published/0003/02/01/
-pub fn oct_encode_unit_vector(mut n: Vec3) -> [Float16; 2] {
+pub fn oct_encode_unit_vector(mut n: Vec3) -> [F16; 2] {
     n = n / (n.x.abs() + n.y.abs() + n.z.abs());
     let mut result_vec2 = if n.z >= 0.0 { n.xy() } else { oct_wrap(n.xy()) };
     result_vec2 = result_vec2 * Vec2::splat(0.5) + Vec2::splat(0.5);
-    [Float16::from(result_vec2.x), Float16::from(result_vec2.y)]
+    [F16::from(result_vec2.x), F16::from(result_vec2.y)]
 }
 
 fn oct_wrap(v: Vec2) -> Vec2 {
@@ -88,14 +88,14 @@ impl Default for ShaderVertex {
             position: Default::default(),
             normal: oct_encode_unit_vector([0.0, 1.0, 0.0].into()),
             tangent: oct_encode_unit_vector([1.0, 0.0, 0.0].into()),
-            tex_coords: [Float16::from(0.0), Float16::from(0.0)],
+            tex_coords: [F16::from(0.0), F16::from(0.0)],
             color_and_tangent_handedness: [255, 255, 255, 255],
             bone_indices: Default::default(),
             bone_weights: [
-                Float16::from(1.0),
-                Float16::from(0.0),
-                Float16::from(0.0),
-                Float16::from(0.0),
+                F16::from(1.0),
+                F16::from(0.0),
+                F16::from(0.0),
+                F16::from(0.0),
             ],
         }
     }
@@ -114,10 +114,7 @@ impl From<Vertex> for ShaderVertex {
             position: value.position.into(),
             normal: oct_encode_unit_vector(value.normal),
             tangent: oct_encode_unit_vector(value.tangent),
-            tex_coords: [
-                Float16::from(value.tex_coords.x),
-                Float16::from(value.tex_coords.y),
-            ],
+            tex_coords: [F16::from(value.tex_coords.x), F16::from(value.tex_coords.y)],
             color_and_tangent_handedness: [
                 (value.color.x * u8::MAX as f32).round() as u8,
                 (value.color.y * u8::MAX as f32).round() as u8,
@@ -136,10 +133,10 @@ impl From<Vertex> for ShaderVertex {
                 convert_bone_index(value.bone_indices.w),
             ],
             bone_weights: [
-                Float16::from(value.bone_weights.x),
-                Float16::from(value.bone_weights.y),
-                Float16::from(value.bone_weights.z),
-                Float16::from(value.bone_weights.w),
+                F16::from(value.bone_weights.x),
+                F16::from(value.bone_weights.y),
+                F16::from(value.bone_weights.z),
+                F16::from(value.bone_weights.w),
             ],
         }
     }
