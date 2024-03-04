@@ -1,37 +1,79 @@
-use crate::time::*;
+use crate::time::Duration;
+use crate::time::Instant;
+
+#[derive(Debug, Copy, Clone, Default)]
+pub struct TimeTracker {
+    first_frame_start: Option<Instant>,
+    current_frame: Option<FrameInstants>,
+    last_frame: Option<FrameInstants>,
+}
 
 #[derive(Debug, Copy, Clone)]
-pub struct TimeTracker {
-    first_frame_instant: Instant,
-    last_frame_start_instant: Instant,
-    current_frame_start_instant: Instant,
+pub struct FrameInstants {
+    pub start: Instant,
+    pub update_done: Option<Instant>,
+    pub render_done: Option<Instant>,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct FrameDurations {
+    pub total: Duration,
+    pub update: Option<Duration>,
+    pub render: Option<Duration>,
+}
+
+impl FrameInstants {
+    pub fn new(start: Instant) -> Self {
+        Self {
+            start,
+            update_done: None,
+            render_done: None,
+        }
+    }
 }
 
 impl TimeTracker {
-    pub fn new() -> Self {
-        Self {
-            first_frame_instant: Instant::now(),
-            last_frame_start_instant: Instant::now(),
-            current_frame_start_instant: Instant::now(),
+    pub(crate) fn on_frame_started(&mut self) {
+        self.first_frame_start = Some(self.first_frame_start.unwrap_or_else(Instant::now));
+
+        if let Some(current_frame) = self.current_frame.clone() {
+            self.last_frame = Some(current_frame);
+        }
+        self.current_frame = Some(FrameInstants::new(Instant::now()));
+    }
+
+    pub(crate) fn on_update_completed(&mut self) {
+        if let Some(current_frame) = self.current_frame.as_mut() {
+            current_frame.update_done = Some(Instant::now());
         }
     }
 
-    pub(crate) fn on_frame_started(&mut self) {
-        self.last_frame_start_instant = self.current_frame_start_instant;
-        self.current_frame_start_instant = Instant::now();
+    pub(crate) fn on_render_completed(&mut self) {
+        if let Some(current_frame) = self.current_frame.as_mut() {
+            current_frame.render_done = Some(Instant::now());
+        }
     }
 
-    pub fn global_time(&self) -> Duration {
-        self.first_frame_instant.elapsed()
+    pub fn global_time(&self) -> Option<Duration> {
+        self.first_frame_start.as_ref().map(Instant::elapsed)
     }
 
-    pub fn last_frame_time(&self) -> Duration {
-        self.current_frame_start_instant - self.last_frame_start_instant
-    }
-}
-
-impl Default for TimeTracker {
-    fn default() -> Self {
-        Self::new()
+    pub fn last_frame_times(&self) -> Option<(FrameInstants, FrameDurations)> {
+        match (self.last_frame, self.current_frame) {
+            (Some(last_frame), Some(current_frame)) => Some((
+                last_frame,
+                FrameDurations {
+                    total: current_frame.start - last_frame.start,
+                    update: last_frame
+                        .update_done
+                        .map(|update_done| update_done - last_frame.start),
+                    render: match (last_frame.update_done, last_frame.render_done) {
+                        (Some(update_done), Some(render_done)) => Some(render_done - update_done),
+                        _ => None,
+                    },
+                },
+            )),
+            _ => None,
+        }
     }
 }

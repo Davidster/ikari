@@ -597,9 +597,9 @@ impl BaseRenderer {
         // used by wgpu_profiler
         optional_features |= wgpu_profiler::GpuProfiler::ALL_WGPU_TIMER_FEATURES;
 
-        // uses half of the memory of a rgba16f texture, so it saves a nice chunk of VRAM for bloom effect
-        // without a big difference in visual quality
-        // it should be available "everywhere we would care about". see https://github.com/gpuweb/gpuweb/issues/3566
+        // uses half of the memory of a rgba16f texture, so it saves a nice chunk of VRAM for the bloom effect
+        // without any difference in visual quality that I could detect
+        // the feature should be available "everywhere we would care about". see https://github.com/gpuweb/gpuweb/issues/3566
         optional_features |= wgpu::Features::RG11B10UFLOAT_RENDERABLE;
 
         // panic if these features are missing
