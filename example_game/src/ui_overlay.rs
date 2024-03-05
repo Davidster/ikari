@@ -175,9 +175,9 @@ impl container::StyleSheet for ContainerStyle {
 struct FpsChart {
     recent_frame_times: Vec<(Instant, FrameDurations, Option<Duration>)>,
     avg_total_frame_time_millis: Option<f64>,
-    avg_update_time_millis: Option<f64>,
-    avg_render_time_millis: Option<f64>,
-    avg_gpu_frame_time_millis: Option<f64>,
+    avg_update_time_ms: Option<f64>,
+    avg_render_time_ms: Option<f64>,
+    avg_gpu_frame_time_ms: Option<f64>,
     avg_gpu_frame_time_per_span: HashMap<String, f64>,
 }
 
@@ -303,11 +303,114 @@ impl Chart<Message> for FpsChart {
 }
 
 impl FpsChart {
-    fn view(&self) -> Element<Message, iced::Theme, iced::Renderer> {
-        ChartWidget::new(self)
-            .width(Length::Fixed(400.0))
-            .height(Length::Fixed(300.0))
-            .into()
+    pub fn on_frame_completed(
+        &mut self,
+        instants: FrameInstants,
+        durations: FrameDurations,
+        gpu_timer_query_results: Vec<wgpu_profiler::GpuTimerQueryResult>,
+    ) {
+        let total_gpu_duration = Self::get_total_gpu_duration(&gpu_timer_query_results);
+        self.recompute_avg_frametimes(&durations, total_gpu_duration.clone());
+        self.recompute_avg_frametimes_per_gpu_span(&gpu_timer_query_results);
+
+        self.recent_frame_times
+            .push((instants.start, durations, total_gpu_duration));
+        if self.recent_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
+            self.recent_frame_times.remove(0);
+        }
+    }
+
+    fn get_total_gpu_duration(
+        gpu_timer_query_results: &[wgpu_profiler::GpuTimerQueryResult],
+    ) -> Option<Duration> {
+        if !gpu_timer_query_results.is_empty() {
+            let mut total_gpu_time_seconds = 0.0;
+            for query_result in gpu_timer_query_results {
+                total_gpu_time_seconds += query_result.time.end - query_result.time.start;
+            }
+            Some(Duration::from_secs_f64(total_gpu_time_seconds))
+        } else {
+            None
+        }
+    }
+
+    fn recompute_avg_frametimes(
+        &mut self,
+        new_durations: &FrameDurations,
+        new_total_gpu_duration: Option<Duration>,
+    ) {
+        let compute_new_avg_frametime =
+            |current_average: Option<f64>, new_duration: Option<Duration>| {
+                let new_duration_ms = new_duration
+                    .as_ref()
+                    .map(|duration| duration.as_nanos() as f64 / 1_000_000.0);
+                match (current_average, new_duration_ms) {
+                    (Some(current_average), Some(new_duration_ms)) => Some(
+                        (1.0 - FRAME_TIMES_MOVING_AVERAGE_ALPHA) * current_average
+                            + (FRAME_TIMES_MOVING_AVERAGE_ALPHA * new_duration_ms),
+                    ),
+                    _ => new_duration_ms,
+                }
+            };
+
+        self.avg_total_frame_time_millis =
+            compute_new_avg_frametime(self.avg_total_frame_time_millis, Some(new_durations.total));
+        self.avg_update_time_ms =
+            compute_new_avg_frametime(self.avg_update_time_ms, new_durations.update);
+        self.avg_render_time_ms =
+            compute_new_avg_frametime(self.avg_render_time_ms, new_durations.render);
+        self.avg_gpu_frame_time_ms =
+            compute_new_avg_frametime(self.avg_gpu_frame_time_ms, new_total_gpu_duration);
+    }
+
+    fn recompute_avg_frametimes_per_gpu_span(
+        &mut self,
+        gpu_timer_query_results: &[wgpu_profiler::GpuTimerQueryResult],
+    ) {
+        let span_set: HashSet<_> = gpu_timer_query_results
+            .iter()
+            .map(|query_result| query_result.label.clone())
+            .collect();
+
+        // clean out old spans from previous frames
+        let spans_to_remove: Vec<_> = self
+            .avg_gpu_frame_time_per_span
+            .keys()
+            .filter(|key| !span_set.contains(*key))
+            .cloned()
+            .collect();
+
+        for span_to_remove in spans_to_remove {
+            self.avg_gpu_frame_time_per_span.remove(&span_to_remove);
+        }
+
+        let mut span_totals: HashMap<String, f64> = HashMap::new();
+
+        for query_result in gpu_timer_query_results {
+            let span_time_ms = (query_result.time.end - query_result.time.start) * 1000.0;
+            match span_totals.entry(query_result.label.clone()) {
+                Entry::Occupied(mut entry) => {
+                    entry.insert(entry.get() + span_time_ms);
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(span_time_ms);
+                }
+            }
+        }
+
+        for (span_label, span_time_ms) in &span_totals {
+            match self.avg_gpu_frame_time_per_span.entry(span_label.clone()) {
+                Entry::Occupied(mut entry) => {
+                    entry.insert(
+                        (1.0 - FRAME_TIMES_MOVING_AVERAGE_ALPHA) * entry.get()
+                            + (FRAME_TIMES_MOVING_AVERAGE_ALPHA * span_time_ms),
+                    );
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(*span_time_ms);
+                }
+            }
+        }
     }
 }
 
@@ -322,9 +425,9 @@ impl UiOverlay {
             fps_chart: FpsChart {
                 recent_frame_times: vec![],
                 avg_total_frame_time_millis: None,
-                avg_update_time_millis: None,
-                avg_render_time_millis: None,
-                avg_gpu_frame_time_millis: None,
+                avg_update_time_ms: None,
+                avg_render_time_ms: None,
+                avg_gpu_frame_time_ms: None,
                 avg_gpu_frame_time_per_span: HashMap::new(),
             },
 
@@ -358,6 +461,28 @@ impl UiOverlay {
             soft_shadow_grid_dims: INITIAL_SOFT_SHADOW_GRID_DIMS,
             pending_perf_dump: None,
             perf_dump_completion_time: None,
+        }
+    }
+
+    fn poll_perf_dump_state(&mut self) {
+        let mut clear = false;
+        if let Some(pending_perf_dump) = &self.pending_perf_dump {
+            let pending_perf_dump_guard = pending_perf_dump.lock().unwrap();
+            if pending_perf_dump_guard.is_some() {
+                if let Some(perf_dump_completion_time) = self.perf_dump_completion_time {
+                    if perf_dump_completion_time.elapsed() > std::time::Duration::from_secs_f32(2.0)
+                    {
+                        clear = true;
+                    }
+                } else {
+                    self.perf_dump_completion_time = Some(Instant::now());
+                }
+            }
+        }
+
+        if clear {
+            self.pending_perf_dump = None;
+            self.perf_dump_completion_time = None;
         }
     }
 }
@@ -402,137 +527,9 @@ impl runtime::Program for UiOverlay {
                 self.cursor_position = new_state;
             }
             Message::FrameCompleted((instants, durations, gpu_timer_query_results)) => {
-                // TODO: this is a huge function. split it into parts
-                self.clock.clear();
-
-                let compute_new_avg_frametime =
-                    |current_average: Option<f64>, new_duration: Option<Duration>| {
-                        let new_duration_ms = new_duration
-                            .as_ref()
-                            .map(|duration| duration.as_nanos() as f64 / 1_000_000.0);
-                        match (current_average, new_duration_ms) {
-                            (Some(current_average), Some(new_duration_ms)) => Some(
-                                (1.0 - FRAME_TIMES_MOVING_AVERAGE_ALPHA) * current_average
-                                    + (FRAME_TIMES_MOVING_AVERAGE_ALPHA * new_duration_ms),
-                            ),
-                            _ => new_duration_ms,
-                        }
-                    };
-
-                self.fps_chart.avg_total_frame_time_millis = compute_new_avg_frametime(
-                    self.fps_chart.avg_total_frame_time_millis,
-                    Some(durations.total),
-                );
-                self.fps_chart.avg_update_time_millis = compute_new_avg_frametime(
-                    self.fps_chart.avg_update_time_millis,
-                    durations.update,
-                );
-                self.fps_chart.avg_render_time_millis = compute_new_avg_frametime(
-                    self.fps_chart.avg_render_time_millis,
-                    durations.render,
-                );
-
-                let mut span_set: HashSet<String> = HashSet::new();
-
-                let total_gpu_time_ms = if !gpu_timer_query_results.is_empty() {
-                    let mut total_gpu_time_ms = 0.0;
-                    for query_result in &gpu_timer_query_results {
-                        total_gpu_time_ms +=
-                            (query_result.time.end - query_result.time.start) * 1000.0;
-                        span_set.insert(query_result.label.clone());
-                    }
-                    Some(total_gpu_time_ms)
-                } else {
-                    None
-                };
-
-                self.fps_chart.avg_gpu_frame_time_millis =
-                    match (self.fps_chart.avg_gpu_frame_time_millis, total_gpu_time_ms) {
-                        (Some(avg_gpu_frame_time_millis), Some(total_gpu_time_ms)) => Some(
-                            (1.0 - FRAME_TIMES_MOVING_AVERAGE_ALPHA) * avg_gpu_frame_time_millis
-                                + (FRAME_TIMES_MOVING_AVERAGE_ALPHA * total_gpu_time_ms),
-                        ),
-                        _ => total_gpu_time_ms,
-                    };
-
-                let spans_to_remove: Vec<_> = self
-                    .fps_chart
-                    .avg_gpu_frame_time_per_span
-                    .keys()
-                    .filter(|key| !span_set.contains(*key))
-                    .cloned()
-                    .collect();
-
-                for span_to_remove in spans_to_remove {
-                    self.fps_chart
-                        .avg_gpu_frame_time_per_span
-                        .remove(&span_to_remove);
-                }
-
-                let mut span_totals: HashMap<String, f64> = HashMap::new();
-
-                for query_result in &gpu_timer_query_results {
-                    let span_time_ms = (query_result.time.end - query_result.time.start) * 1000.0;
-                    match span_totals.entry(query_result.label.clone()) {
-                        Entry::Occupied(mut entry) => {
-                            entry.insert(entry.get() + span_time_ms);
-                        }
-                        Entry::Vacant(entry) => {
-                            entry.insert(span_time_ms);
-                        }
-                    }
-                }
-
-                for (span_label, span_time_ms) in &span_totals {
-                    match self
-                        .fps_chart
-                        .avg_gpu_frame_time_per_span
-                        .entry(span_label.clone())
-                    {
-                        Entry::Occupied(mut entry) => {
-                            entry.insert(
-                                (1.0 - FRAME_TIMES_MOVING_AVERAGE_ALPHA) * entry.get()
-                                    + (FRAME_TIMES_MOVING_AVERAGE_ALPHA * span_time_ms),
-                            );
-                        }
-                        Entry::Vacant(entry) => {
-                            entry.insert(*span_time_ms);
-                        }
-                    }
-                }
-
-                self.fps_chart.recent_frame_times.push((
-                    instants.start,
-                    durations,
-                    total_gpu_time_ms.map(|total_gpu_time_ms| {
-                        Duration::from_secs_f64(total_gpu_time_ms / 1000.0)
-                    }),
-                ));
-                if self.fps_chart.recent_frame_times.len() > FRAME_TIME_HISTORY_SIZE {
-                    self.fps_chart.recent_frame_times.remove(0);
-                }
-
-                // TODO: move this somewhere else
-                let mut clear = false;
-                if let Some(pending_perf_dump) = &self.pending_perf_dump {
-                    let pending_perf_dump_guard = pending_perf_dump.lock().unwrap();
-                    if pending_perf_dump_guard.is_some() {
-                        if let Some(perf_dump_completion_time) = self.perf_dump_completion_time {
-                            if perf_dump_completion_time.elapsed()
-                                > std::time::Duration::from_secs_f32(2.0)
-                            {
-                                clear = true;
-                            }
-                        } else {
-                            self.perf_dump_completion_time = Some(Instant::now());
-                        }
-                    }
-                }
-
-                if clear {
-                    self.pending_perf_dump = None;
-                    self.perf_dump_completion_time = None;
-                }
+                self.fps_chart
+                    .on_frame_completed(instants, durations, gpu_timer_query_results);
+                self.poll_perf_dump_state();
             }
             Message::AudioSoundStatsChanged((track_path, stats)) => {
                 self.audio_sound_stats.insert(
@@ -659,7 +656,7 @@ impl runtime::Program for UiOverlay {
             rows = rows.push(text);
         }
 
-        if let Some(millis) = self.fps_chart.avg_update_time_millis {
+        if let Some(millis) = self.fps_chart.avg_update_time_ms {
             let mut text = text(&format!("Update: {:.2}ms", millis));
             if self.is_showing_fps_chart {
                 text = text.style(get_chart_line_color(1))
@@ -667,7 +664,7 @@ impl runtime::Program for UiOverlay {
             rows = rows.push(text);
         }
 
-        if let Some(millis) = self.fps_chart.avg_render_time_millis {
+        if let Some(millis) = self.fps_chart.avg_render_time_ms {
             let mut text = text(&format!("Render: {:.2}ms", millis));
             if self.is_showing_fps_chart {
                 text = text.style(get_chart_line_color(2))
@@ -675,7 +672,7 @@ impl runtime::Program for UiOverlay {
             rows = rows.push(text);
         }
 
-        if let Some(millis) = self.fps_chart.avg_gpu_frame_time_millis {
+        if let Some(millis) = self.fps_chart.avg_gpu_frame_time_ms {
             let mut text = text(&format!("GPU: {:.2}ms", millis));
             if self.is_showing_fps_chart {
                 text = text.style(get_chart_line_color(3))
@@ -745,7 +742,14 @@ impl runtime::Program for UiOverlay {
 
         if self.is_showing_fps_chart {
             let padding = [16, 20, 16, 0]; // top, right, bottom, left
-            rows = rows.push(Container::new(self.fps_chart.view()).padding(padding));
+            rows = rows.push(
+                Container::new(
+                    ChartWidget::new(&self.fps_chart)
+                        .width(Length::Fixed(400.0))
+                        .height(Length::Fixed(300.0)),
+                )
+                .padding(padding),
+            );
         }
 
         let background_content = Container::new(
