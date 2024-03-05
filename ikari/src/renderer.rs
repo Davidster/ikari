@@ -30,6 +30,8 @@ use glam::f32::{Mat4, Vec3};
 use glam::Vec4;
 
 use rapier3d_f64::parry::query::PointQuery;
+use serde::Deserialize;
+use serde::Serialize;
 use smallvec::{smallvec, SmallVec};
 use wgpu::util::DeviceExt;
 
@@ -58,14 +60,15 @@ pub const DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH: f32 = 50.0;
 pub const MIN_SHADOW_MAP_BIAS: f32 = 0.00005;
 pub const NEW_BLOOM_TARGET_MIP_COUNT: u32 = 5;
 
+// see last comment here for why we don't have 'Hash': https://internals.rust-lang.org/t/f32-f64-should-implement-hash/5436/33
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
-pub struct Float16(pub half::f16);
+#[derive(Copy, Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct F16(pub half::f16);
 
-unsafe impl bytemuck::Pod for Float16 {}
-unsafe impl bytemuck::Zeroable for Float16 {}
+unsafe impl bytemuck::Pod for F16 {}
+unsafe impl bytemuck::Zeroable for F16 {}
 
-impl Deref for Float16 {
+impl Deref for F16 {
     type Target = half::f16;
 
     fn deref(&self) -> &Self::Target {
@@ -73,7 +76,7 @@ impl Deref for Float16 {
     }
 }
 
-impl From<f32> for Float16 {
+impl From<f32> for F16 {
     fn from(value: f32) -> Self {
         Self(half::f16::from_f32(value))
     }
@@ -594,9 +597,9 @@ impl BaseRenderer {
         // used by wgpu_profiler
         optional_features |= wgpu_profiler::GpuProfiler::ALL_WGPU_TIMER_FEATURES;
 
-        // uses half of the memory of a rgba16f texture, so it saves a nice chunk of VRAM for bloom effect
-        // without a big difference in visual quality
-        // it should be available "everywhere we would care about". see https://github.com/gpuweb/gpuweb/issues/3566
+        // uses half of the memory of a rgba16f texture, so it saves a nice chunk of VRAM for the bloom effect
+        // without any difference in visual quality that I could detect
+        // the feature should be available "everywhere we would care about". see https://github.com/gpuweb/gpuweb/issues/3566
         optional_features |= wgpu::Features::RG11B10UFLOAT_RENDERABLE;
 
         // panic if these features are missing
@@ -2499,8 +2502,8 @@ impl Renderer {
 
         let background_texture_rad = {
             let pixel_count = skybox_dim * skybox_dim;
-            let color_hdr = sun_color.map(|val| Float16::from(0.2 * val as f32 / 255.0));
-            let mut image_raw: Vec<[Float16; 4]> = Vec::with_capacity(pixel_count as usize);
+            let color_hdr = sun_color.map(|val| F16::from(0.2 * val as f32 / 255.0));
+            let mut image_raw: Vec<[F16; 4]> = Vec::with_capacity(pixel_count as usize);
             image_raw.resize(pixel_count as usize, color_hdr);
             let texture_er = Texture::from_raw_image(
                 &base,

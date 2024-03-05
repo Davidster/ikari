@@ -86,16 +86,17 @@ pub fn run<
                     event: WindowEvent::RedrawRequested,
                     ..
                 } => {
-                    if !logged_start_time && engine_state.time_tracker.is_some() {
+                    engine_state.time_tracker.on_frame_started();
+                    profiling::finish_frame!();
+
+                    if !logged_start_time && engine_state.time_tracker.last_frame_times().is_some()
+                    {
                         log::debug!(
                             "Took {:?} from process startup till first frame",
                             application_start_time.elapsed()
                         );
                         logged_start_time = true;
                     }
-
-                    engine_state.on_frame_started();
-                    profiling::finish_frame!();
 
                     on_update(GameContext {
                         game_state: &mut game_state,
@@ -106,6 +107,9 @@ pub fn run<
                         elwt,
                     });
 
+                    engine_state.time_tracker.on_update_completed();
+
+                    // TODO: should this be here?
                     #[cfg(target_arch = "wasm32")]
                     {
                         let new_size = winit::dpi::PhysicalSize::new(
@@ -118,13 +122,12 @@ pub fn run<
                         }
                     }
 
-                    match renderer.render(
+                    if let Err(err) = renderer.render(
                         &mut engine_state,
                         &surface_data,
                         game_state.get_ui_container(),
                     ) {
-                        Ok(_) => {}
-                        Err(err) => match err.downcast_ref::<wgpu::SurfaceError>() {
+                        match err.downcast_ref::<wgpu::SurfaceError>() {
                             // Reconfigure the surface if lost
                             Some(wgpu::SurfaceError::Lost) => {
                                 let size = window.inner_size();
@@ -144,8 +147,10 @@ pub fn run<
                             }
                             Some(wgpu::SurfaceError::OutOfMemory) => elwt.exit(),
                             _ => log::error!("{err:?}"),
-                        },
+                        }
                     }
+
+                    engine_state.time_tracker.on_render_completed();
                 }
                 Event::LoopExiting => {
                     #[cfg(target_arch = "wasm32")]

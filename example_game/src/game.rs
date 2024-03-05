@@ -1629,14 +1629,20 @@ pub fn update_game_state(
     // "src/models/gltf/free_low_poly_forest/scene.gltf"
 
     let time_tracker = engine_state.time();
-    let global_time_seconds = time_tracker.global_time().as_secs_f32();
+    let global_time_seconds = time_tracker
+        .global_time()
+        .map(|global_time| global_time.as_secs_f32())
+        .unwrap_or_default();
 
     // results in ~60 state changes per second
     let min_update_timestep_seconds = 1.0 / 60.0;
     // if frametime takes longer than this, we give up on trying to catch up completely
     // prevents the game from getting stuck in a spiral of death
     let max_delay_catchup_seconds = 0.25;
-    let mut frame_time_seconds = time_tracker.last_frame_time().as_secs_f64();
+    let mut frame_time_seconds = time_tracker
+        .last_frame_times()
+        .map(|last_frame_time| last_frame_time.1.total.as_secs_f64())
+        .unwrap_or_default();
     if frame_time_seconds > max_delay_catchup_seconds {
         frame_time_seconds = max_delay_catchup_seconds;
     }
@@ -1969,23 +1975,17 @@ pub fn update_game_state(
 
         let mut renderer_data_guard = renderer.data.lock().unwrap();
 
-        let frame_duration = engine_state.time().last_frame_time();
-        {
-            profiling::scope!("GPU Profiler");
-
+        if let Some((instants, durations)) = engine_state.time().last_frame_times() {
             game_state
                 .ui_overlay
-                .queue_message(Message::FrameCompleted(frame_duration));
-            if let Some(gpu_timing_info) = renderer.process_profiler_frame() {
-                game_state
-                    .ui_overlay
-                    .queue_message(Message::GpuFrameCompleted(gpu_timing_info));
-            }
+                .queue_message(Message::FrameCompleted((
+                    instants,
+                    durations,
+                    renderer.process_profiler_frame().unwrap_or_default(),
+                )));
         }
 
         {
-            profiling::scope!("Audio");
-
             let audio_manager_guard = engine_state.audio_manager.lock().unwrap();
             for sound_index in audio_manager_guard.sound_indices() {
                 let file_path = audio_manager_guard

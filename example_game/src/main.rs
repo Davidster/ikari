@@ -111,18 +111,10 @@ async fn start() {
             engine_state,
             renderer,
             surface_data,
-            |game_context| {
-                update_game_state(game_context);
-            },
-            |game_context, window_event| {
-                process_window_input(game_context, window_event);
-            },
-            |game_context, device_event| {
-                process_device_input(game_context, device_event);
-            },
-            |game_context, new_size| {
-                handle_window_resize(game_context, new_size);
-            },
+            update_game_state,
+            process_window_input,
+            process_device_input,
+            handle_window_resize,
             application_start_time,
         );
 
