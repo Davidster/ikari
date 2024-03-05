@@ -310,7 +310,7 @@ impl FpsChart {
         gpu_timer_query_results: Vec<wgpu_profiler::GpuTimerQueryResult>,
     ) {
         let total_gpu_duration = Self::get_total_gpu_duration(&gpu_timer_query_results);
-        self.recompute_avg_frametimes(&durations, total_gpu_duration.clone());
+        self.recompute_avg_frametimes(&durations, total_gpu_duration);
         self.recompute_avg_frametimes_per_gpu_span(&gpu_timer_query_results);
 
         self.recent_frame_times

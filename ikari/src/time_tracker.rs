@@ -36,7 +36,7 @@ impl TimeTracker {
     pub(crate) fn on_frame_started(&mut self) {
         self.first_frame_start = Some(self.first_frame_start.unwrap_or_else(Instant::now));
 
-        if let Some(current_frame) = self.current_frame.clone() {
+        if let Some(current_frame) = self.current_frame {
             self.last_frame = Some(current_frame);
         }
         self.current_frame = Some(FrameInstants::new(Instant::now()));
