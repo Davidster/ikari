@@ -22,6 +22,8 @@ use wasm_bindgen::prelude::*;
 
 const DXC_PATH: &str = "dxc/";
 
+// TODO: clean up this file
+
 async fn start() {
     let run_result = async {
         let application_start_time = ikari::time::Instant::now();

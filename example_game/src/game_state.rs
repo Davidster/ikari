@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use ikari::asset_loader::{AssetBinder, AssetId, AssetLoader};
+use ikari::asset_loader::AssetId;
 use ikari::physics::rapier3d_f64::prelude::*;
 use ikari::player_controller::PlayerController;
 use ikari::scene::GameNodeId;
 use ikari::ui::IkariUiContainer;
-use ikari::wasm_not_sync::WasmNotArc;
 
 use crate::ui_overlay::UiOverlay;
 use crate::{
@@ -42,9 +41,6 @@ pub struct GameState {
 
     pub player_controller: PlayerController,
     pub character: Option<Character>,
-
-    pub asset_loader: Arc<AssetLoader>,
-    pub asset_binder: WasmNotArc<AssetBinder>,
 
     pub ui_overlay: IkariUiContainer<UiOverlay>,
 
