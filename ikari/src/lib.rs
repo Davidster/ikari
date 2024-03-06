@@ -32,3 +32,4 @@ pub mod time_tracker;
 pub mod transform;
 pub mod ui;
 pub mod wasm_not_sync;
+pub mod web_canvas_manager;

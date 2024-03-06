@@ -21,6 +21,8 @@ use image::Pixel;
 use std::collections::HashMap;
 
 use std::collections::hash_map::Entry;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -41,6 +43,8 @@ pub struct AudioAssetLoadParams {
 }
 
 pub struct AssetLoader {
+    is_exiting: Arc<AtomicBool>,
+
     next_asset_id: Arc<Mutex<AssetId>>,
 
     pending_audio: Arc<Mutex<Vec<(AssetId, AudioAssetLoadParams)>>>,
@@ -100,6 +104,8 @@ struct TimeSlicedSkyboxBinder {
 impl AssetLoader {
     pub fn new(audio_manager: Arc<Mutex<AudioManager>>) -> Self {
         Self {
+            is_exiting: Arc::new(AtomicBool::new(false)),
+
             next_asset_id: Arc::new(Mutex::new(AssetId(0))),
 
             pending_scenes: Arc::new(Mutex::new(Vec::new())),
@@ -111,6 +117,10 @@ impl AssetLoader {
             pending_skyboxes: Arc::new(Mutex::new(Vec::new())),
             bindable_skyboxes: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    pub fn exit(&self) {
+        self.is_exiting.store(false, Ordering::SeqCst);
     }
 
     fn next_asset_id(&self) -> AssetId {
@@ -132,11 +142,16 @@ impl AssetLoader {
         if pending_scenes_guard.len() == 1 {
             let pending_scenes = self.pending_scenes.clone();
             let bindable_scenes = self.bindable_scenes.clone();
+            let is_exiting = self.is_exiting.clone();
 
             crate::thread::spawn(move || {
                 profiling::register_thread!("GLTF loader");
                 crate::block_on(async move {
                     while pending_scenes.lock().unwrap().len() > 0 {
+                        if is_exiting.load(Ordering::SeqCst) {
+                            break;
+                        }
+
                         let (next_scene_id, next_scene_params) =
                             pending_scenes.lock().unwrap().remove(0);
 
@@ -175,11 +190,16 @@ impl AssetLoader {
             let pending_audio = self.pending_audio.clone();
             let loaded_audio = self.loaded_audio.clone();
             let audio_manager = self.audio_manager.clone();
+            let is_exiting = self.is_exiting.clone();
 
             crate::thread::spawn(move || {
                 profiling::register_thread!("Audio loader");
                 crate::block_on(async move {
                     while pending_audio.lock().unwrap().len() > 0 {
+                        if is_exiting.load(Ordering::SeqCst) {
+                            break;
+                        }
+
                         let (next_audio_id, next_audio_params) =
                             pending_audio.lock().unwrap().remove(0);
 
@@ -212,6 +232,7 @@ impl AssetLoader {
 
                             if next_audio_params.sound_params.stream {
                                 Self::spawn_audio_streaming_thread(
+                                    is_exiting.clone(),
                                     audio_manager.clone(),
                                     sound_index,
                                     audio_file_streamer,
@@ -243,6 +264,7 @@ impl AssetLoader {
     }
 
     fn spawn_audio_streaming_thread(
+        is_exiting: Arc<AtomicBool>,
         audio_manager: Arc<Mutex<AudioManager>>,
         sound_index: usize,
         mut audio_file_streamer: AudioFileStreamer,
@@ -253,72 +275,87 @@ impl AssetLoader {
         let target_max_buffer_length_seconds = AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.4;
         let max_chunk_size_length_seconds = AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.3;
         let mut buffered_amount_seconds = 0.0;
-        crate::thread::spawn(move || loop {
+        crate::thread::spawn(move || {
             profiling::register_thread!("Audio streamer");
-            let requested_chunk_size_seconds = if is_first_chunk {
-                target_max_buffer_length_seconds
-            } else {
-                let deficit_seconds: f32 =
-                    target_max_buffer_length_seconds - buffered_amount_seconds;
-                log::debug!(
+            loop {
+                if is_exiting.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                let requested_chunk_size_seconds = if is_first_chunk {
+                    target_max_buffer_length_seconds
+                } else {
+                    let deficit_seconds: f32 =
+                        target_max_buffer_length_seconds - buffered_amount_seconds;
+                    log::debug!(
                         "buffered_amount_seconds={buffered_amount_seconds:?}, deficit_seconds={deficit_seconds:?}",
                     );
-                (max_chunk_size_length_seconds + deficit_seconds).max(0.0)
-            };
-            log::debug!("requested_chunk_size_seconds={requested_chunk_size_seconds:?}");
-            is_first_chunk = false;
-            match audio_file_streamer
-                .read_chunk((device_sample_rate as f32 * requested_chunk_size_seconds) as usize)
-            {
-                Ok((sound_data, reached_end_of_stream)) => {
-                    let sample_count = sound_data.0.len();
+                    (max_chunk_size_length_seconds + deficit_seconds).max(0.0)
+                };
+                log::debug!("requested_chunk_size_seconds={requested_chunk_size_seconds:?}");
+                is_first_chunk = false;
+                match audio_file_streamer
+                    .read_chunk((device_sample_rate as f32 * requested_chunk_size_seconds) as usize)
+                {
+                    Ok((sound_data, reached_end_of_stream)) => {
+                        let sample_count = sound_data.0.len();
 
-                    let added_buffer_seconds = sample_count as f32 / device_sample_rate as f32;
-                    let removed_buffer_seconds = last_buffer_fill_time
-                        .map(|last_buffer_fill_time| last_buffer_fill_time.elapsed().as_secs_f32())
-                        .unwrap_or(0.0);
-                    buffered_amount_seconds += added_buffer_seconds - removed_buffer_seconds;
+                        let added_buffer_seconds = sample_count as f32 / device_sample_rate as f32;
+                        let removed_buffer_seconds = last_buffer_fill_time
+                            .map(|last_buffer_fill_time| {
+                                last_buffer_fill_time.elapsed().as_secs_f32()
+                            })
+                            .unwrap_or(0.0);
+                        buffered_amount_seconds += added_buffer_seconds - removed_buffer_seconds;
 
-                    log::debug!(
-                        "Streamed in {:?} samples ({:?} seconds) from file: {:?}",
-                        sample_count,
-                        sample_count as f32 / device_sample_rate as f32,
-                        audio_file_streamer.file_path().relative_path,
-                    );
+                        log::debug!(
+                            "Streamed in {:?} samples ({:?} seconds) from file: {:?}",
+                            sample_count,
+                            sample_count as f32 / device_sample_rate as f32,
+                            audio_file_streamer.file_path().relative_path,
+                        );
 
-                    audio_manager
-                        .lock()
-                        .unwrap()
-                        .write_stream_data(sound_index, sound_data);
-                    loop {
-                        if audio_manager.lock().unwrap().sound_is_playing(sound_index) {
-                            break;
-                        } else {
-                            #[cfg(not(target_arch = "wasm32"))]
-                            crate::thread::sleep(Duration::from_secs_f32(0.05));
+                        audio_manager
+                            .lock()
+                            .unwrap()
+                            .write_stream_data(sound_index, sound_data);
+                        loop {
+                            if is_exiting.load(Ordering::SeqCst) {
+                                break;
+                            }
+
+                            if !audio_manager.lock().unwrap().sound_is_playing(sound_index) {
+                                crate::block_on(crate::thread::sleep_async(
+                                    Duration::from_secs_f32(0.05),
+                                ));
+                            } else {
+                                break;
+                            }
                         }
+
+                        last_buffer_fill_time = Some(Instant::now());
+
+                        if reached_end_of_stream {
+                            log::info!(
+                                "Reached end of stream for file: {:?}",
+                                audio_file_streamer.file_path(),
+                            );
+                            break;
+                        }
+
+                        crate::block_on(crate::thread::sleep_async(Duration::from_secs_f32(
+                            max_chunk_size_length_seconds,
+                        )));
                     }
-
-                    last_buffer_fill_time = Some(Instant::now());
-
-                    if reached_end_of_stream {
-                        log::info!(
-                            "Reached end of stream for file: {:?}",
+                    Err(err) => {
+                        log::error!(
+                            "Error loading audio asset {:?}: {}\n{}",
                             audio_file_streamer.file_path(),
+                            err,
+                            err.backtrace()
                         );
                         break;
                     }
-
-                    #[cfg(not(target_arch = "wasm32"))]
-                    crate::thread::sleep(Duration::from_secs_f32(max_chunk_size_length_seconds));
-                }
-                Err(err) => {
-                    log::error!(
-                        "Error loading audio asset {:?}: {}\n{}",
-                        audio_file_streamer.file_path(),
-                        err,
-                        err.backtrace()
-                    );
                 }
             }
         });

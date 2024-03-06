@@ -295,6 +295,7 @@ pub async fn init_game_state(
     // must call this after changing the render scale
     renderer.resize_surface(surface_data, unscaled_framebuffer_size);
 
+    // TODO: call exit
     let asset_loader = Arc::new(AssetLoader::new(engine_state.audio_manager.clone()));
 
     let asset_loader_clone = asset_loader.clone();

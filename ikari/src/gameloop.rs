@@ -4,9 +4,7 @@ use crate::engine_state::EngineState;
 use crate::renderer::*;
 use crate::time::*;
 use crate::ui::IkariUiContainer;
-
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
+use crate::web_canvas_manager::WebCanvasManager;
 
 use winit::{
     event::{Event, WindowEvent},
@@ -61,25 +59,11 @@ pub fn run<
 {
     let mut logged_start_time = false;
     let _last_frame_start_time: Option<Instant> = None;
-
-    #[cfg(target_arch = "wasm32")]
-    let canvas_container;
-    #[cfg(target_arch = "wasm32")]
-    {
-        let dom_window = web_sys::window().unwrap();
-        let document = dom_window.document().unwrap();
-        canvas_container = document
-            .get_element_by_id("canvas_container")
-            .unwrap()
-            .dyn_into::<web_sys::HtmlElement>()
-            .unwrap();
-    }
+    let web_canvas_manager = WebCanvasManager::new(window.clone());
 
     event_loop
         .run(move |event, elwt| {
-            if elwt.exiting() {
-                return;
-            }
+            web_canvas_manager.on_update(&event);
 
             match event {
                 Event::WindowEvent {
@@ -108,19 +92,6 @@ pub fn run<
                     });
 
                     engine_state.time_tracker.on_update_completed();
-
-                    // TODO: should this be here?
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        let new_size = winit::dpi::PhysicalSize::new(
-                            (canvas_container.offset_width() as f64 * window.scale_factor()) as u32,
-                            (canvas_container.offset_height() as f64 * window.scale_factor())
-                                as u32,
-                        );
-                        if window.inner_size() != new_size {
-                            let _resized_immediately = window.request_inner_size(new_size);
-                        }
-                    }
 
                     if let Err(err) = renderer.render(
                         &mut engine_state,
@@ -152,21 +123,16 @@ pub fn run<
 
                     engine_state.time_tracker.on_render_completed();
                 }
-                Event::LoopExiting => {
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        let dom_window = web_sys::window().unwrap();
-                        let document = dom_window.document().unwrap();
-                        let canvas_container = document
-                            .get_element_by_id("canvas_container")
-                            .unwrap()
-                            .dyn_into::<web_sys::HtmlElement>()
-                            .unwrap();
-                        canvas_container.remove();
-                    }
-                }
                 Event::AboutToWait => {
                     window.request_redraw();
+                }
+                Event::LoopExiting => {
+                    log::info!("exiting");
+                    log::info!(
+                        "audio strong count: {:?}",
+                        Arc::strong_count(&engine_state.audio_manager)
+                    );
+                    game_state
                 }
                 Event::DeviceEvent { event, .. } => {
                     on_device_event(
@@ -238,4 +204,6 @@ pub fn run<
             };
         })
         .unwrap();
+
+    log::info!("exited");
 }
