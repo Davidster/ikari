@@ -120,7 +120,7 @@ impl AssetLoader {
     }
 
     pub fn exit(&self) {
-        self.is_exiting.store(false, Ordering::SeqCst);
+        self.is_exiting.store(true, Ordering::SeqCst);
     }
 
     fn next_asset_id(&self) -> AssetId {
@@ -371,10 +371,16 @@ impl AssetLoader {
             let pending_skyboxes = self.pending_skyboxes.clone();
             let bindable_skyboxes = self.bindable_skyboxes.clone();
 
+            let is_exiting = self.is_exiting.clone();
+
             crate::thread::spawn(move || {
                 profiling::register_thread!("Skybox loader");
                 crate::block_on(async move {
                     while pending_skyboxes.lock().unwrap().len() > 0 {
+                        if is_exiting.load(Ordering::SeqCst) {
+                            break;
+                        }
+
                         let (next_skybox_id, next_skybox_paths) =
                             pending_skyboxes.lock().unwrap().remove(0);
 
@@ -711,8 +717,14 @@ impl BindScene for ThreadedSceneBinder {
             return;
         }
 
+        let is_exiting = asset_loader.is_exiting.clone();
+
         crate::thread::spawn(move || {
             for (scene_id, bindable_scene) in bindable_scenes {
+                if is_exiting.load(Ordering::SeqCst) {
+                    break;
+                }
+
                 let mut bind_group_caches_guard = bind_group_caches_clone.lock().unwrap();
                 let bind_group_cache = bind_group_caches_guard.entry(scene_id).or_default();
 

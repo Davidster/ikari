@@ -20,8 +20,6 @@ use glam::Mat4;
 use glam::Quat;
 use ikari::animation::step_animations;
 use ikari::animation::LoopType;
-use ikari::asset_loader::AssetBinder;
-use ikari::asset_loader::AssetLoader;
 use ikari::asset_loader::AudioAssetLoadParams;
 use ikari::asset_loader::SceneAssetLoadParams;
 use ikari::audio::AudioFileFormat;
@@ -59,7 +57,6 @@ use ikari::texture::Texture;
 use ikari::transform::Transform;
 use ikari::transform::TransformBuilder;
 use ikari::ui::IkariUiContainer;
-use ikari::wasm_not_sync::WasmNotArc;
 use winit::event::{ElementState, WindowEvent};
 use winit::keyboard::Key;
 use winit::keyboard::NamedKey;
@@ -295,11 +292,7 @@ pub async fn init_game_state(
     // must call this after changing the render scale
     renderer.resize_surface(surface_data, unscaled_framebuffer_size);
 
-    // TODO: call exit
-    let asset_loader = Arc::new(AssetLoader::new(engine_state.audio_manager.clone()));
-
-    let asset_loader_clone = asset_loader.clone();
-    let asset_binder = WasmNotArc::new(AssetBinder::new());
+    let asset_loader = engine_state.asset_loader.clone();
     let asset_id_map = Arc::new(Mutex::new(HashMap::new()));
     let asset_id_map_clone = asset_id_map.clone();
 
@@ -1185,8 +1178,6 @@ pub async fn init_game_state(
         player_controller,
         character: None,
 
-        asset_loader: asset_loader_clone,
-        asset_binder,
         asset_id_map: asset_id_map_clone,
 
         ui_overlay,
@@ -1385,18 +1376,10 @@ pub fn update_game_state(
         ..
     }: GameContext<GameState>,
 ) {
-    let base_renderer = renderer.base.clone();
     let renderer_data = renderer.data.clone();
-    let renderer_constant_data = renderer.constant_data.clone();
-
-    game_state.asset_binder.update(
-        base_renderer.clone(),
-        renderer_constant_data.clone(),
-        game_state.asset_loader.clone(),
-    );
 
     {
-        let loaded_skyboxes = game_state.asset_binder.loaded_skyboxes();
+        let loaded_skyboxes = engine_state.asset_binder.loaded_skyboxes();
         let mut loaded_skyboxes_guard = loaded_skyboxes.lock().unwrap();
         let asset_id_map_guard = game_state.asset_id_map.lock().unwrap();
 
@@ -1409,7 +1392,7 @@ pub fn update_game_state(
     }
 
     {
-        let loaded_scenes = game_state.asset_binder.loaded_scenes();
+        let loaded_scenes = engine_state.asset_binder.loaded_scenes();
         let mut loaded_assets_guard = loaded_scenes.lock().unwrap();
         let asset_id_map_guard = game_state.asset_id_map.lock().unwrap();
         let mut renderer_data_guard = renderer_data.lock().unwrap();
@@ -1572,7 +1555,7 @@ pub fn update_game_state(
     }
 
     {
-        let mut loaded_audio_guard = game_state.asset_loader.loaded_audio.lock().unwrap();
+        let mut loaded_audio_guard = engine_state.asset_loader.loaded_audio.lock().unwrap();
         let asset_id_map_guard = game_state.asset_id_map.lock().unwrap();
 
         if let Some(asset_id) = asset_id_map_guard.get(&"src/sounds/bgm.mp3".to_string()) {

@@ -275,6 +275,7 @@ impl AudioFileStreamer {
 }
 
 impl AudioManager {
+    // TODO: should we really be returning a tuple here?
     pub fn new() -> Result<(AudioManager, AudioStreams)> {
         let host = cpal::default_host();
         let device = host
