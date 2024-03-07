@@ -263,7 +263,7 @@ impl Chart<Message> for FpsChart {
                 .disable_x_mesh()
                 .y_max_light_lines(1)
                 .set_all_tick_mark_size(1)
-                .x_labels(oldest_ft_age_secs as usize + 1)
+                .x_labels((oldest_ft_age_secs as usize + 1).min(8))
                 .y_labels(((max_y / fps_grading_size as i32) + 1).min(7) as usize)
                 .light_line_style(mesh_line_style)
                 .bold_line_style(mesh_line_style)
@@ -326,7 +326,10 @@ impl FpsChart {
         if !gpu_timer_query_results.is_empty() {
             let mut total_gpu_time_seconds = 0.0;
             for query_result in gpu_timer_query_results {
-                total_gpu_time_seconds += query_result.time.end - query_result.time.start;
+                // start can occasionally be larger than end on macos :(
+                // TODO: file a bug
+                total_gpu_time_seconds +=
+                    (query_result.time.end - query_result.time.start).max(0.0);
             }
             Some(Duration::from_secs_f64(total_gpu_time_seconds))
         } else {
