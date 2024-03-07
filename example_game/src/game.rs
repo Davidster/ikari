@@ -311,7 +311,7 @@ pub async fn init_game_state(
 
             // forest
             // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
-            gltf_paths.push("src/models/gltf/free_low_poly_forest/scene.gltf");
+            // gltf_paths.push("src/models/gltf/free_low_poly_forest/scene.gltf");
 
             // legendary robot
             // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model

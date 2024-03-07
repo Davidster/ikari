@@ -16,6 +16,7 @@ use crate::transform::*;
 use crate::ui::*;
 use crate::wasm_not_sync::WasmNotArc;
 
+use std::collections::HashSet;
 use std::collections::{hash_map::Entry, HashMap};
 use std::num::NonZeroU64;
 use std::ops::Deref;
@@ -3916,6 +3917,7 @@ impl Renderer {
         node: &GameNode,
         data: &RendererData,
         engine_state: &EngineState,
+        skinned_nodes: &HashSet<GameNodeId>,
         camera_culling_frustum: &Frustum,
         point_lights_frusta: &PointLightFrustaWithCullingInfo,
         resolved_directional_light_cascades: &[Vec<ResolvedDirectionalLightCascade>],
@@ -3926,17 +3928,21 @@ impl Renderer {
             || !data.enable_directional_shadow_culling
         {
             culling_mask.set_elements(usize::MAX);
+            return;
         }
 
         if node.visual.is_none() {
             culling_mask.set_elements(0);
+            return;
         }
 
         // TODO: this isn't enough! try moving the 'Root' node on legendary robot, culling gets rekt.
         // should do a loop after computing all culling masks where we unset all the skinned meshes afterwards.
         /* bounding boxes will be wrong for skinned meshes so we currently can't cull them */
+        // if !node.visual.as_ref().unwrap().cullable || skinned_nodes.contains(&node.id()) {
         if node.skin_index.is_some() || !node.visual.as_ref().unwrap().cullable {
             culling_mask.set_elements(usize::MAX);
+            return;
         }
 
         let node_bounding_sphere = engine_state.scene.get_node_bounding_sphere_opt(node.id());
@@ -5867,6 +5873,17 @@ impl Renderer {
         let mut tmp_node_culling_mask = BitVec::repeat(false, camera_count);
         let mut culled_object_counts: Vec<usize> = vec![0; camera_count];
 
+        let mut skinned_nodes: HashSet<GameNodeId> =
+            HashSet::with_capacity(engine_state.scene.skins.len() * 10);
+
+        for skin in &engine_state.scene.skins {
+            skinned_nodes.insert(skin.node_id);
+
+            for bone_node_id in &skin.bone_node_ids {
+                skinned_nodes.insert(*bone_node_id);
+            }
+        }
+
         for node in engine_state.scene.nodes() {
             let transform = Mat4::from(
                 engine_state
@@ -5902,6 +5919,7 @@ impl Renderer {
                             node,
                             data,
                             engine_state,
+                            &skinned_nodes,
                             culling_frustum,
                             point_lights_frusta,
                             resolved_directional_light_cascades,

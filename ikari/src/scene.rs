@@ -362,7 +362,7 @@ impl Scene {
         self.global_node_bounding_spheres[node_index as usize]
     }
 
-    pub fn _get_skeleton_skin_node_id(&self, node_id: GameNodeId) -> Option<GameNodeId> {
+    pub fn get_skeleton_skin_node_id(&self, node_id: GameNodeId) -> Option<GameNodeId> {
         self.nodes
             .iter()
             .flat_map(|(node, _)| node)
