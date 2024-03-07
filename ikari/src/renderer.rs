@@ -3926,17 +3926,18 @@ impl Renderer {
             || !data.enable_directional_shadow_culling
         {
             culling_mask.set_elements(usize::MAX);
+            return;
         }
 
         if node.visual.is_none() {
             culling_mask.set_elements(0);
+            return;
         }
 
-        // TODO: this isn't enough! try moving the 'Root' node on legendary robot, culling gets rekt.
-        // should do a loop after computing all culling masks where we unset all the skinned meshes afterwards.
         /* bounding boxes will be wrong for skinned meshes so we currently can't cull them */
         if node.skin_index.is_some() || !node.visual.as_ref().unwrap().cullable {
             culling_mask.set_elements(usize::MAX);
+            return;
         }
 
         let node_bounding_sphere = engine_state.scene.get_node_bounding_sphere_opt(node.id());
