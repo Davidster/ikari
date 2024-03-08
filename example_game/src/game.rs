@@ -2087,8 +2087,11 @@ fn add_static_box(
         .or_insert(vec![]);
 
     if let Some(node) = scene.get_node(node_id) {
-        if let Some(visual) = node.visual.as_ref() {
-            let transform: Transform = scene.get_global_transform_for_node(node_id);
+        if let Some((visual, transform)) = node
+            .visual
+            .as_ref()
+            .zip(scene.get_global_transform_for_node(node_id))
+        {
             let transform_decomposed = transform.decompose();
             let bounding_box = renderer_data.binded_meshes[visual.mesh_index].bounding_box;
             let base_scale = (bounding_box.max - bounding_box.min) / 2.0;

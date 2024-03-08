@@ -348,12 +348,9 @@ impl Scene {
     ) -> Option<Sphere> {
         self.get_node(node_id)
             .and_then(|node| node.visual.as_ref())
-            .map(|visual| {
-                build_mesh_bounding_sphere(
-                    visual.mesh_index,
-                    &self.get_global_transform_for_node(node_id),
-                    renderer_data,
-                )
+            .zip(self.get_global_transform_for_node(node_id))
+            .map(|(visual, global_transform)| {
+                build_mesh_bounding_sphere(visual.mesh_index, &global_transform, renderer_data)
             })
     }
 
@@ -405,21 +402,17 @@ impl Scene {
         }
     }
 
-    // TODO: should this return an option?
     #[profiling::function]
     pub fn get_global_transform_for_node(
         &self,
         node_id: GameNodeId,
-    ) -> crate::transform::Transform {
+    ) -> Option<crate::transform::Transform> {
         let node_ancestry_list: Vec<_> = self.get_node_ancestry_list(node_id).collect();
-        node_ancestry_list.iter().rev().fold(
-            crate::transform::Transform::IDENTITY,
-            |acc, node_id| {
-                let GameNodeId(node_index, _) = node_id;
-                let (node, _) = &self.nodes[*node_index as usize];
-                acc * node.as_ref().unwrap().transform
-            },
-        )
+        node_ancestry_list.iter().rev().fold(None, |acc, node_id| {
+            let GameNodeId(node_index, _) = node_id;
+            let (node, _) = &self.nodes[*node_index as usize];
+            Some(acc.unwrap_or_default() * node.as_ref().unwrap().transform)
+        })
     }
 
     // #[profiling::function]

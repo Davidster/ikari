@@ -39,8 +39,9 @@ impl Character {
     }
 
     pub fn update(&mut self, scene: &mut Scene, physics_state: &mut PhysicsState) {
-        let root_node_global_transform: Transform =
-            scene.get_global_transform_for_node(self.root_node_id);
+        let root_node_global_transform: Transform = scene
+            .get_global_transform_for_node(self.root_node_id)
+            .unwrap_or_default();
         let should_fill_collision_boxes = self.collision_box_colliders.is_empty();
         if let Some((skin_node_id, first_skin_bounding_box_transforms)) =
             scene.skins.get(self.skin_index).and_then(|skin| {

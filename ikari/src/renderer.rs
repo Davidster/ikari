@@ -3667,6 +3667,7 @@ impl Renderer {
                     let frustum_descriptor = CameraFrustumDescriptor {
                         focal_point: scene
                             .get_global_transform_for_node(point_light.node_id)
+                            .unwrap_or_default()
                             .position(),
                         forward_vector: controlled_direction.to_vector(),
                         near_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
