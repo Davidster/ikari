@@ -98,6 +98,12 @@ pub struct AudioFileStreamer {
 
 #[cfg(target_arch = "wasm32")]
 async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSource>> {
+    use std::sync::{Arc, Mutex};
+
+    use js_sys::Reflect;
+    use wasm_bindgen::JsValue;
+    use wasm_bindgen_futures::JsFuture;
+
     let url = file_path.resolve();
 
     let streamer = match HttpStreamer::new(url).await {
@@ -121,10 +127,12 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
     //     fn byte_len(&self) -> Option<u64>;
     // }
 
+    #[derive(Debug, Clone)]
     struct HttpStreamer {
         url: String,
         content_length: Option<u64>,
         current_file_position: usize,
+        buffer: Arc<Mutex<Vec<u8>>>,
     }
 
     impl HttpStreamer {
@@ -144,53 +152,129 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
                 .get("Content-Length")
                 .and_then(|content_length_str| content_length_str.parse::<u64>().ok());
 
-            Ok(Self {
+            log::info!(
+                "Initted http streamer with content_length={:?}",
+                content_length
+            );
+
+            let result = Self {
                 url,
                 content_length,
                 current_file_position: 0,
-            })
+                buffer: Arc::new(Mutex::new(vec![])),
+            };
+
+            Ok(result)
         }
     }
 
     impl std::io::Read for HttpStreamer {
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            let Some(body_stream) = crate::block_on(async {
-                gloo_net::http::RequestBuilder::new(&self.url)
-                    .method(gloo_net::http::Method::GET)
-                    .header(
-                        "Range",
-                        &format!(
-                            "{}-{}",
-                            self.current_file_position,
-                            self.current_file_position + buf.len()
-                        ),
-                    )
-                    .send()
-                    .await?
-                    .body()
-            }) else {
-                return Ok(0);
-            };
+            let number_of_bytes_to_read = buf.len();
 
-            let stream_reader = web_sys::ReadableStreamDefaultReader::new(body_stream);
-            Ok(0)
-            // for
+            log::info!(
+                "Read called with number_of_bytes_to_read={:?}",
+                number_of_bytes_to_read
+            );
+
+            let self_clone = self.clone();
+
+            crate::block_on(async move {
+                async fn get_bytes(
+                    streamer: HttpStreamer,
+                    number_of_bytes_to_read: usize,
+                ) -> std::result::Result<(), JsValue> {
+                    log::info!("get_bytes");
+                    match gloo_net::http::RequestBuilder::new(&streamer.url)
+                        .method(gloo_net::http::Method::GET)
+                        .header(
+                            "Range",
+                            &format!(
+                                "bytes={}-{}",
+                                streamer.current_file_position,
+                                streamer.current_file_position + number_of_bytes_to_read
+                            ),
+                        )
+                        .send()
+                        .await
+                        .map_err(|err| JsValue::from_str(&format!("{:?}", err)))?
+                        .body()
+                    {
+                        Some(body_stream) => {
+                            log::info!("get_bytes 2");
+                            let mut stream_reader =
+                                web_sys::ReadableStreamDefaultReader::new(&body_stream)?;
+                            log::info!("get_bytes 3");
+                            loop {
+                                let result = JsFuture::from(stream_reader.read()).await?;
+                                log::info!("get_bytes 4");
+                                let done = Reflect::get(&result, &JsValue::from_str("done"))?
+                                    .as_bool()
+                                    .ok_or_else(|| {
+                                        JsValue::from_str(
+                                            "Failed to read property 'done' from stream read promise result"
+                                        )
+                                    })?;
+                                log::info!("get_bytes 5");
+                                let mut chunk = js_sys::Uint8Array::new(&Reflect::get(
+                                    &result,
+                                    &JsValue::from_str("value"),
+                                )?)
+                                .to_vec();
+                                log::info!("get_bytes 6");
+
+                                streamer.buffer.lock().unwrap().append(&mut chunk);
+
+                                log::info!(
+                                    "get_bytes 7, done={}, chunk_length={}",
+                                    done,
+                                    chunk.len()
+                                );
+
+                                if done {
+                                    break;
+                                }
+                            }
+
+                            Ok(())
+                        }
+                        None => Ok(()),
+                    }
+                }
+
+                get_bytes(self_clone, number_of_bytes_to_read).await;
+            });
+
+            log::info!("Reading from result buffer");
+
+            let mut count = 0;
+            for (i, byte) in self.buffer.lock().unwrap().iter().enumerate() {
+                buf[i] = *byte;
+                count += 1;
+            }
+
+            log::info!("Read {} bytes from result buffer", count);
+
+            Ok(count)
         }
     }
 
     impl std::io::Seek for HttpStreamer {
         fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-            todo!()
+            std::io::Result::Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "sorry bruh",
+            ))
         }
     }
 
     impl MediaSource for HttpStreamer {
         fn is_seekable(&self) -> bool {
-            todo!()
+            true
         }
 
         fn byte_len(&self) -> Option<u64> {
-            todo!()
+            self.content_length
         }
     }
 

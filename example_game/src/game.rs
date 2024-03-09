@@ -342,20 +342,20 @@ pub async fn init_game_state(
                     initial_volume: 0.3,
                     fixed_volume: false,
                     spacial_params: None,
-                    stream: !cfg!(target_arch = "wasm32"),
+                    stream: true,
                 },
             });
 
-            audio_load_params.push(AudioAssetLoadParams {
-                path: GAME_PATH_MAKER.make("src/sounds/gunshot.wav"),
-                format: AudioFileFormat::Wav,
-                sound_params: SoundParams {
-                    initial_volume: 0.4,
-                    fixed_volume: true,
-                    spacial_params: None,
-                    stream: false,
-                },
-            });
+            // audio_load_params.push(AudioAssetLoadParams {
+            //     path: GAME_PATH_MAKER.make("src/sounds/gunshot.wav"),
+            //     format: AudioFileFormat::Wav,
+            //     sound_params: SoundParams {
+            //         initial_volume: 0.4,
+            //         fixed_volume: true,
+            //         spacial_params: None,
+            //         stream: false,
+            //     },
+            // });
 
             for audio_load_param in audio_load_params {
                 asset_id_map.lock().unwrap().insert(
