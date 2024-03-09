@@ -51,6 +51,8 @@ web-sys = { version = "0.3.64", features = [
   "Response",
   "Blob",
   "WorkerGlobalScope",
+  "ReadableStream",
+  "ReadableStreamDefaultReader",
 ] }
 wasm-bindgen = { version = "0.2.87", features = ["serde-serialize"] }
 wasm-bindgen-futures = "0.4.37"

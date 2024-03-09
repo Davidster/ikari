@@ -98,9 +98,103 @@ pub struct AudioFileStreamer {
 
 #[cfg(target_arch = "wasm32")]
 async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSource>> {
-    use crate::file_manager::FileManager;
-    let file_bytes = FileManager::read(file_path).await?;
-    Ok(Box::new(std::io::Cursor::new(file_bytes)))
+    let url = file_path.resolve();
+
+    let streamer = match HttpStreamer::new(url).await {
+        Ok(streamer) => streamer,
+        Err(error) => {
+            log::error!(
+                "{:?}. Falling back to loading the entire resource into memory",
+                error
+            );
+            return Ok(Box::new(std::io::Cursor::new(
+                crate::file_manager::FileManager::read(file_path).await?,
+            )));
+        }
+    };
+
+    // pub trait MediaSource: io::Read + io::Seek + Send + Sync {
+    //     /// Returns if the source is seekable. This may be an expensive operation.
+    //     fn is_seekable(&self) -> bool;
+
+    //     /// Returns the length in bytes, if available. This may be an expensive operation.
+    //     fn byte_len(&self) -> Option<u64>;
+    // }
+
+    struct HttpStreamer {
+        url: String,
+        content_length: Option<u64>,
+        current_file_position: usize,
+    }
+
+    impl HttpStreamer {
+        pub async fn new(url: String) -> Result<Self> {
+            let head_response = gloo_net::http::RequestBuilder::new(&url)
+                .method(gloo_net::http::Method::HEAD)
+                .send()
+                .await?;
+
+            // TODO: do we need to check this pre-emptively? or can we wait for the first 'read'?
+            if head_response.headers().get("Accept-Ranges") != Some(String::from("bytes")) {
+                anyhow::bail!("Resource at URL {} does not support streaming", url);
+            }
+
+            let content_length = head_response
+                .headers()
+                .get("Content-Length")
+                .and_then(|content_length_str| content_length_str.parse::<u64>().ok());
+
+            Ok(Self {
+                url,
+                content_length,
+                current_file_position: 0,
+            })
+        }
+    }
+
+    impl std::io::Read for HttpStreamer {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let Some(body_stream) = crate::block_on(async {
+                gloo_net::http::RequestBuilder::new(&self.url)
+                    .method(gloo_net::http::Method::GET)
+                    .header(
+                        "Range",
+                        &format!(
+                            "{}-{}",
+                            self.current_file_position,
+                            self.current_file_position + buf.len()
+                        ),
+                    )
+                    .send()
+                    .await?
+                    .body()
+            }) else {
+                return Ok(0);
+            };
+
+            let stream_reader = web_sys::ReadableStreamDefaultReader::new(body_stream);
+            Ok(0)
+            // for
+        }
+    }
+
+    impl std::io::Seek for HttpStreamer {
+        fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+            todo!()
+        }
+    }
+
+    impl MediaSource for HttpStreamer {
+        fn is_seekable(&self) -> bool {
+            todo!()
+        }
+
+        fn byte_len(&self) -> Option<u64> {
+            todo!()
+        }
+    }
+
+    Ok(Box::new(streamer))
 }
 
 #[cfg(not(target_arch = "wasm32"))]

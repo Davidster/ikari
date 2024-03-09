@@ -115,14 +115,14 @@ mod web {
 
     impl FileManager {
         pub async fn read(path: &GameFilePath) -> anyhow::Result<Vec<u8>> {
-            let resolved_path = path.resolve();
-            Self::read_internal(&resolved_path)
+            let url = path.resolve();
+            Self::read_internal(&url)
                 .await
                 .map(|js_value| js_sys::Uint8Array::new(&js_value).to_vec())
                 .map_err(|err| {
                     anyhow::anyhow!(
                         "Error reading from url {}:\n{}",
-                        resolved_path,
+                        url,
                         err.as_string().unwrap_or_default()
                     )
                 })
