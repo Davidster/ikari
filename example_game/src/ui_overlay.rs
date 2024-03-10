@@ -327,7 +327,7 @@ impl FpsChart {
             let mut total_gpu_time_seconds = 0.0;
             for query_result in gpu_timer_query_results {
                 // start can occasionally be larger than end on macos :(
-                // TODO: file a bug
+                // see https://github.com/Wumpf/wgpu-profiler/issues/64
                 total_gpu_time_seconds +=
                     (query_result.time.end - query_result.time.start).max(0.0);
             }
