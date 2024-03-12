@@ -86,16 +86,6 @@ pub struct SoundParams {
     pub stream: bool,
 }
 
-pub struct AudioFileStreamer {
-    device_sample_rate: u32,
-    format_reader: Box<dyn symphonia::core::formats::FormatReader>,
-    decoder: Box<dyn symphonia::core::codecs::Decoder>,
-    track_id: u32,
-    track_sample_rate: Option<u32>,
-    track_length_seconds: Option<f32>,
-    file_path: GameFilePath,
-}
-
 #[cfg(target_arch = "wasm32")]
 async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSource>> {
     use std::sync::{Arc, Mutex};
@@ -281,91 +271,118 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
     Ok(Box::new(streamer))
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSource>> {
-    use crate::file_manager::native_fs::File;
-    Ok(Box::new(File::open(file_path.resolve())?))
-}
+#[cfg(target_arch = "wasm32")]
+mod web {
+    use wasm_bindgen::prelude::*;
+    use web_sys::{AudioContext, HtmlMediaElement};
 
-impl AudioFileStreamer {
-    pub async fn new(
-        device_sample_rate: u32,
+    pub struct AudioFileStreamer {
         file_path: GameFilePath,
-        file_format: Option<AudioFileFormat>,
-    ) -> anyhow::Result<Self> {
-        let mss = MediaSourceStream::new(get_media_source(&file_path).await?, Default::default());
-
-        let mut hint = Hint::new();
-        if let Some(file_format) = &file_format {
-            hint.with_extension(match file_format {
-                AudioFileFormat::Mp3 => "mp3",
-                AudioFileFormat::Wav => "wav",
-            });
-        }
-
-        let probed = symphonia::default::get_probe().format(
-            &hint,
-            mss,
-            &Default::default(),
-            &Default::default(),
-        )?;
-
-        let format_reader = probed.format;
-
-        let track = format_reader
-            .tracks()
-            .iter()
-            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-            .ok_or(anyhow::anyhow!("no supported audio tracks"))?;
-
-        let track_length_seconds = match (track.codec_params.time_base, track.codec_params.n_frames)
-        {
-            (Some(time_base), Some(n_frames)) => {
-                let time = time_base.calc_time(n_frames);
-                Some(time.seconds as f32 + time.frac as f32)
-            }
-            _ => None,
-        };
-
-        let track_id = track.id;
-        let track_sample_rate = track.codec_params.sample_rate;
-
-        let decoder =
-            symphonia::default::get_codecs().make(&track.codec_params, &Default::default())?;
-
-        Ok(Self {
-            device_sample_rate,
-            format_reader,
-            decoder,
-            track_id,
-            track_length_seconds,
-            track_sample_rate,
-            file_path,
-        })
     }
 
-    /// max_chunk_size=0 to read the whole stream at once
-    /// The actual chunk size we end up getting will be a little lower than this value since we read
-    /// the audio file in small 'packets' which might not fit evenly into max_chunk_size
-    /// so we make sure not to overshoot
-    #[profiling::function]
-    pub fn read_chunk(&mut self, max_chunk_size: usize) -> Result<(SoundData, bool)> {
-        let mut samples_interleaved: Vec<f32> = vec![];
+    impl AudioFileStreamer {
+        pub async fn new(
+            _device_sample_rate: u32,
+            file_path: GameFilePath,
+            _file_format: Option<AudioFileFormat>,
+        ) -> anyhow::Result<Self> {
+            let Some(document) = web_sys::window().and_then(|win| win.document()) else {
+                anyhow::bail!("Couldn't get document");
+            };
 
-        let sample_rate_ratio = self.device_sample_rate as f32
-            / self.track_sample_rate.unwrap_or(self.device_sample_rate) as f32;
+            Self::new_internal(document, file_path)
+                .await
+                .map_err(|err| anyhow::anyhow!("{:?}", err))
+        }
 
-        let reached_end_of_stream = loop {
-            let packet = {
-                profiling::scope!("read from disk");
-                match self.format_reader.next_packet() {
-                    Ok(packet) => packet,
-                    Err(symphonia::core::errors::Error::ResetRequired) => {
-                        // The track list has been changed. Re-examine it and create a new set of decoders,
-                        // then restart the decode loop. This is an advanced feature and it is not
-                        // unreasonable to consider this "the end." As of v0.5.0, the only usage of this is
-                        // for chained OGG physical streams.
-                        anyhow::bail!("idk");
+        async fn new_internal(
+            document: web_sys::Document,
+            file_path: GameFilePath,
+        ) -> Result<Self, JsValue> {
+            let audio_context = AudioContext::new()?;
+
+            let audio_element = document
+                .create_element("audio")?
+                .dyn_into::<HtmlMediaElement>()?;
+            audio_element.set_attribute("src", file_path.resolve());
+
+            let track = audio_context.create_media_element_source(&audio_element)?;
+
+            // TODO: can we use the webcodecs API here?
+            // https://developer.mozilla.org/en-US/docs/Web/API/WebCodecs_API
+            // bevy uses rodio... does it support streaming on the web?
+            // https://github.com/RustAudio/rodio
+
+            Ok(Self { file_path })
+        }
+
+        // TODO: does this need to be async?
+        #[profiling::function]
+        pub async fn read_chunk(&mut self, max_chunk_size: usize) -> Result<(SoundData, bool)> {
+            let mut samples_interleaved: Vec<f32> = vec![];
+
+            let sample_rate_ratio = self.device_sample_rate as f32
+                / self.track_sample_rate.unwrap_or(self.device_sample_rate) as f32;
+
+            let reached_end_of_stream = loop {
+                let packet = {
+                    profiling::scope!("read from disk");
+                    match self.format_reader.next_packet() {
+                        Ok(packet) => packet,
+                        Err(symphonia::core::errors::Error::ResetRequired) => {
+                            // The track list has been changed. Re-examine it and create a new set of decoders,
+                            // then restart the decode loop. This is an advanced feature and it is not
+                            // unreasonable to consider this "the end." As of v0.5.0, the only usage of this is
+                            // for chained OGG physical streams.
+                            anyhow::bail!("idk");
+                        }
+                        Err(symphonia::core::errors::Error::IoError(err)) => {
+                            if err.kind() == std::io::ErrorKind::UnexpectedEof
+                                && err.to_string() == "end of stream"
+                            {
+                                break true;
+                            }
+                            anyhow::bail!(err);
+                        }
+                        Err(err) => {
+                            anyhow::bail!(err);
+                        }
+                    }
+                };
+
+                if packet.track_id() != self.track_id {
+                    continue;
+                }
+
+                let decode_result = {
+                    profiling::scope!("decode");
+                    self.decoder.decode(&packet)
+                };
+
+                match decode_result {
+                    Ok(audio_buf) => {
+                        profiling::scope!("copy to buf");
+                        let mut sample_buf = SampleBuffer::<f32>::new(
+                            audio_buf.capacity() as u64,
+                            *audio_buf.spec(),
+                        );
+
+                        sample_buf.copy_interleaved_ref(audio_buf);
+
+                        let sample_count = sample_buf.samples().len();
+
+                        for sample in sample_buf.samples() {
+                            samples_interleaved.push(*sample);
+                        }
+
+                        if max_chunk_size != 0
+                            && sample_rate_ratio
+                                * ((samples_interleaved.len() + sample_count) / CHANNEL_COUNT)
+                                    as f32
+                                > max_chunk_size as f32
+                        {
+                            break false;
+                        }
                     }
                     Err(symphonia::core::errors::Error::IoError(err)) => {
                         if err.kind() == std::io::ErrorKind::UnexpectedEof
@@ -381,74 +398,216 @@ impl AudioFileStreamer {
                 }
             };
 
-            if packet.track_id() != self.track_id {
-                continue;
+            let mut samples: Vec<[f32; CHANNEL_COUNT]> = samples_interleaved
+                .chunks(CHANNEL_COUNT)
+                .map(|chunk| [chunk[0], chunk[1]])
+                .collect();
+
+            if Some(self.device_sample_rate) != self.track_sample_rate {
+                // resample the sound to the device sample rate using linear interpolation
+                samples = resample_linear(
+                    &samples,
+                    self.track_sample_rate.unwrap(),
+                    self.device_sample_rate,
+                );
             }
 
-            let decode_result = {
-                profiling::scope!("decode");
-                self.decoder.decode(&packet)
-            };
-
-            match decode_result {
-                Ok(audio_buf) => {
-                    profiling::scope!("copy to buf");
-                    let mut sample_buf =
-                        SampleBuffer::<f32>::new(audio_buf.capacity() as u64, *audio_buf.spec());
-
-                    sample_buf.copy_interleaved_ref(audio_buf);
-
-                    let sample_count = sample_buf.samples().len();
-
-                    for sample in sample_buf.samples() {
-                        samples_interleaved.push(*sample);
-                    }
-
-                    if max_chunk_size != 0
-                        && sample_rate_ratio
-                            * ((samples_interleaved.len() + sample_count) / CHANNEL_COUNT) as f32
-                            > max_chunk_size as f32
-                    {
-                        break false;
-                    }
-                }
-                Err(symphonia::core::errors::Error::IoError(err)) => {
-                    if err.kind() == std::io::ErrorKind::UnexpectedEof
-                        && err.to_string() == "end of stream"
-                    {
-                        break true;
-                    }
-                    anyhow::bail!(err);
-                }
-                Err(err) => {
-                    anyhow::bail!(err);
-                }
-            }
-        };
-
-        let mut samples: Vec<[f32; CHANNEL_COUNT]> = samples_interleaved
-            .chunks(CHANNEL_COUNT)
-            .map(|chunk| [chunk[0], chunk[1]])
-            .collect();
-
-        if Some(self.device_sample_rate) != self.track_sample_rate {
-            // resample the sound to the device sample rate using linear interpolation
-            samples = resample_linear(
-                &samples,
-                self.track_sample_rate.unwrap(),
-                self.device_sample_rate,
-            );
+            Ok((SoundData(samples), reached_end_of_stream))
         }
 
-        Ok((SoundData(samples), reached_end_of_stream))
+        pub fn track_length_seconds(&self) -> Option<f32> {
+            self.track_length_seconds
+        }
+
+        pub fn file_path(&self) -> &GameFilePath {
+            &self.file_path
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+mod web {
+    pub struct AudioFileStreamer {
+        device_sample_rate: u32,
+        format_reader: Box<dyn symphonia::core::formats::FormatReader>,
+        decoder: Box<dyn symphonia::core::codecs::Decoder>,
+        track_id: u32,
+        track_sample_rate: Option<u32>,
+        track_length_seconds: Option<f32>,
+        file_path: GameFilePath,
     }
 
-    pub fn track_length_seconds(&self) -> Option<f32> {
-        self.track_length_seconds
-    }
+    #[cfg(not(target_arch = "wasm32"))]
+    impl AudioFileStreamer {
+        pub async fn new(
+            device_sample_rate: u32,
+            file_path: GameFilePath,
+            file_format: Option<AudioFileFormat>,
+        ) -> anyhow::Result<Self> {
+            use crate::file_manager::native_fs::File;
+            let mss = MediaSourceStream::new(
+                Box::new(File::open(file_path.resolve())?),
+                Default::default(),
+            );
 
-    pub fn file_path(&self) -> &GameFilePath {
-        &self.file_path
+            let mut hint = Hint::new();
+            if let Some(file_format) = &file_format {
+                hint.with_extension(match file_format {
+                    AudioFileFormat::Mp3 => "mp3",
+                    AudioFileFormat::Wav => "wav",
+                });
+            }
+
+            let probed = symphonia::default::get_probe().format(
+                &hint,
+                mss,
+                &Default::default(),
+                &Default::default(),
+            )?;
+
+            let format_reader = probed.format;
+
+            let track = format_reader
+                .tracks()
+                .iter()
+                .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+                .ok_or(anyhow::anyhow!("no supported audio tracks"))?;
+
+            let track_length_seconds =
+                match (track.codec_params.time_base, track.codec_params.n_frames) {
+                    (Some(time_base), Some(n_frames)) => {
+                        let time = time_base.calc_time(n_frames);
+                        Some(time.seconds as f32 + time.frac as f32)
+                    }
+                    _ => None,
+                };
+
+            let track_id = track.id;
+            let track_sample_rate = track.codec_params.sample_rate;
+
+            let decoder =
+                symphonia::default::get_codecs().make(&track.codec_params, &Default::default())?;
+
+            Ok(Self {
+                device_sample_rate,
+                format_reader,
+                decoder,
+                track_id,
+                track_length_seconds,
+                track_sample_rate,
+                file_path,
+            })
+        }
+
+        /// max_chunk_size=0 to read the whole stream at once
+        /// The actual chunk size we end up getting will be a little lower than this value since we read
+        /// the audio file in small 'packets' which might not fit evenly into max_chunk_size
+        /// so we make sure not to overshoot
+        #[profiling::function]
+        pub async fn read_chunk(&mut self, max_chunk_size: usize) -> Result<(SoundData, bool)> {
+            let mut samples_interleaved: Vec<f32> = vec![];
+
+            let sample_rate_ratio = self.device_sample_rate as f32
+                / self.track_sample_rate.unwrap_or(self.device_sample_rate) as f32;
+
+            let reached_end_of_stream = loop {
+                let packet = {
+                    profiling::scope!("read from disk");
+                    match self.format_reader.next_packet() {
+                        Ok(packet) => packet,
+                        Err(symphonia::core::errors::Error::ResetRequired) => {
+                            // The track list has been changed. Re-examine it and create a new set of decoders,
+                            // then restart the decode loop. This is an advanced feature and it is not
+                            // unreasonable to consider this "the end." As of v0.5.0, the only usage of this is
+                            // for chained OGG physical streams.
+                            anyhow::bail!("idk");
+                        }
+                        Err(symphonia::core::errors::Error::IoError(err)) => {
+                            if err.kind() == std::io::ErrorKind::UnexpectedEof
+                                && err.to_string() == "end of stream"
+                            {
+                                break true;
+                            }
+                            anyhow::bail!(err);
+                        }
+                        Err(err) => {
+                            anyhow::bail!(err);
+                        }
+                    }
+                };
+
+                if packet.track_id() != self.track_id {
+                    continue;
+                }
+
+                let decode_result = {
+                    profiling::scope!("decode");
+                    self.decoder.decode(&packet)
+                };
+
+                match decode_result {
+                    Ok(audio_buf) => {
+                        profiling::scope!("copy to buf");
+                        let mut sample_buf = SampleBuffer::<f32>::new(
+                            audio_buf.capacity() as u64,
+                            *audio_buf.spec(),
+                        );
+
+                        sample_buf.copy_interleaved_ref(audio_buf);
+
+                        let sample_count = sample_buf.samples().len();
+
+                        for sample in sample_buf.samples() {
+                            samples_interleaved.push(*sample);
+                        }
+
+                        if max_chunk_size != 0
+                            && sample_rate_ratio
+                                * ((samples_interleaved.len() + sample_count) / CHANNEL_COUNT)
+                                    as f32
+                                > max_chunk_size as f32
+                        {
+                            break false;
+                        }
+                    }
+                    Err(symphonia::core::errors::Error::IoError(err)) => {
+                        if err.kind() == std::io::ErrorKind::UnexpectedEof
+                            && err.to_string() == "end of stream"
+                        {
+                            break true;
+                        }
+                        anyhow::bail!(err);
+                    }
+                    Err(err) => {
+                        anyhow::bail!(err);
+                    }
+                }
+            };
+
+            let mut samples: Vec<[f32; CHANNEL_COUNT]> = samples_interleaved
+                .chunks(CHANNEL_COUNT)
+                .map(|chunk| [chunk[0], chunk[1]])
+                .collect();
+
+            if Some(self.device_sample_rate) != self.track_sample_rate {
+                // resample the sound to the device sample rate using linear interpolation
+                samples = resample_linear(
+                    &samples,
+                    self.track_sample_rate.unwrap(),
+                    self.device_sample_rate,
+                );
+            }
+
+            Ok((SoundData(samples), reached_end_of_stream))
+        }
+
+        pub fn track_length_seconds(&self) -> Option<f32> {
+            self.track_length_seconds
+        }
+
+        pub fn file_path(&self) -> &GameFilePath {
+            &self.file_path
+        }
     }
 }
 
