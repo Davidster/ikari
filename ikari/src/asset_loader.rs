@@ -280,10 +280,10 @@ impl AssetLoader {
             profiling::register_thread!("Audio streamer");
             crate::block_on(async move {
                 loop {
-                    log::info!(
-                        "Loop audio streaming thread, is_exiting={}",
-                        is_exiting.load(Ordering::SeqCst)
-                    );
+                    // log::info!(
+                    //     "Loop audio streaming thread, is_exiting={}",
+                    //     is_exiting.load(Ordering::SeqCst)
+                    // );
                     if is_exiting.load(Ordering::SeqCst) {
                         break;
                     }
@@ -334,18 +334,16 @@ impl AssetLoader {
                                 .unwrap()
                                 .write_stream_data(sound_index, sound_data);
                             loop {
-                                log::info!(
-                                    "Loop audio streaming thread 2, is_exiting={}",
-                                    is_exiting.load(Ordering::SeqCst)
-                                );
+                                // log::info!(
+                                //     "Loop audio streaming thread 2, is_exiting={}",
+                                //     is_exiting.load(Ordering::SeqCst)
+                                // );
                                 if is_exiting.load(Ordering::SeqCst) {
                                     break;
                                 }
 
                                 if !audio_manager.lock().unwrap().sound_is_playing(sound_index) {
-                                    crate::block_on(crate::thread::sleep_async(
-                                        Duration::from_secs_f32(0.05),
-                                    ));
+                                    crate::thread::sleep_async(Duration::from_secs_f32(0.05)).await;
                                 } else {
                                     break;
                                 }
@@ -469,16 +467,21 @@ impl AssetBinder {
         renderer_constant_data: WasmNotArc<RendererConstantData>,
         asset_loader: Arc<AssetLoader>,
     ) {
+        let start = crate::time::Instant::now();
         self.scene_binder.update(
             base_renderer.clone(),
             renderer_constant_data.clone(),
             asset_loader.clone(),
         );
+        // log::info!("scene binder took {:?}", start.elapsed());
+
+        let start = crate::time::Instant::now();
         self.skybox_binder.update(
             base_renderer.clone(),
             renderer_constant_data.clone(),
             asset_loader.clone(),
         );
+        // log::info!("skybox binder took {:?}", start.elapsed());
     }
 
     pub fn loaded_scenes(&self) -> WasmNotArc<WasmNotMutex<HashMap<AssetId, BindedScene>>> {
@@ -814,10 +817,22 @@ impl TimeSlicedSceneBinder {
 
             let staged_texture_count = staged_scene.textures.len();
             if staged_texture_count < bindable_scene.textures.len() {
+                let start = crate::time::Instant::now();
                 staged_scene.textures.push(bind_texture(
                     base_renderer,
                     &bindable_scene.textures[staged_texture_count],
                 )?);
+                log::info!(
+                    "binded texture of {} bytes with format {:?} in {:?}",
+                    &bindable_scene.textures[staged_texture_count]
+                        .raw_image
+                        .bytes
+                        .len(),
+                    &bindable_scene.textures[staged_texture_count]
+                        .raw_image
+                        .format,
+                    start.elapsed()
+                );
 
                 return Ok(None);
             }
@@ -924,7 +939,12 @@ impl BindScene for TimeSlicedSceneBinder {
                         );
                         break;
                     }
-                }
+                };
+
+                // log::info!(
+                //     "ending slice, current elapsed is {:?}",
+                //     start_time.elapsed()
+                // );
             }
 
             // wait until the next frame to continue uploading to gpu
@@ -1101,7 +1121,8 @@ fn bind_texture(
         base_renderer,
         raw_image,
         name.as_deref(),
-        raw_image.mip_count <= 1,
+        // raw_image.mip_count <= 1,
+        false,
         sampler_descriptor,
     )
 }

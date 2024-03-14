@@ -71,6 +71,8 @@ pub enum SoundSignalHandle {
 pub enum AudioFileFormat {
     Mp3,
     Wav,
+    M4a,
+    Unknown,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -90,7 +92,7 @@ pub struct SoundParams {
 #[cfg(not(target_arch = "wasm32"))]
 async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSource>> {
     use crate::file_manager::native_fs::File;
-    Box::new(File::open(file_path.resolve())?)
+    Ok(Box::new(File::open(file_path.resolve())?))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -143,9 +145,9 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
     #[derive(Debug, Clone)]
     struct HttpStreamerInner {
         url: String,
-        content_length: Option<u64>,
-        current_file_position: usize,
-        current_requested_chunk_size: usize,
+        content_length: u64,
+        current_file_position: u64,
+        current_requested_chunk_size: u64,
         buffer: Vec<u8>,
         // chunk_state: Arc<HttpStreamerChunkState>,
     }
@@ -166,7 +168,12 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
             let content_length = head_response
                 .headers()
                 .get("Content-Length")
-                .and_then(|content_length_str| content_length_str.parse::<u64>().ok());
+                .ok_or_else(|| anyhow::anyhow!("Didn't get content length header"))
+                .and_then(|content_length_str| {
+                    content_length_str
+                        .parse::<u64>()
+                        .map_err(|err| anyhow::anyhow!(err))
+                })?;
 
             log::info!(
                 "Initted http streamer with content_length={:?}",
@@ -194,9 +201,9 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
                         inner: Arc<Mutex<HttpStreamerInner>>,
                     ) -> std::result::Result<(), JsValue> {
                         loop {
-                            // let this thread die if nobody cares about us anymore (😥)
-                            // log::info!("Strong count: {}", Arc::strong_count(&inner));
+                            // let this thread die if nobody else cares anymore (😥)
                             if Arc::strong_count(&inner) == 1 {
+                                log::debug!("Exiting HttpStreamer thread");
                                 break Ok(());
                             }
 
@@ -212,7 +219,6 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
 
                             inner_guard.buffer.clear();
 
-                            // log::info!("get_bytes");
                             let range_header = &format!(
                                 "bytes={}-{}",
                                 inner_guard.current_file_position,
@@ -228,37 +234,26 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
                                 .map_err(|err| JsValue::from_str(&format!("{:?}", err)))?
                                 .body()
                                 .ok_or_else(|| JsValue::from_str("Request returned no body"))?;
-                            // log::info!("get_bytes 2");
                             let mut stream_reader =
                                 web_sys::ReadableStreamDefaultReader::new(&body_stream)?;
-                            // log::info!("get_bytes 3");
                             loop {
                                 let result = JsFuture::from(stream_reader.read()).await?;
-                                // log::info!("get_bytes 4");
                                 let done = Reflect::get(&result, &JsValue::from_str("done"))?
                                     .as_bool()
                                     .ok_or_else(|| JsValue::from_str("Failed to read property 'done' from stream read promise result"))?;
-                                // log::info!("get_bytes 5");
                                 let mut sub_chunk = js_sys::Uint8Array::new(&Reflect::get(
                                     &result,
                                     &JsValue::from_str("value"),
                                 )?)
                                 .to_vec();
-                                // log::info!(
-                                //     "get_bytes 6, done={}, chunk_length={}",
-                                //     done,
-                                //     chunk.len()
-                                // );
 
-                                // log::info!("Buffering {} bytes", sub_chunk.len());
+                                log::debug!("Buffering {} bytes", sub_chunk.len());
 
-                                inner_guard.current_file_position += sub_chunk.len();
+                                inner_guard.current_file_position += sub_chunk.len() as u64;
                                 inner_guard.buffer.append(&mut sub_chunk);
 
-                                // log::info!("get_bytes 7");
-
                                 if done {
-                                    // log::info!("Chunk done buffering");
+                                    log::debug!("Chunk done buffering");
                                     inner_guard.current_requested_chunk_size = 0;
                                     break;
                                 }
@@ -267,7 +262,7 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
                     }
 
                     if let Err(err) = run(inner_clone).await {
-                        // TODO: send the error over the
+                        // TODO: send the error over
                     }
                 });
             });
@@ -278,14 +273,9 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
 
     impl std::io::Read for HttpStreamer {
         fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
-            // log::info!(
-            //     "Read called with number_of_bytes_to_read={:?}",
-            //     buffer.len()
-            // );
-
             {
                 let mut inner_guard = self.inner.lock().unwrap();
-                inner_guard.current_requested_chunk_size = buffer.len();
+                inner_guard.current_requested_chunk_size = buffer.len() as u64;
             }
 
             loop {
@@ -297,7 +287,7 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
 
             let mut inner_guard = self.inner.lock().unwrap();
 
-            // log::info!("Reading {} bytes from the buffer", inner_guard.buffer.len());
+            log::debug!("Reading {} bytes from the buffer", inner_guard.buffer.len());
 
             buffer.copy_from_slice(&inner_guard.buffer);
 
@@ -306,11 +296,37 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
     }
 
     impl std::io::Seek for HttpStreamer {
+        // TODO: test this!
         fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-            std::io::Result::Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "sorry bruh",
-            ))
+            let mut inner_guard = self.inner.lock().unwrap();
+
+            if inner_guard.current_requested_chunk_size != 0 {
+                return std::io::Result::Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Seeking in the middle of reading is not (yet) supported",
+                ));
+            }
+
+            let new_file_position = match pos {
+                std::io::SeekFrom::Start(start) => start as i64,
+                std::io::SeekFrom::End(offset) => (inner_guard.content_length as i64 + offset),
+                std::io::SeekFrom::Current(offset) => {
+                    (inner_guard.current_file_position as i64 + offset)
+                }
+            };
+
+            if new_file_position < 0 || new_file_position as u64 >= inner_guard.content_length {
+                return std::io::Result::Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Seeking to an invalid position: {new_file_position}"),
+                ));
+            }
+
+            let new_file_position = new_file_position as u64;
+
+            inner_guard.current_file_position = new_file_position;
+
+            Ok(new_file_position)
         }
     }
 
@@ -320,82 +336,12 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
         }
 
         fn byte_len(&self) -> Option<u64> {
-            self.inner.lock().unwrap().content_length
+            Some(self.inner.lock().unwrap().content_length)
         }
     }
 
     Ok(Box::new(streamer))
 }
-
-// #[cfg(target_arch = "wasm32")]
-// mod web {
-//     use wasm_bindgen::prelude::*;
-//     use web_sys::{AudioContext, HtmlMediaElement};
-
-//     pub struct AudioFileStreamer {
-//         file_path: GameFilePath,
-//     }
-
-//     impl AudioFileStreamer {
-//         pub async fn new(
-//             _device_sample_rate: u32,
-//             file_path: GameFilePath,
-//             file_format: Option<AudioFileFormat>,
-//         ) -> anyhow::Result<Self> {
-//             let Some(document) = web_sys::window().and_then(|win| win.document()) else {
-//                 anyhow::bail!("Couldn't get document");
-//             };
-
-//             let Some(file_format) = file_format else {
-//                 // TODO: auto-detect format?
-//                 anyhow::bail!("File format is required for now");
-//             };
-
-//             Self::new_internal(document, file_path, file_format)
-//                 .await
-//                 .map_err(|err| anyhow::anyhow!("{:?}", err))
-//         }
-
-//         async fn new_internal(
-//             document: web_sys::Document,
-//             file_path: GameFilePath,
-//             file_format: AudioFileFormat,
-//         ) -> Result<Self, JsValue> {
-//             let audio_context = AudioContext::new()?;
-
-//             let audio_element = document
-//                 .create_element("audio")?
-//                 .dyn_into::<HtmlMediaElement>()?;
-//             audio_element.set_attribute("src", file_path.resolve());
-
-//             let track = audio_context.create_media_element_source(&audio_element)?;
-
-//             // TODO: can we use the webcodecs API here?
-//             // https://developer.mozilla.org/en-US/docs/Web/API/WebCodecs_API
-//             // bevy uses rodio... does it support streaming on the web?
-//             // https://github.com/RustAudio/rodio
-
-//             Ok(Self { file_path })
-//         }
-
-//         // TODO: does this need to be async?
-//         #[profiling::function]
-//         pub async fn read_chunk(
-//             &mut self,
-//             max_chunk_size: usize,
-//         ) -> anyhow::Result<(SoundData, bool)> {
-//             todo!()
-//         }
-
-//         pub fn track_length_seconds(&self) -> Option<f32> {
-//             self.track_length_seconds
-//         }
-
-//         pub fn file_path(&self) -> &GameFilePath {
-//             &self.file_path
-//         }
-//     }
-// }
 
 // #[cfg(not(target_arch = "wasm32"))]
 // mod native {
@@ -419,10 +365,14 @@ impl AudioFileStreamer {
 
         let mut hint = Hint::new();
         if let Some(file_format) = &file_format {
-            hint.with_extension(match file_format {
-                AudioFileFormat::Mp3 => "mp3",
-                AudioFileFormat::Wav => "wav",
-            });
+            if let Some(extension_hint) = match file_format {
+                AudioFileFormat::Mp3 => Some("mp3"),
+                AudioFileFormat::Wav => Some("wav"),
+                AudioFileFormat::M4a => Some("m4a"),
+                AudioFileFormat::Unknown => None,
+            } {
+                hint.with_extension(extension_hint);
+            }
         }
 
         let probed = symphonia::default::get_probe().format(

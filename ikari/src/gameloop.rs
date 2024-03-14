@@ -81,11 +81,19 @@ pub fn run<
                     logged_start_time = true;
                 }
 
-                engine_state.asset_binder.update(
-                    renderer.base.clone(),
-                    renderer.constant_data.clone(),
-                    engine_state.asset_loader.clone(),
-                );
+                if (engine_state
+                    .time_tracker
+                    .global_time()
+                    .unwrap()
+                    .as_secs_f32()
+                    > 5.0)
+                {
+                    engine_state.asset_binder.update(
+                        renderer.base.clone(),
+                        renderer.constant_data.clone(),
+                        engine_state.asset_loader.clone(),
+                    );
+                }
 
                 on_update(GameContext {
                     game_state: &mut game_state,
