@@ -120,6 +120,7 @@ impl AssetLoader {
     }
 
     pub fn exit(&self) {
+        log::info!("Exit called");
         self.is_exiting.store(true, Ordering::SeqCst);
     }
 
@@ -279,6 +280,10 @@ impl AssetLoader {
             profiling::register_thread!("Audio streamer");
             crate::block_on(async move {
                 loop {
+                    log::info!(
+                        "Loop audio streaming thread, is_exiting={}",
+                        is_exiting.load(Ordering::SeqCst)
+                    );
                     if is_exiting.load(Ordering::SeqCst) {
                         break;
                     }
@@ -288,12 +293,15 @@ impl AssetLoader {
                     } else {
                         let deficit_seconds: f32 =
                             target_max_buffer_length_seconds - buffered_amount_seconds;
-                        log::debug!(
-                            "buffered_amount_seconds={buffered_amount_seconds:?}, deficit_seconds={deficit_seconds:?}",
+                        log::info!(
+                            "target_max_buffer_length_seconds={target_max_buffer_length_seconds:?}, buffered_amount_seconds={buffered_amount_seconds:?}, deficit_seconds={deficit_seconds:?}",
                         );
                         (max_chunk_size_length_seconds + deficit_seconds).max(0.0)
                     };
-                    log::debug!("requested_chunk_size_seconds={requested_chunk_size_seconds:?}");
+                    log::info!(
+                        "file={:?}, requested_chunk_size_seconds={requested_chunk_size_seconds:?}",
+                        audio_file_streamer.file_path()
+                    );
                     is_first_chunk = false;
                     match audio_file_streamer
                         .read_chunk(
@@ -326,6 +334,10 @@ impl AssetLoader {
                                 .unwrap()
                                 .write_stream_data(sound_index, sound_data);
                             loop {
+                                log::info!(
+                                    "Loop audio streaming thread 2, is_exiting={}",
+                                    is_exiting.load(Ordering::SeqCst)
+                                );
                                 if is_exiting.load(Ordering::SeqCst) {
                                     break;
                                 }
@@ -349,9 +361,10 @@ impl AssetLoader {
                                 break;
                             }
 
-                            crate::block_on(crate::thread::sleep_async(Duration::from_secs_f32(
+                            crate::thread::sleep_async(Duration::from_secs_f32(
                                 max_chunk_size_length_seconds,
-                            )));
+                            ))
+                            .await;
                         }
                         Err(err) => {
                             log::error!(

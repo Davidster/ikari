@@ -66,6 +66,7 @@ pub enum SoundSignalHandle {
     },
 }
 
+// TODO: remove this?
 #[derive(Debug, Copy, Clone)]
 pub enum AudioFileFormat {
     Mp3,
@@ -100,6 +101,9 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
     use wasm_bindgen::JsValue;
     use wasm_bindgen_futures::JsFuture;
 
+    use crate::thread::sleep_async;
+    use crate::time::Duration;
+
     let url = file_path.resolve();
 
     let streamer = match HttpStreamer::new(url).await {
@@ -123,26 +127,42 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
     //     fn byte_len(&self) -> Option<u64>;
     // }
 
+    // #[derive(Debug, Clone)]
+    // struct HttpStreamerChunkState {
+    //     streamer_is_dropped: bool,
+    //     current_chunk_size: usize,
+    //     data: Vec<u8>,
+    // }
+
     #[derive(Debug, Clone)]
     struct HttpStreamer {
+        // TODO: use channel instead of arc<mutex<vec>>?
+        inner: Arc<Mutex<HttpStreamerInner>>,
+    }
+
+    #[derive(Debug, Clone)]
+    struct HttpStreamerInner {
         url: String,
         content_length: Option<u64>,
         current_file_position: usize,
-        buffer: Arc<Mutex<Vec<u8>>>,
+        current_requested_chunk_size: usize,
+        buffer: Vec<u8>,
+        // chunk_state: Arc<HttpStreamerChunkState>,
     }
 
     impl HttpStreamer {
         pub async fn new(url: String) -> Result<Self> {
+            // TODO: do we need to do this 'HEAD' check this pre-emptively? or can we wait for the first 'read'?
             let head_response = gloo_net::http::RequestBuilder::new(&url)
                 .method(gloo_net::http::Method::HEAD)
                 .send()
                 .await?;
 
-            // TODO: do we need to check this pre-emptively? or can we wait for the first 'read'?
             if head_response.headers().get("Accept-Ranges") != Some(String::from("bytes")) {
                 anyhow::bail!("Resource at URL {} does not support streaming", url);
             }
 
+            // TODO: turns out we need content length, else we get http 416 Range Not Satisfiable from specifying a range that goes too far
             let content_length = head_response
                 .headers()
                 .get("Content-Length")
@@ -153,120 +173,135 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
                 content_length
             );
 
-            let result = Self {
+            let inner = Arc::new(Mutex::new(HttpStreamerInner {
                 url,
                 content_length,
                 current_file_position: 0,
-                buffer: Arc::new(Mutex::new(vec![])),
-            };
+                current_requested_chunk_size: 0,
+                buffer: vec![], // chunk_state: Arc::new(Mutex::new(HttpStreamerChunkState {
+                                //     streamer_is_dropped: false,
+                                //     current_chunk_size: 0,
+                                //     data: vec![],
+                                // })),
+            }));
 
-            Ok(result)
+            let inner_clone = inner.clone();
+
+            crate::thread::spawn(move || {
+                crate::block_on(async move {
+                    // TODO: can we just inline this function? can the async block handle being a 'result' type?
+                    async fn run(
+                        inner: Arc<Mutex<HttpStreamerInner>>,
+                    ) -> std::result::Result<(), JsValue> {
+                        loop {
+                            // let this thread die if nobody cares about us anymore (😥)
+                            // log::info!("Strong count: {}", Arc::strong_count(&inner));
+                            if Arc::strong_count(&inner) == 1 {
+                                break Ok(());
+                            }
+
+                            let mut inner_guard = inner.lock().unwrap();
+
+                            // if there's no more work to do, we wait for more
+                            if inner_guard.current_requested_chunk_size == 0 {
+                                drop(inner_guard);
+
+                                sleep_async(Duration::from_secs_f32(0.05)).await;
+                                continue;
+                            }
+
+                            inner_guard.buffer.clear();
+
+                            // log::info!("get_bytes");
+                            let range_header = &format!(
+                                "bytes={}-{}",
+                                inner_guard.current_file_position,
+                                inner_guard.current_file_position
+                                    + inner_guard.current_requested_chunk_size
+                                    - 1
+                            );
+                            let body_stream = gloo_net::http::RequestBuilder::new(&inner_guard.url)
+                                .method(gloo_net::http::Method::GET)
+                                .header("Range", range_header)
+                                .send()
+                                .await
+                                .map_err(|err| JsValue::from_str(&format!("{:?}", err)))?
+                                .body()
+                                .ok_or_else(|| JsValue::from_str("Request returned no body"))?;
+                            // log::info!("get_bytes 2");
+                            let mut stream_reader =
+                                web_sys::ReadableStreamDefaultReader::new(&body_stream)?;
+                            // log::info!("get_bytes 3");
+                            loop {
+                                let result = JsFuture::from(stream_reader.read()).await?;
+                                // log::info!("get_bytes 4");
+                                let done = Reflect::get(&result, &JsValue::from_str("done"))?
+                                    .as_bool()
+                                    .ok_or_else(|| JsValue::from_str("Failed to read property 'done' from stream read promise result"))?;
+                                // log::info!("get_bytes 5");
+                                let mut sub_chunk = js_sys::Uint8Array::new(&Reflect::get(
+                                    &result,
+                                    &JsValue::from_str("value"),
+                                )?)
+                                .to_vec();
+                                // log::info!(
+                                //     "get_bytes 6, done={}, chunk_length={}",
+                                //     done,
+                                //     chunk.len()
+                                // );
+
+                                // log::info!("Buffering {} bytes", sub_chunk.len());
+
+                                inner_guard.current_file_position += sub_chunk.len();
+                                inner_guard.buffer.append(&mut sub_chunk);
+
+                                // log::info!("get_bytes 7");
+
+                                if done {
+                                    // log::info!("Chunk done buffering");
+                                    inner_guard.current_requested_chunk_size = 0;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if let Err(err) = run(inner_clone).await {
+                        // TODO: send the error over the
+                    }
+                });
+            });
+
+            Ok(Self { inner })
         }
     }
 
     impl std::io::Read for HttpStreamer {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            let number_of_bytes_to_read = buf.len();
-
-            log::info!(
-                "Read called with number_of_bytes_to_read={:?}",
-                number_of_bytes_to_read
-            );
-
-            let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
-            let done_clone = done.clone();
-
-            let self_clone = self.clone();
-
-            // TODO: don't spawn a worker for every chunk LOL
-            crate::thread::spawn(move || {
-                crate::block_on(async move {
-                    async fn get_bytes(
-                        streamer: HttpStreamer,
-                        number_of_bytes_to_read: usize,
-                        done_out: Arc<std::sync::atomic::AtomicBool>,
-                    ) -> std::result::Result<(), JsValue> {
-                        // log::info!("get_bytes");
-                        match gloo_net::http::RequestBuilder::new(&streamer.url)
-                            .method(gloo_net::http::Method::GET)
-                            .header(
-                                "Range",
-                                &format!(
-                                    "bytes={}-{}",
-                                    streamer.current_file_position,
-                                    streamer.current_file_position + number_of_bytes_to_read - 1
-                                ),
-                            )
-                            .send()
-                            .await
-                            .map_err(|err| JsValue::from_str(&format!("{:?}", err)))?
-                            .body()
-                        {
-                            Some(body_stream) => {
-                                // log::info!("get_bytes 2");
-                                let mut stream_reader =
-                                    web_sys::ReadableStreamDefaultReader::new(&body_stream)?;
-                                // log::info!("get_bytes 3");
-                                loop {
-                                    let result = JsFuture::from(stream_reader.read()).await?;
-                                    // log::info!("get_bytes 4");
-                                    let done = Reflect::get(&result, &JsValue::from_str("done"))?
-                                        .as_bool()
-                                        .ok_or_else(|| {
-                                            JsValue::from_str(
-                                                "Failed to read property 'done' from stream read promise result"
-                                            )
-                                        })?;
-                                    // log::info!("get_bytes 5");
-                                    let mut chunk = js_sys::Uint8Array::new(&Reflect::get(
-                                        &result,
-                                        &JsValue::from_str("value"),
-                                    )?)
-                                    .to_vec();
-                                    // log::info!(
-                                    //     "get_bytes 6, done={}, chunk_length={}",
-                                    //     done,
-                                    //     chunk.len()
-                                    // );
-
-                                    streamer.buffer.lock().unwrap().append(&mut chunk);
-
-                                    // log::info!("get_bytes 7");
-
-                                    if done {
-                                        done_out.store(true, std::sync::atomic::Ordering::SeqCst);
-                                        break;
-                                    }
-                                }
-
-                                Ok(())
-                            }
-                            None => Ok(()),
-                        }
-                    }
-
-                    get_bytes(self_clone, number_of_bytes_to_read, done_clone).await;
-                });
-            });
-
-            while !done.load(std::sync::atomic::Ordering::SeqCst) {}
-
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
             // log::info!(
-            //     "Reading from result buffer, len={:?}",
-            //     self.buffer.lock().unwrap().len()
+            //     "Read called with number_of_bytes_to_read={:?}",
+            //     buffer.len()
             // );
 
-            let mut count = 0;
-            for (i, byte) in self.buffer.lock().unwrap().drain(..).enumerate() {
-                buf[i] = byte;
-                count += 1;
+            {
+                let mut inner_guard = self.inner.lock().unwrap();
+                inner_guard.current_requested_chunk_size = buffer.len();
             }
 
-            self.current_file_position += number_of_bytes_to_read;
+            loop {
+                let inner_guard = self.inner.lock().unwrap();
+                if inner_guard.current_requested_chunk_size == 0 {
+                    break;
+                }
+            }
 
-            log::info!("Read {} bytes from result buffer", count);
+            let mut inner_guard = self.inner.lock().unwrap();
 
-            Ok(count)
+            // log::info!("Reading {} bytes from the buffer", inner_guard.buffer.len());
+
+            buffer.copy_from_slice(&inner_guard.buffer);
+
+            Ok(inner_guard.buffer.len())
         }
     }
 
@@ -285,7 +320,7 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
         }
 
         fn byte_len(&self) -> Option<u64> {
-            self.content_length
+            self.inner.lock().unwrap().content_length
         }
     }
 
@@ -437,6 +472,7 @@ impl AudioFileStreamer {
     /// so we make sure not to overshoot
     #[profiling::function]
     pub async fn read_chunk(&mut self, max_chunk_size: usize) -> anyhow::Result<(SoundData, bool)> {
+        log::info!("read_chunk, max_chunk_size={}", max_chunk_size);
         let mut samples_interleaved: Vec<f32> = vec![];
 
         let sample_rate_ratio = self.device_sample_rate as f32

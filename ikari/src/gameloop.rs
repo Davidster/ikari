@@ -131,7 +131,10 @@ pub fn run<
             Event::AboutToWait => {
                 window.request_redraw();
             }
-            Event::LoopExiting => engine_state.asset_loader.exit(),
+            Event::LoopExiting => {
+                log::info!("gameloop LoopExiting");
+                engine_state.asset_loader.exit();
+            }
             Event::DeviceEvent { event, .. } => {
                 on_device_event(
                     GameContext {
