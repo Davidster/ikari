@@ -280,10 +280,6 @@ impl AssetLoader {
             profiling::register_thread!("Audio streamer");
             crate::block_on(async move {
                 loop {
-                    // log::info!(
-                    //     "Loop audio streaming thread, is_exiting={}",
-                    //     is_exiting.load(Ordering::SeqCst)
-                    // );
                     if is_exiting.load(Ordering::SeqCst) {
                         break;
                     }
@@ -334,10 +330,6 @@ impl AssetLoader {
                                 .unwrap()
                                 .write_stream_data(sound_index, sound_data);
                             loop {
-                                // log::info!(
-                                //     "Loop audio streaming thread 2, is_exiting={}",
-                                //     is_exiting.load(Ordering::SeqCst)
-                                // );
                                 if is_exiting.load(Ordering::SeqCst) {
                                     break;
                                 }

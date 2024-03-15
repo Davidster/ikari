@@ -337,7 +337,7 @@ pub async fn init_game_state(
 
             audio_load_params.push(AudioAssetLoadParams {
                 // TODO: why didn't m4a format work?
-                path: GAME_PATH_MAKER.make("src/sounds/bgm.mp3"),
+                path: GAME_PATH_MAKER.make("src/sounds/Recording.mp3"),
                 format: AudioFileFormat::Mp3,
                 sound_params: SoundParams {
                     initial_volume: 0.3,
@@ -1559,7 +1559,7 @@ pub fn update_game_state(
         let mut loaded_audio_guard = engine_state.asset_loader.loaded_audio.lock().unwrap();
         let asset_id_map_guard = game_state.asset_id_map.lock().unwrap();
 
-        if let Some(asset_id) = asset_id_map_guard.get(&"src/sounds/bgm.mp3".to_string()) {
+        if let Some(asset_id) = asset_id_map_guard.get(&"src/sounds/Recording.mp3".to_string()) {
             if let Entry::Occupied(entry) = loaded_audio_guard.entry(*asset_id) {
                 let (_, bgm_sound_index) = entry.remove_entry();
                 game_state.bgm_sound_index = Some(bgm_sound_index);

@@ -90,51 +90,27 @@ pub struct SoundParams {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSource>> {
+mod native {
     use crate::file_manager::native_fs::File;
-    Ok(Box::new(File::open(file_path.resolve())?))
+    use crate::file_manager::GameFilePath;
+
+    pub(super) async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSource>> {
+        Ok(Box::new(File::open(file_path.resolve())?))
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
-async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSource>> {
+mod web {
     use std::sync::{Arc, Mutex};
 
     use js_sys::Reflect;
+    use symphonia::core::io::MediaSource;
     use wasm_bindgen::JsValue;
     use wasm_bindgen_futures::JsFuture;
 
+    use crate::file_manager::{FileManager, GameFilePath};
     use crate::thread::sleep_async;
     use crate::time::Duration;
-
-    let url = file_path.resolve();
-
-    let streamer = match HttpStreamer::new(url).await {
-        Ok(streamer) => streamer,
-        Err(error) => {
-            log::error!(
-                "{:?}. Falling back to loading the entire resource into memory",
-                error
-            );
-            return Ok(Box::new(std::io::Cursor::new(
-                crate::file_manager::FileManager::read(file_path).await?,
-            )));
-        }
-    };
-
-    // pub trait MediaSource: io::Read + io::Seek + Send + Sync {
-    //     /// Returns if the source is seekable. This may be an expensive operation.
-    //     fn is_seekable(&self) -> bool;
-
-    //     /// Returns the length in bytes, if available. This may be an expensive operation.
-    //     fn byte_len(&self) -> Option<u64>;
-    // }
-
-    // #[derive(Debug, Clone)]
-    // struct HttpStreamerChunkState {
-    //     streamer_is_dropped: bool,
-    //     current_chunk_size: usize,
-    //     data: Vec<u8>,
-    // }
 
     #[derive(Debug, Clone)]
     struct HttpStreamer {
@@ -149,11 +125,11 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
         current_file_position: u64,
         current_requested_chunk_size: u64,
         buffer: Vec<u8>,
-        // chunk_state: Arc<HttpStreamerChunkState>,
+        error: Option<String>,
     }
 
     impl HttpStreamer {
-        pub async fn new(url: String) -> Result<Self> {
+        pub async fn new(url: String) -> anyhow::Result<Self> {
             // TODO: do we need to do this 'HEAD' check this pre-emptively? or can we wait for the first 'read'?
             let head_response = gloo_net::http::RequestBuilder::new(&url)
                 .method(gloo_net::http::Method::HEAD)
@@ -185,89 +161,90 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
                 content_length,
                 current_file_position: 0,
                 current_requested_chunk_size: 0,
-                buffer: vec![], // chunk_state: Arc::new(Mutex::new(HttpStreamerChunkState {
-                                //     streamer_is_dropped: false,
-                                //     current_chunk_size: 0,
-                                //     data: vec![],
-                                // })),
+                buffer: vec![],
+                error: None,
             }));
 
             let inner_clone = inner.clone();
 
             crate::thread::spawn(move || {
-                crate::block_on(async move {
-                    // TODO: can we just inline this function? can the async block handle being a 'result' type?
-                    async fn run(
-                        inner: Arc<Mutex<HttpStreamerInner>>,
-                    ) -> std::result::Result<(), JsValue> {
-                        loop {
-                            // let this thread die if nobody else cares anymore (😥)
-                            if Arc::strong_count(&inner) == 1 {
-                                log::debug!("Exiting HttpStreamer thread");
-                                break Ok(());
-                            }
-
-                            let mut inner_guard = inner.lock().unwrap();
-
-                            // if there's no more work to do, we wait for more
-                            if inner_guard.current_requested_chunk_size == 0 {
-                                drop(inner_guard);
-
-                                sleep_async(Duration::from_secs_f32(0.05)).await;
-                                continue;
-                            }
-
-                            inner_guard.buffer.clear();
-
-                            let range_header = &format!(
-                                "bytes={}-{}",
-                                inner_guard.current_file_position,
-                                inner_guard.current_file_position
-                                    + inner_guard.current_requested_chunk_size
-                                    - 1
-                            );
-                            let body_stream = gloo_net::http::RequestBuilder::new(&inner_guard.url)
-                                .method(gloo_net::http::Method::GET)
-                                .header("Range", range_header)
-                                .send()
-                                .await
-                                .map_err(|err| JsValue::from_str(&format!("{:?}", err)))?
-                                .body()
-                                .ok_or_else(|| JsValue::from_str("Request returned no body"))?;
-                            let mut stream_reader =
-                                web_sys::ReadableStreamDefaultReader::new(&body_stream)?;
-                            loop {
-                                let result = JsFuture::from(stream_reader.read()).await?;
-                                let done = Reflect::get(&result, &JsValue::from_str("done"))?
-                                    .as_bool()
-                                    .ok_or_else(|| JsValue::from_str("Failed to read property 'done' from stream read promise result"))?;
-                                let mut sub_chunk = js_sys::Uint8Array::new(&Reflect::get(
-                                    &result,
-                                    &JsValue::from_str("value"),
-                                )?)
-                                .to_vec();
-
-                                log::debug!("Buffering {} bytes", sub_chunk.len());
-
-                                inner_guard.current_file_position += sub_chunk.len() as u64;
-                                inner_guard.buffer.append(&mut sub_chunk);
-
-                                if done {
-                                    log::debug!("Chunk done buffering");
-                                    inner_guard.current_requested_chunk_size = 0;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    if let Err(err) = run(inner_clone).await {
-                        // TODO: send the error over
-                    }
-                });
+                crate::block_on(async move { Self::run_producer_loop(inner_clone).await });
             });
 
             Ok(Self { inner })
+        }
+
+        async fn run_producer_loop(inner: Arc<Mutex<HttpStreamerInner>>) {
+            if let Err(err) = Self::run_producer_loop_inner(inner.clone()).await {
+                inner.lock().unwrap().error = Some(err.as_string().unwrap_or_default());
+            }
+        }
+
+        async fn run_producer_loop_inner(
+            inner: Arc<Mutex<HttpStreamerInner>>,
+        ) -> Result<(), JsValue> {
+            loop {
+                // let this thread die if nobody else cares anymore (😥)
+                if Arc::strong_count(&inner) == 1 {
+                    log::debug!("Exiting HttpStreamer thread");
+                    break Ok(());
+                }
+
+                let mut inner_guard = inner.lock().unwrap();
+
+                // if there's no more work to do, we spin-wait for more
+                if inner_guard.current_requested_chunk_size == 0 {
+                    drop(inner_guard);
+
+                    sleep_async(Duration::from_secs_f32(0.05)).await;
+                    continue;
+                }
+
+                inner_guard.buffer.clear();
+
+                let range_header = &format!(
+                    "bytes={}-{}",
+                    inner_guard.current_file_position,
+                    (inner_guard.current_file_position + inner_guard.current_requested_chunk_size
+                        - 1)
+                    .min(inner_guard.content_length)
+                );
+                let body_stream = gloo_net::http::RequestBuilder::new(&inner_guard.url)
+                    .method(gloo_net::http::Method::GET)
+                    .header("Range", range_header)
+                    .send()
+                    .await
+                    .map_err(|err| JsValue::from_str(&format!("{:?}", err)))?
+                    .body()
+                    .ok_or_else(|| JsValue::from_str("Request returned no body"))?;
+                let mut stream_reader = web_sys::ReadableStreamDefaultReader::new(&body_stream)?;
+                loop {
+                    let result = JsFuture::from(stream_reader.read()).await?;
+                    let done = Reflect::get(&result, &JsValue::from_str("done"))?
+                        .as_bool()
+                        .ok_or_else(|| {
+                            JsValue::from_str(
+                                "Failed to read property 'done' from stream read promise result",
+                            )
+                        })?;
+                    let mut sub_chunk = js_sys::Uint8Array::new(&Reflect::get(
+                        &result,
+                        &JsValue::from_str("value"),
+                    )?)
+                    .to_vec();
+
+                    log::debug!("Buffering {} bytes", sub_chunk.len());
+
+                    inner_guard.current_file_position += sub_chunk.len() as u64;
+                    inner_guard.buffer.append(&mut sub_chunk);
+
+                    if done {
+                        log::debug!("Chunk done buffering");
+                        inner_guard.current_requested_chunk_size = 0;
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -275,6 +252,14 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
         fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
             {
                 let mut inner_guard = self.inner.lock().unwrap();
+
+                if let Some(err) = inner_guard.error.take() {
+                    return std::io::Result::Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        err,
+                    ));
+                }
+
                 inner_guard.current_requested_chunk_size = buffer.len() as u64;
             }
 
@@ -289,6 +274,8 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
 
             log::debug!("Reading {} bytes from the buffer", inner_guard.buffer.len());
 
+            // TODO: fix 'source slice length (16064) does not match destination slice length (32768)'
+            //        ..fill the vec with zeros?
             buffer.copy_from_slice(&inner_guard.buffer);
 
             Ok(inner_guard.buffer.len())
@@ -299,6 +286,10 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
         // TODO: test this!
         fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
             let mut inner_guard = self.inner.lock().unwrap();
+
+            if let Some(err) = inner_guard.error.take() {
+                return std::io::Result::Err(std::io::Error::new(std::io::ErrorKind::Other, err));
+            }
 
             if inner_guard.current_requested_chunk_size != 0 {
                 return std::io::Result::Err(std::io::Error::new(
@@ -340,11 +331,34 @@ async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSourc
         }
     }
 
-    Ok(Box::new(streamer))
+    pub(super) async fn get_media_source(
+        file_path: &GameFilePath,
+    ) -> anyhow::Result<Box<dyn MediaSource>> {
+        let url = file_path.resolve();
+
+        let streamer = match HttpStreamer::new(url).await {
+            Ok(streamer) => streamer,
+            Err(error) => {
+                log::error!(
+                    "{:?}. Falling back to loading the entire resource into memory",
+                    error
+                );
+                return Ok(Box::new(std::io::Cursor::new(
+                    FileManager::read(file_path).await?,
+                )));
+            }
+        };
+
+        Ok(Box::new(streamer))
+    }
 }
 
-// #[cfg(not(target_arch = "wasm32"))]
-// mod native {
+#[cfg(not(target_arch = "wasm32"))]
+use native::get_media_source;
+
+#[cfg(target_arch = "wasm32")]
+use web::get_media_source;
+
 pub struct AudioFileStreamer {
     device_sample_rate: u32,
     format_reader: Box<dyn symphonia::core::formats::FormatReader>,
