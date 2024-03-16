@@ -114,7 +114,6 @@ mod web {
 
     #[derive(Debug, Clone)]
     struct HttpStreamer {
-        // TODO: use channel instead of arc<mutex<vec>>?
         inner: Arc<Mutex<HttpStreamerInner>>,
     }
 
@@ -130,7 +129,6 @@ mod web {
 
     impl HttpStreamer {
         pub async fn new(url: String) -> anyhow::Result<Self> {
-            // TODO: do we need to do this 'HEAD' check this pre-emptively? or can we wait for the first 'read'?
             let head_response = gloo_net::http::RequestBuilder::new(&url)
                 .method(gloo_net::http::Method::HEAD)
                 .send()
@@ -140,7 +138,6 @@ mod web {
                 anyhow::bail!("Resource at URL {} does not support streaming", url);
             }
 
-            // TODO: turns out we need content length, else we get http 416 Range Not Satisfiable from specifying a range that goes too far
             let content_length = head_response
                 .headers()
                 .get("Content-Length")
@@ -151,7 +148,7 @@ mod web {
                         .map_err(|err| anyhow::anyhow!(err))
                 })?;
 
-            log::info!(
+            log::debug!(
                 "Initted http streamer with content_length={:?}",
                 content_length
             );
@@ -235,7 +232,9 @@ mod web {
 
                     log::debug!("Buffering {} bytes", sub_chunk.len());
 
-                    inner_guard.current_file_position += sub_chunk.len() as u64;
+                    inner_guard.current_file_position = (inner_guard.current_file_position
+                        + sub_chunk.len() as u64)
+                        .min(inner_guard.content_length);
                     inner_guard.buffer.append(&mut sub_chunk);
 
                     if done {
@@ -272,13 +271,15 @@ mod web {
 
             let mut inner_guard = self.inner.lock().unwrap();
 
-            log::debug!("Reading {} bytes from the buffer", inner_guard.buffer.len());
+            let byte_count = inner_guard.buffer.len();
+            log::debug!("Reading {} bytes from the buffer", byte_count);
 
             // TODO: fix 'source slice length (16064) does not match destination slice length (32768)'
             //        ..fill the vec with zeros?
+            inner_guard.buffer.resize(buffer.len(), 0);
             buffer.copy_from_slice(&inner_guard.buffer);
 
-            Ok(inner_guard.buffer.len())
+            Ok(byte_count)
         }
     }
 
@@ -298,6 +299,7 @@ mod web {
                 ));
             }
 
+            log::debug!("Seeking 1 {pos:?}");
             let new_file_position = match pos {
                 std::io::SeekFrom::Start(start) => start as i64,
                 std::io::SeekFrom::End(offset) => (inner_guard.content_length as i64 + offset),
@@ -305,6 +307,7 @@ mod web {
                     (inner_guard.current_file_position as i64 + offset)
                 }
             };
+            log::debug!("Seeking 2 {new_file_position}");
 
             if new_file_position < 0 || new_file_position as u64 >= inner_guard.content_length {
                 return std::io::Result::Err(std::io::Error::new(
@@ -436,7 +439,6 @@ impl AudioFileStreamer {
     /// so we make sure not to overshoot
     #[profiling::function]
     pub async fn read_chunk(&mut self, max_chunk_size: usize) -> anyhow::Result<(SoundData, bool)> {
-        log::info!("read_chunk, max_chunk_size={}", max_chunk_size);
         let mut samples_interleaved: Vec<f32> = vec![];
 
         let sample_rate_ratio = self.device_sample_rate as f32

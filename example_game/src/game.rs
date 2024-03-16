@@ -340,10 +340,10 @@ pub async fn init_game_state(
                 path: GAME_PATH_MAKER.make("src/sounds/Recording.mp3"),
                 format: AudioFileFormat::Mp3,
                 sound_params: SoundParams {
-                    initial_volume: 0.3,
+                    initial_volume: 0.5,
                     fixed_volume: false,
                     spacial_params: None,
-                    stream: true,
+                    stream: false,
                 },
             });
 
