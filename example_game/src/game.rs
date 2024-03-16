@@ -22,7 +22,6 @@ use ikari::animation::step_animations;
 use ikari::animation::LoopType;
 use ikari::asset_loader::AudioAssetLoadParams;
 use ikari::asset_loader::SceneAssetLoadParams;
-use ikari::audio::AudioFileFormat;
 use ikari::audio::SoundParams;
 use ikari::engine_state::EngineState;
 use ikari::file_manager::{FileManager, GamePathMaker};
@@ -336,20 +335,17 @@ pub async fn init_game_state(
             let mut audio_load_params: Vec<AudioAssetLoadParams> = Vec::new();
 
             audio_load_params.push(AudioAssetLoadParams {
-                // TODO: why didn't m4a format work?
-                path: GAME_PATH_MAKER.make("src/sounds/Recording.mp3"),
-                format: AudioFileFormat::Mp3,
+                path: GAME_PATH_MAKER.make("src/sounds/Recording.m4a"),
                 sound_params: SoundParams {
-                    initial_volume: 0.5,
+                    initial_volume: 0.3,
                     fixed_volume: false,
                     spacial_params: None,
-                    stream: false,
+                    stream: true,
                 },
             });
 
             // audio_load_params.push(AudioAssetLoadParams {
             //     path: GAME_PATH_MAKER.make("src/sounds/gunshot.wav"),
-            //     format: AudioFileFormat::Wav,
             //     sound_params: SoundParams {
             //         initial_volume: 0.4,
             //         fixed_volume: true,
@@ -370,10 +366,10 @@ pub async fn init_game_state(
                 );
             }
 
-            // asset_id_map.lock().unwrap().insert(
-            //     "skybox".to_string(),
-            //     asset_loader.load_skybox(get_skybox_path()),
-            // );
+            asset_id_map.lock().unwrap().insert(
+                "skybox".to_string(),
+                asset_loader.load_skybox(get_skybox_path()),
+            );
         })
     });
 
@@ -1393,6 +1389,8 @@ pub fn update_game_state(
     }
 
     {
+        //TODO: stop using paths as ids?
+
         let loaded_scenes = engine_state.asset_binder.loaded_scenes();
         let mut loaded_assets_guard = loaded_scenes.lock().unwrap();
         let asset_id_map_guard = game_state.asset_id_map.lock().unwrap();
@@ -1559,7 +1557,7 @@ pub fn update_game_state(
         let mut loaded_audio_guard = engine_state.asset_loader.loaded_audio.lock().unwrap();
         let asset_id_map_guard = game_state.asset_id_map.lock().unwrap();
 
-        if let Some(asset_id) = asset_id_map_guard.get(&"src/sounds/Recording.mp3".to_string()) {
+        if let Some(asset_id) = asset_id_map_guard.get(&"src/sounds/Recording.m4a".to_string()) {
             if let Entry::Occupied(entry) = loaded_audio_guard.entry(*asset_id) {
                 let (_, bgm_sound_index) = entry.remove_entry();
                 game_state.bgm_sound_index = Some(bgm_sound_index);

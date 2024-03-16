@@ -61,7 +61,11 @@ approx = "0.5"
 # audio
 cpal = { git = "https://github.com/RustAudio/cpal.git", rev = "6c3d11b8f6af5c6202278560860a8c565162fd51" }
 oddio = "0.6"
-symphonia = { version = "0.5.3", features = ["mp3", "wav"] }
+symphonia = { version = "0.5.4", features = [
+    "all-codecs",
+    "all-formats",
+    "opt-simd",
+] }
 
 # UI
 iced.workspace = true

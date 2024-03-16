@@ -9,8 +9,7 @@ use oddio::{
     Stop,
 };
 use symphonia::core::{
-    audio::SampleBuffer, codecs::CODEC_TYPE_NULL, io::MediaSource, io::MediaSourceStream,
-    probe::Hint,
+    audio::SampleBuffer, codecs::CODEC_TYPE_NULL, io::MediaSourceStream, probe::Hint,
 };
 
 pub struct AudioStreams {
@@ -66,15 +65,6 @@ pub enum SoundSignalHandle {
     },
 }
 
-// TODO: remove this?
-#[derive(Debug, Copy, Clone)]
-pub enum AudioFileFormat {
-    Mp3,
-    Wav,
-    M4a,
-    Unknown,
-}
-
 #[derive(Debug, Copy, Clone)]
 pub struct SpacialParams {
     initial_position: Vec3,
@@ -93,238 +83,21 @@ pub struct SoundParams {
 mod native {
     use crate::file_manager::native_fs::File;
     use crate::file_manager::GameFilePath;
+    use symphonia::core::io::MediaSource;
 
-    pub(super) async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSource>> {
+    pub(super) async fn get_media_source(
+        file_path: &GameFilePath,
+    ) -> anyhow::Result<Box<dyn MediaSource>> {
         Ok(Box::new(File::open(file_path.resolve())?))
     }
 }
 
 #[cfg(target_arch = "wasm32")]
 mod web {
-    use std::sync::{Arc, Mutex};
-
-    use js_sys::Reflect;
+    use crate::file_manager::{FileManager, GameFilePath, HttpFileStreamerSync};
     use symphonia::core::io::MediaSource;
-    use wasm_bindgen::JsValue;
-    use wasm_bindgen_futures::JsFuture;
 
-    use crate::file_manager::{FileManager, GameFilePath};
-    use crate::thread::sleep_async;
-    use crate::time::Duration;
-
-    #[derive(Debug, Clone)]
-    struct HttpStreamer {
-        inner: Arc<Mutex<HttpStreamerInner>>,
-    }
-
-    #[derive(Debug, Clone)]
-    struct HttpStreamerInner {
-        url: String,
-        content_length: u64,
-        current_file_position: u64,
-        current_requested_chunk_size: u64,
-        buffer: Vec<u8>,
-        error: Option<String>,
-    }
-
-    impl HttpStreamer {
-        pub async fn new(url: String) -> anyhow::Result<Self> {
-            let head_response = gloo_net::http::RequestBuilder::new(&url)
-                .method(gloo_net::http::Method::HEAD)
-                .send()
-                .await?;
-
-            if head_response.headers().get("Accept-Ranges") != Some(String::from("bytes")) {
-                anyhow::bail!("Resource at URL {} does not support streaming", url);
-            }
-
-            let content_length = head_response
-                .headers()
-                .get("Content-Length")
-                .ok_or_else(|| anyhow::anyhow!("Didn't get content length header"))
-                .and_then(|content_length_str| {
-                    content_length_str
-                        .parse::<u64>()
-                        .map_err(|err| anyhow::anyhow!(err))
-                })?;
-
-            log::debug!(
-                "Initted http streamer with content_length={:?}",
-                content_length
-            );
-
-            let inner = Arc::new(Mutex::new(HttpStreamerInner {
-                url,
-                content_length,
-                current_file_position: 0,
-                current_requested_chunk_size: 0,
-                buffer: vec![],
-                error: None,
-            }));
-
-            let inner_clone = inner.clone();
-
-            crate::thread::spawn(move || {
-                crate::block_on(async move { Self::run_producer_loop(inner_clone).await });
-            });
-
-            Ok(Self { inner })
-        }
-
-        async fn run_producer_loop(inner: Arc<Mutex<HttpStreamerInner>>) {
-            if let Err(err) = Self::run_producer_loop_inner(inner.clone()).await {
-                inner.lock().unwrap().error = Some(err.as_string().unwrap_or_default());
-            }
-        }
-
-        async fn run_producer_loop_inner(
-            inner: Arc<Mutex<HttpStreamerInner>>,
-        ) -> Result<(), JsValue> {
-            loop {
-                // let this thread die if nobody else cares anymore (😥)
-                if Arc::strong_count(&inner) == 1 {
-                    log::debug!("Exiting HttpStreamer thread");
-                    break Ok(());
-                }
-
-                let mut inner_guard = inner.lock().unwrap();
-
-                // if there's no more work to do, we spin-wait for more
-                if inner_guard.current_requested_chunk_size == 0 {
-                    drop(inner_guard);
-
-                    sleep_async(Duration::from_secs_f32(0.05)).await;
-                    continue;
-                }
-
-                inner_guard.buffer.clear();
-
-                let range_header = &format!(
-                    "bytes={}-{}",
-                    inner_guard.current_file_position,
-                    (inner_guard.current_file_position + inner_guard.current_requested_chunk_size
-                        - 1)
-                    .min(inner_guard.content_length)
-                );
-                let body_stream = gloo_net::http::RequestBuilder::new(&inner_guard.url)
-                    .method(gloo_net::http::Method::GET)
-                    .header("Range", range_header)
-                    .send()
-                    .await
-                    .map_err(|err| JsValue::from_str(&format!("{:?}", err)))?
-                    .body()
-                    .ok_or_else(|| JsValue::from_str("Request returned no body"))?;
-                let mut stream_reader = web_sys::ReadableStreamDefaultReader::new(&body_stream)?;
-                loop {
-                    let result = JsFuture::from(stream_reader.read()).await?;
-                    let done = Reflect::get(&result, &JsValue::from_str("done"))?
-                        .as_bool()
-                        .ok_or_else(|| {
-                            JsValue::from_str(
-                                "Failed to read property 'done' from stream read promise result",
-                            )
-                        })?;
-                    let mut sub_chunk = js_sys::Uint8Array::new(&Reflect::get(
-                        &result,
-                        &JsValue::from_str("value"),
-                    )?)
-                    .to_vec();
-
-                    log::debug!("Buffering {} bytes", sub_chunk.len());
-
-                    inner_guard.current_file_position = (inner_guard.current_file_position
-                        + sub_chunk.len() as u64)
-                        .min(inner_guard.content_length);
-                    inner_guard.buffer.append(&mut sub_chunk);
-
-                    if done {
-                        log::debug!("Chunk done buffering");
-                        inner_guard.current_requested_chunk_size = 0;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    impl std::io::Read for HttpStreamer {
-        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
-            {
-                let mut inner_guard = self.inner.lock().unwrap();
-
-                if let Some(err) = inner_guard.error.take() {
-                    return std::io::Result::Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        err,
-                    ));
-                }
-
-                inner_guard.current_requested_chunk_size = buffer.len() as u64;
-            }
-
-            loop {
-                let inner_guard = self.inner.lock().unwrap();
-                if inner_guard.current_requested_chunk_size == 0 {
-                    break;
-                }
-            }
-
-            let mut inner_guard = self.inner.lock().unwrap();
-
-            let byte_count = inner_guard.buffer.len();
-            log::debug!("Reading {} bytes from the buffer", byte_count);
-
-            // TODO: fix 'source slice length (16064) does not match destination slice length (32768)'
-            //        ..fill the vec with zeros?
-            inner_guard.buffer.resize(buffer.len(), 0);
-            buffer.copy_from_slice(&inner_guard.buffer);
-
-            Ok(byte_count)
-        }
-    }
-
-    impl std::io::Seek for HttpStreamer {
-        // TODO: test this!
-        fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-            let mut inner_guard = self.inner.lock().unwrap();
-
-            if let Some(err) = inner_guard.error.take() {
-                return std::io::Result::Err(std::io::Error::new(std::io::ErrorKind::Other, err));
-            }
-
-            if inner_guard.current_requested_chunk_size != 0 {
-                return std::io::Result::Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Seeking in the middle of reading is not (yet) supported",
-                ));
-            }
-
-            log::debug!("Seeking 1 {pos:?}");
-            let new_file_position = match pos {
-                std::io::SeekFrom::Start(start) => start as i64,
-                std::io::SeekFrom::End(offset) => (inner_guard.content_length as i64 + offset),
-                std::io::SeekFrom::Current(offset) => {
-                    (inner_guard.current_file_position as i64 + offset)
-                }
-            };
-            log::debug!("Seeking 2 {new_file_position}");
-
-            if new_file_position < 0 || new_file_position as u64 >= inner_guard.content_length {
-                return std::io::Result::Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Seeking to an invalid position: {new_file_position}"),
-                ));
-            }
-
-            let new_file_position = new_file_position as u64;
-
-            inner_guard.current_file_position = new_file_position;
-
-            Ok(new_file_position)
-        }
-    }
-
-    impl MediaSource for HttpStreamer {
+    impl MediaSource for HttpFileStreamerSync {
         fn is_seekable(&self) -> bool {
             true
         }
@@ -339,7 +112,7 @@ mod web {
     ) -> anyhow::Result<Box<dyn MediaSource>> {
         let url = file_path.resolve();
 
-        let streamer = match HttpStreamer::new(url).await {
+        let streamer = match HttpFileStreamerSync::new(url).await {
             Ok(streamer) => streamer,
             Err(error) => {
                 log::error!(
@@ -373,23 +146,17 @@ pub struct AudioFileStreamer {
 }
 
 impl AudioFileStreamer {
-    pub async fn new(
-        device_sample_rate: u32,
-        file_path: GameFilePath,
-        file_format: Option<AudioFileFormat>,
-    ) -> anyhow::Result<Self> {
+    pub async fn new(device_sample_rate: u32, file_path: GameFilePath) -> anyhow::Result<Self> {
         let mss = MediaSourceStream::new(get_media_source(&file_path).await?, Default::default());
 
         let mut hint = Hint::new();
-        if let Some(file_format) = &file_format {
-            if let Some(extension_hint) = match file_format {
-                AudioFileFormat::Mp3 => Some("mp3"),
-                AudioFileFormat::Wav => Some("wav"),
-                AudioFileFormat::M4a => Some("m4a"),
-                AudioFileFormat::Unknown => None,
-            } {
-                hint.with_extension(extension_hint);
-            }
+        if let Some(extension) = file_path
+            .relative_path
+            .extension()
+            .and_then(|extension| extension.to_str())
+        {
+            // TODO: pause in debugger to make sure it's working
+            hint.with_extension(extension);
         }
 
         let probed = symphonia::default::get_probe().format(

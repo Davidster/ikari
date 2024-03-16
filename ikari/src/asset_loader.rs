@@ -38,7 +38,6 @@ pub struct SceneAssetLoadParams {
 #[derive(Clone, Debug)]
 pub struct AudioAssetLoadParams {
     pub path: GameFilePath,
-    pub format: AudioFileFormat,
     pub sound_params: SoundParams,
 }
 
@@ -210,7 +209,6 @@ impl AssetLoader {
                             let mut audio_file_streamer = AudioFileStreamer::new(
                                 device_sample_rate,
                                 next_audio_params.path.clone(),
-                                Some(next_audio_params.format),
                             )
                             .await?;
                             let sound_data = if !next_audio_params.sound_params.stream {
