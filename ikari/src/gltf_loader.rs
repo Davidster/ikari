@@ -12,6 +12,7 @@ use crate::texture_compression::*;
 use crate::transform::*;
 
 use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::collections::{hash_map::Entry, HashMap};
 use std::path::PathBuf;
 
@@ -564,7 +565,7 @@ pub fn get_animations(
             let length_seconds = *channel_timings
                 .iter()
                 .map(|keyframe_times| keyframe_times.last().unwrap())
-                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .max_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
                 .unwrap();
             let channels: Vec<_> = animation
                 .channels()

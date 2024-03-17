@@ -174,6 +174,10 @@ fn main() {
 #[cfg(target_arch = "wasm32")]
 pub fn show_error_div(error_message: &str) {
     if let Some(document) = web_sys::window().and_then(|win| win.document()) {
+        if let Some(canvas_container) = document.get_element_by_id("canvas_container") {
+            canvas_container.remove();
+        }
+
         let class_name = "fatalerror";
         let div = document
             .create_element("div")

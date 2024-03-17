@@ -3881,6 +3881,10 @@ impl Renderer {
     where
         UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + 'static,
     {
+        if surface_data.surface_config.width == 0 || surface_data.surface_config.height == 0 {
+            return Ok(());
+        }
+
         self.update_internal(engine_state, &surface_data.surface_config);
         self.render_internal(
             engine_state,

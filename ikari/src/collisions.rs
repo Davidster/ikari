@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use glam::f32::Vec3;
 use rand::Rng;
 use rand::SeedableRng;
@@ -433,7 +435,7 @@ impl CameraFrustumDescriptor {
         ]
         .iter()
         .copied()
-        .max_by(|a, b| a.partial_cmp(b).unwrap())
+        .max_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
         .unwrap();
 
         let radius = longest_side_length / 2.0;
