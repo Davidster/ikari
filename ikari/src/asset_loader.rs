@@ -286,12 +286,12 @@ impl AssetLoader {
                     } else {
                         let deficit_seconds: f32 =
                             target_max_buffer_length_seconds - buffered_amount_seconds;
-                        log::info!(
+                        log::debug!(
                             "target_max_buffer_length_seconds={target_max_buffer_length_seconds:?}, buffered_amount_seconds={buffered_amount_seconds:?}, deficit_seconds={deficit_seconds:?}",
                         );
                         (max_chunk_size_length_seconds + deficit_seconds).max(0.0)
                     };
-                    log::info!(
+                    log::debug!(
                         "file={:?}, requested_chunk_size_seconds={requested_chunk_size_seconds:?}",
                         audio_file_streamer.file_path()
                     );
@@ -338,7 +338,7 @@ impl AssetLoader {
                             last_buffer_fill_time = Some(Instant::now());
 
                             if reached_end_of_stream {
-                                log::info!(
+                                log::debug!(
                                     "Reached end of stream for file: {:?}",
                                     audio_file_streamer.file_path(),
                                 );
