@@ -202,7 +202,8 @@ mod web {
     }
 
     /// Provides a File type that implements std::io::Read and std::io::Seek
-    /// It cannot be used on the main thread since it can block, which produces a panic on the web
+    /// by using a hack involving a web worker and mutex to block on fetch requests
+    /// Because reading from it can block, it cannot be used on the main thread or else it will produce a panic on the web
     #[derive(Debug, Clone)]
     pub struct HttpFileStreamerSync {
         pub(crate) inner: Arc<Mutex<HttpFileStreamerSyncInner>>,
