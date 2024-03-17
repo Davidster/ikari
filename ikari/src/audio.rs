@@ -94,7 +94,7 @@ mod native {
 
 #[cfg(target_arch = "wasm32")]
 mod web {
-    use crate::file_manager::{FileManager, GameFilePath, HttpFileStreamerSync};
+    use crate::file_manager::{GameFilePath, HttpFileStreamerSync};
     use symphonia::core::io::MediaSource;
 
     impl MediaSource for HttpFileStreamerSync {

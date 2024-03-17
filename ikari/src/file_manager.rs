@@ -154,7 +154,7 @@ mod web {
                 .get("Content-Length")
                 .and_then(|content_length_str| content_length_str.parse::<usize>().ok())
             {
-                if (output_response_buffer.capacity() < content_length) {
+                if output_response_buffer.capacity() < content_length {
                     output_response_buffer
                         .reserve_exact(content_length - output_response_buffer.capacity());
                 }
@@ -165,7 +165,7 @@ mod web {
                 .ok_or_else(|| JsValue::from_str("Request returned no body"))?;
 
             let mut bytes_read = 0;
-            let mut body_reader = web_sys::ReadableStreamDefaultReader::new(&body_stream)?;
+            let body_reader = web_sys::ReadableStreamDefaultReader::new(&body_stream)?;
             loop {
                 let body_chunk_result = JsFuture::from(body_reader.read()).await?;
 
@@ -265,6 +265,7 @@ mod web {
             }
         }
 
+        #[allow(clippy::await_holding_lock)]
         async fn run_producer_loop_inner(
             inner: Arc<Mutex<HttpFileStreamerSyncInner>>,
         ) -> Result<(), JsValue> {
@@ -311,7 +312,7 @@ mod web {
 
     impl std::io::Read for HttpFileStreamerSync {
         fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
-            if (buffer.len() == 0) {
+            if buffer.is_empty() {
                 return Ok(0);
             }
 
@@ -361,9 +362,9 @@ mod web {
 
             let new_file_position = match pos {
                 std::io::SeekFrom::Start(start) => start as i64,
-                std::io::SeekFrom::End(offset) => (inner_guard.file_size as i64 + offset),
+                std::io::SeekFrom::End(offset) => inner_guard.file_size as i64 + offset,
                 std::io::SeekFrom::Current(offset) => {
-                    (inner_guard.current_file_position as i64 + offset)
+                    inner_guard.current_file_position as i64 + offset
                 }
             };
 
