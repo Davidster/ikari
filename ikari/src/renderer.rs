@@ -4829,34 +4829,34 @@ impl Renderer {
                 .get_appropriate_unit(false)
                 .to_string()
         };
-        // log::debug!(
-        //     "Memory usage:\n  Instance buffers: {}\n  Index buffers: {}\n  Vertex buffers: {}",
-        //     fmt_bytes(
-        //         private_data.pbr_instances_buffer.length_bytes()
-        //             + private_data.unlit_instances_buffer.length_bytes()
-        //             + private_data.transparent_instances_buffer.length_bytes()
-        //             + private_data.wireframe_instances_buffer.length_bytes()
-        //     ),
-        //     fmt_bytes(
-        //         data.binded_meshes
-        //             .iter()
-        //             .map(|mesh| mesh.index_buffer.buffer.length_bytes())
-        //             .chain(
-        //                 data.binded_wireframe_meshes
-        //                     .iter()
-        //                     .map(|mesh| mesh.index_buffer.buffer.length_bytes()),
-        //             )
-        //             .reduce(|acc, val| acc + val)
-        //             .unwrap_or(0)
-        //     ),
-        //     fmt_bytes(
-        //         data.binded_meshes
-        //             .iter()
-        //             .map(|mesh| mesh.vertex_buffer.length_bytes())
-        //             .reduce(|acc, val| acc + val)
-        //             .unwrap_or(0)
-        //     ),
-        // );
+        log::debug!(
+            "Memory usage:\n  Instance buffers: {}\n  Index buffers: {}\n  Vertex buffers: {}",
+            fmt_bytes(
+                private_data.pbr_instances_buffer.length_bytes()
+                    + private_data.unlit_instances_buffer.length_bytes()
+                    + private_data.transparent_instances_buffer.length_bytes()
+                    + private_data.wireframe_instances_buffer.length_bytes()
+            ),
+            fmt_bytes(
+                data.binded_meshes
+                    .iter()
+                    .map(|mesh| mesh.index_buffer.buffer.length_bytes())
+                    .chain(
+                        data.binded_wireframe_meshes
+                            .iter()
+                            .map(|mesh| mesh.index_buffer.buffer.length_bytes()),
+                    )
+                    .reduce(|acc, val| acc + val)
+                    .unwrap_or(0)
+            ),
+            fmt_bytes(
+                data.binded_meshes
+                    .iter()
+                    .map(|mesh| mesh.vertex_buffer.length_bytes())
+                    .reduce(|acc, val| acc + val)
+                    .unwrap_or(0)
+            ),
+        );
 
         queue.write_buffer(
             &private_data.point_lights_buffer,
@@ -6092,58 +6092,58 @@ impl Renderer {
 
         // TODO: move to UI?
 
-        // log::debug!("Culling time: {:?}", start.elapsed());
+        log::debug!("Culling time: {:?}", start.elapsed());
 
-        // log::debug!("Culling stats:");
-        // log::debug!("  Total renderable objects: {}", total_object_count);
-        // log::debug!(
-        //     "  Completely culled: {} ({:.2}%)",
-        //     completely_culled_object_count,
-        //     100.0 * completely_culled_object_count as f32 / total_object_count as f32
-        // );
-        // log::debug!(
-        //     "  Main camera: {} ({:.2}%)",
-        //     culled_object_counts[0],
-        //     100.0 * culled_object_counts[0] as f32 / total_object_count as f32
-        // );
+        log::debug!("Culling stats:");
+        log::debug!("  Total renderable objects: {}", total_object_count);
+        log::debug!(
+            "  Completely culled: {} ({:.2}%)",
+            completely_culled_object_count,
+            100.0 * completely_culled_object_count as f32 / total_object_count as f32
+        );
+        log::debug!(
+            "  Main camera: {} ({:.2}%)",
+            culled_object_counts[0],
+            100.0 * culled_object_counts[0] as f32 / total_object_count as f32
+        );
 
-        // let mut directional_light_index_acc = 1;
+        let mut directional_light_index_acc = 1;
 
-        // for (light_index, cascades) in resolved_directional_light_cascades.iter().enumerate() {
-        //     log::debug!("  Directional light: {}", light_index);
+        for (light_index, cascades) in resolved_directional_light_cascades.iter().enumerate() {
+            log::debug!("  Directional light: {}", light_index);
 
-        //     for cascade_index in 0..cascades.len() {
-        //         let cull_index = 1 + light_index + cascade_index;
-        //         directional_light_index_acc += 1;
-        //         log::debug!(
-        //             "    Cascade {}: {} ({:.2}%)",
-        //             cascade_index,
-        //             culled_object_counts[cull_index],
-        //             100.0 * culled_object_counts[cull_index] as f32 / total_object_count as f32
-        //         );
-        //     }
-        // }
+            for cascade_index in 0..cascades.len() {
+                let cull_index = 1 + light_index + cascade_index;
+                directional_light_index_acc += 1;
+                log::debug!(
+                    "    Cascade {}: {} ({:.2}%)",
+                    cascade_index,
+                    culled_object_counts[cull_index],
+                    100.0 * culled_object_counts[cull_index] as f32 / total_object_count as f32
+                );
+            }
+        }
 
-        // for (light_index, frusta) in point_lights_frusta.iter().enumerate() {
-        //     log::debug!("  Point light: {}", light_index);
+        for (light_index, frusta) in point_lights_frusta.iter().enumerate() {
+            log::debug!("  Point light: {}", light_index);
 
-        //     match &frusta {
-        //         Some(frusta) => {
-        //             for frustum_index in 0..frusta.0.len() {
-        //                 let cull_index = directional_light_index_acc + frustum_index;
-        //                 log::debug!(
-        //                     "    Frustum {}: {} ({:.2}%)",
-        //                     frustum_index,
-        //                     culled_object_counts[cull_index],
-        //                     100.0 * culled_object_counts[cull_index] as f32
-        //                         / total_object_count as f32
-        //                 );
-        //             }
-        //         }
-        //         None => {
-        //             log::debug!("    N/A");
-        //         }
-        //     }
-        // }
+            match &frusta {
+                Some(frusta) => {
+                    for frustum_index in 0..frusta.0.len() {
+                        let cull_index = directional_light_index_acc + frustum_index;
+                        log::debug!(
+                            "    Frustum {}: {} ({:.2}%)",
+                            frustum_index,
+                            culled_object_counts[cull_index],
+                            100.0 * culled_object_counts[cull_index] as f32
+                                / total_object_count as f32
+                        );
+                    }
+                }
+                None => {
+                    log::debug!("    N/A");
+                }
+            }
+        }
     }
 }

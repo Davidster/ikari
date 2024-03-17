@@ -53,9 +53,6 @@ web-sys = { version = "0.3.64", features = [
   "WorkerGlobalScope",
   "ReadableStream",
   "ReadableStreamDefaultReader",
-  "AudioContext",
-  "HtmlMediaElement",
-  "MediaElementAudioSourceNode",
 ] }
 wasm-bindgen = { version = "0.2.87", features = ["serde-serialize"] }
 wasm-bindgen-futures = "0.4.37"

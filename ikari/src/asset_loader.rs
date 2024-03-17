@@ -119,7 +119,6 @@ impl AssetLoader {
     }
 
     pub fn exit(&self) {
-        log::info!("Exit called");
         self.is_exiting.store(true, Ordering::SeqCst);
     }
 
@@ -212,7 +211,7 @@ impl AssetLoader {
                             )
                             .await?;
                             let sound_data = if !next_audio_params.sound_params.stream {
-                                audio_file_streamer.read_chunk(0).await?.0
+                                audio_file_streamer.read_chunk(0)?.0
                             } else {
                                 Default::default()
                             };
@@ -297,12 +296,9 @@ impl AssetLoader {
                         audio_file_streamer.file_path()
                     );
                     is_first_chunk = false;
-                    match audio_file_streamer
-                        .read_chunk(
-                            (device_sample_rate as f32 * requested_chunk_size_seconds) as usize,
-                        )
-                        .await
-                    {
+                    match audio_file_streamer.read_chunk(
+                        (device_sample_rate as f32 * requested_chunk_size_seconds) as usize,
+                    ) {
                         Ok((sound_data, reached_end_of_stream)) => {
                             let sample_count = sound_data.0.len();
 
@@ -463,7 +459,7 @@ impl AssetBinder {
             renderer_constant_data.clone(),
             asset_loader.clone(),
         );
-        // log::info!("scene binder took {:?}", start.elapsed());
+        log::debug!("scene binder took {:?}", start.elapsed());
 
         let start = crate::time::Instant::now();
         self.skybox_binder.update(
@@ -471,7 +467,7 @@ impl AssetBinder {
             renderer_constant_data.clone(),
             asset_loader.clone(),
         );
-        // log::info!("skybox binder took {:?}", start.elapsed());
+        log::debug!("skybox binder took {:?}", start.elapsed());
     }
 
     pub fn loaded_scenes(&self) -> WasmNotArc<WasmNotMutex<HashMap<AssetId, BindedScene>>> {
@@ -807,22 +803,11 @@ impl TimeSlicedSceneBinder {
 
             let staged_texture_count = staged_scene.textures.len();
             if staged_texture_count < bindable_scene.textures.len() {
-                let start = crate::time::Instant::now();
+                // binding textures is pretty slow, causes pretty nasty FPS drops on web :(
                 staged_scene.textures.push(bind_texture(
                     base_renderer,
                     &bindable_scene.textures[staged_texture_count],
                 )?);
-                log::info!(
-                    "binded texture of {} bytes with format {:?} in {:?}",
-                    &bindable_scene.textures[staged_texture_count]
-                        .raw_image
-                        .bytes
-                        .len(),
-                    &bindable_scene.textures[staged_texture_count]
-                        .raw_image
-                        .format,
-                    start.elapsed()
-                );
 
                 return Ok(None);
             }
@@ -930,11 +915,6 @@ impl BindScene for TimeSlicedSceneBinder {
                         break;
                     }
                 };
-
-                // log::info!(
-                //     "ending slice, current elapsed is {:?}",
-                //     start_time.elapsed()
-                // );
             }
 
             // wait until the next frame to continue uploading to gpu
@@ -1111,8 +1091,7 @@ fn bind_texture(
         base_renderer,
         raw_image,
         name.as_deref(),
-        // raw_image.mip_count <= 1,
-        false,
+        raw_image.mip_count <= 1,
         sampler_descriptor,
     )
 }

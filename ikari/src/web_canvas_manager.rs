@@ -51,7 +51,6 @@ mod web {
                     self.resize();
                 }
                 Event::LoopExiting => {
-                    log::info!("WebCanvasManager LoopExiting");
                     self.canvas_container.remove();
                 }
                 Event::WindowEvent {

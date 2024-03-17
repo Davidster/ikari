@@ -111,21 +111,7 @@ mod web {
         file_path: &GameFilePath,
     ) -> anyhow::Result<Box<dyn MediaSource>> {
         let url = file_path.resolve();
-
-        let streamer = match HttpFileStreamerSync::new(url).await {
-            Ok(streamer) => streamer,
-            Err(error) => {
-                log::error!(
-                    "{:?}. Falling back to loading the entire resource into memory",
-                    error
-                );
-                return Ok(Box::new(std::io::Cursor::new(
-                    FileManager::read(file_path).await?,
-                )));
-            }
-        };
-
-        Ok(Box::new(streamer))
+        Ok(Box::new(HttpFileStreamerSync::new(url).await?))
     }
 }
 
@@ -204,7 +190,7 @@ impl AudioFileStreamer {
     /// the audio file in small 'packets' which might not fit evenly into max_chunk_size
     /// so we make sure not to overshoot
     #[profiling::function]
-    pub async fn read_chunk(&mut self, max_chunk_size: usize) -> anyhow::Result<(SoundData, bool)> {
+    pub fn read_chunk(&mut self, max_chunk_size: usize) -> anyhow::Result<(SoundData, bool)> {
         let mut samples_interleaved: Vec<f32> = vec![];
 
         let sample_rate_ratio = self.device_sample_rate as f32

@@ -134,7 +134,7 @@ mod web {
         async fn read_whole_request_body(
             request: gloo_net::http::RequestBuilder,
             output_response_buffer: &mut Vec<u8>,
-        ) -> anyhow::Result<()> {
+        ) -> anyhow::Result<u64> {
             Self::read_whole_request_body_internal(request, output_response_buffer)
                 .await
                 .map_err(|err| anyhow::anyhow!(err.as_string().unwrap_or_default()))
@@ -143,7 +143,7 @@ mod web {
         async fn read_whole_request_body_internal(
             request: gloo_net::http::RequestBuilder,
             output_response_buffer: &mut Vec<u8>,
-        ) -> Result<(), JsValue> {
+        ) -> Result<u64, JsValue> {
             let response = request
                 .send()
                 .await
@@ -164,6 +164,7 @@ mod web {
                 .body()
                 .ok_or_else(|| JsValue::from_str("Request returned no body"))?;
 
+            let mut bytes_read = 0;
             let mut body_reader = web_sys::ReadableStreamDefaultReader::new(&body_stream)?;
             loop {
                 let body_chunk_result = JsFuture::from(body_reader.read()).await?;
@@ -183,6 +184,7 @@ mod web {
                 )?)
                 .to_vec();
 
+                bytes_read += body_chunk.len() as u64;
                 output_response_buffer.append(&mut body_chunk);
 
                 if done_reading_body {
@@ -190,7 +192,7 @@ mod web {
                 }
             }
 
-            Ok(())
+            Ok(bytes_read)
         }
 
         pub async fn read_to_string(path: &GameFilePath) -> anyhow::Result<String> {
@@ -284,55 +286,25 @@ mod web {
                 }
 
                 inner_guard.buffer.clear();
-
-                let range_header = &format!(
-                    "bytes={}-{}",
-                    inner_guard.current_file_position,
-                    (inner_guard.current_file_position + inner_guard.current_requested_chunk_size
-                        - 1)
-                    .min(inner_guard.file_size)
-                );
-
-                let body_stream = gloo_net::http::RequestBuilder::new(&inner_guard.url)
+                let request = gloo_net::http::RequestBuilder::new(&inner_guard.url)
                     .method(gloo_net::http::Method::GET)
-                    .header("Range", range_header)
-                    .send()
-                    .await
-                    .map_err(|err| JsValue::from_str(&format!("{:?}", err)))?
-                    .body()
-                    .ok_or_else(|| JsValue::from_str("Request returned no body"))?;
-
-                let mut stream_reader = web_sys::ReadableStreamDefaultReader::new(&body_stream)?;
-                loop {
-                    let chunk_result = JsFuture::from(stream_reader.read()).await?;
-
-                    let stream_is_done = Reflect::get(&chunk_result, &JsValue::from_str("done"))?
-                        .as_bool()
-                        .ok_or_else(|| {
-                            JsValue::from_str(
-                                "Failed to read property 'done' from stream read promise result",
-                            )
-                        })?;
-
-                    let mut body_chunk = js_sys::Uint8Array::new(&Reflect::get(
-                        &chunk_result,
-                        &JsValue::from_str("value"),
-                    )?)
-                    .to_vec();
-
-                    log::debug!("Buffering {} bytes", body_chunk.len());
-
-                    inner_guard.current_file_position = (inner_guard.current_file_position
-                        + body_chunk.len() as u64)
-                        .min(inner_guard.file_size);
-                    inner_guard.buffer.append(&mut body_chunk);
-
-                    if stream_is_done {
-                        log::debug!("Chunk done buffering");
-                        inner_guard.current_requested_chunk_size = 0;
-                        break;
-                    }
-                }
+                    .header(
+                        "Range",
+                        &format!(
+                            "bytes={}-{}",
+                            inner_guard.current_file_position,
+                            (inner_guard.current_file_position
+                                + inner_guard.current_requested_chunk_size
+                                - 1)
+                            .min(inner_guard.file_size)
+                        ),
+                    );
+                let bytes_read =
+                    FileManager::read_whole_request_body_internal(request, &mut inner_guard.buffer)
+                        .await?;
+                inner_guard.current_file_position =
+                    (inner_guard.current_file_position + bytes_read).min(inner_guard.file_size);
+                inner_guard.current_requested_chunk_size = 0;
             }
         }
     }

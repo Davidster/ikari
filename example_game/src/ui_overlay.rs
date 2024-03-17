@@ -443,7 +443,7 @@ impl UiOverlay {
             is_showing_gpu_spans: false,
             is_showing_options_menu: false,
             was_exit_button_pressed: false,
-            is_showing_audio_stats: true,
+            is_showing_audio_stats: false,
             enable_vsync: INITIAL_ENABLE_VSYNC,
             bloom_type: INITIAL_BLOOM_TYPE,
             new_bloom_radius: INITIAL_NEW_BLOOM_RADIUS,
