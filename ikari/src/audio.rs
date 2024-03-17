@@ -103,7 +103,7 @@ mod web {
         }
 
         fn byte_len(&self) -> Option<u64> {
-            Some(self.inner.lock().unwrap().content_length)
+            Some(self.inner.lock().unwrap().file_size)
         }
     }
 
@@ -155,7 +155,6 @@ impl AudioFileStreamer {
             .extension()
             .and_then(|extension| extension.to_str())
         {
-            // TODO: pause in debugger to make sure it's working
             hint.with_extension(extension);
         }
 
@@ -307,10 +306,9 @@ impl AudioFileStreamer {
         &self.file_path
     }
 }
-// }
 
 impl AudioManager {
-    // TODO: should we really be returning a tuple here?
+    /// streams are returned separately since they aren't Send/Sync
     pub fn new() -> Result<(AudioManager, AudioStreams)> {
         let host = cpal::default_host();
         let device = host

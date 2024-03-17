@@ -118,54 +118,79 @@ mod web {
     }
 
     impl FileManager {
+        // TODO: implement read_to_end (https://doc.rust-lang.org/stable/std/io/trait.Read.html#method.read_to_end)
+        //       on both native and web
         pub async fn read(path: &GameFilePath) -> anyhow::Result<Vec<u8>> {
             let url = path.resolve();
-            Self::read_internal(&url)
-                .await
-                .map(|js_value| js_sys::Uint8Array::new(&js_value).to_vec())
-                .map_err(|err| {
-                    anyhow::anyhow!(
-                        "Error reading from url {}:\n{}",
-                        url,
-                        err.as_string().unwrap_or_default()
-                    )
-                })
+            let mut result = vec![];
+            Self::read_whole_request_body(
+                gloo_net::http::RequestBuilder::new(&url).method(gloo_net::http::Method::GET),
+                &mut result,
+            )
+            .await?;
+            Ok(result)
         }
 
-        async fn read_internal(url: &str) -> std::result::Result<JsValue, JsValue> {
-            use web_sys::{Blob, RequestInit, Response};
+        async fn read_whole_request_body(
+            request: gloo_net::http::RequestBuilder,
+            output_response_buffer: &mut Vec<u8>,
+        ) -> anyhow::Result<()> {
+            Self::read_whole_request_body_internal(request, output_response_buffer)
+                .await
+                .map_err(|err| anyhow::anyhow!(err.as_string().unwrap_or_default()))
+        }
 
-            let mut opts = RequestInit::new();
-            opts.method("GET");
-            let request = web_sys::Request::new_with_str_and_init(url, &opts)?;
+        async fn read_whole_request_body_internal(
+            request: gloo_net::http::RequestBuilder,
+            output_response_buffer: &mut Vec<u8>,
+        ) -> Result<(), JsValue> {
+            let response = request
+                .send()
+                .await
+                .map_err(|err| JsValue::from_str(&format!("{:?}", err)))?;
 
-            let global: Global = js_sys::global().unchecked_into();
-            let resp_value = JsFuture::from(if !global.window().is_undefined() {
-                global
-                    .unchecked_into::<web_sys::Window>()
-                    .fetch_with_request(&request)
-            } else if !global.worker().is_undefined() {
-                let global_scope = global.unchecked_into::<web_sys::WorkerGlobalScope>();
-                global_scope.fetch_with_request(&request)
-            } else {
-                panic!(
-                    "this function is only supported on the main thread or from a dedicated worker"
-                );
-            })
-            .await?;
-
-            let resp: Response = resp_value.dyn_into().unwrap();
-            if !resp.ok() {
-                let status = resp.status();
-                return std::result::Result::Err(JsValue::from(format!(
-                    "Request to {url} responded with error status code: {status}"
-                )));
+            if let Some(content_length) = response
+                .headers()
+                .get("Content-Length")
+                .and_then(|content_length_str| content_length_str.parse::<usize>().ok())
+            {
+                if (output_response_buffer.capacity() < content_length) {
+                    output_response_buffer
+                        .reserve_exact(content_length - output_response_buffer.capacity());
+                }
             }
 
-            let blob = JsFuture::from(resp.blob()?).await?;
-            let array_buffer: JsValue = JsFuture::from(Blob::from(blob).array_buffer()).await?;
+            let body_stream = response
+                .body()
+                .ok_or_else(|| JsValue::from_str("Request returned no body"))?;
 
-            std::result::Result::Ok(array_buffer)
+            let mut body_reader = web_sys::ReadableStreamDefaultReader::new(&body_stream)?;
+            loop {
+                let body_chunk_result = JsFuture::from(body_reader.read()).await?;
+
+                let done_reading_body =
+                    Reflect::get(&body_chunk_result, &JsValue::from_str("done"))?
+                        .as_bool()
+                        .ok_or_else(|| {
+                            JsValue::from_str(
+                                "Failed to read property 'done' from stream read promise result",
+                            )
+                        })?;
+
+                let mut body_chunk = js_sys::Uint8Array::new(&Reflect::get(
+                    &body_chunk_result,
+                    &JsValue::from_str("value"),
+                )?)
+                .to_vec();
+
+                output_response_buffer.append(&mut body_chunk);
+
+                if done_reading_body {
+                    break;
+                }
+            }
+
+            Ok(())
         }
 
         pub async fn read_to_string(path: &GameFilePath) -> anyhow::Result<String> {
@@ -182,7 +207,7 @@ mod web {
     #[derive(Debug, Clone)]
     pub(crate) struct HttpFileStreamerSyncInner {
         url: String,
-        pub(crate) content_length: u64,
+        pub(crate) file_size: u64,
         current_file_position: u64,
         current_requested_chunk_size: u64,
         buffer: Vec<u8>,
@@ -200,7 +225,7 @@ mod web {
                 anyhow::bail!("Resource at URL {} does not support streaming", url);
             }
 
-            let content_length = head_response
+            let file_size = head_response
                 .headers()
                 .get("Content-Length")
                 .ok_or_else(|| anyhow::anyhow!("Didn't get content length header"))
@@ -210,14 +235,11 @@ mod web {
                         .map_err(|err| anyhow::anyhow!(err))
                 })?;
 
-            log::debug!(
-                "Initted http streamer with content_length={:?}",
-                content_length
-            );
+            log::debug!("Initted http file streamer with file_size={:?}", file_size);
 
             let inner = Arc::new(Mutex::new(HttpFileStreamerSyncInner {
                 url,
-                content_length,
+                file_size,
                 current_file_position: 0,
                 current_requested_chunk_size: 0,
                 buffer: vec![],
@@ -266,7 +288,7 @@ mod web {
                     inner_guard.current_file_position,
                     (inner_guard.current_file_position + inner_guard.current_requested_chunk_size
                         - 1)
-                    .min(inner_guard.content_length)
+                    .min(inner_guard.file_size)
                 );
 
                 let body_stream = gloo_net::http::RequestBuilder::new(&inner_guard.url)
@@ -300,7 +322,7 @@ mod web {
 
                     inner_guard.current_file_position = (inner_guard.current_file_position
                         + body_chunk.len() as u64)
-                        .min(inner_guard.content_length);
+                        .min(inner_guard.file_size);
                     inner_guard.buffer.append(&mut body_chunk);
 
                     if stream_is_done {
@@ -334,7 +356,7 @@ mod web {
                     ));
                 }
 
-                if inner_guard.current_file_position == inner_guard.content_length {
+                if inner_guard.current_file_position == inner_guard.file_size {
                     return Ok(0);
                 }
 
@@ -377,7 +399,7 @@ mod web {
 
             let new_file_position = match pos {
                 std::io::SeekFrom::Start(start) => start as i64,
-                std::io::SeekFrom::End(offset) => (inner_guard.content_length as i64 + offset),
+                std::io::SeekFrom::End(offset) => (inner_guard.file_size as i64 + offset),
                 std::io::SeekFrom::Current(offset) => {
                     (inner_guard.current_file_position as i64 + offset)
                 }
@@ -386,7 +408,7 @@ mod web {
             if new_file_position < 0 {
                 return io_error(&format!(
                     "Seeking to an invalid position: {new_file_position}. content_length={}",
-                    inner_guard.content_length
+                    inner_guard.file_size
                 ));
             }
 
