@@ -199,6 +199,8 @@ mod web {
         }
     }
 
+    /// Provides a File type that implements std::io::Read and std::io::Seek
+    /// It cannot be used on the main thread since it can block, which produces a panic on the web
     #[derive(Debug, Clone)]
     pub struct HttpFileStreamerSync {
         pub(crate) inner: Arc<Mutex<HttpFileStreamerSyncInner>>,
@@ -337,11 +339,6 @@ mod web {
 
     impl std::io::Read for HttpFileStreamerSync {
         fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
-            log::debug!(
-                "Requested to read {} bytes from the file stream",
-                buffer.len()
-            );
-
             if (buffer.len() == 0) {
                 return Ok(0);
             }
@@ -350,10 +347,7 @@ mod web {
                 let mut inner_guard = self.inner.lock().unwrap();
 
                 if let Some(err) = inner_guard.error.take() {
-                    return std::io::Result::Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        err,
-                    ));
+                    return io_error(&err);
                 }
 
                 if inner_guard.current_file_position == inner_guard.file_size {
@@ -385,10 +379,6 @@ mod web {
         fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
             let mut inner_guard = self.inner.lock().unwrap();
 
-            let io_error = |err: &str| {
-                std::io::Result::Err(std::io::Error::new(std::io::ErrorKind::Other, err))
-            };
-
             if let Some(err) = inner_guard.error.take() {
                 return io_error(&err);
             }
@@ -416,6 +406,10 @@ mod web {
             inner_guard.current_file_position = new_file_position;
             Ok(new_file_position)
         }
+    }
+
+    fn io_error<T>(err: &str) -> std::io::Result<T> {
+        std::io::Result::Err(std::io::Error::new(std::io::ErrorKind::Other, err))
     }
 }
 
