@@ -22,7 +22,6 @@ use ikari::animation::step_animations;
 use ikari::animation::LoopType;
 use ikari::asset_loader::AudioAssetLoadParams;
 use ikari::asset_loader::SceneAssetLoadParams;
-use ikari::audio::AudioFileFormat;
 use ikari::audio::SoundParams;
 use ikari::engine_state::EngineState;
 use ikari::file_manager::{FileManager, GamePathMaker};
@@ -337,18 +336,16 @@ pub async fn init_game_state(
 
             audio_load_params.push(AudioAssetLoadParams {
                 path: GAME_PATH_MAKER.make("src/sounds/bgm.mp3"),
-                format: AudioFileFormat::Mp3,
                 sound_params: SoundParams {
                     initial_volume: 0.3,
                     fixed_volume: false,
                     spacial_params: None,
-                    stream: !cfg!(target_arch = "wasm32"),
+                    stream: true,
                 },
             });
 
             audio_load_params.push(AudioAssetLoadParams {
                 path: GAME_PATH_MAKER.make("src/sounds/gunshot.wav"),
-                format: AudioFileFormat::Wav,
                 sound_params: SoundParams {
                     initial_volume: 0.4,
                     fixed_volume: true,
@@ -1392,6 +1389,8 @@ pub fn update_game_state(
     }
 
     {
+        //TODO: stop using paths as ids?
+
         let loaded_scenes = engine_state.asset_binder.loaded_scenes();
         let mut loaded_assets_guard = loaded_scenes.lock().unwrap();
         let asset_id_map_guard = game_state.asset_id_map.lock().unwrap();

@@ -9,8 +9,7 @@ use oddio::{
     Stop,
 };
 use symphonia::core::{
-    audio::SampleBuffer, codecs::CODEC_TYPE_NULL, io::MediaSource, io::MediaSourceStream,
-    probe::Hint,
+    audio::SampleBuffer, codecs::CODEC_TYPE_NULL, io::MediaSourceStream, probe::Hint,
 };
 
 pub struct AudioStreams {
@@ -67,12 +66,6 @@ pub enum SoundSignalHandle {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum AudioFileFormat {
-    Mp3,
-    Wav,
-}
-
-#[derive(Debug, Copy, Clone)]
 pub struct SpacialParams {
     initial_position: Vec3,
     initial_velocity: Vec3,
@@ -86,6 +79,48 @@ pub struct SoundParams {
     pub stream: bool,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+mod native {
+    use crate::file_manager::native_fs::File;
+    use crate::file_manager::GameFilePath;
+    use symphonia::core::io::MediaSource;
+
+    pub(super) async fn get_media_source(
+        file_path: &GameFilePath,
+    ) -> anyhow::Result<Box<dyn MediaSource>> {
+        Ok(Box::new(File::open(file_path.resolve())?))
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+mod web {
+    use crate::file_manager::{GameFilePath, HttpFileStreamerSync};
+    use symphonia::core::io::MediaSource;
+
+    impl MediaSource for HttpFileStreamerSync {
+        fn is_seekable(&self) -> bool {
+            true
+        }
+
+        fn byte_len(&self) -> Option<u64> {
+            Some(self.inner.lock().unwrap().file_size)
+        }
+    }
+
+    pub(super) async fn get_media_source(
+        file_path: &GameFilePath,
+    ) -> anyhow::Result<Box<dyn MediaSource>> {
+        let url = file_path.resolve();
+        Ok(Box::new(HttpFileStreamerSync::new(url).await?))
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+use native::get_media_source;
+
+#[cfg(target_arch = "wasm32")]
+use web::get_media_source;
+
 pub struct AudioFileStreamer {
     device_sample_rate: u32,
     format_reader: Box<dyn symphonia::core::formats::FormatReader>,
@@ -96,33 +131,17 @@ pub struct AudioFileStreamer {
     file_path: GameFilePath,
 }
 
-#[cfg(target_arch = "wasm32")]
-async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSource>> {
-    use crate::file_manager::FileManager;
-    let file_bytes = FileManager::read(file_path).await?;
-    Ok(Box::new(std::io::Cursor::new(file_bytes)))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-async fn get_media_source(file_path: &GameFilePath) -> Result<Box<dyn MediaSource>> {
-    use crate::file_manager::native_fs::File;
-    Ok(Box::new(File::open(file_path.resolve())?))
-}
-
 impl AudioFileStreamer {
-    pub async fn new(
-        device_sample_rate: u32,
-        file_path: GameFilePath,
-        file_format: Option<AudioFileFormat>,
-    ) -> anyhow::Result<Self> {
+    pub async fn new(device_sample_rate: u32, file_path: GameFilePath) -> anyhow::Result<Self> {
         let mss = MediaSourceStream::new(get_media_source(&file_path).await?, Default::default());
 
         let mut hint = Hint::new();
-        if let Some(file_format) = &file_format {
-            hint.with_extension(match file_format {
-                AudioFileFormat::Mp3 => "mp3",
-                AudioFileFormat::Wav => "wav",
-            });
+        if let Some(extension) = file_path
+            .relative_path
+            .extension()
+            .and_then(|extension| extension.to_str())
+        {
+            hint.with_extension(extension);
         }
 
         let probed = symphonia::default::get_probe().format(
@@ -171,7 +190,7 @@ impl AudioFileStreamer {
     /// the audio file in small 'packets' which might not fit evenly into max_chunk_size
     /// so we make sure not to overshoot
     #[profiling::function]
-    pub fn read_chunk(&mut self, max_chunk_size: usize) -> Result<(SoundData, bool)> {
+    pub fn read_chunk(&mut self, max_chunk_size: usize) -> anyhow::Result<(SoundData, bool)> {
         let mut samples_interleaved: Vec<f32> = vec![];
 
         let sample_rate_ratio = self.device_sample_rate as f32
@@ -275,7 +294,7 @@ impl AudioFileStreamer {
 }
 
 impl AudioManager {
-    // TODO: should we really be returning a tuple here?
+    /// streams are returned separately since they aren't Send/Sync
     pub fn new() -> Result<(AudioManager, AudioStreams)> {
         let host = cpal::default_host();
         let device = host
