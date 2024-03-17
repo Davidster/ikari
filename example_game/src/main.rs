@@ -131,7 +131,7 @@ async fn start() {
             err.backtrace()
         );
         #[cfg(target_arch = "wasm32")]
-        show_error_div();
+        show_error_div(&format!("{err}"));
     }
 }
 
@@ -172,24 +172,26 @@ fn main() {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn show_error_div() {
-    web_sys::window()
-        .and_then(|win| win.document())
-        .and_then(|document| {
-            let div = document
-                .create_element("div")
-                .expect("Couldn't create div element");
-            div.set_class_name("fatalerror");
-            div.set_text_content(Some("Fatal error occured. See console log for details"));
-            document.body().unwrap().append_child(&div).ok()
-        })
-        .expect("Couldn't append error message to document body.");
+pub fn show_error_div(error_message: &str) {
+    if let Some(document) = web_sys::window().and_then(|win| win.document()) {
+        let class_name = "fatalerror";
+        let div = document
+            .create_element("div")
+            .expect("Couldn't create div element");
+        div.set_class_name(class_name);
+        div.set_text_content(Some(&format!("Fatal error occured: {}", error_message)));
+        document
+            .body()
+            .unwrap()
+            .append_child(&div)
+            .expect("Couldn't append error message to document body.");
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 fn panic_hook(info: &std::panic::PanicInfo) {
     console_error_panic_hook::hook(info);
-    show_error_div();
+    show_error_div(&format!("{info}"));
 }
 
 #[cfg(target_arch = "wasm32")]
