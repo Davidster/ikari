@@ -12,7 +12,7 @@ path = "src/main.rs"
 [dependencies]
 arboard = "3.2.1"
 pico-args.workspace = true
-wasm-bindgen-cli-support = "0.2.87"
+wasm-bindgen-cli-support = { path = "../../wasm-bindgen-fork/crates/cli-support" }
 warp = "0.3.5"
 tokio = { version = "1", features = ["full"] }
 env_logger = { version = "0.10", default-features = false, features = [

@@ -40,7 +40,8 @@ rand = { version = "0.8", features = ["small_rng"] }
 pollster = "0.3"
 
 # wasm32 depdendencies
-web-sys = { version = "0.3.64", features = [
+js-sys = { path = "../wasm-bindgen-fork/crates/js-sys" }
+web-sys = { path = "../wasm-bindgen-fork/crates/web-sys", features = [
   "Document",
   "Window",
   "Element",
@@ -55,7 +56,8 @@ web-sys = { version = "0.3.64", features = [
   "ReadableStreamDefaultReader",
   "HtmlCollection",
 ] }
-wasm-bindgen = { version = "0.2.87", features = ["serde-serialize"] }
+# TODO: is the serde-serialize feature needed?
+wasm-bindgen = { path = "../wasm-bindgen-fork", features = ["serde-serialize"] }
 wasm-bindgen-futures = "0.4.37"
 
 iced = { version = "0.12", features = ["canvas"] }
@@ -64,6 +66,23 @@ iced_winit = "0.12"
 
 [patch.crates-io]
 winit = { version = "0.29", git = "https://github.com/iced-rs/winit.git", rev = "b91e39ece2c0d378c3b80da7f3ab50e17bb798a5" }
+wasm-bindgen = { path = "../wasm-bindgen-fork", features = ["serde-serialize"] }
+js-sys = { path = "../wasm-bindgen-fork/crates/js-sys" }
+web-sys = { path = "../wasm-bindgen-fork/crates/web-sys", features = [
+  "Document",
+  "Window",
+  "Element",
+  "Headers",
+  "Request",
+  "RequestInit",
+  "RequestMode",
+  "Response",
+  "Blob",
+  "WorkerGlobalScope",
+  "ReadableStream",
+  "ReadableStreamDefaultReader",
+  "HtmlCollection",
+] }
 
 [profile.dev]
 opt-level = 1

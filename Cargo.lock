@@ -371,16 +371,6 @@ dependencies = [
 
 [[package]]
 name = "base64"
-version = "0.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "489d6c0ed21b11d038c31b6ceccca973e65d73ba3bd8ecb9a2babf5546164643"
-dependencies = [
- "byteorder",
- "safemem",
-]
-
-[[package]]
-name = "base64"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
@@ -669,7 +659,7 @@ checksum = "9f13690e35a5e4ace198e7beea2895d29f3a9cc55015fcebe6336bd2010af9eb"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
- "js-sys",
+ "js-sys 0.3.67",
  "num-traits",
  "wasm-bindgen",
  "windows-targets 0.52.0",
@@ -880,7 +870,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be8aed40e4edbf4d3b4431ab260b63fdc40f5780a4766824329ea0f1eefe3c0f"
 dependencies = [
  "log",
- "web-sys",
+ "web-sys 0.3.67",
 ]
 
 [[package]]
@@ -987,7 +977,7 @@ dependencies = [
  "coreaudio-rs",
  "dasp_sample",
  "jni 0.19.0",
- "js-sys",
+ "js-sys 0.3.67",
  "libc",
  "mach2",
  "ndk 0.8.0",
@@ -996,7 +986,7 @@ dependencies = [
  "parking_lot 0.12.1",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "web-sys",
+ "web-sys 0.3.67",
  "windows 0.52.0",
 ]
 
@@ -1128,6 +1118,19 @@ name = "data-encoding"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7e962a19be5cfc3f3bf6dd8f61eb50107f356ad6270fbb3ed41476571db78be5"
+
+[[package]]
+name = "dialoguer"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "658bce805d770f407bc62102fca7c2c64ceef2fbcb2b8bd19d2765ce093980de"
+dependencies = [
+ "console",
+ "shell-words",
+ "tempfile",
+ "thiserror",
+ "zeroize",
+]
 
 [[package]]
 name = "digest"
@@ -1317,6 +1320,7 @@ dependencies = [
  "anyhow",
  "console_error_panic_hook",
  "console_log",
+ "dialoguer",
  "env_logger",
  "glam 0.24.2",
  "iced",
@@ -1334,7 +1338,7 @@ dependencies = [
  "tracing-tracy",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "web-sys",
+ "web-sys 0.3.68",
  "wgpu",
  "wgpu-profiler",
  "winit",
@@ -1669,7 +1673,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "190092ea657667030ac6a35e305e62fc4dd69fd98ac98631e5d3a2b1575a12b5"
 dependencies = [
  "cfg-if",
- "js-sys",
+ "js-sys 0.3.67",
  "libc",
  "wasi",
  "wasm-bindgen",
@@ -1736,14 +1740,14 @@ dependencies = [
  "futures-sink",
  "gloo-utils",
  "http",
- "js-sys",
+ "js-sys 0.3.67",
  "pin-project",
  "serde",
  "serde_json",
  "thiserror",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "web-sys",
+ "web-sys 0.3.67",
 ]
 
 [[package]]
@@ -1754,7 +1758,7 @@ checksum = "9b995a66bb87bebce9a0f4a95aed01daca4872c050bfcb21653361c03bc35e5c"
 dependencies = [
  "futures-channel",
  "futures-core",
- "js-sys",
+ "js-sys 0.3.67",
  "wasm-bindgen",
 ]
 
@@ -1764,11 +1768,11 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b5555354113b18c547c1d3a98fbf7fb32a9ff4f6fa112ce823a21641a0ba3aa"
 dependencies = [
- "js-sys",
+ "js-sys 0.3.67",
  "serde",
  "serde_json",
  "wasm-bindgen",
- "web-sys",
+ "web-sys 0.3.67",
 ]
 
 [[package]]
@@ -1777,10 +1781,10 @@ version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd348e04c43b32574f2de31c8bb397d96c9fcfa1371bd4ca6d8bdc464ab121b1"
 dependencies = [
- "js-sys",
+ "js-sys 0.3.67",
  "slotmap",
  "wasm-bindgen",
- "web-sys",
+ "web-sys 0.3.67",
 ]
 
 [[package]]
@@ -2090,7 +2094,7 @@ dependencies = [
  "android_system_properties",
  "core-foundation-sys",
  "iana-time-zone-haiku",
- "js-sys",
+ "js-sys 0.3.67",
  "wasm-bindgen",
  "windows-core",
 ]
@@ -2280,7 +2284,7 @@ dependencies = [
  "log",
  "thiserror",
  "tracing",
- "web-sys",
+ "web-sys 0.3.67",
  "winapi",
  "window_clipboard",
  "winit",
@@ -2340,7 +2344,7 @@ dependencies = [
  "iced_wgpu",
  "iced_winit",
  "image",
- "js-sys",
+ "js-sys 0.3.68",
  "lazy_static",
  "log",
  "miniz_oxide",
@@ -2360,7 +2364,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm_thread",
- "web-sys",
+ "web-sys 0.3.68",
  "web-time 1.0.0",
  "wgpu",
  "wgpu-profiler",
@@ -2525,6 +2529,13 @@ name = "js-sys"
 version = "0.3.67"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a1d36f1235bc969acba30b7f5990b864423a6068a10f7c90ae8f0112e3a59d1"
+dependencies = [
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "js-sys"
+version = "0.3.68"
 dependencies = [
  "wasm-bindgen",
 ]
@@ -3519,7 +3530,7 @@ dependencies = [
  "num-traits",
  "plotters-backend",
  "wasm-bindgen",
- "web-sys",
+ "web-sys 0.3.67",
 ]
 
 [[package]]
@@ -4010,12 +4021,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "safemem"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef703b7cb59335eae2eb93ceb664c0eb7ea6bf567079d843e09420219668e072"
-
-[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4117,6 +4122,12 @@ checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
 dependencies = [
  "lazy_static",
 ]
+
+[[package]]
+name = "shell-words"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24188a676b6ae68c3b2cb3a01be17fbf7240ce009799bb56d5b1409051e78fde"
 
 [[package]]
 name = "shlex"
@@ -4267,7 +4278,7 @@ dependencies = [
  "drm",
  "fastrand 2.0.1",
  "foreign-types 0.5.0",
- "js-sys",
+ "js-sys 0.3.67",
  "log",
  "memmap2 0.9.4",
  "objc",
@@ -4279,7 +4290,7 @@ dependencies = [
  "wayland-backend",
  "wayland-client",
  "wayland-sys",
- "web-sys",
+ "web-sys 0.3.67",
  "windows-sys 0.52.0",
  "x11rb 0.13.0",
 ]
@@ -5191,9 +5202,7 @@ checksum = "9c8d87e72b64a3b4db28d11ce29237c246188f4f51057d65a7eab63b7987e423"
 
 [[package]]
 name = "wasm-bindgen"
-version = "0.2.90"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1223296a201415c7fad14792dbefaace9bd52b62d33453ade1c5b5f07555406"
+version = "0.2.91"
 dependencies = [
  "cfg-if",
  "serde",
@@ -5203,9 +5212,7 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-backend"
-version = "0.2.90"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fcdc935b63408d58a32f8cc9738a0bffd8f05cc7c002086c6ef20b7312ad9dcd"
+version = "0.2.91"
 dependencies = [
  "bumpalo",
  "log",
@@ -5218,12 +5225,10 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-cli-support"
-version = "0.2.90"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a875870b7b39024cbca8f61a0e1fc8edfe7ac02b484e5a9bcea64374050a850e"
+version = "0.2.91"
 dependencies = [
  "anyhow",
- "base64 0.9.3",
+ "base64 0.21.7",
  "log",
  "rustc-demangle",
  "serde_json",
@@ -5240,9 +5245,7 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-externref-xform"
-version = "0.2.90"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04c5d468dc79cfd824d181c386f34c2e7ea521ea5855ddd95af8f4cf3fa676f4"
+version = "0.2.91"
 dependencies = [
  "anyhow",
  "walrus",
@@ -5255,16 +5258,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bde2032aeb86bdfaecc8b261eef3cba735cc426c1f3a3416d1e0791be95fc461"
 dependencies = [
  "cfg-if",
- "js-sys",
+ "js-sys 0.3.67",
  "wasm-bindgen",
- "web-sys",
+ "web-sys 0.3.67",
 ]
 
 [[package]]
 name = "wasm-bindgen-macro"
-version = "0.2.90"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e4c238561b2d428924c49815533a8b9121c664599558a5d9ec51f8a1740a999"
+version = "0.2.91"
 dependencies = [
  "quote",
  "wasm-bindgen-macro-support",
@@ -5272,9 +5273,7 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro-support"
-version = "0.2.90"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bae1abb6806dc1ad9e560ed242107c0f6c84335f1749dd4e8ddb012ebd5e25a7"
+version = "0.2.91"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5285,9 +5284,7 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-multi-value-xform"
-version = "0.2.90"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65f10c037dad45759d53b598d4737acdced90a0945023c8c6cd8d67b4b3e4eaf"
+version = "0.2.91"
 dependencies = [
  "anyhow",
  "walrus",
@@ -5295,15 +5292,11 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-shared"
-version = "0.2.90"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d91413b1c31d7539ba5ef2451af3f0b833a005eb27a631cec32bc0635a8602b"
+version = "0.2.91"
 
 [[package]]
 name = "wasm-bindgen-threads-xform"
-version = "0.2.90"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16ddf1a4beb1bceb2b73c2325581901ca2cd92af628f24389a678854dcd65b24"
+version = "0.2.91"
 dependencies = [
  "anyhow",
  "walrus",
@@ -5312,9 +5305,7 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-wasm-conventions"
-version = "0.2.90"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93f13ed8ccdac31eadcfd4c9b2ec7bd43e77454b14acb1f43189f2875a9b0391"
+version = "0.2.91"
 dependencies = [
  "anyhow",
  "walrus",
@@ -5322,9 +5313,7 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-wasm-interpreter"
-version = "0.2.90"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4282a271772a3063d4057c1144e118254f207fbbc1381b8d50b23c25585d893"
+version = "0.2.91"
 dependencies = [
  "anyhow",
  "log",
@@ -5348,12 +5337,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be0ecb0db480561e9a7642b5d3e4187c128914e58aa84330b9493e3eb68c5e7f"
 dependencies = [
  "futures",
- "js-sys",
+ "js-sys 0.3.67",
  "parking_lot 0.11.2",
  "pin-utils",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "web-sys",
+ "web-sys 0.3.67",
 ]
 
 [[package]]
@@ -5364,9 +5353,9 @@ checksum = "a52fc987e67957cab58160d1ea273a2886972ef6f59c7fa0c02e9fe2c8e11706"
 dependencies = [
  "async-channel 1.9.0",
  "futures",
- "js-sys",
+ "js-sys 0.3.67",
  "wasm-bindgen",
- "web-sys",
+ "web-sys 0.3.67",
 ]
 
 [[package]]
@@ -5490,7 +5479,15 @@ version = "0.3.67"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "58cd2333b6e0be7a39605f0e255892fd7418a682d8da8fe042fe25128794d2ed"
 dependencies = [
- "js-sys",
+ "js-sys 0.3.67",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "web-sys"
+version = "0.3.68"
+dependencies = [
+ "js-sys 0.3.68",
  "wasm-bindgen",
 ]
 
@@ -5500,7 +5497,7 @@ version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa30049b1c872b72c89866d458eae9f20380ab280ffd1b1e18df2d3e2d98cfe0"
 dependencies = [
- "js-sys",
+ "js-sys 0.3.67",
  "wasm-bindgen",
 ]
 
@@ -5510,7 +5507,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ee269d72cc29bf77a2c4bc689cc750fb39f5cbd493d2205bbb3f5c7779cf7b0"
 dependencies = [
- "js-sys",
+ "js-sys 0.3.67",
  "wasm-bindgen",
 ]
 
@@ -5529,7 +5526,7 @@ dependencies = [
  "arrayvec",
  "cfg-if",
  "cfg_aliases 0.1.1",
- "js-sys",
+ "js-sys 0.3.67",
  "log",
  "naga",
  "parking_lot 0.12.1",
@@ -5540,7 +5537,7 @@ dependencies = [
  "static_assertions",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "web-sys",
+ "web-sys 0.3.67",
  "wgpu-core",
  "wgpu-hal",
  "wgpu-types",
@@ -5569,7 +5566,7 @@ dependencies = [
  "serde",
  "smallvec",
  "thiserror",
- "web-sys",
+ "web-sys 0.3.67",
  "wgpu-hal",
  "wgpu-types",
 ]
@@ -5595,7 +5592,7 @@ dependencies = [
  "gpu-allocator",
  "gpu-descriptor",
  "hassle-rs",
- "js-sys",
+ "js-sys 0.3.67",
  "khronos-egl",
  "libc",
  "libloading 0.8.1",
@@ -5613,7 +5610,7 @@ dependencies = [
  "smallvec",
  "thiserror",
  "wasm-bindgen",
- "web-sys",
+ "web-sys 0.3.67",
  "wgpu-types",
  "winapi",
 ]
@@ -5626,7 +5623,7 @@ checksum = "9d5026bcb9625f0ad9bc0570811b40b4bc5249548a992feb695542d15faeadac"
 dependencies = [
  "parking_lot 0.12.1",
  "thiserror",
- "web-sys",
+ "web-sys 0.3.67",
  "wgpu",
 ]
 
@@ -5637,9 +5634,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "895fcbeb772bfb049eb80b2d6e47f6c9af235284e9703c96fc0218a42ffd5af2"
 dependencies = [
  "bitflags 2.4.2",
- "js-sys",
+ "js-sys 0.3.67",
  "serde",
- "web-sys",
+ "web-sys 0.3.67",
 ]
 
 [[package]]
@@ -5954,7 +5951,7 @@ dependencies = [
  "core-graphics 0.23.1",
  "cursor-icon",
  "icrate",
- "js-sys",
+ "js-sys 0.3.67",
  "libc",
  "log",
  "memmap2 0.9.4",
@@ -5977,7 +5974,7 @@ dependencies = [
  "wayland-client",
  "wayland-protocols",
  "wayland-protocols-plasma",
- "web-sys",
+ "web-sys 0.3.67",
  "web-time 0.2.4",
  "windows-sys 0.48.0",
  "x11-dl",
@@ -6131,3 +6128,9 @@ dependencies = [
  "quote",
  "syn 2.0.48",
 ]
+
+[[package]]
+name = "zeroize"
+version = "1.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "525b4ec142c6b68a2d10f01f7bbf6755599ca3f81ea53b8431b7dd348f5fdb2d"

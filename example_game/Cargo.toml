@@ -46,6 +46,8 @@ iced_aw = { git = "https://github.com/iced-rs/iced_aw.git", rev = "ed594559ac8f5
   "floating_element",
 ] }
 
+dialoguer = "0.11.0"
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys.workspace = true
 wasm-bindgen.workspace = true

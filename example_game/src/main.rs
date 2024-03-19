@@ -38,7 +38,7 @@ async fn start() {
 
             let inner_size = winit::dpi::PhysicalSize::new(width * 3 / 4, height * 3 / 4);
             let title = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
-            Arc::new(
+            let window = Arc::new(
                 winit::window::WindowBuilder::new()
                     //.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
                     .with_inner_size(inner_size)
@@ -47,7 +47,37 @@ async fn start() {
                     // .with_visible(false)
                     .build(&event_loop)
                     .expect("Failed to create window"),
-            )
+            );
+
+            /*  if let Some(monitor) = window.current_monitor().or(window.primary_monitor()) {
+                let video_modes: Vec<winit::monitor::VideoMode> = monitor.video_modes().collect();
+                let video_mode_labels: Vec<String> = video_modes
+                    .iter()
+                    .map(|video_mode| format!("{:}", video_mode))
+                    .collect();
+
+                if let Some(selected_video_mode_index) = dialoguer::Select::new()
+                    .items(&video_mode_labels)
+                    .default(0)
+                    .interact_opt()
+                    .expect("Dialoguer failed")
+                {
+                    let video_mode = &video_modes[selected_video_mode_index];
+
+                    log::info!(
+                        "Chosen video mode: {}x{} @ {:.4}hz",
+                        video_mode.size().width,
+                        video_mode.size().height,
+                        video_mode.refresh_rate_millihertz() as f32 / 1000.0
+                    );
+
+                    window.set_fullscreen(Some(winit::window::Fullscreen::Exclusive(
+                        video_mode.clone(),
+                    )));
+                }
+            } */
+
+            window
         };
 
         #[cfg(target_arch = "wasm32")]
