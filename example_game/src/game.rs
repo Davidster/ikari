@@ -195,32 +195,34 @@ pub fn get_skybox_path() -> SkyboxPaths {
     }
 }
 
-fn get_misc_gltf_path() -> &'static str {
-    // "/home/david/Downloads/adamHead/adamHead.gltf"
-    // "src/models/gltf/free_low_poly_forest/scene.gltf"
-    // "src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf"
-    // "src/models/gltf/SimpleMeshes/SimpleMeshes.gltf"
-    // "src/models/gltf/Triangle/Triangle.gltf"
-    // "src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf"
-    // "src/models/gltf/EnvironmentTest/EnvironmentTest.gltf"
-    // "src/models/gltf/Arrow/Arrow.gltf"
-    "src/models/gltf/DamagedHelmet/DamagedHelmet.gltf"
-    // "src/models/gltf/VertexColorTest/VertexColorTest.gltf"
-    // "src/models/gltf/Revolver/revolver_low_poly.gltf"
-    // "src/models/gltf/NormalTangentMirrorTest/NormalTangentMirrorTest.gltf"
-    // "src/models/gltf/NormalTangentTest/NormalTangentTest.glb"
-    // "src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb"
-    // "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.gltf"
-    // "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf"
-    // "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf"
-    // "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf"
-    // "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf"
-    // "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf"
-    // "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf"
-    // "/home/david/Programming/glTF-Sample-Models/2.0/Lantern/glTF/Lantern.gltf"
-    // "src/models/gltf/VC/VC.gltf"
-    //  "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf"
-    // "src/models/gltf/Sponza/Sponza.gltf"
+fn get_misc_gltf_paths() -> &'static [&'static str] {
+    &[
+        // "/home/david/Downloads/adamHead/adamHead.gltf",
+        // "src/models/gltf/free_low_poly_forest/scene.gltf",
+        // "src/models/gltf/TextureCoordinateTest/TextureCoordinateTest.gltf",
+        // "src/models/gltf/SimpleMeshes/SimpleMeshes.gltf",
+        // "src/models/gltf/Triangle/Triangle.gltf",
+        // "src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf",
+        // "src/models/gltf/EnvironmentTest/EnvironmentTest.gltf",
+        // "src/models/gltf/Arrow/Arrow.gltf",
+        "src/models/gltf/DamagedHelmet/DamagedHelmet.gltf",
+        // "src/models/gltf/VertexColorTest/VertexColorTest.gltf",
+        // "src/models/gltf/Revolver/revolver_low_poly.gltf",
+        // "src/models/gltf/NormalTangentMirrorTest/NormalTangentMirrorTest.gltf",
+        // "src/models/gltf/NormalTangentTest/NormalTangentTest.glb",
+        // "src/models/gltf/TextureLinearInterpolationTest/TextureLinearInterpolationTest.glb",
+        // "../glTF-Sample-Models/2.0/RiggedFigure/glTF/RiggedFigure.gltf",
+        // "../glTF-Sample-Models/2.0/RiggedSimple/glTF/RiggedSimple.gltf",
+        // "../glTF-Sample-Models/2.0/CesiumMan/glTF/CesiumMan.gltf",
+        // "../glTF-Sample-Models/2.0/Fox/glTF/Fox.gltf",
+        // "../glTF-Sample-Models/2.0/RecursiveSkeletons/glTF/RecursiveSkeletons.gltf",
+        // "../glTF-Sample-Models/2.0/BrainStem/glTF/BrainStem.gltf",
+        // "/home/david/Programming/glTF-Sample-Models/2.0/BoxAnimated/glTF/BoxAnimated.gltf",
+        // "/home/david/Programming/glTF-Sample-Models/2.0/Lantern/glTF/Lantern.gltf",
+        // "src/models/gltf/VC/VC.gltf",
+        //  "../glTF-Sample-Models-master/2.0/InterpolationTest/glTF/InterpolationTest.gltf",
+        // "src/models/gltf/Sponza/Sponza.gltf",
+    ]
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -292,8 +294,8 @@ pub async fn init_game_state(
     renderer.resize_surface(surface_data, unscaled_framebuffer_size);
 
     let asset_loader = engine_state.asset_loader.clone();
-    let asset_id_map = Arc::new(Mutex::new(HashMap::new()));
-    let asset_id_map_clone = asset_id_map.clone();
+    let asset_ids = Arc::new(Mutex::new(AssetIds::default()));
+    let asset_ids_clone = asset_ids.clone();
 
     ikari::thread::spawn(move || {
         #[allow(clippy::vec_init_then_push)]
@@ -301,75 +303,59 @@ pub async fn init_game_state(
             // ikari::thread::sleep_async(ikari::time::Duration::from_secs_f32(5.0)).await;
 
             // load in gltf files
+            let load_gltf = |path| {
+                asset_loader.load_gltf_scene(SceneAssetLoadParams {
+                    path: GAME_PATH_MAKER.make(path),
+                    generate_wireframe_meshes: true,
+                })
+            };
 
-            let mut gltf_paths: Vec<&str> = Vec::new();
+            let mut asset_ids = asset_ids_clone.lock().unwrap();
 
             // player's revolver
             // https://done3d.com/colt-python-8-inch/
-            gltf_paths.push("src/models/gltf/ColtPython/colt_python.glb");
+            asset_ids.gun = load_gltf("src/models/gltf/ColtPython/colt_python.glb").into();
 
             // forest
             // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
-            gltf_paths.push("src/models/gltf/free_low_poly_forest/scene.gltf");
+            asset_ids.forest = load_gltf("src/models/gltf/free_low_poly_forest/scene.gltf").into();
 
             // legendary robot
             // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-            gltf_paths.push("src/models/gltf/LegendaryRobot/Legendary_Robot.gltf");
+            asset_ids.legendary_robot =
+                load_gltf("src/models/gltf/LegendaryRobot/Legendary_Robot.gltf").into();
 
-            // maze
-            gltf_paths.push("src/models/gltf/TestLevel/test_level.gltf");
+            asset_ids.test_level = load_gltf("src/models/gltf/TestLevel/test_level.gltf").into();
 
-            // other
-            gltf_paths.push(get_misc_gltf_path());
-
-            for path in gltf_paths {
-                asset_id_map.lock().unwrap().insert(
-                    path.to_string(),
-                    asset_loader.load_gltf_scene(SceneAssetLoadParams {
-                        path: GAME_PATH_MAKER.make(path),
-                        generate_wireframe_meshes: true,
-                    }),
-                );
+            for path in get_misc_gltf_paths() {
+                asset_ids.anonymous_scenes.push(load_gltf(path));
             }
 
-            let mut audio_load_params: Vec<AudioAssetLoadParams> = Vec::new();
+            asset_ids.gunshot = asset_loader
+                .load_audio(AudioAssetLoadParams {
+                    path: GAME_PATH_MAKER.make("src/sounds/gunshot.wav"),
+                    sound_params: SoundParams {
+                        initial_volume: 0.4,
+                        fixed_volume: true,
+                        spacial_params: None,
+                        stream: false,
+                    },
+                })
+                .into();
 
-            audio_load_params.push(AudioAssetLoadParams {
-                path: GAME_PATH_MAKER.make("src/sounds/bgm.mp3"),
-                sound_params: SoundParams {
-                    initial_volume: 0.3,
-                    fixed_volume: false,
-                    spacial_params: None,
-                    stream: true,
-                },
-            });
+            asset_ids.bgm = asset_loader
+                .load_audio(AudioAssetLoadParams {
+                    path: GAME_PATH_MAKER.make("src/sounds/bgm.mp3"),
+                    sound_params: SoundParams {
+                        initial_volume: 0.3,
+                        fixed_volume: false,
+                        spacial_params: None,
+                        stream: true,
+                    },
+                })
+                .into();
 
-            audio_load_params.push(AudioAssetLoadParams {
-                path: GAME_PATH_MAKER.make("src/sounds/gunshot.wav"),
-                sound_params: SoundParams {
-                    initial_volume: 0.4,
-                    fixed_volume: true,
-                    spacial_params: None,
-                    stream: false,
-                },
-            });
-
-            for audio_load_param in audio_load_params {
-                asset_id_map.lock().unwrap().insert(
-                    audio_load_param
-                        .path
-                        .relative_path
-                        .to_str()
-                        .unwrap()
-                        .to_string(),
-                    asset_loader.load_audio(audio_load_param),
-                );
-            }
-
-            asset_id_map.lock().unwrap().insert(
-                "skybox".to_string(),
-                asset_loader.load_skybox(get_skybox_path()),
-            );
+            asset_ids.skybox = asset_loader.load_skybox(get_skybox_path()).into();
         })
     });
 
@@ -1175,7 +1161,7 @@ pub async fn init_game_state(
         player_controller,
         character: None,
 
-        asset_id_map: asset_id_map_clone,
+        asset_ids,
 
         ui_overlay,
     })
@@ -1378,10 +1364,10 @@ pub fn update_game_state(
     {
         let loaded_skyboxes = engine_state.asset_binder.loaded_skyboxes();
         let mut loaded_skyboxes_guard = loaded_skyboxes.lock().unwrap();
-        let asset_id_map_guard = game_state.asset_id_map.lock().unwrap();
+        let asset_ids_guard = game_state.asset_ids.lock().unwrap();
 
-        if let Some(asset_id) = asset_id_map_guard.get(&"skybox".to_string()) {
-            if let Entry::Occupied(entry) = loaded_skyboxes_guard.entry(*asset_id) {
+        if let Some(asset_id) = asset_ids_guard.skybox {
+            if let Entry::Occupied(entry) = loaded_skyboxes_guard.entry(asset_id) {
                 let (_, skybox) = entry.remove_entry();
                 renderer.set_skybox(SkyboxSlot::Two, skybox);
             }
@@ -1389,21 +1375,17 @@ pub fn update_game_state(
     }
 
     {
-        //TODO: stop using paths as ids?
-
         let loaded_scenes = engine_state.asset_binder.loaded_scenes();
         let mut loaded_assets_guard = loaded_scenes.lock().unwrap();
-        let asset_id_map_guard = game_state.asset_id_map.lock().unwrap();
+        let asset_ids_guard = game_state.asset_ids.lock().unwrap();
         let mut renderer_data_guard = renderer_data.lock().unwrap();
 
         if let (Some(_gunshot_sound_index), Some(camera_node_id)) = (
             game_state.gunshot_sound_index,
             renderer_data_guard.camera_node_id,
         ) {
-            if let Some(asset_id) =
-                asset_id_map_guard.get(&"src/models/gltf/ColtPython/colt_python.glb".to_string())
-            {
-                if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
+            if let Some(asset_id) = asset_ids_guard.gun {
+                if let Entry::Occupied(entry) = loaded_assets_guard.entry(asset_id) {
                     let (_, other_loaded_scene) = entry.remove_entry();
                     engine_state
                         .scene
@@ -1440,10 +1422,8 @@ pub fn update_game_state(
             }
         }
 
-        if let Some(asset_id) =
-            asset_id_map_guard.get(&"src/models/gltf/free_low_poly_forest/scene.gltf".to_string())
-        {
-            if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
+        if let Some(asset_id) = asset_ids_guard.forest {
+            if let Entry::Occupied(entry) = loaded_assets_guard.entry(asset_id) {
                 let (_, mut other_loaded_scene) = entry.remove_entry();
                 // hack to get the terrain to be at the same height as the ground.
                 let node_has_parent: Vec<_> = other_loaded_scene
@@ -1479,10 +1459,8 @@ pub fn update_game_state(
             }
         }
 
-        if let Some(asset_id) = asset_id_map_guard
-            .get(&"src/models/gltf/LegendaryRobot/Legendary_Robot.gltf".to_string())
-        {
-            if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
+        if let Some(asset_id) = asset_ids_guard.legendary_robot {
+            if let Entry::Occupied(entry) = loaded_assets_guard.entry(asset_id) {
                 let (_, mut other_loaded_scene) = entry.remove_entry();
                 if let Some(jump_up_animation) = other_loaded_scene
                     .scene
@@ -1500,10 +1478,8 @@ pub fn update_game_state(
             }
         }
 
-        if let Some(asset_id) =
-            asset_id_map_guard.get(&"src/models/gltf/TestLevel/test_level.gltf".to_string())
-        {
-            if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
+        if let Some(asset_id) = asset_ids_guard.test_level {
+            if let Entry::Occupied(entry) = loaded_assets_guard.entry(asset_id) {
                 let (_, other_loaded_scene) = entry.remove_entry();
                 let skip_nodes = engine_state.scene.node_count();
                 engine_state
@@ -1539,8 +1515,8 @@ pub fn update_game_state(
             }
         }
 
-        if let Some(asset_id) = asset_id_map_guard.get(&get_misc_gltf_path().to_string()) {
-            if let Entry::Occupied(entry) = loaded_assets_guard.entry(*asset_id) {
+        for asset_id in asset_ids_guard.anonymous_scenes.iter().copied() {
+            if let Entry::Occupied(entry) = loaded_assets_guard.entry(asset_id) {
                 let (_, mut other_loaded_scene) = entry.remove_entry();
                 for animation in other_loaded_scene.scene.animations.iter_mut() {
                     animation.state.is_playing = true;
@@ -1555,10 +1531,10 @@ pub fn update_game_state(
 
     {
         let mut loaded_audio_guard = engine_state.asset_loader.loaded_audio.lock().unwrap();
-        let asset_id_map_guard = game_state.asset_id_map.lock().unwrap();
+        let asset_ids_guard = game_state.asset_ids.lock().unwrap();
 
-        if let Some(asset_id) = asset_id_map_guard.get(&"src/sounds/bgm.mp3".to_string()) {
-            if let Entry::Occupied(entry) = loaded_audio_guard.entry(*asset_id) {
+        if let Some(asset_id) = asset_ids_guard.bgm {
+            if let Entry::Occupied(entry) = loaded_audio_guard.entry(asset_id) {
                 let (_, bgm_sound_index) = entry.remove_entry();
                 game_state.bgm_sound_index = Some(bgm_sound_index);
 
@@ -1573,8 +1549,8 @@ pub fn update_game_state(
                 });
             }
         }
-        if let Some(asset_id) = asset_id_map_guard.get(&"src/sounds/gunshot.wav".to_string()) {
-            if let Entry::Occupied(entry) = loaded_audio_guard.entry(*asset_id) {
+        if let Some(asset_id) = asset_ids_guard.gunshot {
+            if let Entry::Occupied(entry) = loaded_audio_guard.entry(asset_id) {
                 let (_, gunshot_sound_index) = entry.remove_entry();
                 game_state.gunshot_sound_index = Some(gunshot_sound_index);
                 // audio_manager_guard.set_sound_volume(gunshot_sound_index, 0.001);

@@ -44,7 +44,21 @@ pub struct GameState {
 
     pub ui_overlay: IkariUiContainer<UiOverlay>,
 
-    pub asset_id_map: Arc<Mutex<HashMap<String, AssetId>>>,
+    pub asset_ids: Arc<Mutex<AssetIds>>,
+}
+
+#[derive(Default)]
+pub struct AssetIds {
+    pub gun: Option<AssetId>,
+    pub forest: Option<AssetId>,
+    pub legendary_robot: Option<AssetId>,
+    pub test_level: Option<AssetId>,
+    pub anonymous_scenes: Vec<AssetId>,
+
+    pub gunshot: Option<AssetId>,
+    pub bgm: Option<AssetId>,
+
+    pub skybox: Option<AssetId>,
 }
 
 impl ikari::gameloop::GameState<UiOverlay> for GameState {
