@@ -99,17 +99,26 @@ Based on instructions from here: https://github.com/wolfpld/tracy/issues/484
 - Install glfw, freetype2
   - (e.g. aur packages `glfw-x11`, `freetype2`). maybe different on Ubuntu
 - Install libcapstone
-  - Clone https://github.com/libcapstone/libcapstone
-  - cd libcapstone
-  - PATH=/usr/local/bin:/usr/bin:/bin CC=clang CXX=clang++ make -j12
-  - sudo make install
+
+```sh
+git clone git@github.com:libcapstone/libcapstone.git
+cd libcapstone
+PATH=/usr/local/bin:/usr/bin:/bin CC=clang CXX=clang++ make -j12
+sudo make install
+```
 - Install tracy 0.10
-  - Clone https://github.com/wolfpld/tracy
-  - cd tracy/profiler/build/unix
-  - git checkout v0.10
-  - PATH=/usr/local/bin:/usr/bin:/bin CC=clang CXX=clang++ make -j12
+
+```sh
+git clone git@github.com:wolfpld/tracy.git
+cd tracy/profiler/build/unix
+git checkout v0.10
+PATH=/usr/local/bin:/usr/bin:/bin CC=clang CXX=clang++ make -j12
+```
 - Run tracy
-  - ./Tracy_release
+
+```sh
+./Tracy_release
+```
 - I made a desktop entry to make it easier to start from the system menus:
   - Not sure if it works in other distros, tested on Arch/KDE
   - Create file ~/.local/share/applications/tracy.desktop with contents:
