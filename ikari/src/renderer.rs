@@ -587,9 +587,18 @@ impl BaseRenderer {
             .request_adapter(&request_adapter_options)
             .await
             .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Failed to find a wgpu adapter with options: {request_adapter_options:?}"
-                )
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    anyhow::anyhow!(
+                        "Failed to find a wgpu adapter with options: {request_adapter_options:?}"
+                    )
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    anyhow::anyhow!(
+                        "Failed to request a WebGPU adapter. Is WebGPU supported by your browser?"
+                    )
+                }
             })?;
 
         let mut optional_features = wgpu::Features::empty();
