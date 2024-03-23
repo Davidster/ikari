@@ -18,7 +18,7 @@ pub struct FileManager;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
-    use std::path::PathBuf;
+    use std::{io::Read, path::PathBuf};
 
     use super::{FileManager, GameFilePath, GamePathMaker};
 
@@ -54,6 +54,13 @@ mod native {
         pub async fn read(path: &GameFilePath) -> anyhow::Result<Vec<u8>> {
             let path = path.resolve();
             std::fs::read(&path).map_err(|err| anyhow::anyhow!("{err} ({})", path.display()))
+        }
+
+        pub async fn read_to_end(path: &GameFilePath, buf: &mut Vec<u8>) -> anyhow::Result<usize> {
+            let path = path.resolve();
+            std::fs::File::open(&path)?
+                .read_to_end(buf)
+                .map_err(|err| anyhow::anyhow!("{err} ({})", path.display()))
         }
 
         pub async fn read_to_string(path: &GameFilePath) -> anyhow::Result<String> {
@@ -118,8 +125,6 @@ mod web {
     }
 
     impl FileManager {
-        // TODO: implement read_to_end (https://doc.rust-lang.org/stable/std/io/trait.Read.html#method.read_to_end)
-        //       on both native and web
         pub async fn read(path: &GameFilePath) -> anyhow::Result<Vec<u8>> {
             let url = path.resolve();
             let mut result = vec![];
@@ -129,6 +134,16 @@ mod web {
             )
             .await?;
             Ok(result)
+        }
+
+        pub async fn read_to_end(path: &GameFilePath, buf: &mut Vec<u8>) -> anyhow::Result<usize> {
+            let url = path.resolve();
+            let byte_count = Self::read_whole_request_body(
+                gloo_net::http::RequestBuilder::new(&url).method(gloo_net::http::Method::GET),
+                buf,
+            )
+            .await?;
+            Ok(byte_count.try_into()?)
         }
 
         async fn read_whole_request_body(

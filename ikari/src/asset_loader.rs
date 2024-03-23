@@ -489,29 +489,25 @@ impl Default for AssetBinder {
 async fn load_skybox_image_raw_compressed(
     face_image_paths: &[GameFilePath; 6],
 ) -> Result<BindableSkyboxBackground> {
+    let mut buffer = vec![];
+    FileManager::read_to_end(
+        &crate::texture_compression::texture_path_to_compressed_path(&face_image_paths[0]),
+        &mut buffer,
+    )
+    .await?;
     let mut joiner = RawImageDepthJoiner::with_capacity(
-        TextureCompressor.transcode_image(
-            &FileManager::read(
-                &crate::texture_compression::texture_path_to_compressed_path(&face_image_paths[0]),
-            )
-            .await?,
-            true,
-            false,
-        )?,
+        TextureCompressor.transcode_image(&buffer, true, false)?,
         6,
     );
 
     for face_image_path in &face_image_paths[1..] {
-        joiner.append_image(
-            TextureCompressor.transcode_image(
-                &FileManager::read(
-                    &crate::texture_compression::texture_path_to_compressed_path(face_image_path),
-                )
-                .await?,
-                true,
-                false,
-            )?,
-        );
+        buffer.clear();
+        FileManager::read_to_end(
+            &crate::texture_compression::texture_path_to_compressed_path(&face_image_path),
+            &mut buffer,
+        )
+        .await?;
+        joiner.append_image(TextureCompressor.transcode_image(&buffer, true, false)?);
     }
 
     Ok(BindableSkyboxBackground::Cube(joiner.complete()))
@@ -520,17 +516,18 @@ async fn load_skybox_image_raw_compressed(
 async fn load_skybox_image_raw(
     face_image_paths: &[GameFilePath; 6],
 ) -> Result<BindableSkyboxBackground> {
+    let mut buffer = vec![];
+    FileManager::read_to_end(&face_image_paths[0], &mut buffer).await?;
     let mut joiner = RawImageDepthJoiner::with_capacity(
-        RawImage::from_dynamic_image(
-            image::load_from_memory(&FileManager::read(&face_image_paths[0]).await?)?,
-            true,
-        ),
+        RawImage::from_dynamic_image(image::load_from_memory(&buffer)?, true),
         6,
     );
 
     for face_image_path in &face_image_paths[1..] {
+        buffer.clear();
+        FileManager::read_to_end(&face_image_path, &mut buffer).await?;
         joiner.append_image(RawImage::from_dynamic_image(
-            image::load_from_memory(&FileManager::read(face_image_path).await?)?,
+            image::load_from_memory(&buffer)?,
             true,
         ));
     }
@@ -547,17 +544,18 @@ pub async fn make_bindable_skybox(paths: &SkyboxPaths) -> Result<BindableSkybox>
             ))
         }
         SkyboxBackgroundPath::Cube(face_image_paths) => {
+            let mut buffer = vec![];
+            FileManager::read_to_end(&face_image_paths[0], &mut buffer).await?;
             let mut joiner = RawImageDepthJoiner::with_capacity(
-                RawImage::from_dynamic_image(
-                    image::load_from_memory(&FileManager::read(&face_image_paths[0]).await?)?,
-                    true,
-                ),
+                RawImage::from_dynamic_image(image::load_from_memory(&buffer)?, true),
                 6,
             );
 
             for face_image_path in &face_image_paths[1..] {
+                buffer.clear();
+                FileManager::read_to_end(&face_image_path, &mut buffer).await?;
                 joiner.append_image(RawImage::from_dynamic_image(
-                    image::load_from_memory(&FileManager::read(face_image_path).await?)?,
+                    image::load_from_memory(&buffer)?,
                     true,
                 ));
             }
@@ -609,13 +607,20 @@ pub async fn make_bindable_skybox(paths: &SkyboxPaths) -> Result<BindableSkybox>
                     bytes: bytemuck::cast_slice(&skybox_rad_texture_decoded).to_vec(),
                 }));
         }
-        Some(SkyboxEnvironmentHDRPath::ProcessedCube { diffuse, specular }) => {
-            bindable_environment_hdr = Some(BindableSkyboxHDREnvironment::Cube {
-                diffuse: TextureCompressor
-                    .transcode_float_image(&FileManager::read(diffuse).await?)?,
-                specular: TextureCompressor
-                    .transcode_float_image(&FileManager::read(specular).await?)?,
-            });
+        Some(SkyboxEnvironmentHDRPath::ProcessedCube {
+            diffuse: diffuse_path,
+            specular: specular_path,
+        }) => {
+            let mut buffer = vec![];
+            FileManager::read_to_end(diffuse_path, &mut buffer).await?;
+            let diffuse = TextureCompressor.transcode_float_image(&buffer)?;
+
+            buffer.clear();
+            FileManager::read_to_end(specular_path, &mut buffer).await?;
+            let specular = TextureCompressor.transcode_float_image(&buffer)?;
+
+            bindable_environment_hdr =
+                Some(BindableSkyboxHDREnvironment::Cube { diffuse, specular });
         }
         None => {}
     };

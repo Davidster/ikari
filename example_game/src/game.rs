@@ -495,7 +495,6 @@ pub async fn init_game_state(
         )?,
         false,
     );
-    FileManager::read(&GAME_PATH_MAKER.make(brick_normal_map_path)).await?;
     let brick_normal_map = Texture::from_raw_image(
         &renderer.base,
         &brick_normal_map_raw,
