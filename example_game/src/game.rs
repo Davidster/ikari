@@ -4,12 +4,12 @@ use crate::game_state::*;
 use crate::physics_ball::*;
 use crate::revolver::*;
 use crate::ui_overlay::AudioSoundStats;
+use crate::ui_overlay::FrameStats;
 use crate::ui_overlay::Message;
 use crate::ui_overlay::UiOverlay;
 use crate::ui_overlay::DEFAULT_FONT_BYTES;
 use crate::ui_overlay::DEFAULT_FONT_NAME;
 use crate::ui_overlay::KOOKY_FONT_BYTES;
-
 
 use std::sync::Mutex;
 use std::{collections::hash_map::Entry, sync::Arc};
@@ -1936,11 +1936,12 @@ pub fn update_game_state(
         if let Some((instants, durations)) = engine_state.time().last_frame_times() {
             game_state
                 .ui_overlay
-                .queue_message(Message::FrameCompleted((
+                .queue_message(Message::FrameCompleted(FrameStats {
                     instants,
                     durations,
-                    renderer.process_profiler_frame().unwrap_or_default(),
-                )));
+                    gpu_timer_query_results: renderer.process_profiler_frame().unwrap_or_default(),
+                    culling_stats: renderer_data_guard.last_frame_culling_stats.clone(),
+                }));
         }
 
         {
@@ -1993,6 +1994,7 @@ pub fn update_game_state(
         renderer_data_guard.new_bloom_radius = ui_state.new_bloom_radius;
         renderer_data_guard.new_bloom_intensity = ui_state.new_bloom_intensity;
         renderer_data_guard.enable_depth_prepass = ui_state.enable_depth_prepass;
+        renderer_data_guard.record_culling_stats = ui_state.is_recording_culling_stats;
         renderer_data_guard.enable_directional_shadow_culling =
             ui_state.enable_directional_shadow_culling;
         renderer_data_guard.enable_soft_shadows = ui_state.enable_soft_shadows;

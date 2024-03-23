@@ -1,3 +1,4 @@
+// TODO: stop using * imports.
 use crate::buffer::*;
 use crate::camera::*;
 use crate::collisions::*;
@@ -12,6 +13,7 @@ use crate::sampler_cache::*;
 use crate::scene::*;
 use crate::skinning::*;
 use crate::texture::*;
+use crate::time::Duration;
 use crate::transform::*;
 use crate::ui::*;
 use crate::wasm_not_sync::WasmNotArc;
@@ -498,6 +500,18 @@ pub struct DirectionalLight {
     pub shadow_mapping_config: DirectionalLightShadowMappingConfig,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct CullingStats {
+    pub time_to_cull: Duration,
+    pub total_count: u64,
+    pub completely_culled_count: u64,
+    pub main_camera_culled_count: u64,
+    // one per cascade per light
+    pub directional_lights_culled_counts: Vec<Vec<u64>>,
+    // one per frustum per light
+    pub point_light_culled_counts: Vec<Vec<u64>>,
+}
+
 pub struct BaseRenderer {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
@@ -919,6 +933,8 @@ pub struct RendererData {
     pub enable_cascade_debug: bool,
     pub soft_shadow_grid_dims: u32,
     pub camera_node_id: Option<GameNodeId>,
+    pub record_culling_stats: bool,
+    pub last_frame_culling_stats: Option<CullingStats>,
 }
 
 pub struct RendererConstantData {
@@ -2850,6 +2866,8 @@ impl Renderer {
             enable_cascade_debug,
             soft_shadow_grid_dims,
             camera_node_id: None,
+            record_culling_stats: false,
+            last_frame_culling_stats: None,
         };
 
         constant_data.cube_mesh_index = Self::bind_basic_mesh(&base, &mut data, &cube_mesh, true);
@@ -5855,7 +5873,7 @@ impl Renderer {
     #[allow(clippy::too_many_arguments)]
     pub fn prepare_and_cull_instances(
         engine_state: &EngineState,
-        data: &RendererData,
+        data: &mut RendererData,
         private_data: &mut RendererPrivateData,
         culling_frustum: &Frustum,
         point_lights_frusta: &PointLightFrustaWithCullingInfo,
@@ -5865,10 +5883,8 @@ impl Renderer {
         transparent_meshes: &mut Vec<(usize, GpuTransparentMeshInstance, f32)>,
         camera_position: Vec3,
     ) {
+        let mut stats = CullingStats::default();
         let start = crate::time::Instant::now();
-
-        let mut total_object_count = 0;
-        let mut completely_culled_object_count: usize = 0;
 
         let directional_light_camera_count: usize = engine_state
             .scene
@@ -5880,7 +5896,7 @@ impl Renderer {
         let camera_count = 1 + directional_light_camera_count + point_light_camera_count;
 
         let mut tmp_node_culling_mask = BitVec::repeat(false, camera_count);
-        let mut culled_object_counts: Vec<usize> = vec![0; camera_count];
+        let mut culled_object_counts_per_camera: Vec<u64> = vec![0; camera_count];
 
         for node in engine_state.scene.nodes() {
             let transform = Mat4::from(
@@ -5911,7 +5927,7 @@ impl Renderer {
                         false,
                         false,
                     ) => {
-                        total_object_count += 1;
+                        stats.total_count += 1;
 
                         Self::get_node_culling_mask(
                             node,
@@ -5932,17 +5948,17 @@ impl Renderer {
                             }
                         }
 
-                        if log::log_enabled!(log::Level::Debug) {
+                        if data.record_culling_stats {
                             for (camera_index, element) in
                                 tmp_node_culling_mask.iter().by_vals().enumerate()
                             {
                                 if element {
-                                    culled_object_counts[camera_index] += 1;
+                                    culled_object_counts_per_camera[camera_index] += 1;
                                 }
                             }
 
                             if completely_culled {
-                                completely_culled_object_count += 1;
+                                stats.completely_culled_count += 1;
                             }
                         }
 
@@ -6103,60 +6119,40 @@ impl Renderer {
             }
         }
 
-        // TODO: move to UI?
+        if data.record_culling_stats {
+            stats.time_to_cull = start.elapsed();
 
-        log::debug!("Culling time: {:?}", start.elapsed());
+            stats.main_camera_culled_count = culled_object_counts_per_camera[0];
 
-        log::debug!("Culling stats:");
-        log::debug!("  Total renderable objects: {}", total_object_count);
-        log::debug!(
-            "  Completely culled: {} ({:.2}%)",
-            completely_culled_object_count,
-            100.0 * completely_culled_object_count as f32 / total_object_count as f32
-        );
-        log::debug!(
-            "  Main camera: {} ({:.2}%)",
-            culled_object_counts[0],
-            100.0 * culled_object_counts[0] as f32 / total_object_count as f32
-        );
+            let mut directional_light_index_acc = 1;
 
-        let mut directional_light_index_acc = 1;
+            for (light_index, cascades) in resolved_directional_light_cascades.iter().enumerate() {
+                let mut cascade_counts = Vec::with_capacity(cascades.len());
 
-        for (light_index, cascades) in resolved_directional_light_cascades.iter().enumerate() {
-            log::debug!("  Directional light: {}", light_index);
+                for cascade_index in 0..cascades.len() {
+                    let cull_index = 1 + light_index + cascade_index;
+                    cascade_counts.push(culled_object_counts_per_camera[cull_index]);
 
-            for cascade_index in 0..cascades.len() {
-                let cull_index = 1 + light_index + cascade_index;
-                directional_light_index_acc += 1;
-                log::debug!(
-                    "    Cascade {}: {} ({:.2}%)",
-                    cascade_index,
-                    culled_object_counts[cull_index],
-                    100.0 * culled_object_counts[cull_index] as f32 / total_object_count as f32
-                );
+                    directional_light_index_acc += 1;
+                }
+                stats.directional_lights_culled_counts.push(cascade_counts);
             }
-        }
 
-        for (light_index, frusta) in point_lights_frusta.iter().enumerate() {
-            log::debug!("  Point light: {}", light_index);
-
-            match &frusta {
-                Some(frusta) => {
+            for frusta in point_lights_frusta.iter() {
+                let mut frusta_counts = vec![];
+                if let Some(frusta) = &frusta {
                     for frustum_index in 0..frusta.0.len() {
                         let cull_index = directional_light_index_acc + frustum_index;
-                        log::debug!(
-                            "    Frustum {}: {} ({:.2}%)",
-                            frustum_index,
-                            culled_object_counts[cull_index],
-                            100.0 * culled_object_counts[cull_index] as f32
-                                / total_object_count as f32
-                        );
+                        frusta_counts.push(culled_object_counts_per_camera[cull_index]);
                     }
                 }
-                None => {
-                    log::debug!("    N/A");
-                }
+
+                stats.point_light_culled_counts.push(frusta_counts);
             }
+
+            data.last_frame_culling_stats = Some(stats);
+        } else {
+            data.last_frame_culling_stats = None;
         }
     }
 }

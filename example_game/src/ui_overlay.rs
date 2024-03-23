@@ -23,6 +23,7 @@ use ikari::profile_dump::generate_profile_dump;
 use ikari::profile_dump::PendingPerfDump;
 use ikari::renderer::BloomType;
 use ikari::renderer::CullingFrustumLockMode;
+use ikari::renderer::CullingStats;
 use ikari::renderer::MIN_SHADOW_MAP_BIAS;
 use ikari::time::Instant;
 use ikari::time_tracker::FrameDurations;
@@ -76,16 +77,18 @@ pub struct AudioSoundStats {
 }
 
 #[derive(Debug, Clone)]
+pub struct FrameStats {
+    pub instants: FrameInstants,
+    pub durations: FrameDurations,
+    pub gpu_timer_query_results: Vec<wgpu_profiler::GpuTimerQueryResult>,
+    pub culling_stats: Option<CullingStats>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Message {
     ViewportDimsChanged((u32, u32)),
     CursorPosChanged(winit::dpi::PhysicalPosition<f64>),
-    FrameCompleted(
-        (
-            FrameInstants,
-            FrameDurations,
-            Vec<wgpu_profiler::GpuTimerQueryResult>,
-        ),
-    ),
+    FrameCompleted(FrameStats),
     CameraPoseChanged((Vec3, ControlledViewDirection)),
     AudioSoundStatsChanged((GameFilePath, AudioSoundStats)),
     #[allow(dead_code)]
@@ -106,6 +109,7 @@ pub enum Message {
     ToggleShadowDebug(bool),
     ToggleCascadeDebug(bool),
     ToggleAudioStats(bool),
+    ToggleCullingStats(bool),
     ShadowBiasChanged(f32),
     SkyboxWeightChanged(f32),
     SoftShadowFactorChanged(f32),
@@ -151,6 +155,8 @@ pub struct UiOverlay {
     pub soft_shadow_grid_dims: u32,
     pub is_showing_camera_pose: bool,
     pub is_showing_cursor_marker: bool,
+    pub is_recording_culling_stats: bool,
+    pub culling_stats: Option<CullingStats>,
 
     pub pending_perf_dump: Option<PendingPerfDump>,
     perf_dump_completion_time: Option<Instant>,
@@ -444,6 +450,8 @@ impl UiOverlay {
             is_showing_options_menu: false,
             was_exit_button_pressed: false,
             is_showing_audio_stats: false,
+            is_recording_culling_stats: false,
+            culling_stats: None,
             enable_vsync: INITIAL_ENABLE_VSYNC,
             bloom_type: INITIAL_BLOOM_TYPE,
             new_bloom_radius: INITIAL_NEW_BLOOM_RADIUS,
@@ -529,9 +537,13 @@ impl runtime::Program for UiOverlay {
             Message::CursorPosChanged(new_state) => {
                 self.cursor_position = new_state;
             }
-            Message::FrameCompleted((instants, durations, gpu_timer_query_results)) => {
-                self.fps_chart
-                    .on_frame_completed(instants, durations, gpu_timer_query_results);
+            Message::FrameCompleted(frame_stats) => {
+                self.fps_chart.on_frame_completed(
+                    frame_stats.instants,
+                    frame_stats.durations,
+                    frame_stats.gpu_timer_query_results,
+                );
+                self.culling_stats = frame_stats.culling_stats;
                 self.poll_perf_dump_state();
             }
             Message::AudioSoundStatsChanged((track_path, stats)) => {
@@ -596,6 +608,9 @@ impl runtime::Program for UiOverlay {
             }
             Message::ToggleAudioStats(new_state) => {
                 self.is_showing_audio_stats = new_state;
+            }
+            Message::ToggleCullingStats(new_state) => {
+                self.is_recording_culling_stats = new_state;
             }
             Message::SkyboxWeightChanged(new_state) => {
                 self.skybox_weight = new_state;
@@ -728,6 +743,68 @@ impl runtime::Program for UiOverlay {
             }
         }
 
+        if let Some(culling_stats) = &self.culling_stats {
+            let text_size = 14;
+            rows = rows.push(text("Culling stats:").size(text_size));
+
+            let total_count = culling_stats.total_count;
+
+            rows = rows.push(text(&format!("  Total objects: {}", total_count)).size(text_size));
+            rows = rows.push(
+                text(&format!(
+                    "  Completely culled: {} ({:.2}%)",
+                    culling_stats.completely_culled_count,
+                    100.0 * culling_stats.completely_culled_count as f32 / total_count as f32
+                ))
+                .size(text_size),
+            );
+            rows = rows.push(
+                text(&format!(
+                    "  Main camera: {} ({:.2}%)",
+                    culling_stats.main_camera_culled_count,
+                    100.0 * culling_stats.main_camera_culled_count as f32 / total_count as f32
+                ))
+                .size(text_size),
+            );
+
+            for (light_index, cascades) in culling_stats
+                .directional_lights_culled_counts
+                .iter()
+                .enumerate()
+            {
+                rows = rows
+                    .push(text(&format!("  Directional light: {}", light_index)).size(text_size));
+
+                for (cascade_index, cascade_count) in cascades.iter().enumerate() {
+                    rows = rows.push(
+                        text(&format!(
+                            "    Cascade {}: {} ({:.2}%)",
+                            cascade_index,
+                            cascade_count,
+                            100.0 * (*cascade_count as f32) / total_count as f32
+                        ))
+                        .size(text_size),
+                    );
+                }
+            }
+            for (light_index, frusta) in culling_stats.point_light_culled_counts.iter().enumerate()
+            {
+                rows = rows.push(text(&format!("  Point light: {}", light_index)).size(text_size));
+
+                for (frustum_index, frustum_count) in frusta.iter().enumerate() {
+                    rows = rows.push(
+                        text(&format!(
+                            "    Frustum {}: {} ({:.2}%)",
+                            frustum_index,
+                            frustum_count,
+                            100.0 * (*frustum_count as f32) / total_count as f32
+                        ))
+                        .size(text_size),
+                    );
+                }
+            }
+        }
+
         if self.is_showing_gpu_spans {
             let mut avg_span_times_vec: Vec<_> =
                 self.fps_chart.avg_gpu_frame_time_per_span.iter().collect();
@@ -852,6 +929,12 @@ impl runtime::Program for UiOverlay {
             options = options.push(
                 checkbox("Show Audio Stats", self.is_showing_audio_stats)
                     .on_toggle(Message::ToggleAudioStats),
+            );
+
+            // culling stats debug
+            options = options.push(
+                checkbox("Show Culling Stats", self.is_recording_culling_stats)
+                    .on_toggle(Message::ToggleCullingStats),
             );
 
             // fps overlay
