@@ -503,7 +503,7 @@ async fn load_skybox_image_raw_compressed(
     for face_image_path in &face_image_paths[1..] {
         buffer.clear();
         FileManager::read_to_end(
-            &crate::texture_compression::texture_path_to_compressed_path(&face_image_path),
+            &crate::texture_compression::texture_path_to_compressed_path(face_image_path),
             &mut buffer,
         )
         .await?;
@@ -525,7 +525,7 @@ async fn load_skybox_image_raw(
 
     for face_image_path in &face_image_paths[1..] {
         buffer.clear();
-        FileManager::read_to_end(&face_image_path, &mut buffer).await?;
+        FileManager::read_to_end(face_image_path, &mut buffer).await?;
         joiner.append_image(RawImage::from_dynamic_image(
             image::load_from_memory(&buffer)?,
             true,
@@ -553,7 +553,7 @@ pub async fn make_bindable_skybox(paths: &SkyboxPaths) -> Result<BindableSkybox>
 
             for face_image_path in &face_image_paths[1..] {
                 buffer.clear();
-                FileManager::read_to_end(&face_image_path, &mut buffer).await?;
+                FileManager::read_to_end(face_image_path, &mut buffer).await?;
                 joiner.append_image(RawImage::from_dynamic_image(
                     image::load_from_memory(&buffer)?,
                     true,
