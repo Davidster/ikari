@@ -1,8 +1,9 @@
-use crate::ball::*;
-use crate::character::*;
-use crate::game_state::*;
-use crate::physics_ball::*;
-use crate::revolver::*;
+use crate::ball::BallComponent;
+use crate::character::Character;
+use crate::game_state::AssetIds;
+use crate::game_state::GameState;
+use crate::physics_ball::PhysicsBall;
+use crate::revolver::Revolver;
 use crate::ui_overlay::AudioSoundStats;
 use crate::ui_overlay::FrameStats;
 use crate::ui_overlay::Message;

@@ -1,4 +1,4 @@
-use crate::game::*;
+use crate::game::ARENA_SIDE_LENGTH;
 
 use glam::{
     f32::{Vec2, Vec3},
