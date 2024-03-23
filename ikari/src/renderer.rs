@@ -34,8 +34,8 @@ use anyhow::Result;
 use glam::f32::{Mat4, Vec3};
 use glam::Vec4;
 
-use rapier3d_f64::na::Vector3;
-use rapier3d_f64::parry::query::PointQuery;
+use crate::physics::rapier3d_f64::na::Vector3;
+use crate::physics::rapier3d_f64::parry::query::PointQuery;
 use serde::Deserialize;
 use serde::Serialize;
 use smallvec::{smallvec, SmallVec};

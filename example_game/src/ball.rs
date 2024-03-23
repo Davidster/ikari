@@ -4,7 +4,7 @@ use glam::{
     f32::{Vec2, Vec3},
     Quat,
 };
-use ikari::math::{lerp, lerp_vec};
+use ikari::math::lerp;
 
 #[derive(Clone, Debug)]
 pub struct BallComponent {
@@ -92,16 +92,12 @@ impl BallComponent {
 
     pub fn lerp(&self, other: &Self, alpha: f32) -> Self {
         let transform = ikari::transform::TransformBuilder::new()
-            .position(lerp_vec(
-                self.transform.position(),
-                other.transform.position(),
-                alpha,
-            ))
-            .scale(lerp_vec(
-                self.transform.scale(),
-                other.transform.scale(),
-                alpha,
-            ))
+            .position(
+                self.transform
+                    .position()
+                    .lerp(other.transform.position(), alpha),
+            )
+            .scale(self.transform.scale().lerp(other.transform.scale(), alpha))
             .rotation(
                 self.transform
                     .rotation()
@@ -111,7 +107,7 @@ impl BallComponent {
 
         BallComponent {
             transform,
-            direction: lerp_vec(self.direction, other.direction, alpha),
+            direction: self.direction.lerp(other.direction, alpha),
             speed: lerp(self.speed, other.speed, alpha),
             radius: lerp(self.radius, other.radius, alpha),
         }

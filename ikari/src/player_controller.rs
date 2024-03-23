@@ -1,10 +1,9 @@
-use crate::collisions::*;
-use crate::physics::*;
-use crate::renderer::*;
-use crate::time::*;
-use crate::transform::*;
-
-use rapier3d_f64::prelude::*;
+use crate::collisions::CameraFrustumDescriptor;
+use crate::physics::rapier3d_f64::prelude::*;
+use crate::physics::PhysicsState;
+use crate::renderer::{FAR_PLANE_DISTANCE, FOV_Y, NEAR_PLANE_DISTANCE};
+use crate::time::Instant;
+use crate::transform::TransformBuilder;
 
 use glam::f32::{Quat, Vec3};
 use glam::EulerRot;
@@ -217,7 +216,7 @@ impl PlayerController {
             WindowEvent::Focused(focused) => {
                 #[cfg(not(target_arch = "wasm32"))]
                 if *focused {
-                    crate::thread::sleep(std::time::Duration::from_millis(100));
+                    crate::thread::sleep(crate::time::Duration::from_millis(100));
                 }
 
                 self.window_focused = *focused;

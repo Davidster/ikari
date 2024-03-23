@@ -1,4 +1,4 @@
-use crate::time::*;
+use crate::time::Duration;
 
 #[cfg(target_arch = "wasm32")]
 pub fn spawn<F, T>(f: F)

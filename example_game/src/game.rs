@@ -26,7 +26,6 @@ use ikari::audio::SoundParams;
 use ikari::engine_state::EngineState;
 use ikari::file_manager::{FileManager, GamePathMaker};
 use ikari::gameloop::GameContext;
-use ikari::math::lerp_vec;
 use ikari::mesh::BasicMesh;
 use ikari::mesh::DynamicPbrParams;
 use ikari::mesh::PbrTextures;
@@ -1669,7 +1668,7 @@ pub fn update_game_state(
             t
         };
 
-        point_light_0.color = lerp_vec(POINT_LIGHT_COLOR, POINT_LIGHT_COLOR_B, (2.0 * t).sin());
+        point_light_0.color = POINT_LIGHT_COLOR.lerp(POINT_LIGHT_COLOR_B, (2.0 * t).sin());
 
         let node_id = point_light_0.node_id;
         if let Some(node) = engine_state.scene.get_node_mut(node_id) {
