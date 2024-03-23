@@ -1,11 +1,15 @@
-use crate::collisions::*;
-use crate::math::*;
-use crate::player_controller::*;
-use crate::transform::*;
-
 use glam::{
     f32::{Mat4, Quat, Vec3},
     EulerRot,
+};
+
+use crate::{
+    collisions::CameraFrustumDescriptor,
+    player_controller::ControlledViewDirection,
+    transform::{
+        clear_translation_from_matrix, get_translation_from_matrix, make_orthographic_proj_matrix,
+        make_perspective_proj_matrix, TransformBuilder,
+    },
 };
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -162,8 +166,8 @@ pub fn build_cubemap_face_camera_view_directions() -> impl Iterator<Item = Contr
     .into_iter()
     .map(
         move |(horizontal_rotation, vertical_rotation): (f32, f32)| ControlledViewDirection {
-            horizontal: deg_to_rad(horizontal_rotation),
-            vertical: deg_to_rad(vertical_rotation),
+            horizontal: horizontal_rotation.to_radians(),
+            vertical: vertical_rotation.to_radians(),
         },
     )
 }
@@ -187,7 +191,7 @@ pub fn build_cubemap_face_camera_views(
                 1.0,
                 near_plane_distance,
                 far_plane_distance,
-                deg_to_rad(90.0),
+                90.0_f32.to_radians(),
                 reverse_z,
             )
         })
@@ -208,7 +212,7 @@ pub fn build_cubemap_face_frusta(
                 aspect_ratio: 1.0,
                 near_plane_distance,
                 far_plane_distance,
-                fov_y_rad: deg_to_rad(90.0),
+                fov_y_rad: 90.0_f32.to_radians(),
             }
         })
         .collect()

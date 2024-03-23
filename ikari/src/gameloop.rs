@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use crate::engine_state::EngineState;
-use crate::renderer::*;
-use crate::time::*;
+use crate::renderer::{Renderer, SurfaceData};
+use crate::time::Instant;
 use crate::ui::IkariUiContainer;
 use crate::web_canvas_manager::WebCanvasManager;
 

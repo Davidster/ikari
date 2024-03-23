@@ -1,9 +1,8 @@
-use crate::math::*;
-use crate::scene::*;
-
 use std::ops::{Add, Mul};
 
 use glam::f32::{Quat, Vec3};
+
+use crate::scene::{GameNodeId, Scene};
 
 #[derive(Debug, Clone)]
 pub struct Animation {
@@ -182,11 +181,7 @@ fn get_vec3_at_moment(
                     let keyframe_values = get_basic_keyframe_values();
                     let previous_keyframe_value = keyframe_values[previous_keyframe.index];
                     let next_keyframe_value = keyframe_values[next_keyframe.index];
-                    lerp_vec(
-                        previous_keyframe_value,
-                        next_keyframe_value,
-                        interpolation_factor,
-                    )
+                    previous_keyframe_value.lerp(next_keyframe_value, interpolation_factor)
                 }
                 gltf::animation::Interpolation::Step => {
                     let keyframe_values = get_basic_keyframe_values();

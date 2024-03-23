@@ -1,11 +1,11 @@
 use std::cmp::Ordering;
 
+use crate::mesh::BasicMesh;
+use crate::mesh::ShaderVertex;
+use crate::physics::rapier3d_f64::prelude::*;
 use glam::f32::Vec3;
 use rand::Rng;
 use rand::SeedableRng;
-use rapier3d_f64::prelude::*;
-
-use crate::mesh::*;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Aabb {

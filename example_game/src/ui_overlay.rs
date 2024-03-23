@@ -16,13 +16,13 @@ use iced::{mouse, Background, Command, Element, Rectangle, Theme};
 use iced_aw::{floating_element, Modal};
 use iced_winit::runtime;
 use ikari::file_manager::GameFilePath;
-use ikari::math::rad_to_deg;
 use ikari::player_controller::ControlledViewDirection;
 use ikari::profile_dump::can_generate_profile_dump;
 use ikari::profile_dump::generate_profile_dump;
 use ikari::profile_dump::PendingPerfDump;
 use ikari::renderer::BloomType;
 use ikari::renderer::CullingFrustumLockMode;
+use ikari::renderer::CullingStats;
 use ikari::renderer::MIN_SHADOW_MAP_BIAS;
 use ikari::time::Instant;
 use ikari::time_tracker::FrameDurations;
@@ -37,7 +37,6 @@ use crate::game::INITIAL_ENABLE_CASCADE_DEBUG;
 use crate::game::INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG;
 use crate::game::INITIAL_ENABLE_DEPTH_PREPASS;
 use crate::game::INITIAL_ENABLE_DIRECTIONAL_LIGHT_CULLING_FRUSTUM_DEBUG;
-use crate::game::INITIAL_ENABLE_DIRECTIONAL_SHADOW_CULLING;
 use crate::game::INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG;
 use crate::game::INITIAL_ENABLE_SHADOW_DEBUG;
 use crate::game::INITIAL_ENABLE_SOFT_SHADOWS;
@@ -76,16 +75,18 @@ pub struct AudioSoundStats {
 }
 
 #[derive(Debug, Clone)]
+pub struct FrameStats {
+    pub instants: FrameInstants,
+    pub durations: FrameDurations,
+    pub gpu_timer_query_results: Vec<wgpu_profiler::GpuTimerQueryResult>,
+    pub culling_stats: Option<CullingStats>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Message {
     ViewportDimsChanged((u32, u32)),
     CursorPosChanged(winit::dpi::PhysicalPosition<f64>),
-    FrameCompleted(
-        (
-            FrameInstants,
-            FrameDurations,
-            Vec<wgpu_profiler::GpuTimerQueryResult>,
-        ),
-    ),
+    FrameCompleted(FrameStats),
     CameraPoseChanged((Vec3, ControlledViewDirection)),
     AudioSoundStatsChanged((GameFilePath, AudioSoundStats)),
     #[allow(dead_code)]
@@ -94,7 +95,6 @@ pub enum Message {
     NewBloomRadiusChanged(f32),
     NewBloomIntensityChanged(f32),
     ToggleDepthPrepass(bool),
-    ToggleDirectionalShadowCulling(bool),
     ToggleCameraPose(bool),
     ToggleCursorMarker(bool),
     ToggleFpsChart(bool),
@@ -106,6 +106,7 @@ pub enum Message {
     ToggleShadowDebug(bool),
     ToggleCascadeDebug(bool),
     ToggleAudioStats(bool),
+    ToggleCullingStats(bool),
     ShadowBiasChanged(f32),
     SkyboxWeightChanged(f32),
     SoftShadowFactorChanged(f32),
@@ -137,7 +138,6 @@ pub struct UiOverlay {
     pub new_bloom_radius: f32,
     pub new_bloom_intensity: f32,
     pub enable_depth_prepass: bool,
-    pub enable_directional_shadow_culling: bool,
     pub enable_soft_shadows: bool,
     pub skybox_weight: f32,
     pub shadow_bias: f32,
@@ -151,6 +151,8 @@ pub struct UiOverlay {
     pub soft_shadow_grid_dims: u32,
     pub is_showing_camera_pose: bool,
     pub is_showing_cursor_marker: bool,
+    pub is_recording_culling_stats: bool,
+    pub culling_stats: Option<CullingStats>,
 
     pub pending_perf_dump: Option<PendingPerfDump>,
     perf_dump_completion_time: Option<Instant>,
@@ -444,12 +446,13 @@ impl UiOverlay {
             is_showing_options_menu: false,
             was_exit_button_pressed: false,
             is_showing_audio_stats: false,
+            is_recording_culling_stats: false,
+            culling_stats: None,
             enable_vsync: INITIAL_ENABLE_VSYNC,
             bloom_type: INITIAL_BLOOM_TYPE,
             new_bloom_radius: INITIAL_NEW_BLOOM_RADIUS,
             new_bloom_intensity: INITIAL_NEW_BLOOM_INTENSITY,
             enable_depth_prepass: INITIAL_ENABLE_DEPTH_PREPASS,
-            enable_directional_shadow_culling: INITIAL_ENABLE_DIRECTIONAL_SHADOW_CULLING,
             enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
             skybox_weight: INITIAL_SKYBOX_WEIGHT,
             shadow_bias: INITIAL_SHADOW_BIAS,
@@ -529,9 +532,13 @@ impl runtime::Program for UiOverlay {
             Message::CursorPosChanged(new_state) => {
                 self.cursor_position = new_state;
             }
-            Message::FrameCompleted((instants, durations, gpu_timer_query_results)) => {
-                self.fps_chart
-                    .on_frame_completed(instants, durations, gpu_timer_query_results);
+            Message::FrameCompleted(frame_stats) => {
+                self.fps_chart.on_frame_completed(
+                    frame_stats.instants,
+                    frame_stats.durations,
+                    frame_stats.gpu_timer_query_results,
+                );
+                self.culling_stats = frame_stats.culling_stats;
                 self.poll_perf_dump_state();
             }
             Message::AudioSoundStatsChanged((track_path, stats)) => {
@@ -557,9 +564,6 @@ impl runtime::Program for UiOverlay {
             }
             Message::ToggleDepthPrepass(new_state) => {
                 self.enable_depth_prepass = new_state;
-            }
-            Message::ToggleDirectionalShadowCulling(new_state) => {
-                self.enable_directional_shadow_culling = new_state;
             }
             Message::ToggleCameraPose(new_state) => {
                 self.is_showing_camera_pose = new_state;
@@ -596,6 +600,9 @@ impl runtime::Program for UiOverlay {
             }
             Message::ToggleAudioStats(new_state) => {
                 self.is_showing_audio_stats = new_state;
+            }
+            Message::ToggleCullingStats(new_state) => {
+                self.is_recording_culling_stats = new_state;
             }
             Message::SkyboxWeightChanged(new_state) => {
                 self.skybox_weight = new_state;
@@ -699,9 +706,9 @@ impl runtime::Program for UiOverlay {
                 rows = rows.push(text(&format!(
                     "Camera direction: h={:.2} ({:.2} deg), v={:.2} ({:.2} deg)",
                     camera_horizontal,
-                    rad_to_deg(camera_horizontal),
+                    camera_horizontal.to_degrees(),
                     camera_vertical,
-                    rad_to_deg(camera_vertical),
+                    camera_vertical.to_degrees(),
                 )));
                 // rows = rows.push(text(&format!(
                 //     "Camera direction: {:?}",
@@ -725,6 +732,72 @@ impl runtime::Program for UiOverlay {
                 rows = rows.push(text(&format!(
                     "{file_path}: {pos}{length}, buffer to {buffered_pos}"
                 )));
+            }
+        }
+
+        if let Some(culling_stats) = &self.culling_stats {
+            let text_size = 14;
+            rows = rows.push(text("Culling stats:").size(text_size));
+
+            rows = rows.push(
+                text(&format!("  Time to cull: {:?}", culling_stats.time_to_cull)).size(text_size),
+            );
+
+            let total_count = culling_stats.total_count;
+
+            rows = rows.push(text(&format!("  Total objects: {}", total_count)).size(text_size));
+            rows = rows.push(
+                text(&format!(
+                    "  Completely culled: {} ({:.2}%)",
+                    culling_stats.completely_culled_count,
+                    100.0 * culling_stats.completely_culled_count as f32 / total_count as f32
+                ))
+                .size(text_size),
+            );
+            rows = rows.push(
+                text(&format!(
+                    "  Main camera: {} ({:.2}%)",
+                    culling_stats.main_camera_culled_count,
+                    100.0 * culling_stats.main_camera_culled_count as f32 / total_count as f32
+                ))
+                .size(text_size),
+            );
+
+            for (light_index, cascades) in culling_stats
+                .directional_lights_culled_counts
+                .iter()
+                .enumerate()
+            {
+                rows = rows
+                    .push(text(&format!("  Directional light: {}", light_index)).size(text_size));
+
+                for (cascade_index, cascade_count) in cascades.iter().enumerate() {
+                    rows = rows.push(
+                        text(&format!(
+                            "    Cascade {}: {} ({:.2}%)",
+                            cascade_index,
+                            cascade_count,
+                            100.0 * (*cascade_count as f32) / total_count as f32
+                        ))
+                        .size(text_size),
+                    );
+                }
+            }
+            for (light_index, frusta) in culling_stats.point_light_culled_counts.iter().enumerate()
+            {
+                rows = rows.push(text(&format!("  Point light: {}", light_index)).size(text_size));
+
+                for (frustum_index, frustum_count) in frusta.iter().enumerate() {
+                    rows = rows.push(
+                        text(&format!(
+                            "    Frustum {}: {} ({:.2}%)",
+                            frustum_index,
+                            frustum_count,
+                            100.0 * (*frustum_count as f32) / total_count as f32
+                        ))
+                        .size(text_size),
+                    );
+                }
             }
         }
 
@@ -828,14 +901,6 @@ impl runtime::Program for UiOverlay {
                 .step(0.001),
             );
 
-            options = options.push(
-                checkbox(
-                    "Enable Directional Shadow Culling",
-                    self.enable_directional_shadow_culling,
-                )
-                .on_toggle(Message::ToggleDirectionalShadowCulling),
-            );
-
             // camera debug
             options = options.push(
                 checkbox("Show Camera Pose", self.is_showing_camera_pose)
@@ -852,6 +917,12 @@ impl runtime::Program for UiOverlay {
             options = options.push(
                 checkbox("Show Audio Stats", self.is_showing_audio_stats)
                     .on_toggle(Message::ToggleAudioStats),
+            );
+
+            // culling stats debug
+            options = options.push(
+                checkbox("Show Culling Stats", self.is_recording_culling_stats)
+                    .on_toggle(Message::ToggleCullingStats),
             );
 
             // fps overlay

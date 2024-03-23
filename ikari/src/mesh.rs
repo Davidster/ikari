@@ -1,4 +1,4 @@
-use crate::{renderer::F16, texture::*};
+use crate::{renderer::F16, texture::Texture};
 
 use std::{
     collections::{hash_map, HashMap},

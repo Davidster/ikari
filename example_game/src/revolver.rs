@@ -1,6 +1,6 @@
 use glam::f32::{Quat, Vec3};
 use ikari::{
-    math::{deg_to_rad, lerp},
+    math::lerp,
     player_controller::ControlledViewDirection,
     scene::{GameNodeDescBuilder, GameNodeId, Scene},
     time::Instant,
@@ -94,7 +94,7 @@ impl Revolver {
         let last_camera_horizontal_rotation = self
             .last_camera_horizontal_rotation
             .unwrap_or(player_view_direction.horizontal);
-        let max_sway: f32 = deg_to_rad(MAX_SWAY_DEG);
+        let max_sway: f32 = MAX_SWAY_DEG.to_radians();
         self.sway += (player_view_direction.horizontal - last_camera_horizontal_rotation)
             .clamp(-max_sway, max_sway);
         self.sway = lerp(self.sway, 0.0, WEAPON_SWAY_RESET_LERP_FACTOR);

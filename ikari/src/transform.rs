@@ -1,4 +1,4 @@
-use rapier3d_f64::prelude::*;
+use crate::physics::rapier3d_f64::prelude::*;
 
 use glam::{
     f32::{Mat3, Mat4, Quat, Vec3},

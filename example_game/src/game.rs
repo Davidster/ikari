@@ -1,15 +1,16 @@
-use crate::ball::*;
-use crate::character::*;
-use crate::game_state::*;
-use crate::physics_ball::*;
-use crate::revolver::*;
+use crate::ball::BallComponent;
+use crate::character::Character;
+use crate::game_state::AssetIds;
+use crate::game_state::GameState;
+use crate::physics_ball::PhysicsBall;
+use crate::revolver::Revolver;
 use crate::ui_overlay::AudioSoundStats;
+use crate::ui_overlay::FrameStats;
 use crate::ui_overlay::Message;
 use crate::ui_overlay::UiOverlay;
 use crate::ui_overlay::DEFAULT_FONT_BYTES;
 use crate::ui_overlay::DEFAULT_FONT_NAME;
 use crate::ui_overlay::KOOKY_FONT_BYTES;
-
 
 use std::sync::Mutex;
 use std::{collections::hash_map::Entry, sync::Arc};
@@ -26,8 +27,6 @@ use ikari::audio::SoundParams;
 use ikari::engine_state::EngineState;
 use ikari::file_manager::{FileManager, GamePathMaker};
 use ikari::gameloop::GameContext;
-use ikari::math::deg_to_rad;
-use ikari::math::lerp_vec;
 use ikari::mesh::BasicMesh;
 use ikari::mesh::DynamicPbrParams;
 use ikari::mesh::PbrTextures;
@@ -64,7 +63,6 @@ use winit::keyboard::NamedKey;
 pub const INITIAL_ENABLE_VSYNC: bool = false;
 pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
 pub const INITIAL_ENABLE_SHADOWS: bool = true;
-pub const INITIAL_ENABLE_DIRECTIONAL_SHADOW_CULLING: bool = true;
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
@@ -424,7 +422,7 @@ pub async fn init_game_state(
         PLAYER_MOVEMENT_SPEED,
         Vec3::new(8.0, 30.0, -13.0),
         ControlledViewDirection {
-            horizontal: deg_to_rad(180.0),
+            horizontal: 180.0_f32.to_radians(),
             vertical: 0.0,
         },
         ColliderBuilder::capsule_y(0.5, 0.25)
@@ -747,7 +745,7 @@ pub async fn init_game_state(
             .scale(Vec3::new(cube_radius, 1.0, cube_radius))
             .rotation(Quat::from_axis_angle(
                 Vec3::new(1.0, 0.0, 0.0),
-                deg_to_rad(180.0),
+                180.0_f32.to_radians(),
             ))
             .build();
         let ceiling_game_node_mesh = GameNodeVisual {
@@ -782,7 +780,7 @@ pub async fn init_game_state(
             .scale(Vec3::new(cube_radius, 1.0, cube_radius))
             .rotation(Quat::from_axis_angle(
                 Vec3::new(1.0, 0.0, 0.0),
-                deg_to_rad(90.0),
+                90.0_f32.to_radians(),
             ))
             .build();
         let _wall_1_node = scene.add_node(
@@ -807,7 +805,7 @@ pub async fn init_game_state(
             .scale(Vec3::new(cube_radius, 1.0, cube_radius))
             .rotation(Quat::from_axis_angle(
                 Vec3::new(1.0, 0.0, 0.0),
-                deg_to_rad(270.0),
+                270.0_f32.to_radians(),
             ))
             .build();
         let _wall_2_node = scene.add_node(
@@ -832,7 +830,7 @@ pub async fn init_game_state(
             .scale(Vec3::new(cube_radius, 1.0, cube_radius))
             .rotation(Quat::from_axis_angle(
                 Vec3::new(0.0, 0.0, 1.0),
-                deg_to_rad(90.0),
+                90.0_f32.to_radians(),
             ))
             .build();
         let _wall_3_node = scene.add_node(
@@ -857,7 +855,7 @@ pub async fn init_game_state(
             .scale(Vec3::new(cube_radius, 1.0, cube_radius))
             .rotation(Quat::from_axis_angle(
                 Vec3::new(0.0, 0.0, 1.0),
-                deg_to_rad(270.0),
+                270.0_f32.to_radians(),
             ))
             .build();
         let _wall_4_node = scene.add_node(
@@ -1411,8 +1409,10 @@ pub fn update_game_state(
                         TransformBuilder::new()
                             .position(Vec3::new(0.21, -0.13, -1.0))
                             .rotation(
-                                Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), deg_to_rad(180.0))
-                                    * Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.1),
+                                Quat::from_axis_angle(
+                                    Vec3::new(0.0, 1.0, 0.0),
+                                    180.0_f32.to_radians(),
+                                ) * Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.1),
                             )
                             .scale(2.0f32 * Vec3::new(1.0, 1.0, 1.0))
                             .build(),
@@ -1668,7 +1668,7 @@ pub fn update_game_state(
             t
         };
 
-        point_light_0.color = lerp_vec(POINT_LIGHT_COLOR, POINT_LIGHT_COLOR_B, (2.0 * t).sin());
+        point_light_0.color = POINT_LIGHT_COLOR.lerp(POINT_LIGHT_COLOR_B, (2.0 * t).sin());
 
         let node_id = point_light_0.node_id;
         if let Some(node) = engine_state.scene.get_node_mut(node_id) {
@@ -1813,7 +1813,7 @@ pub fn update_game_state(
                 .position(Vec3::new(0.0, 0.0, -1.0))
                 .rotation(Quat::from_axis_angle(
                     Vec3::new(0.0, 1.0, 0.0),
-                    deg_to_rad(90.0),
+                    90.0_f32.to_radians(),
                 ))
                 .scale(
                     (1080.0 / surface_data.surface_config.height as f32)
@@ -1936,11 +1936,12 @@ pub fn update_game_state(
         if let Some((instants, durations)) = engine_state.time().last_frame_times() {
             game_state
                 .ui_overlay
-                .queue_message(Message::FrameCompleted((
+                .queue_message(Message::FrameCompleted(FrameStats {
                     instants,
                     durations,
-                    renderer.process_profiler_frame().unwrap_or_default(),
-                )));
+                    gpu_timer_query_results: renderer.process_profiler_frame().unwrap_or_default(),
+                    culling_stats: renderer_data_guard.last_frame_culling_stats.clone(),
+                }));
         }
 
         {
@@ -1993,8 +1994,7 @@ pub fn update_game_state(
         renderer_data_guard.new_bloom_radius = ui_state.new_bloom_radius;
         renderer_data_guard.new_bloom_intensity = ui_state.new_bloom_intensity;
         renderer_data_guard.enable_depth_prepass = ui_state.enable_depth_prepass;
-        renderer_data_guard.enable_directional_shadow_culling =
-            ui_state.enable_directional_shadow_culling;
+        renderer_data_guard.record_culling_stats = ui_state.is_recording_culling_stats;
         renderer_data_guard.enable_soft_shadows = ui_state.enable_soft_shadows;
         renderer_data_guard.soft_shadow_factor = ui_state.soft_shadow_factor;
         renderer_data_guard.shadow_bias = ui_state.shadow_bias;

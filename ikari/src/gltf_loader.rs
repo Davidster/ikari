@@ -2,14 +2,29 @@ use crate::asset_loader::SceneAssetLoadParams;
 use crate::collisions::Aabb;
 use crate::file_manager::FileManager;
 use crate::file_manager::GameFilePath;
-use crate::mesh::*;
+use crate::mesh::generate_tangents_for_mesh;
+use crate::mesh::DynamicPbrParams;
+use crate::mesh::IndexedPbrTextures;
+use crate::mesh::IndexedTriangle;
+use crate::mesh::ShaderVertex;
+use crate::mesh::Vertex;
+use crate::mesh::VertexTangentHandedness;
 use crate::raw_image::RawImage;
-use crate::renderer::*;
-use crate::sampler_cache::*;
-use crate::scene::*;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::texture_compression::*;
-use crate::transform::*;
+use crate::renderer::BindableGeometryBuffers;
+use crate::renderer::BindableIndices;
+use crate::renderer::BindablePbrMaterial;
+use crate::renderer::BindableScene;
+use crate::renderer::BindableTexture;
+use crate::renderer::BindableWireframeMesh;
+use crate::sampler_cache::SamplerDescriptor;
+use crate::scene::GameNodeVisual;
+use crate::scene::IndexedAnimation;
+use crate::scene::IndexedChannel;
+use crate::scene::IndexedGameNodeDesc;
+use crate::scene::IndexedSkin;
+use crate::scene::Material;
+use crate::scene::Scene;
+use crate::transform::TransformBuilder;
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -671,6 +686,8 @@ async fn try_load_raw_image_compressed(
     is_srgb: bool,
     is_normal_map: bool,
 ) -> Option<Result<RawImage>> {
+    use crate::texture_compression::{texture_path_to_compressed_path, TextureCompressor};
+
     match texture.source().source() {
         gltf::image::Source::Uri { uri, .. } => {
             let parsed_uri = GltfUri::parse(uri);

@@ -1,4 +1,4 @@
-use crate::scene::*;
+use crate::scene::GameNodeId;
 
 use std::collections::HashMap;
 
