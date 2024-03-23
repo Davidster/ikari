@@ -26,7 +26,6 @@ use ikari::audio::SoundParams;
 use ikari::engine_state::EngineState;
 use ikari::file_manager::{FileManager, GamePathMaker};
 use ikari::gameloop::GameContext;
-use ikari::math::deg_to_rad;
 use ikari::math::lerp_vec;
 use ikari::mesh::BasicMesh;
 use ikari::mesh::DynamicPbrParams;
@@ -424,7 +423,7 @@ pub async fn init_game_state(
         PLAYER_MOVEMENT_SPEED,
         Vec3::new(8.0, 30.0, -13.0),
         ControlledViewDirection {
-            horizontal: deg_to_rad(180.0),
+            horizontal: 180.0_f32.to_radians(),
             vertical: 0.0,
         },
         ColliderBuilder::capsule_y(0.5, 0.25)
@@ -747,7 +746,7 @@ pub async fn init_game_state(
             .scale(Vec3::new(cube_radius, 1.0, cube_radius))
             .rotation(Quat::from_axis_angle(
                 Vec3::new(1.0, 0.0, 0.0),
-                deg_to_rad(180.0),
+                180.0_f32.to_radians(),
             ))
             .build();
         let ceiling_game_node_mesh = GameNodeVisual {
@@ -782,7 +781,7 @@ pub async fn init_game_state(
             .scale(Vec3::new(cube_radius, 1.0, cube_radius))
             .rotation(Quat::from_axis_angle(
                 Vec3::new(1.0, 0.0, 0.0),
-                deg_to_rad(90.0),
+                90.0_f32.to_radians(),
             ))
             .build();
         let _wall_1_node = scene.add_node(
@@ -807,7 +806,7 @@ pub async fn init_game_state(
             .scale(Vec3::new(cube_radius, 1.0, cube_radius))
             .rotation(Quat::from_axis_angle(
                 Vec3::new(1.0, 0.0, 0.0),
-                deg_to_rad(270.0),
+                270.0_f32.to_radians(),
             ))
             .build();
         let _wall_2_node = scene.add_node(
@@ -832,7 +831,7 @@ pub async fn init_game_state(
             .scale(Vec3::new(cube_radius, 1.0, cube_radius))
             .rotation(Quat::from_axis_angle(
                 Vec3::new(0.0, 0.0, 1.0),
-                deg_to_rad(90.0),
+                90.0_f32.to_radians(),
             ))
             .build();
         let _wall_3_node = scene.add_node(
@@ -857,7 +856,7 @@ pub async fn init_game_state(
             .scale(Vec3::new(cube_radius, 1.0, cube_radius))
             .rotation(Quat::from_axis_angle(
                 Vec3::new(0.0, 0.0, 1.0),
-                deg_to_rad(270.0),
+                270.0_f32.to_radians(),
             ))
             .build();
         let _wall_4_node = scene.add_node(
@@ -1411,8 +1410,10 @@ pub fn update_game_state(
                         TransformBuilder::new()
                             .position(Vec3::new(0.21, -0.13, -1.0))
                             .rotation(
-                                Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), deg_to_rad(180.0))
-                                    * Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.1),
+                                Quat::from_axis_angle(
+                                    Vec3::new(0.0, 1.0, 0.0),
+                                    180.0_f32.to_radians(),
+                                ) * Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.1),
                             )
                             .scale(2.0f32 * Vec3::new(1.0, 1.0, 1.0))
                             .build(),
@@ -1813,7 +1814,7 @@ pub fn update_game_state(
                 .position(Vec3::new(0.0, 0.0, -1.0))
                 .rotation(Quat::from_axis_angle(
                     Vec3::new(0.0, 1.0, 0.0),
-                    deg_to_rad(90.0),
+                    90.0_f32.to_radians(),
                 ))
                 .scale(
                     (1080.0 / surface_data.surface_config.height as f32)

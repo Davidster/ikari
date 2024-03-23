@@ -1,21 +1,24 @@
-// TODO: stop using * imports.
-use crate::buffer::*;
-use crate::camera::*;
-use crate::collisions::*;
+use crate::buffer::{ChunkedBuffer, GpuBuffer};
+use crate::camera::{
+    build_cubemap_face_camera_view_directions, build_cubemap_face_camera_views,
+    build_cubemap_face_frusta, MeshShaderCameraRaw, ShaderCameraData, SkyboxShaderCameraRaw,
+};
+use crate::collisions::{CameraFrustumDescriptor, Frustum, IntersectionResult, Sphere};
 use crate::engine_state::EngineState;
 use crate::file_manager::GameFilePath;
-use crate::math::*;
-use crate::mesh::*;
-use crate::physics::rapier3d_f64::na::Vector3;
+use crate::mesh::{
+    BasicMesh, DynamicPbrParams, GpuPbrMeshInstance, GpuTransparentMeshInstance,
+    GpuUnlitMeshInstance, GpuWireframeMeshInstance, IndexedPbrTextures, PbrTextures, ShaderVertex,
+};
 use crate::physics::rapier3d_f64::prelude::*;
 use crate::raw_image::RawImage;
-use crate::sampler_cache::*;
-use crate::scene::*;
-use crate::skinning::*;
-use crate::texture::*;
+use crate::sampler_cache::{SamplerCache, SamplerDescriptor};
+use crate::scene::{GameNode, GameNodeDescBuilder, GameNodeId, GameNodeVisual, Material, Scene};
+use crate::skinning::{get_all_bone_data, AllBoneTransforms};
+use crate::texture::Texture;
 use crate::time::Duration;
-use crate::transform::*;
-use crate::ui::*;
+use crate::transform::{look_in_dir, Transform, TransformBuilder};
+use crate::ui::IkariUiContainer;
 use crate::wasm_not_sync::WasmNotArc;
 
 use std::collections::{hash_map::Entry, HashMap};
@@ -31,6 +34,7 @@ use anyhow::Result;
 use glam::f32::{Mat4, Vec3};
 use glam::Vec4;
 
+use rapier3d_f64::na::Vector3;
 use rapier3d_f64::parry::query::PointQuery;
 use serde::Deserialize;
 use serde::Serialize;
@@ -49,7 +53,7 @@ pub const MAX_LIGHT_COUNT: usize = 32;
 pub const MAX_SHADOW_CASCADES: usize = 4;
 pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const FAR_PLANE_DISTANCE: f32 = 100000.0;
-pub const FOV_Y_DEG: f32 = 45.0;
+pub const FOV_Y: f32 = 45.0 * std::f32::consts::PI / 180.0;
 pub const DEFAULT_WIREFRAME_COLOR: [f32; 4] = [0.0, 1.0, 1.0, 1.0];
 pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE: f32 = 0.1;
 pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE: f32 = 1000.0;
@@ -3699,7 +3703,7 @@ impl Renderer {
                         forward_vector: controlled_direction.to_vector(),
                         near_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
                         far_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
-                        fov_y_rad: deg_to_rad(90.0),
+                        fov_y_rad: 90.0_f32.to_radians(),
                         aspect_ratio: 1.0,
                     };
 
@@ -3892,7 +3896,7 @@ impl Renderer {
                 aspect_ratio,
                 near_plane_distance: NEAR_PLANE_DISTANCE,
                 far_plane_distance: FAR_PLANE_DISTANCE,
-                fov_y_rad: deg_to_rad(FOV_Y_DEG),
+                fov_y_rad: FOV_Y,
             }),
             CullingFrustumLockMode::FocalPoint => CullingFrustumLock::FocalPoint(position),
             CullingFrustumLockMode::None => CullingFrustumLock::None,
@@ -4204,7 +4208,7 @@ impl Renderer {
             aspect_ratio,
             near_plane_distance: NEAR_PLANE_DISTANCE,
             far_plane_distance: FAR_PLANE_DISTANCE,
-            fov_y_rad: deg_to_rad(FOV_Y_DEG),
+            fov_y_rad: FOV_Y,
         };
 
         let culling_frustum_desc = match private_data.frustum_culling_lock {
@@ -4759,7 +4763,7 @@ impl Renderer {
                 aspect_ratio,
                 NEAR_PLANE_DISTANCE,
                 FAR_PLANE_DISTANCE,
-                deg_to_rad(FOV_Y_DEG),
+                FOV_Y,
                 true,
             )
         };

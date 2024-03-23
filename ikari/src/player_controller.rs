@@ -1,5 +1,4 @@
 use crate::collisions::*;
-use crate::math::*;
 use crate::physics::*;
 use crate::renderer::*;
 use crate::time::*;
@@ -277,7 +276,7 @@ impl PlayerController {
             self.view_direction.horizontal += -d_x as f32 * mouse_sensitivity;
             self.view_direction.vertical = (self.view_direction.vertical
                 + (-d_y as f32 * mouse_sensitivity))
-                .clamp(deg_to_rad(-89.5), deg_to_rad(89.5));
+                .clamp(-89.5_f32.to_radians(), 89.5_f32.to_radians());
         }
         self.unprocessed_delta = None;
 
@@ -393,7 +392,7 @@ impl PlayerController {
             aspect_ratio,
             near_plane_distance: NEAR_PLANE_DISTANCE,
             far_plane_distance: FAR_PLANE_DISTANCE,
-            fov_y_rad: deg_to_rad(FOV_Y_DEG),
+            fov_y_rad: FOV_Y.to_radians(),
         }
     }
 }

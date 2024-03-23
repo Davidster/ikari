@@ -16,7 +16,6 @@ use iced::{mouse, Background, Command, Element, Rectangle, Theme};
 use iced_aw::{floating_element, Modal};
 use iced_winit::runtime;
 use ikari::file_manager::GameFilePath;
-use ikari::math::rad_to_deg;
 use ikari::player_controller::ControlledViewDirection;
 use ikari::profile_dump::can_generate_profile_dump;
 use ikari::profile_dump::generate_profile_dump;
@@ -714,9 +713,9 @@ impl runtime::Program for UiOverlay {
                 rows = rows.push(text(&format!(
                     "Camera direction: h={:.2} ({:.2} deg), v={:.2} ({:.2} deg)",
                     camera_horizontal,
-                    rad_to_deg(camera_horizontal),
+                    camera_horizontal.to_degrees(),
                     camera_vertical,
-                    rad_to_deg(camera_vertical),
+                    camera_vertical.to_degrees(),
                 )));
                 // rows = rows.push(text(&format!(
                 //     "Camera direction: {:?}",
