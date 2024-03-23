@@ -63,7 +63,6 @@ use winit::keyboard::NamedKey;
 pub const INITIAL_ENABLE_VSYNC: bool = false;
 pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
 pub const INITIAL_ENABLE_SHADOWS: bool = true;
-pub const INITIAL_ENABLE_DIRECTIONAL_SHADOW_CULLING: bool = true;
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
 pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
@@ -1996,8 +1995,6 @@ pub fn update_game_state(
         renderer_data_guard.new_bloom_intensity = ui_state.new_bloom_intensity;
         renderer_data_guard.enable_depth_prepass = ui_state.enable_depth_prepass;
         renderer_data_guard.record_culling_stats = ui_state.is_recording_culling_stats;
-        renderer_data_guard.enable_directional_shadow_culling =
-            ui_state.enable_directional_shadow_culling;
         renderer_data_guard.enable_soft_shadows = ui_state.enable_soft_shadows;
         renderer_data_guard.soft_shadow_factor = ui_state.soft_shadow_factor;
         renderer_data_guard.shadow_bias = ui_state.shadow_bias;

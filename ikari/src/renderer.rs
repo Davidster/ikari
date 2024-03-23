@@ -922,8 +922,6 @@ pub struct RendererData {
     pub new_bloom_intensity: f32,
     pub render_scale: f32,
     pub enable_depth_prepass: bool,
-    // TODO: this doesnt actually do anything lol
-    pub enable_directional_shadow_culling: bool,
     pub bloom_type: BloomType,
     pub enable_shadows: bool,
     pub enable_wireframe_mode: bool,
@@ -2857,7 +2855,6 @@ impl Renderer {
             render_scale: initial_render_scale,
             bloom_type: BloomType::Old,
             enable_depth_prepass: false,
-            enable_directional_shadow_culling: true,
             enable_shadows: true,
             enable_wireframe_mode: false,
             draw_node_bounding_spheres: false,
@@ -3967,7 +3964,6 @@ impl Renderer {
         // bounding boxes will be wrong for skinned meshes so we currently can't cull them
         if DISABLE_EXPENSIVE_CULLING
             || USE_ORTHOGRAPHIC_CAMERA
-            || !data.enable_directional_shadow_culling
             || !node.visual.as_ref().unwrap().cullable
             || node.skin_index.is_some()
         {

@@ -37,7 +37,6 @@ use crate::game::INITIAL_ENABLE_CASCADE_DEBUG;
 use crate::game::INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG;
 use crate::game::INITIAL_ENABLE_DEPTH_PREPASS;
 use crate::game::INITIAL_ENABLE_DIRECTIONAL_LIGHT_CULLING_FRUSTUM_DEBUG;
-use crate::game::INITIAL_ENABLE_DIRECTIONAL_SHADOW_CULLING;
 use crate::game::INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG;
 use crate::game::INITIAL_ENABLE_SHADOW_DEBUG;
 use crate::game::INITIAL_ENABLE_SOFT_SHADOWS;
@@ -96,7 +95,6 @@ pub enum Message {
     NewBloomRadiusChanged(f32),
     NewBloomIntensityChanged(f32),
     ToggleDepthPrepass(bool),
-    ToggleDirectionalShadowCulling(bool),
     ToggleCameraPose(bool),
     ToggleCursorMarker(bool),
     ToggleFpsChart(bool),
@@ -140,7 +138,6 @@ pub struct UiOverlay {
     pub new_bloom_radius: f32,
     pub new_bloom_intensity: f32,
     pub enable_depth_prepass: bool,
-    pub enable_directional_shadow_culling: bool,
     pub enable_soft_shadows: bool,
     pub skybox_weight: f32,
     pub shadow_bias: f32,
@@ -456,7 +453,6 @@ impl UiOverlay {
             new_bloom_radius: INITIAL_NEW_BLOOM_RADIUS,
             new_bloom_intensity: INITIAL_NEW_BLOOM_INTENSITY,
             enable_depth_prepass: INITIAL_ENABLE_DEPTH_PREPASS,
-            enable_directional_shadow_culling: INITIAL_ENABLE_DIRECTIONAL_SHADOW_CULLING,
             enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
             skybox_weight: INITIAL_SKYBOX_WEIGHT,
             shadow_bias: INITIAL_SHADOW_BIAS,
@@ -568,9 +564,6 @@ impl runtime::Program for UiOverlay {
             }
             Message::ToggleDepthPrepass(new_state) => {
                 self.enable_depth_prepass = new_state;
-            }
-            Message::ToggleDirectionalShadowCulling(new_state) => {
-                self.enable_directional_shadow_culling = new_state;
             }
             Message::ToggleCameraPose(new_state) => {
                 self.is_showing_camera_pose = new_state;
@@ -906,14 +899,6 @@ impl runtime::Program for UiOverlay {
                     Message::NewBloomIntensityChanged,
                 )
                 .step(0.001),
-            );
-
-            options = options.push(
-                checkbox(
-                    "Enable Directional Shadow Culling",
-                    self.enable_directional_shadow_culling,
-                )
-                .on_toggle(Message::ToggleDirectionalShadowCulling),
             );
 
             // camera debug
