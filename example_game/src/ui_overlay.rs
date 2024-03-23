@@ -746,6 +746,10 @@ impl runtime::Program for UiOverlay {
             let text_size = 14;
             rows = rows.push(text("Culling stats:").size(text_size));
 
+            rows = rows.push(
+                text(&format!("  Time to cull: {:?}", culling_stats.time_to_cull)).size(text_size),
+            );
+
             let total_count = culling_stats.total_count;
 
             rows = rows.push(text(&format!("  Total objects: {}", total_count)).size(text_size));

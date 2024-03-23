@@ -43,7 +43,7 @@ use wgpu::util::DeviceExt;
 
 pub(crate) const USE_LABELS: bool = true;
 pub(crate) const USE_ORTHOGRAPHIC_CAMERA: bool = false;
-pub(crate) const DISABLE_FRUSTUM_CULLING: bool = false;
+pub(crate) const DISABLE_EXPENSIVE_CULLING: bool = false;
 pub(crate) const USE_EXTRA_SHADOW_MAP_CULLING: bool = true;
 pub(crate) const DRAW_FRUSTUM_BOUNDING_SPHERE_FOR_SHADOW_MAPS: bool = false;
 pub(crate) const ENABLE_GRAPHICS_API_VALIDATION: bool = false;
@@ -922,6 +922,7 @@ pub struct RendererData {
     pub new_bloom_intensity: f32,
     pub render_scale: f32,
     pub enable_depth_prepass: bool,
+    // TODO: this doesnt actually do anything lol
     pub enable_directional_shadow_culling: bool,
     pub bloom_type: BloomType,
     pub enable_shadows: bool,
@@ -3957,22 +3958,25 @@ impl Renderer {
         resolved_directional_light_cascades: &[Vec<ResolvedDirectionalLightCascade>],
         culling_mask: &mut BitVec,
     ) {
-        if DISABLE_FRUSTUM_CULLING
-            || USE_ORTHOGRAPHIC_CAMERA
-            || !data.enable_directional_shadow_culling
-        {
-            culling_mask.set_elements(usize::MAX);
-            return;
-        }
+        culling_mask.set_elements(0);
 
         if node.visual.is_none() {
-            culling_mask.set_elements(0);
             return;
         }
 
-        /* bounding boxes will be wrong for skinned meshes so we currently can't cull them */
-        if node.skin_index.is_some() || !node.visual.as_ref().unwrap().cullable {
-            culling_mask.set_elements(usize::MAX);
+        // bounding boxes will be wrong for skinned meshes so we currently can't cull them
+        if DISABLE_EXPENSIVE_CULLING
+            || USE_ORTHOGRAPHIC_CAMERA
+            || !data.enable_directional_shadow_culling
+            || !node.visual.as_ref().unwrap().cullable
+            || node.skin_index.is_some()
+        {
+            if data.enable_shadows {
+                culling_mask.set_elements(usize::MAX);
+            } else {
+                culling_mask.set(0, true);
+            }
+
             return;
         }
 
@@ -3990,13 +3994,16 @@ impl Renderer {
             )
         };
 
-        culling_mask.set_elements(0);
         let mut mask_pos = 0;
 
         let is_node_on_screen = is_touching_frustum(camera_culling_frustum);
 
         if is_node_on_screen {
             culling_mask.set(mask_pos, true);
+        }
+
+        if !data.enable_shadows {
+            return;
         }
 
         mask_pos += 1;
