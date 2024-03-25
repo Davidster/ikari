@@ -47,7 +47,6 @@ web-sys = { path = "../wasm-bindgen-fork/crates/web-sys", features = [
   "Element",
   "Headers",
   "Request",
-  "RequestInit",
   "RequestMode",
   "Response",
   "Blob",

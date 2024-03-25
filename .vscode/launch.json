@@ -21,5 +21,22 @@
       "args": [],
       "cwd": "${workspaceFolder}"
     },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug executable 'build_web'",
+      "cargo": {
+        "args": [
+          "build",
+          "--bin=build_web"
+        ],
+        "filter": {
+          "name": "build_web",
+          "kind": "bin"
+        }
+      },
+      "args": ["--release", "--bin", "example_game"],
+      "cwd": "${workspaceFolder}"
+    },
   ]
 }
