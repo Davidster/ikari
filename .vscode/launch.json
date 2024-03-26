@@ -7,7 +7,7 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug executable 'example_game'",
+      "name": "Example game",
       "cargo": {
         "args": [
           "build",
@@ -19,6 +19,40 @@
         }
       },
       "args": [],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Build web",
+      "cargo": {
+        "args": [
+          "build",
+          "--bin=build_web"
+        ],
+        "filter": {
+          "name": "build_web",
+          "kind": "bin"
+        }
+      },
+      "args": ["--release", "--bin", "example_game"],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "clikari compress milkyway texture",
+      "cargo": {
+        "args": [
+          "build",
+          "--bin=clikari"
+        ],
+        "filter": {
+          "name": "clikari",
+          "kind": "bin"
+        }
+      },
+      "args": ["--command", "compress_textures", "--search_folder", "ikari/src/textures/rainbow_gradient_vertical.jpg", "--force"],
       "cwd": "${workspaceFolder}"
     },
   ]
