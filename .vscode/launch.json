@@ -41,7 +41,7 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "clikari compress milkyway texture",
+      "name": "clikari compress gradient texture",
       "cargo": {
         "args": [
           "build",
