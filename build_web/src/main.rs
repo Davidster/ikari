@@ -193,7 +193,7 @@ fn main() {
         .env(
             "RUSTFLAGS",
             // for max-memory arg, see https://stackoverflow.com/questions/72334989/only-1-4th-of-max-memory-available-when-rust-wasm-compiled-with-atomics-flag-we
-            "--cfg=web_sys_unstable_apis -C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--max-memory=4294967296",
+            "--cfg=web_sys_unstable_apis -C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--max-memory=4294967296 -Zmacro-backtrace",
         )
         .args(&cargo_args)
         .status()

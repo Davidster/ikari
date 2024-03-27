@@ -5818,6 +5818,9 @@ impl Renderer {
             render_pass.set_bind_group(1, &private_data.environment_textures_bind_group, &[]);
         }
 
+        let mut got_u32 = false;
+        let mut got_u16 = false;
+
         for (pbr_instance_chunk_index, pbr_instance_chunk) in
             private_data.all_pbr_instances.chunks().iter().enumerate()
         {
@@ -5861,12 +5864,22 @@ impl Renderer {
                 geometry_buffers.index_buffer.buffer.src().slice(..),
                 geometry_buffers.index_buffer.format,
             );
+            match geometry_buffers.index_buffer.format {
+                wgpu::IndexFormat::Uint16 => {
+                    got_u16 = true;
+                }
+                wgpu::IndexFormat::Uint32 => {
+                    got_u32 = true;
+                }
+            }
             render_pass.draw_indexed(
                 0..geometry_buffers.index_buffer.buffer.length() as u32,
                 0,
                 0..instance_count as u32,
             );
         }
+
+        // log::info!("got_u16={got_u16}, got_u32={got_u32}");
     }
 
     pub fn process_profiler_frame(&self) -> Option<Vec<wgpu_profiler::GpuTimerQueryResult>> {
