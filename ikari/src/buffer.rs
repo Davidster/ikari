@@ -49,7 +49,7 @@ impl GpuBuffer {
         let length = (initial_contents.len() as f32 / stride as f32).ceil() as usize;
 
         if length > capacity {
-            panic!("Tried to create a buffer with data that won't fit in the capacity");
+            panic!("Tried to create a buffer with data that wont fit in the capacity");
         }
 
         let mut contents_padded = initial_contents.to_vec();
