@@ -150,7 +150,7 @@ fn find_gltf_texture_paths(search_folder: &Path) -> anyhow::Result<Vec<(PathBuf,
 
             match texture.source().source() {
                 gltf::image::Source::View { .. } => {
-                    log::warn!("Warning: found inline texture in gltf file {:?}, texture index {:?}. This texture wont be compressed", path, texture.index());
+                    log::warn!("Warning: found inline texture in gltf file {:?}, texture index {:?}. This texture won't be compressed", path, texture.index());
                 }
                 gltf::image::Source::Uri { uri, .. } => {
                     let path = path.parent().unwrap().join(PathBuf::from(uri));
