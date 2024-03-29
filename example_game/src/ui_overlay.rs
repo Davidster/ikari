@@ -48,6 +48,7 @@ use crate::game::INITIAL_NEW_BLOOM_RADIUS;
 use crate::game::INITIAL_SHADOW_BIAS;
 use crate::game::INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS;
 use crate::game::INITIAL_SKYBOX_WEIGHT;
+use crate::game::INITIAL_SOFT_SHADOWS_MAX_DISTANCE;
 use crate::game::INITIAL_SOFT_SHADOW_FACTOR;
 use crate::game::INITIAL_SOFT_SHADOW_GRID_DIMS;
 
@@ -96,6 +97,7 @@ pub enum Message {
     NewBloomRadiusChanged(f32),
     NewBloomIntensityChanged(f32),
     ShadowSmallObjectCullingSizeChanged(f32),
+    SoftShadowsMaxDistanceChanged(f32),
     ToggleDepthPrepass(bool),
     ToggleCameraPose(bool),
     ToggleCursorMarker(bool),
@@ -156,6 +158,7 @@ pub struct UiOverlay {
     pub is_recording_culling_stats: bool,
     pub culling_stats: Option<CullingStats>,
     pub shadow_small_object_culling_size_pixels: f32,
+    pub soft_shadows_max_distance: f32,
 
     pub pending_perf_dump: Option<PendingPerfDump>,
     perf_dump_completion_time: Option<Instant>,
@@ -453,6 +456,7 @@ impl UiOverlay {
             culling_stats: None,
             shadow_small_object_culling_size_pixels:
                 INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS,
+            soft_shadows_max_distance: INITIAL_SOFT_SHADOWS_MAX_DISTANCE,
             enable_vsync: INITIAL_ENABLE_VSYNC,
             bloom_type: INITIAL_BLOOM_TYPE,
             new_bloom_radius: INITIAL_NEW_BLOOM_RADIUS,
@@ -548,6 +552,9 @@ impl runtime::Program for UiOverlay {
             }
             Message::ShadowSmallObjectCullingSizeChanged(new_state) => {
                 self.shadow_small_object_culling_size_pixels = new_state
+            }
+            Message::SoftShadowsMaxDistanceChanged(new_state) => {
+                self.soft_shadows_max_distance = new_state
             }
             Message::AudioSoundStatsChanged((track_path, stats)) => {
                 self.audio_sound_stats.insert(
@@ -1052,6 +1059,19 @@ impl runtime::Program for UiOverlay {
                     Message::ShadowSmallObjectCullingSizeChanged,
                 )
                 .step(0.001),
+            );
+
+            options = options.push(Text::new(format!(
+                "Soft Shadows Max Distance: {:.4}",
+                self.soft_shadows_max_distance
+            )));
+            options = options.push(
+                slider(
+                    10.0..=500.0,
+                    self.soft_shadows_max_distance,
+                    Message::SoftShadowsMaxDistanceChanged,
+                )
+                .step(1.0),
             );
 
             // profile dump

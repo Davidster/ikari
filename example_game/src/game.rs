@@ -83,6 +83,7 @@ pub const INITIAL_SHADOW_BIAS: f32 = 0.001;
 pub const INITIAL_SKYBOX_WEIGHT: f32 = 1.0;
 pub const INITIAL_SOFT_SHADOW_FACTOR: f32 = 0.00003;
 pub const INITIAL_SOFT_SHADOW_GRID_DIMS: u32 = 4;
+pub const INITIAL_SOFT_SHADOWS_MAX_DISTANCE: f32 = 100.0;
 
 // game settings
 pub const ARENA_SIDE_LENGTH: f32 = 500.0;
@@ -2000,6 +2001,7 @@ pub fn update_game_state(
         renderer_data_guard.shadow_small_object_culling_size_pixels =
             ui_state.shadow_small_object_culling_size_pixels;
         renderer_data_guard.soft_shadow_factor = ui_state.soft_shadow_factor;
+        renderer_data_guard.soft_shadows_max_distance = ui_state.soft_shadows_max_distance;
         renderer_data_guard.shadow_bias = ui_state.shadow_bias;
         renderer_data_guard.enable_shadow_debug = ui_state.enable_shadow_debug;
         renderer_data_guard.enable_cascade_debug = ui_state.enable_cascade_debug;

@@ -356,6 +356,7 @@ fn make_pbr_shader_options_uniform_buffer(
     enable_shadow_debug: bool,
     enable_cascade_debug: bool,
     soft_shadow_grid_dims: u32,
+    soft_shadows_max_distance: f32,
 ) -> PbrShaderOptionsUniform {
     let options_1 = [
         if enable_soft_shadows { 1.0 } else { 0.0 },
@@ -367,7 +368,7 @@ fn make_pbr_shader_options_uniform_buffer(
     let options_2 = [
         shadow_bias,
         if enable_cascade_debug { 1.0 } else { 0.0 },
-        0.0,
+        soft_shadows_max_distance,
         0.0,
     ];
 
@@ -932,6 +933,7 @@ pub struct RendererData {
     pub enable_soft_shadows: bool,
     pub shadow_bias: f32,
     pub soft_shadow_factor: f32,
+    pub soft_shadows_max_distance: f32,
     pub enable_shadow_debug: bool,
     pub enable_cascade_debug: bool,
     pub soft_shadow_grid_dims: u32,
@@ -2650,12 +2652,13 @@ impl Renderer {
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
-        let enable_soft_shadows = Default::default();
-        let shadow_bias = Default::default();
-        let soft_shadow_factor = Default::default();
-        let enable_shadow_debug = Default::default();
-        let enable_cascade_debug = Default::default();
-        let soft_shadow_grid_dims = Default::default();
+        let enable_soft_shadows = true;
+        let shadow_bias = 0.001;
+        let soft_shadow_factor = 0.00003;
+        let enable_shadow_debug = false;
+        let enable_cascade_debug = false;
+        let soft_shadow_grid_dims = 4;
+        let soft_shadows_max_distance = 100.0;
         let initial_pbr_shader_options_buffer = make_pbr_shader_options_uniform_buffer(
             enable_soft_shadows,
             shadow_bias,
@@ -2663,6 +2666,7 @@ impl Renderer {
             enable_shadow_debug,
             enable_cascade_debug,
             soft_shadow_grid_dims,
+            soft_shadows_max_distance,
         );
         let pbr_shader_options_buffer =
             base.device
@@ -2865,6 +2869,7 @@ impl Renderer {
             enable_soft_shadows,
             shadow_bias,
             soft_shadow_factor,
+            soft_shadows_max_distance,
             enable_shadow_debug,
             enable_cascade_debug,
             soft_shadow_grid_dims,
@@ -4965,6 +4970,7 @@ impl Renderer {
                 data.enable_shadow_debug,
                 data.enable_cascade_debug,
                 data.soft_shadow_grid_dims,
+                data.soft_shadows_max_distance,
             )]),
         );
         queue.write_buffer(

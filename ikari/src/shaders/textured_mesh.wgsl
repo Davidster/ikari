@@ -14,8 +14,6 @@ const DIRECTIONAL_LIGHT_SHOW_MAP_COUNT = 2u;
 const POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE: f32 = 1000.0;
 const MAX_SHADOW_CASCADES = 4u;
 const MAX_TOTAL_SHADOW_CASCADES = 128u; // MAX_LIGHTS * MAX_SHADOW_CASCADES
-// TODO: pass this from cpu
-const SOFT_SHADOW_MAX_DISTANCE: f32 = 300.0;
 
 const MIN_SHADOW_MAP_BIAS: f32 = 0.00005;
 const pi: f32 = 3.141592653589793;
@@ -62,7 +60,14 @@ struct InstancesUniform {
 }
 // scratch board for shader options
 struct PbrShaderOptionsUniform {
+    // 0: soft shadows is enabled
+    // 1: soft shadow factor
+    // 2: shadow debug is enabled
+    // 3: soft shadow grid dims
     options_1: vec4<f32>,
+    // 0: shadow bias
+    // 1: cascade debug is enabled
+    // 2: soft shadows max distance
     options_2: vec4<f32>,
     options_3: vec4<f32>,
     options_4: vec4<f32>,
@@ -205,6 +210,10 @@ fn get_shadow_bias() -> f32 {
 
 fn get_cascade_debug_enabled() -> bool {
     return shader_options.options_2[1] > 0.0;
+}
+
+fn get_soft_shadows_max_distance() -> f32 {
+    return shader_options.options_2[2];
 }
 
 fn oct_wrap(v: vec2<f32>) -> vec2<f32>
@@ -501,6 +510,11 @@ fn noise(p: f32) -> f32 {
   return mix(rand(fl), rand(fl + 1.), fc);
 }
 
+// https://iquilezles.org/articles/smoothsteps/
+fn smoothstep(t: f32) -> f32 {
+    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+}
+
 fn disk_warp(coord: vec2<f32>) -> vec2<f32> {
     let warped = vec2<f32>(
         sqrt(coord.y) * cos(2.0 * pi * coord.x),
@@ -739,6 +753,8 @@ fn do_fragment_shade(
 
     let shadow_bias = get_shadow_bias();
     let soft_shadow_grid_dims = get_soft_shadow_grid_dims();
+    let soft_shadows_max_distance = get_soft_shadows_max_distance();
+    let soft_shadow_distance_border_blending_range = soft_shadows_max_distance * 0.1;
 
     var total_shadow_occlusion_acc = 0.0;
     var total_light_count = 0u;
@@ -767,7 +783,7 @@ fn do_fragment_shade(
         var shadow_occlusion_acc = 0.0;
 
         if n_dot_l > 0.0 && light_index < POINT_LIGHT_SHOW_MAP_COUNT {
-            if get_soft_shadows_are_enabled() && to_viewer_vec_length < SOFT_SHADOW_MAX_DISTANCE {
+            if get_soft_shadows_are_enabled() && to_viewer_vec_length < soft_shadows_max_distance {
                 // soft shadows code path
                 // TODO: dedupe with directional lights
 
@@ -941,7 +957,7 @@ fn do_fragment_shade(
 
                 // assume we're not in shadow if we're outside the shadow's viewproj area
                 if light_space_position.x >= -1.0 && light_space_position.x <= 1.0 && light_space_position.y >= -1.0 && light_space_position.y <= 1.0 && light_space_position.z >= 0.0 && light_space_position.z <= 1.0 {
-                    if get_soft_shadows_are_enabled() && to_viewer_vec_length < SOFT_SHADOW_MAX_DISTANCE {
+                    if get_soft_shadows_are_enabled() && to_viewer_vec_length < soft_shadows_max_distance {
                         // TODO: revise this metric, not sure if the performance measurements I took were accurate.
                         // soft shadows code path. costs about 0.15ms extra (per shadow map?) per frame
                         // on an RTX 3060 when compared to hard shadows
@@ -955,7 +971,9 @@ fn do_fragment_shade(
                             vec2<u32>(3u, 3u)
                         );
 
-                        let max_sample_jitter = get_soft_shadow_factor() / shadow_cascade_pixel_size;
+                        let distance_from_soft_shadow_border = soft_shadows_max_distance - to_viewer_vec_length;
+                        let border_blend_factor = smoothstep(clamp(distance_from_soft_shadow_border / soft_shadow_distance_border_blending_range, 0.0, 1.0));
+                        let max_sample_jitter = border_blend_factor * get_soft_shadow_factor() / shadow_cascade_pixel_size;
 
                         for (var i = 0; i < 4; i++) {
                             let base_sample_jitter = get_soft_shadow_sample_jitter(early_test_coords[i], random_jitter, 4u);
