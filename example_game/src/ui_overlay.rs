@@ -46,6 +46,7 @@ use crate::game::INITIAL_IS_SHOWING_CURSOR_MARKER;
 use crate::game::INITIAL_NEW_BLOOM_INTENSITY;
 use crate::game::INITIAL_NEW_BLOOM_RADIUS;
 use crate::game::INITIAL_SHADOW_BIAS;
+use crate::game::INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS;
 use crate::game::INITIAL_SKYBOX_WEIGHT;
 use crate::game::INITIAL_SOFT_SHADOW_FACTOR;
 use crate::game::INITIAL_SOFT_SHADOW_GRID_DIMS;
@@ -94,6 +95,7 @@ pub enum Message {
     BloomTypeChanged(BloomType),
     NewBloomRadiusChanged(f32),
     NewBloomIntensityChanged(f32),
+    ShadowSmallObjectCullingSizeChanged(f32),
     ToggleDepthPrepass(bool),
     ToggleCameraPose(bool),
     ToggleCursorMarker(bool),
@@ -153,6 +155,7 @@ pub struct UiOverlay {
     pub is_showing_cursor_marker: bool,
     pub is_recording_culling_stats: bool,
     pub culling_stats: Option<CullingStats>,
+    pub shadow_small_object_culling_size_pixels: f32,
 
     pub pending_perf_dump: Option<PendingPerfDump>,
     perf_dump_completion_time: Option<Instant>,
@@ -448,6 +451,8 @@ impl UiOverlay {
             is_showing_audio_stats: false,
             is_recording_culling_stats: false,
             culling_stats: None,
+            shadow_small_object_culling_size_pixels:
+                INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS,
             enable_vsync: INITIAL_ENABLE_VSYNC,
             bloom_type: INITIAL_BLOOM_TYPE,
             new_bloom_radius: INITIAL_NEW_BLOOM_RADIUS,
@@ -540,6 +545,9 @@ impl runtime::Program for UiOverlay {
                 );
                 self.culling_stats = frame_stats.culling_stats;
                 self.poll_perf_dump_state();
+            }
+            Message::ShadowSmallObjectCullingSizeChanged(new_state) => {
+                self.shadow_small_object_culling_size_pixels = new_state
             }
             Message::AudioSoundStatsChanged((track_path, stats)) => {
                 self.audio_sound_stats.insert(
@@ -1031,6 +1039,19 @@ impl runtime::Program for UiOverlay {
                     Message::SoftShadowGridDimsChanged,
                 )
                 .step(1u32),
+            );
+
+            options = options.push(Text::new(format!(
+                "Shadow Small Object Culling Size Pixels: {:.4}",
+                self.shadow_small_object_culling_size_pixels
+            )));
+            options = options.push(
+                slider(
+                    0.001..=1.0,
+                    self.shadow_small_object_culling_size_pixels,
+                    Message::ShadowSmallObjectCullingSizeChanged,
+                )
+                .step(0.001),
             );
 
             // profile dump

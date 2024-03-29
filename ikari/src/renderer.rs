@@ -938,6 +938,7 @@ pub struct RendererData {
     pub camera_node_id: Option<GameNodeId>,
     pub record_culling_stats: bool,
     pub last_frame_culling_stats: Option<CullingStats>,
+    pub shadow_small_object_culling_size_pixels: f32,
 }
 
 pub struct RendererConstantData {
@@ -2870,6 +2871,7 @@ impl Renderer {
             camera_node_id: None,
             record_culling_stats: false,
             last_frame_culling_stats: None,
+            shadow_small_object_culling_size_pixels: 0.075,
         };
 
         constant_data.cube_mesh_index = Self::bind_basic_mesh(&base, &mut data, &cube_mesh, true);
@@ -4016,7 +4018,10 @@ impl Renderer {
                 //
                 // If the object is fully inside both of the previous cascades then it can
                 // also be culled. This should work well when combined with LOD
-                if projection_volume.pixel_size > node_bounding_sphere.radius * 2.0
+                if projection_volume.pixel_size
+                    > node_bounding_sphere.radius
+                        * 2.0
+                        * data.shadow_small_object_culling_size_pixels
                 // TODO: this doesn't seem to work for objects that remain close to the player. is it fundamentally wrong?
                 // || fully_contained_cascades >= 2
                 {
