@@ -796,7 +796,9 @@ fn do_fragment_shade(
                     vec2<u32>(3u, 3u)
                 );
 
-                let max_sample_jitter = get_soft_shadow_factor() * 30.0;
+                let distance_from_soft_shadow_border = soft_shadows_max_distance - to_viewer_vec_length;
+                let border_blend_factor = smoothstep(clamp(distance_from_soft_shadow_border / soft_shadow_distance_border_blending_range, 0.0, 1.0));
+                let max_sample_jitter = border_blend_factor * get_soft_shadow_factor() * 30.0;
 
                 for (var i = 0; i < 4; i++) {
                     let base_sample_jitter = get_soft_shadow_sample_jitter(early_test_coords[i], random_jitter, 4u);
