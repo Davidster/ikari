@@ -749,7 +749,9 @@ fn do_fragment_shade(
         world_position.z,
     );
     var random_seed_y = random_seed_x + 1000.0;
-    var random_jitter = vec2(2.0, 2.0) * vec2(noise3(random_seed_x), noise3(random_seed_y)) - vec2(1.0, 1.0);
+    let noise_1 = noise3(random_seed_x);
+    let noise_2 = noise3(random_seed_y);
+    var random_jitter = vec2(2.0, 2.0) * vec2(noise_1, noise_2) - vec2(1.0, 1.0);
 
     let shadow_bias = get_shadow_bias();
     let soft_shadow_grid_dims = get_soft_shadow_grid_dims();
@@ -933,11 +935,12 @@ fn do_fragment_shade(
                 var shadow_cascade_index = light_index * MAX_SHADOW_CASCADES;
                 var shadow_cascade_dist = 0.0;
                 debug_cascade_index = 0;
+                let cascade_selection_distance = to_viewer_vec_length + noise_1 * to_viewer_vec_length * 0.5;
 
                 for (var cascade_index = 0u; cascade_index < MAX_SHADOW_CASCADES; cascade_index = cascade_index + 1u) {
                     shadow_cascade_dist = directional_lights.cascades[shadow_cascade_index].distance_and_pixel_size.x;
                     let next_shadow_cascade_dist = directional_lights.cascades[shadow_cascade_index + 1].distance_and_pixel_size.x;
-                    if to_viewer_vec_length < shadow_cascade_dist || 
+                    if cascade_selection_distance < shadow_cascade_dist || 
                        cascade_index == MAX_SHADOW_CASCADES - 1 || 
                        next_shadow_cascade_dist == 0.0 {
                         break;
