@@ -1,7 +1,5 @@
-use crate::collisions::CameraFrustumDescriptor;
 use crate::physics::rapier3d_f64::prelude::*;
 use crate::physics::PhysicsState;
-use crate::renderer::{FAR_PLANE_DISTANCE, FOV_Y, NEAR_PLANE_DISTANCE};
 use crate::time::Instant;
 use crate::transform::TransformBuilder;
 
@@ -376,22 +374,5 @@ impl PlayerController {
 
     pub fn view_forward_vector(&self) -> Vec3 {
         self.view_direction.to_vector()
-    }
-
-    pub fn view_frustum_with_position(
-        &self,
-        aspect_ratio: f32,
-        camera_position: Vec3,
-    ) -> CameraFrustumDescriptor {
-        let camera_forward = self.view_direction.to_vector();
-
-        CameraFrustumDescriptor {
-            focal_point: camera_position,
-            forward_vector: camera_forward,
-            aspect_ratio,
-            near_plane_distance: NEAR_PLANE_DISTANCE,
-            far_plane_distance: FAR_PLANE_DISTANCE,
-            fov_y_rad: FOV_Y.to_radians(),
-        }
     }
 }

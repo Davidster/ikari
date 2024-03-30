@@ -60,7 +60,10 @@ use winit::keyboard::Key;
 use winit::keyboard::NamedKey;
 
 // graphics settings
-pub const INITIAL_ENABLE_VSYNC: bool = false;
+pub const INITIAL_ENABLE_VSYNC: bool = true;
+pub const INITIAL_NEAR_PLANE_DISTANCE: f32 = 0.001;
+pub const INITIAL_FAR_PLANE_DISTANCE: f32 = 100000.0;
+pub const INITIAL_FOV_Y: f32 = 45.0 * std::f32::consts::PI / 180.0;
 pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
 pub const INITIAL_ENABLE_SHADOWS: bool = true;
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
@@ -1992,6 +1995,9 @@ pub fn update_game_state(
             elwt.exit();
         }
 
+        renderer_data_guard.fov_y = ui_state.fov_y;
+        renderer_data_guard.near_plane_distance = ui_state.near_plane_distance;
+        renderer_data_guard.far_plane_distance = ui_state.far_plane_distance;
         renderer_data_guard.bloom_type = ui_state.bloom_type;
         renderer_data_guard.new_bloom_radius = ui_state.new_bloom_radius;
         renderer_data_guard.new_bloom_intensity = ui_state.new_bloom_intensity;

@@ -212,7 +212,7 @@ pub fn build_cubemap_face_frusta(
                 aspect_ratio: 1.0,
                 near_plane_distance,
                 far_plane_distance,
-                fov_y_rad: 90.0_f32.to_radians(),
+                fov_y: 90.0_f32.to_radians(),
             }
         })
         .collect()

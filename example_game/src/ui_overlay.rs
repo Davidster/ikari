@@ -41,8 +41,11 @@ use crate::game::INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG;
 use crate::game::INITIAL_ENABLE_SHADOW_DEBUG;
 use crate::game::INITIAL_ENABLE_SOFT_SHADOWS;
 use crate::game::INITIAL_ENABLE_VSYNC;
+use crate::game::INITIAL_FAR_PLANE_DISTANCE;
+use crate::game::INITIAL_FOV_Y;
 use crate::game::INITIAL_IS_SHOWING_CAMERA_POSE;
 use crate::game::INITIAL_IS_SHOWING_CURSOR_MARKER;
+use crate::game::INITIAL_NEAR_PLANE_DISTANCE;
 use crate::game::INITIAL_NEW_BLOOM_INTENSITY;
 use crate::game::INITIAL_NEW_BLOOM_RADIUS;
 use crate::game::INITIAL_SHADOW_BIAS;
@@ -92,7 +95,10 @@ pub enum Message {
     CameraPoseChanged((Vec3, ControlledViewDirection)),
     AudioSoundStatsChanged((GameFilePath, AudioSoundStats)),
     #[allow(dead_code)]
-    ToggleVSync(bool),
+    VsyncChanged(bool),
+    FovyChanged(f32),
+    NearPlaneDistanceChanged(f32),
+    FarPlaneDistanceChanged(f32),
     BloomTypeChanged(BloomType),
     NewBloomRadiusChanged(f32),
     NewBloomIntensityChanged(f32),
@@ -121,6 +127,8 @@ pub enum Message {
     ExitButtonPressed,
     GenerateProfileDump,
 }
+
+// TODO: split these settings into categories and add tree menu in the UI to organize them
 
 #[derive(Debug)]
 pub struct UiOverlay {
@@ -159,6 +167,9 @@ pub struct UiOverlay {
     pub culling_stats: Option<CullingStats>,
     pub shadow_small_object_culling_size_pixels: f32,
     pub soft_shadows_max_distance: f32,
+    pub fov_y: f32,
+    pub near_plane_distance: f32,
+    pub far_plane_distance: f32,
 
     pub pending_perf_dump: Option<PendingPerfDump>,
     perf_dump_completion_time: Option<Instant>,
@@ -476,6 +487,9 @@ impl UiOverlay {
             soft_shadow_grid_dims: INITIAL_SOFT_SHADOW_GRID_DIMS,
             pending_perf_dump: None,
             perf_dump_completion_time: None,
+            fov_y: INITIAL_FOV_Y,
+            near_plane_distance: INITIAL_NEAR_PLANE_DISTANCE,
+            far_plane_distance: INITIAL_FAR_PLANE_DISTANCE,
         }
     }
 
@@ -565,8 +579,17 @@ impl runtime::Program for UiOverlay {
             Message::CameraPoseChanged(new_state) => {
                 self.camera_pose = Some(new_state);
             }
-            Message::ToggleVSync(new_state) => {
+            Message::VsyncChanged(new_state) => {
                 self.enable_vsync = new_state;
+            }
+            Message::FovyChanged(new_state) => {
+                self.fov_y = new_state.to_radians();
+            }
+            Message::NearPlaneDistanceChanged(new_state) => {
+                self.near_plane_distance = new_state;
+            }
+            Message::FarPlaneDistanceChanged(new_state) => {
+                self.far_plane_distance = new_state;
             }
             Message::BloomTypeChanged(new_state) => {
                 self.bloom_type = new_state;
@@ -871,7 +894,7 @@ impl runtime::Program for UiOverlay {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 options = options.push(
-                    checkbox("Enable VSync", self.enable_vsync).on_toggle(Message::ToggleVSync),
+                    checkbox("Enable VSync", self.enable_vsync).on_toggle(Message::VsyncChanged),
                 );
             }
 
@@ -889,6 +912,39 @@ impl runtime::Program for UiOverlay {
                     Message::BloomTypeChanged,
                 ));
             }
+
+            options = options.push(Text::new(format!(
+                "Vertical FOV: {:.4}",
+                self.fov_y.to_degrees()
+            )));
+            options = options
+                .push(slider(10.0..=90.0, self.fov_y.to_degrees(), Message::FovyChanged).step(0.1));
+
+            options = options.push(Text::new(format!(
+                "Near plane distance: {:.4}",
+                self.near_plane_distance
+            )));
+            options = options.push(
+                slider(
+                    0.0001..=1.0,
+                    self.near_plane_distance,
+                    Message::NearPlaneDistanceChanged,
+                )
+                .step(0.0001),
+            );
+
+            options = options.push(Text::new(format!(
+                "Far plane distance: {:.4}",
+                self.far_plane_distance
+            )));
+            options = options.push(
+                slider(
+                    100.0..=100000.0,
+                    self.far_plane_distance,
+                    Message::FarPlaneDistanceChanged,
+                )
+                .step(10.0),
+            );
 
             options = options.push(Text::new(format!(
                 "New Bloom Radius: {:.4}",

@@ -5,8 +5,6 @@ use crate::camera::SkyboxShaderCameraRaw;
 use crate::raw_image::RawImage;
 use crate::renderer::BaseRenderer;
 use crate::renderer::RendererConstantData;
-use crate::renderer::FAR_PLANE_DISTANCE;
-use crate::renderer::NEAR_PLANE_DISTANCE;
 use crate::renderer::USE_LABELS;
 use crate::sampler_cache::SamplerDescriptor;
 use crate::wasm_not_sync::WasmNotArc;
@@ -622,27 +620,23 @@ impl Texture {
                     label: USE_LABELS.then_some("cubemap_gen_camera_bind_group"),
                 });
 
-        let faces: Vec<_> = build_cubemap_face_camera_views(
-            Vec3::new(0.0, 0.0, 0.0),
-            NEAR_PLANE_DISTANCE,
-            FAR_PLANE_DISTANCE,
-            true,
-        )
-        .iter()
-        .copied()
-        .enumerate()
-        .map(|(i, view_proj_matrices)| {
-            (
-                view_proj_matrices,
-                cubemap_texture.create_view(&wgpu::TextureViewDescriptor {
-                    dimension: Some(wgpu::TextureViewDimension::D2),
-                    base_array_layer: i as u32,
-                    array_layer_count: Some(1),
-                    ..Default::default()
-                }),
-            )
-        })
-        .collect();
+        let faces: Vec<_> =
+            build_cubemap_face_camera_views(Vec3::new(0.0, 0.0, 0.0), 0.0, 1.0, true)
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, view_proj_matrices)| {
+                    (
+                        view_proj_matrices,
+                        cubemap_texture.create_view(&wgpu::TextureViewDescriptor {
+                            dimension: Some(wgpu::TextureViewDimension::D2),
+                            base_array_layer: i as u32,
+                            array_layer_count: Some(1),
+                            ..Default::default()
+                        }),
+                    )
+                })
+                .collect();
 
         for (face_view_proj_matrices, face_texture_view) in faces {
             let mut encoder =
@@ -876,27 +870,23 @@ impl Texture {
                     label: USE_LABELS.then_some("env_map_gen_camera_bind_group"),
                 });
 
-        let faces: Vec<_> = build_cubemap_face_camera_views(
-            Vec3::new(0.0, 0.0, 0.0),
-            NEAR_PLANE_DISTANCE,
-            FAR_PLANE_DISTANCE,
-            true,
-        )
-        .iter()
-        .copied()
-        .enumerate()
-        .map(|(i, view_proj_matrices)| {
-            (
-                view_proj_matrices,
-                env_map.create_view(&wgpu::TextureViewDescriptor {
-                    dimension: Some(wgpu::TextureViewDimension::D2),
-                    base_array_layer: i as u32,
-                    array_layer_count: Some(1),
-                    ..Default::default()
-                }),
-            )
-        })
-        .collect();
+        let faces: Vec<_> =
+            build_cubemap_face_camera_views(Vec3::new(0.0, 0.0, 0.0), 0.0, 1.0, true)
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(i, view_proj_matrices)| {
+                    (
+                        view_proj_matrices,
+                        env_map.create_view(&wgpu::TextureViewDescriptor {
+                            dimension: Some(wgpu::TextureViewDimension::D2),
+                            base_array_layer: i as u32,
+                            array_layer_count: Some(1),
+                            ..Default::default()
+                        }),
+                    )
+                })
+                .collect();
 
         for (face_view_proj_matrices, face_texture_view) in faces {
             let mut encoder =
@@ -1078,12 +1068,8 @@ impl Texture {
                     label: USE_LABELS.then_some("spec_env_map_gen_roughness_bind_group"),
                 });
 
-        let camera_projection_matrices = build_cubemap_face_camera_views(
-            Vec3::new(0.0, 0.0, 0.0),
-            NEAR_PLANE_DISTANCE,
-            FAR_PLANE_DISTANCE,
-            true,
-        );
+        let camera_projection_matrices =
+            build_cubemap_face_camera_views(Vec3::new(0.0, 0.0, 0.0), 0.0, 1.0, true);
 
         // TODO: level 0 doesn't really need to be done since roughness = 0 basically copies the skybox plainly
         //       but we'll need to write the contents of skybox_rad_texture to the first mip level of the cubemap above

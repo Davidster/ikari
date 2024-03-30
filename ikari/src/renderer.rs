@@ -51,9 +51,6 @@ pub(crate) const PRESORT_INSTANCES_BY_MESH_MATERIAL: bool = false;
 
 pub const MAX_LIGHT_COUNT: usize = 32;
 pub const MAX_SHADOW_CASCADES: usize = 4;
-pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
-pub const FAR_PLANE_DISTANCE: f32 = 100000.0;
-pub const FOV_Y: f32 = 45.0 * std::f32::consts::PI / 180.0;
 pub const DEFAULT_WIREFRAME_COLOR: [f32; 4] = [0.0, 1.0, 1.0, 1.0];
 pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE: f32 = 0.1;
 pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE: f32 = 1000.0;
@@ -916,6 +913,9 @@ pub struct RendererData {
     pub binded_pbr_materials: Vec<BindedPbrMaterial>,
     pub textures: Vec<Texture>,
 
+    pub fov_y: f32,
+    pub near_plane_distance: f32,
+    pub far_plane_distance: f32,
     pub tone_mapping_exposure: f32,
     pub bloom_threshold: f32,
     pub bloom_ramp_size: f32,
@@ -2513,7 +2513,7 @@ impl Renderer {
         let skybox_dim = 32;
         let sky_color = [8, 113, 184, 255];
         let sun_color = [253, 251, 211, 255];
-        let background_texture_er = {
+        let skybox_background_texture = {
             let image = RawImage::from_dynamic_image(
                 image::RgbaImage::from_pixel(skybox_dim, skybox_dim, sky_color.into()).into(),
                 true,
@@ -2531,7 +2531,7 @@ impl Renderer {
             )?
         };
 
-        let background_texture_rad = {
+        let skybox_environment_hdr = {
             let pixel_count = skybox_dim * skybox_dim;
             let color_hdr = sun_color.map(|val| F16::from(0.2 * val as f32 / 255.0));
             let mut image_raw: Vec<[F16; 4]> = Vec::with_capacity(pixel_count as usize);
@@ -2601,14 +2601,14 @@ impl Renderer {
             make_skybox(
                 &base,
                 &constant_data,
-                &background_texture_er,
-                &background_texture_rad,
+                &skybox_background_texture,
+                &skybox_environment_hdr,
             )?,
             make_skybox(
                 &base,
                 &constant_data,
-                &background_texture_er,
-                &background_texture_rad,
+                &skybox_background_texture,
+                &skybox_environment_hdr,
             )?,
         ];
 
@@ -2877,6 +2877,9 @@ impl Renderer {
             record_culling_stats: false,
             last_frame_culling_stats: None,
             shadow_small_object_culling_size_pixels: 0.075,
+            fov_y: 45.0f32.to_radians(),
+            near_plane_distance: 0.001,
+            far_plane_distance: 100000.0,
         };
 
         constant_data.cube_mesh_index = Self::bind_basic_mesh(&base, &mut data, &cube_mesh, true);
@@ -3708,7 +3711,7 @@ impl Renderer {
                         forward_vector: controlled_direction.to_vector(),
                         near_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
                         far_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
-                        fov_y_rad: 90.0_f32.to_radians(),
+                        fov_y: 90.0_f32.to_radians(),
                         aspect_ratio: 1.0,
                     };
 
@@ -3865,6 +3868,7 @@ impl Renderer {
     ) {
         let aspect_ratio = surface_config.width as f32 / surface_config.height as f32;
 
+        let data_guard = self.data.lock().unwrap();
         let mut private_data_guard = self.private_data.lock().unwrap();
 
         if CullingFrustumLockMode::from(private_data_guard.frustum_culling_lock.clone())
@@ -3873,10 +3877,7 @@ impl Renderer {
             return;
         }
 
-        let camera_transform = self
-            .data
-            .lock()
-            .unwrap()
+        let camera_transform = data_guard
             .camera_node_id
             .and_then(|camera_node_id| engine_state.scene.get_node(camera_node_id))
             .map(|camera_node| camera_node.transform);
@@ -3899,9 +3900,9 @@ impl Renderer {
                 focal_point: camera_transform.position(),
                 forward_vector: (-camera_transform.z_axis).into(),
                 aspect_ratio,
-                near_plane_distance: NEAR_PLANE_DISTANCE,
-                far_plane_distance: FAR_PLANE_DISTANCE,
-                fov_y_rad: FOV_Y,
+                near_plane_distance: data_guard.near_plane_distance,
+                far_plane_distance: data_guard.far_plane_distance,
+                fov_y: data_guard.fov_y,
             }),
             CullingFrustumLockMode::FocalPoint => CullingFrustumLock::FocalPoint(position),
             CullingFrustumLockMode::None => CullingFrustumLock::None,
@@ -4219,9 +4220,9 @@ impl Renderer {
             focal_point: camera_position,
             forward_vector: (-camera_transform.z_axis).into(),
             aspect_ratio,
-            near_plane_distance: NEAR_PLANE_DISTANCE,
-            far_plane_distance: FAR_PLANE_DISTANCE,
-            fov_y_rad: FOV_Y,
+            near_plane_distance: data.near_plane_distance,
+            far_plane_distance: data.far_plane_distance,
+            fov_y: data.fov_y,
         };
 
         let culling_frustum_desc = match private_data.frustum_culling_lock {
@@ -4774,9 +4775,9 @@ impl Renderer {
             ShaderCameraData::perspective(
                 camera_transform.into(),
                 aspect_ratio,
-                NEAR_PLANE_DISTANCE,
-                FAR_PLANE_DISTANCE,
-                FOV_Y,
+                data.near_plane_distance,
+                data.far_plane_distance,
+                data.fov_y,
                 true,
             )
         };
