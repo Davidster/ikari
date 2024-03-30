@@ -1,10 +1,7 @@
-
-
 use glam::{
     f32::{Mat4, Quat, Vec3},
     EulerRot,
 };
-
 
 use crate::{
     collisions::CameraFrustumDescriptor,
@@ -155,7 +152,7 @@ impl From<ShaderCameraData> for SkyboxShaderCameraRaw {
 
 pub fn build_cubemap_face_camera_view_directions() -> impl Iterator<Item = ControlledViewDirection>
 {
-    vec![
+    [
         (90.0, 0.0),    // right (negative x)
         (-90.0, 0.0),   // left (positive x)
         (180.0, 90.0),  // top (positive y)
@@ -177,42 +174,38 @@ pub fn build_cubemap_face_camera_views(
     near_plane_distance: f32,
     far_plane_distance: f32,
     reverse_z: bool,
-) -> Vec<ShaderCameraData> {
-    build_cubemap_face_camera_view_directions()
-        .map(|view_direction| {
-            ShaderCameraData::perspective(
-                Camera {
-                    horizontal_rotation: view_direction.horizontal,
-                    vertical_rotation: view_direction.vertical,
-                    position,
-                }
-                .to_transform(),
-                1.0,
-                near_plane_distance,
-                far_plane_distance,
-                90.0_f32.to_radians(),
-                reverse_z,
-            )
-        })
-        .collect()
+) -> impl Iterator<Item = ShaderCameraData> {
+    build_cubemap_face_camera_view_directions().map(move |view_direction| {
+        ShaderCameraData::perspective(
+            Camera {
+                horizontal_rotation: view_direction.horizontal,
+                vertical_rotation: view_direction.vertical,
+                position,
+            }
+            .to_transform(),
+            1.0,
+            near_plane_distance,
+            far_plane_distance,
+            90.0_f32.to_radians(),
+            reverse_z,
+        )
+    })
 }
 
 pub fn build_cubemap_face_frusta(
     position: Vec3,
     near_plane_distance: f32,
     far_plane_distance: f32,
-) -> Vec<CameraFrustumDescriptor> {
-    build_cubemap_face_camera_view_directions()
-        .map(|view_direction| {
-            let forward = view_direction.to_vector();
-            CameraFrustumDescriptor {
-                focal_point: position,
-                forward_vector: forward,
-                aspect_ratio: 1.0,
-                near_plane_distance,
-                far_plane_distance,
-                fov_y: 90.0_f32.to_radians(),
-            }
-        })
-        .collect()
+) -> impl Iterator<Item = CameraFrustumDescriptor> {
+    build_cubemap_face_camera_view_directions().map(move |view_direction| {
+        let forward = view_direction.to_vector();
+        CameraFrustumDescriptor {
+            focal_point: position,
+            forward_vector: forward,
+            aspect_ratio: 1.0,
+            near_plane_distance,
+            far_plane_distance,
+            fov_y: 90.0_f32.to_radians(),
+        }
+    })
 }

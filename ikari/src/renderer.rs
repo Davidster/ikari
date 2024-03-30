@@ -4493,7 +4493,6 @@ impl Renderer {
         // no instancing for transparent meshes to allow for sorting
         let mut transparent_meshes: Vec<(usize, GpuTransparentMeshInstance, f32)> = Vec::new();
 
-        // TODO: this loop is allocating way too many times. fix that
         // list of 6 frusta for each point light including culling information
         let point_lights_frusta: PointLightFrustaWithCullingInfo = engine_state
             .scene
@@ -4522,7 +4521,6 @@ impl Renderer {
 
                         (
                             frustum_descriptors
-                                .iter()
                                 .map(|desc| {
                                     // if the light view doesn't intersect with the main camera view at all
                                     // then none of the objects inside of it can cast shadows on objects
@@ -4539,7 +4537,7 @@ impl Renderer {
                                     } else {
                                         false
                                     };
-                                    ((*desc).into(), is_light_view_culled)
+                                    (desc.into(), is_light_view_culled)
                                 })
                                 .collect(),
                             can_cull_offscreen_objects,
@@ -4885,7 +4883,8 @@ impl Renderer {
                 .get_node(point_light.node_id)
                 .map(|node| node.transform.position())
                 .unwrap_or_default();
-            all_camera_data.append(&mut build_cubemap_face_camera_views(
+            all_camera_data.reserve(6);
+            all_camera_data.extend(&mut build_cubemap_face_camera_views(
                 light_position,
                 POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
                 POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
@@ -5212,8 +5211,6 @@ impl Renderer {
                         POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
                         false,
                     )
-                    .iter()
-                    .copied()
                     .enumerate()
                     .for_each(|(face_index, _face_view_proj_matrices)| {
                         render_pass.set_viewport(
