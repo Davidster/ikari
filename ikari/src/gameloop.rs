@@ -96,6 +96,8 @@ pub fn run<
                     elwt,
                 });
 
+                crate::thread::sleep(crate::time::Duration::from_millis(20));
+
                 engine_state.time_tracker.on_update_completed();
 
                 if let Err(err) = renderer.render(

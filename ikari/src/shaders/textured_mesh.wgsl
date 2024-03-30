@@ -978,7 +978,10 @@ fn do_fragment_shade(
 
                         let distance_from_soft_shadow_border = soft_shadows_max_distance - to_viewer_vec_length;
                         let border_blend_factor = smoothstep(clamp(distance_from_soft_shadow_border / soft_shadow_distance_border_blending_range, 0.0, 1.0));
-                        let max_sample_jitter = border_blend_factor * get_soft_shadow_factor() / shadow_cascade_pixel_size;
+                        var max_sample_jitter = border_blend_factor * get_soft_shadow_factor() / shadow_cascade_pixel_size;
+
+                        var distance_from_object_acc = 0.0;
+                        var distance_from_object_count = 0.0;
 
                         for (var i = 0; i < 4; i++) {
                             let base_sample_jitter = get_soft_shadow_sample_jitter(early_test_coords[i], random_jitter, 4u);
@@ -994,8 +997,15 @@ fn do_fragment_shade(
 
                             if current_depth - bias < closest_depth {
                                 shadow_occlusion_acc = shadow_occlusion_acc + 0.25; // should add up to 1.0 if no pixels are in shadow
+                            } else {
+                                // TODO: subtract bias here?
+                                distance_from_object_acc += current_depth - bias - closest_depth;
+                                distance_from_object_count += 1.0;
                             }
                         }
+
+                        let avg_distance_from_shadow_caster = 10.0 * distance_from_object_acc / distance_from_object_count;
+                        max_sample_jitter = max_sample_jitter * 1.0 * pow(avg_distance_from_shadow_caster, 1.1);
 
                         // if the early test finds the fragment to be completely in shadow, 
                         // completely in light, or its surface isn't facing the light (n_dot_l =< 0)

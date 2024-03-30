@@ -60,7 +60,7 @@ use winit::keyboard::Key;
 use winit::keyboard::NamedKey;
 
 // graphics settings
-pub const INITIAL_ENABLE_VSYNC: bool = false;
+pub const INITIAL_ENABLE_VSYNC: bool = true;
 pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
 pub const INITIAL_ENABLE_SHADOWS: bool = true;
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
@@ -81,7 +81,7 @@ pub const INITIAL_ENABLE_DIRECTIONAL_LIGHT_CULLING_FRUSTUM_DEBUG: bool = false;
 pub const INITIAL_ENABLE_SOFT_SHADOWS: bool = true;
 pub const INITIAL_SHADOW_BIAS: f32 = 0.001;
 pub const INITIAL_SKYBOX_WEIGHT: f32 = 1.0;
-pub const INITIAL_SOFT_SHADOW_FACTOR: f32 = 0.00003;
+pub const INITIAL_SOFT_SHADOW_FACTOR: f32 = 0.00015;
 pub const INITIAL_SOFT_SHADOW_GRID_DIMS: u32 = 4;
 pub const INITIAL_SOFT_SHADOWS_MAX_DISTANCE: f32 = 100.0;
 
@@ -366,8 +366,8 @@ pub async fn init_game_state(
             color: DIRECTIONAL_LIGHT_COLOR_B,
             intensity: 1.0,
             shadow_mapping_config: DirectionalLightShadowMappingConfig {
-                // num_cascades: 2,
-                // maximum_distance: 100.0,
+                num_cascades: 1,
+                maximum_distance: 50.0,
                 // first_cascade_far_bound: 10.0,
                 ..Default::default()
             },
