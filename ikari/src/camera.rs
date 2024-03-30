@@ -1,10 +1,10 @@
-use std::{cell::OnceCell, sync::OnceLock};
+
 
 use glam::{
     f32::{Mat4, Quat, Vec3},
     EulerRot,
 };
-use rapier3d_f64::geometry::ConvexPolyhedron;
+
 
 use crate::{
     collisions::CameraFrustumDescriptor,
@@ -186,8 +186,7 @@ pub fn build_cubemap_face_camera_views(
                     vertical_rotation: view_direction.vertical,
                     position,
                 }
-                .to_transform()
-                .into(),
+                .to_transform(),
                 1.0,
                 near_plane_distance,
                 far_plane_distance,

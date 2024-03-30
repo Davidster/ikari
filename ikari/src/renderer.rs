@@ -4847,7 +4847,7 @@ impl Renderer {
         // main camera
         let main_camera_shader_data = if USE_ORTHOGRAPHIC_CAMERA {
             ShaderCameraData::orthographic(
-                camera_transform.into(),
+                camera_transform,
                 20.0 * aspect_ratio,
                 20.0,
                 -1000.0,
@@ -4856,7 +4856,7 @@ impl Renderer {
             )
         } else {
             ShaderCameraData::perspective(
-                camera_transform.into(),
+                camera_transform,
                 aspect_ratio,
                 data.near_plane_distance,
                 data.far_plane_distance,
