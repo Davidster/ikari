@@ -4493,6 +4493,7 @@ impl Renderer {
         // no instancing for transparent meshes to allow for sorting
         let mut transparent_meshes: Vec<(usize, GpuTransparentMeshInstance, f32)> = Vec::new();
 
+        // TODO: this loop is allocating way too many times. fix that
         // list of 6 frusta for each point light including culling information
         let point_lights_frusta: PointLightFrustaWithCullingInfo = engine_state
             .scene
