@@ -802,7 +802,6 @@ fn do_fragment_shade(
 
                 for (var i = 0; i < 4; i++) {
                     let base_sample_jitter = get_soft_shadow_sample_jitter(early_test_coords[i], random_jitter, 4u);
-                    // TODO: multiply by current_depth to get softer shadows at a distance?
                     var sample_jitter = base_sample_jitter * max_sample_jitter;
                     sample_jitter.y = sample_jitter.y * 6.0;
                     let closest_depth = textureSampleLevel(
@@ -838,7 +837,6 @@ fn do_fragment_shade(
                         for (var j = 0u; j < soft_shadow_grid_dims; j++) {
                             let coord = vec2<u32>(i, j);
                             let base_sample_jitter = get_soft_shadow_sample_jitter(coord, random_jitter, soft_shadow_grid_dims);
-                            // TODO: multiply by current_depth to get softer shadows at a distance?
                             var sample_jitter = base_sample_jitter * max_sample_jitter;
                             sample_jitter.y = sample_jitter.y * 6.0;
                             let closest_depth = textureSampleLevel(
@@ -982,7 +980,6 @@ fn do_fragment_shade(
 
                         for (var i = 0; i < 4; i++) {
                             let base_sample_jitter = get_soft_shadow_sample_jitter(early_test_coords[i], random_jitter, 4u);
-                            // TODO: multiply by current_depth to get softer shadows at a distance?
                             let sample_jitter = base_sample_jitter * max_sample_jitter;
                             let closest_depth = textureSampleLevel(
                                 directional_shadow_map_textures,
@@ -1015,7 +1012,6 @@ fn do_fragment_shade(
                                     let coord = vec2<u32>(i, j);
 
                                     let base_sample_jitter = get_soft_shadow_sample_jitter(coord, random_jitter, soft_shadow_grid_dims);
-                                    // TODO: multiply by current_depth to get softer shadows at a distance?
                                     let sample_jitter = base_sample_jitter * max_sample_jitter;
                                     let closest_depth = textureSampleLevel(
                                         directional_shadow_map_textures,
