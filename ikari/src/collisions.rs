@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use crate::mesh::BasicMesh;
 use crate::mesh::ShaderVertex;
 use crate::physics::rapier3d_f64::prelude::*;
+use crate::transform::look_in_dir;
 use glam::f32::Vec3;
 use rand::Rng;
 use rand::SeedableRng;
@@ -29,14 +30,14 @@ pub struct Frustum {
     pub far: Plane,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CameraFrustumDescriptor {
     pub focal_point: Vec3,
     pub forward_vector: Vec3,
     pub aspect_ratio: f32,
     pub near_plane_distance: f32,
     pub far_plane_distance: f32,
-    pub fov_y_rad: f32,
+    pub fov_y: f32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -340,7 +341,7 @@ impl From<CameraFrustumDescriptor> for Frustum {
 
         // see https://learnopengl.com/Guest-Articles/2021/Scene/Frustum-Culling
         let up = right.cross(forward).normalize();
-        let half_v_side = desc.far_plane_distance * (desc.fov_y_rad * 0.5).tan();
+        let half_v_side = desc.far_plane_distance * (desc.fov_y * 0.5).tan();
         let half_h_side = half_v_side * desc.aspect_ratio;
         let front_mult_far = desc.far_plane_distance * forward;
 
@@ -372,7 +373,7 @@ impl From<CameraFrustumDescriptor> for Frustum {
 
 impl CameraFrustumDescriptor {
     /// this is SLOW. takes about 2 microseconds. consider caching the result
-    pub fn to_convex_polyhedron(&self) -> ConvexPolyhedron {
+    pub fn as_convex_polyhedron(&self) -> ConvexPolyhedron {
         let points: Vec<_> = self
             .to_basic_mesh()
             .vertices
@@ -394,6 +395,10 @@ impl CameraFrustumDescriptor {
             .clone()
     }
 
+    pub fn get_isometry(&self) -> Isometry<f64> {
+        look_in_dir(self.focal_point, self.forward_vector).as_isometry()
+    }
+
     /// here we're less worried about the bounding sphere being optimally tight
     /// and more worried about it having the same radius regardless of how
     /// the frustum is rotated
@@ -403,7 +408,7 @@ impl CameraFrustumDescriptor {
             .cross(Vec3::new(0.0, 1.0, 0.0))
             .normalize();
         let up = right.cross(self.forward_vector);
-        let tan_half_fovy = (self.fov_y_rad / 2.0).tan();
+        let tan_half_fovy = (self.fov_y / 2.0).tan();
 
         let d_x = tan_half_fovy * right * self.aspect_ratio;
         let d_y = tan_half_fovy * up;
@@ -426,7 +431,7 @@ impl CameraFrustumDescriptor {
         let diagonal_length = ((self.far_plane_distance - self.near_plane_distance)
             / self.far_plane_distance)
             * self.far_plane_distance
-            / (self.fov_y_rad / 2.0).cos();
+            / (self.fov_y / 2.0).cos();
         let longest_side_length = [
             far_plane_side_length_x,
             far_plane_side_length_y,
@@ -449,7 +454,7 @@ impl CameraFrustumDescriptor {
             .cross(Vec3::new(0.0, 1.0, 0.0))
             .normalize();
         let up = right.cross(self.forward_vector);
-        let tan_half_fovy = (self.fov_y_rad / 2.0).tan();
+        let tan_half_fovy = (self.fov_y / 2.0).tan();
 
         let d_x = tan_half_fovy * right * self.aspect_ratio;
         let d_y = tan_half_fovy * up;

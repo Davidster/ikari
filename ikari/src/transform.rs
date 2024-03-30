@@ -4,6 +4,7 @@ use glam::{
     f32::{Mat3, Mat4, Quat, Vec3},
     Affine3A,
 };
+use rapier3d_f64::na::{Quaternion, UnitQuaternion};
 use std::ops::{Deref, DerefMut, Mul};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -97,6 +98,15 @@ impl Transform {
         ));
     }
 
+    pub fn as_isometry(&self) -> Isometry<f64> {
+        let (_scale, rotation, position) = self.to_scale_rotation_translation();
+        Isometry::from_parts(
+            Translation::from(position.as_dvec3().to_array()),
+            UnitQuaternion::from_quaternion(Quaternion::from(rotation.as_f64().to_array())),
+        )
+    }
+
+    // TODO: remove this, just use to_scale_rotation_translation()
     pub fn decompose(&self) -> SimpleTransform {
         let (scale, rotation, position) = self.to_scale_rotation_translation();
 
@@ -303,7 +313,7 @@ pub fn make_orthographic_proj_matrix(
     }
 }
 
-pub fn _look_at(eye_pos: Vec3, dst_pos: Vec3) -> Mat4 {
+pub fn _look_at(eye_pos: Vec3, dst_pos: Vec3) -> Transform {
     look_in_dir(eye_pos, dst_pos - eye_pos)
 }
 
@@ -313,30 +323,25 @@ pub fn _look_at(eye_pos: Vec3, dst_pos: Vec3) -> Mat4 {
 /// into the camera's view space), take the inverse of this matrix
 /// warning: fails if pointing directly upward or downward
 /// a.k.a. if dir.normalize() is approximately (0, 1, 0) or (0, -1, 0)
-pub fn look_in_dir(eye_pos: Vec3, dir: Vec3) -> Mat4 {
+pub fn look_in_dir(eye_pos: Vec3, dir: Vec3) -> Transform {
     let world_up = Vec3::new(0.0, 1.0, 0.0);
     let forward = dir.normalize();
     let left = world_up.cross(forward).normalize();
     let camera_up = forward.cross(left).normalize();
     #[rustfmt::skip]
-    let look_at_matrix = Mat4::from_cols_array(&[
-        left.x, camera_up.x, forward.x, eye_pos.x,
-        left.y, camera_up.y, forward.y, eye_pos.y,
-        left.z, camera_up.z, forward.z, eye_pos.z,
-        0.0,    0.0, 0.0, 1.0,
+    let mat3 = Mat3::from_cols_array(&[
+        left.x, camera_up.x, forward.x,
+        left.y, camera_up.y, forward.y, 
+        left.z, camera_up.z, forward.z,
     ]).transpose();
-    look_at_matrix
+    Transform(Affine3A::from_mat3_translation(mat3, eye_pos))
 }
+
 pub fn clear_translation_from_matrix(mut transform: Mat4) -> Mat4 {
     transform.w_axis.x = 0.0;
     transform.w_axis.y = 0.0;
     transform.w_axis.z = 0.0;
     transform
-}
-
-pub fn get_translation_from_matrix(transform: Mat4) -> Vec3 {
-    let (_, _, position) = transform.to_scale_rotation_translation();
-    position
 }
 
 pub fn _matrix_diff(a: Mat4, b: Mat4) -> f32 {

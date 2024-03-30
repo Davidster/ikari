@@ -25,8 +25,8 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::num::NonZeroU64;
 use std::ops::Deref;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::{Arc, OnceLock};
 
 use bitvec::prelude::*;
 
@@ -51,9 +51,6 @@ pub(crate) const PRESORT_INSTANCES_BY_MESH_MATERIAL: bool = false;
 
 pub const MAX_LIGHT_COUNT: usize = 32;
 pub const MAX_SHADOW_CASCADES: usize = 4;
-pub const NEAR_PLANE_DISTANCE: f32 = 0.001;
-pub const FAR_PLANE_DISTANCE: f32 = 100000.0;
-pub const FOV_Y: f32 = 45.0 * std::f32::consts::PI / 180.0;
 pub const DEFAULT_WIREFRAME_COLOR: [f32; 4] = [0.0, 1.0, 1.0, 1.0];
 pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE: f32 = 0.1;
 pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE: f32 = 1000.0;
@@ -196,8 +193,7 @@ pub struct CascadeProjectionVolume {
 impl CascadeProjectionVolume {
     /// creates a transform that transforms a 2x2 cube centered at the origin to become this volume
     pub fn box_transform(&self) -> Transform {
-        let mut transform =
-            Transform::from(look_in_dir(self.center, self.direction).to_cols_array_2d());
+        let mut transform = look_in_dir(self.center, self.direction);
 
         transform.set_scale(Vec3::new(
             self.half_thickness,
@@ -346,6 +342,73 @@ impl std::fmt::Display for CullingFrustumLockMode {
                 CullingFrustumLockMode::None => "Off",
             }
         )
+    }
+}
+
+pub fn get_point_light_frustum_collider() -> &'static ConvexPolyhedron {
+    static INSTANCE: OnceLock<ConvexPolyhedron> = OnceLock::new();
+    INSTANCE.get_or_init(|| {
+        CameraFrustumDescriptor {
+            focal_point: Vec3::ZERO,
+            forward_vector: Vec3::Z,
+            aspect_ratio: 1.0,
+            near_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
+            far_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
+            fov_y: 90.0_f32.to_radians(),
+        }
+        .as_convex_polyhedron()
+    })
+}
+
+struct CachedCameraFrustumCollider {
+    collider: ConvexPolyhedron,
+    isometry: Isometry<f64>,
+    descriptor: CameraFrustumDescriptor,
+}
+
+impl CachedCameraFrustumCollider {
+    pub fn new(descriptor: CameraFrustumDescriptor) -> Self {
+        Self {
+            collider: CameraFrustumDescriptor {
+                focal_point: Vec3::ZERO,
+                forward_vector: Vec3::Z,
+                ..descriptor
+            }
+            .as_convex_polyhedron(),
+            isometry: descriptor.get_isometry(),
+            descriptor,
+        }
+    }
+
+    pub fn collider(&self) -> &ConvexPolyhedron {
+        &self.collider
+    }
+
+    pub fn isometry(&self) -> &Isometry<f64> {
+        &self.isometry
+    }
+
+    pub fn update(&mut self, new_descriptor: &CameraFrustumDescriptor) {
+        if self.descriptor.aspect_ratio != new_descriptor.aspect_ratio
+            || self.descriptor.fov_y != new_descriptor.fov_y
+            || self.descriptor.near_plane_distance != new_descriptor.near_plane_distance
+            || self.descriptor.far_plane_distance != new_descriptor.far_plane_distance
+        {
+            self.collider = CameraFrustumDescriptor {
+                focal_point: Vec3::ZERO,
+                forward_vector: Vec3::Z,
+                ..*new_descriptor
+            }
+            .as_convex_polyhedron();
+        }
+
+        if self.descriptor.focal_point != new_descriptor.focal_point
+            || self.descriptor.forward_vector != new_descriptor.forward_vector
+        {
+            self.isometry = new_descriptor.get_isometry();
+        }
+
+        self.descriptor = *new_descriptor;
     }
 }
 
@@ -718,10 +781,11 @@ pub struct RendererPrivateData {
     debug_culling_frustum_nodes: Vec<GameNodeId>,
     debug_culling_frustum_mesh_index: Option<usize>,
 
-    bloom_threshold_cleared: bool,
-    new_bloom_cleared: bool,
+    culling_frustum_collider: Option<CachedCameraFrustumCollider>,
     frustum_culling_lock: CullingFrustumLock, // for debug
     skybox_weights: [f32; 2],
+    bloom_threshold_cleared: bool,
+    new_bloom_cleared: bool,
 
     // gpu
     camera_lights_and_pbr_shader_options_bind_group_layout: wgpu::BindGroupLayout,
@@ -916,6 +980,9 @@ pub struct RendererData {
     pub binded_pbr_materials: Vec<BindedPbrMaterial>,
     pub textures: Vec<Texture>,
 
+    pub fov_y: f32,
+    pub near_plane_distance: f32,
+    pub far_plane_distance: f32,
     pub tone_mapping_exposure: f32,
     pub bloom_threshold: f32,
     pub bloom_ramp_size: f32,
@@ -2513,7 +2580,7 @@ impl Renderer {
         let skybox_dim = 32;
         let sky_color = [8, 113, 184, 255];
         let sun_color = [253, 251, 211, 255];
-        let background_texture_er = {
+        let skybox_background_texture = {
             let image = RawImage::from_dynamic_image(
                 image::RgbaImage::from_pixel(skybox_dim, skybox_dim, sky_color.into()).into(),
                 true,
@@ -2531,7 +2598,7 @@ impl Renderer {
             )?
         };
 
-        let background_texture_rad = {
+        let skybox_environment_hdr = {
             let pixel_count = skybox_dim * skybox_dim;
             let color_hdr = sun_color.map(|val| F16::from(0.2 * val as f32 / 255.0));
             let mut image_raw: Vec<[F16; 4]> = Vec::with_capacity(pixel_count as usize);
@@ -2601,14 +2668,14 @@ impl Renderer {
             make_skybox(
                 &base,
                 &constant_data,
-                &background_texture_er,
-                &background_texture_rad,
+                &skybox_background_texture,
+                &skybox_environment_hdr,
             )?,
             make_skybox(
                 &base,
                 &constant_data,
-                &background_texture_er,
-                &background_texture_rad,
+                &skybox_background_texture,
+                &skybox_environment_hdr,
             )?,
         ];
 
@@ -2877,6 +2944,9 @@ impl Renderer {
             record_culling_stats: false,
             last_frame_culling_stats: None,
             shadow_small_object_culling_size_pixels: 0.075,
+            fov_y: 45.0f32.to_radians(),
+            near_plane_distance: 0.001,
+            far_plane_distance: 100000.0,
         };
 
         constant_data.cube_mesh_index = Self::bind_basic_mesh(&base, &mut data, &cube_mesh, true);
@@ -2916,11 +2986,12 @@ impl Renderer {
                 debug_culling_frustum_nodes: vec![],
                 debug_culling_frustum_mesh_index: None,
 
+                culling_frustum_collider: None,
+                frustum_culling_lock: CullingFrustumLock::None,
+                skybox_weights,
                 // TODO: instead of clearing the texture when bloom is disabled, just don't read from it in the tone mapping shader
                 bloom_threshold_cleared: true,
                 new_bloom_cleared: true,
-                frustum_culling_lock: CullingFrustumLock::None,
-                skybox_weights,
 
                 camera_lights_and_pbr_shader_options_bind_group_layout,
 
@@ -3708,7 +3779,7 @@ impl Renderer {
                         forward_vector: controlled_direction.to_vector(),
                         near_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
                         far_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
-                        fov_y_rad: 90.0_f32.to_radians(),
+                        fov_y: 90.0_f32.to_radians(),
                         aspect_ratio: 1.0,
                     };
 
@@ -3720,12 +3791,16 @@ impl Renderer {
                     };
                     let debug_culling_frustum_mesh = debug_frustum_descriptor.to_basic_mesh();
 
-                    let identity = rapier3d_f64::na::Isometry::identity();
+                    let culling_frustum_collider = private_data
+                        .culling_frustum_collider
+                        .as_ref()
+                        .expect("Should have have checked for None above");
+
                     let collision_based_color = if rapier3d_f64::parry::query::intersection_test(
-                        &identity,
-                        &frustum_descriptor.to_convex_polyhedron(),
-                        &identity,
-                        &main_culling_frustum_desc.to_convex_polyhedron(),
+                        &frustum_descriptor.get_isometry(),
+                        get_point_light_frustum_collider(),
+                        culling_frustum_collider.isometry(),
+                        culling_frustum_collider.collider(),
                     )
                     .unwrap()
                     {
@@ -3865,6 +3940,7 @@ impl Renderer {
     ) {
         let aspect_ratio = surface_config.width as f32 / surface_config.height as f32;
 
+        let data_guard = self.data.lock().unwrap();
         let mut private_data_guard = self.private_data.lock().unwrap();
 
         if CullingFrustumLockMode::from(private_data_guard.frustum_culling_lock.clone())
@@ -3873,10 +3949,7 @@ impl Renderer {
             return;
         }
 
-        let camera_transform = self
-            .data
-            .lock()
-            .unwrap()
+        let camera_transform = data_guard
             .camera_node_id
             .and_then(|camera_node_id| engine_state.scene.get_node(camera_node_id))
             .map(|camera_node| camera_node.transform);
@@ -3899,9 +3972,9 @@ impl Renderer {
                 focal_point: camera_transform.position(),
                 forward_vector: (-camera_transform.z_axis).into(),
                 aspect_ratio,
-                near_plane_distance: NEAR_PLANE_DISTANCE,
-                far_plane_distance: FAR_PLANE_DISTANCE,
-                fov_y_rad: FOV_Y,
+                near_plane_distance: data_guard.near_plane_distance,
+                far_plane_distance: data_guard.far_plane_distance,
+                fov_y: data_guard.fov_y,
             }),
             CullingFrustumLockMode::FocalPoint => CullingFrustumLock::FocalPoint(position),
             CullingFrustumLockMode::None => CullingFrustumLock::None,
@@ -4219,9 +4292,9 @@ impl Renderer {
             focal_point: camera_position,
             forward_vector: (-camera_transform.z_axis).into(),
             aspect_ratio,
-            near_plane_distance: NEAR_PLANE_DISTANCE,
-            far_plane_distance: FAR_PLANE_DISTANCE,
-            fov_y_rad: FOV_Y,
+            near_plane_distance: data.near_plane_distance,
+            far_plane_distance: data.far_plane_distance,
+            fov_y: data.fov_y,
         };
 
         let culling_frustum_desc = match private_data.frustum_culling_lock {
@@ -4231,6 +4304,16 @@ impl Renderer {
                 ..camera_frustum_desc
             },
             CullingFrustumLock::None => camera_frustum_desc,
+        };
+
+        match private_data.culling_frustum_collider.as_mut() {
+            Some(collider) => {
+                collider.update(&culling_frustum_desc);
+            }
+            None => {
+                private_data.culling_frustum_collider =
+                    Some(CachedCameraFrustumCollider::new(culling_frustum_desc));
+            }
         };
 
         let culling_frustum = Frustum::from(culling_frustum_desc);
@@ -4315,10 +4398,7 @@ impl Renderer {
                         * (projection_half_depth - projection_volume_half_thickness);
 
                 let transform = {
-                    let mut transform = Transform::from(
-                        look_in_dir(projection_center, directional_light.direction)
-                            .to_cols_array_2d(),
-                    );
+                    let mut transform = look_in_dir(projection_center, directional_light.direction);
 
                     transform.set_scale(Vec3::new(
                         projection_volume_half_thickness,
@@ -4374,6 +4454,11 @@ impl Renderer {
             &resolved_directional_light_cascades,
         );
 
+        let culling_frustum_collider = private_data
+            .culling_frustum_collider
+            .as_ref()
+            .expect("Should have have checked for None above");
+
         engine_state.scene.recompute_global_node_transforms(data);
 
         let limits = &self.base.limits;
@@ -4408,6 +4493,7 @@ impl Renderer {
         // no instancing for transparent meshes to allow for sorting
         let mut transparent_meshes: Vec<(usize, GpuTransparentMeshInstance, f32)> = Vec::new();
 
+        // TODO: this loop is allocating way too many times. fix that
         // list of 6 frusta for each point light including culling information
         let point_lights_frusta: PointLightFrustaWithCullingInfo = engine_state
             .scene
@@ -4444,11 +4530,10 @@ impl Renderer {
                                     // render pass for this light view
                                     let is_light_view_culled = if USE_EXTRA_SHADOW_MAP_CULLING {
                                         !rapier3d_f64::parry::query::intersection_test(
-                                            &rapier3d_f64::na::Isometry::identity(),
-                                            // TODO: this is SLOW. cache the result and use isometry to move it.
-                                            &desc.to_convex_polyhedron(),
-                                            &rapier3d_f64::na::Isometry::identity(),
-                                            &culling_frustum_desc.to_convex_polyhedron(),
+                                            culling_frustum_collider.isometry(),
+                                            culling_frustum_collider.collider(),
+                                            &desc.get_isometry(),
+                                            get_point_light_frustum_collider(),
                                         )
                                         .unwrap()
                                     } else {
@@ -4763,7 +4848,7 @@ impl Renderer {
         // main camera
         let main_camera_shader_data = if USE_ORTHOGRAPHIC_CAMERA {
             ShaderCameraData::orthographic(
-                camera_transform.into(),
+                camera_transform,
                 20.0 * aspect_ratio,
                 20.0,
                 -1000.0,
@@ -4772,11 +4857,11 @@ impl Renderer {
             )
         } else {
             ShaderCameraData::perspective(
-                camera_transform.into(),
+                camera_transform,
                 aspect_ratio,
-                NEAR_PLANE_DISTANCE,
-                FAR_PLANE_DISTANCE,
-                FOV_Y,
+                data.near_plane_distance,
+                data.far_plane_distance,
+                data.fov_y,
                 true,
             )
         };
