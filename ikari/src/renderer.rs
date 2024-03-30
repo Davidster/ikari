@@ -25,8 +25,8 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::num::NonZeroU64;
 use std::ops::Deref;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::{Arc, OnceLock};
 
 use bitvec::prelude::*;
 
@@ -193,8 +193,7 @@ pub struct CascadeProjectionVolume {
 impl CascadeProjectionVolume {
     /// creates a transform that transforms a 2x2 cube centered at the origin to become this volume
     pub fn box_transform(&self) -> Transform {
-        let mut transform =
-            Transform::from(look_in_dir(self.center, self.direction).to_cols_array_2d());
+        let mut transform = look_in_dir(self.center, self.direction);
 
         transform.set_scale(Vec3::new(
             self.half_thickness,
@@ -343,6 +342,73 @@ impl std::fmt::Display for CullingFrustumLockMode {
                 CullingFrustumLockMode::None => "Off",
             }
         )
+    }
+}
+
+pub fn get_point_light_frustum_collider() -> &'static ConvexPolyhedron {
+    static INSTANCE: OnceLock<ConvexPolyhedron> = OnceLock::new();
+    INSTANCE.get_or_init(|| {
+        CameraFrustumDescriptor {
+            focal_point: Vec3::ZERO,
+            forward_vector: Vec3::Z,
+            aspect_ratio: 1.0,
+            near_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
+            far_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
+            fov_y: 90.0_f32.to_radians(),
+        }
+        .as_convex_polyhedron()
+    })
+}
+
+struct CachedCameraFrustumCollider {
+    collider: ConvexPolyhedron,
+    isometry: Isometry<f64>,
+    descriptor: CameraFrustumDescriptor,
+}
+
+impl CachedCameraFrustumCollider {
+    pub fn new(descriptor: CameraFrustumDescriptor) -> Self {
+        Self {
+            collider: CameraFrustumDescriptor {
+                focal_point: Vec3::ZERO,
+                forward_vector: Vec3::Z,
+                ..descriptor
+            }
+            .as_convex_polyhedron(),
+            isometry: descriptor.get_isometry(),
+            descriptor,
+        }
+    }
+
+    pub fn collider(&self) -> &ConvexPolyhedron {
+        &self.collider
+    }
+
+    pub fn isometry(&self) -> &Isometry<f64> {
+        &self.isometry
+    }
+
+    pub fn update(&mut self, new_descriptor: &CameraFrustumDescriptor) {
+        if self.descriptor.aspect_ratio != new_descriptor.aspect_ratio
+            || self.descriptor.fov_y != new_descriptor.fov_y
+            || self.descriptor.near_plane_distance != new_descriptor.near_plane_distance
+            || self.descriptor.far_plane_distance != new_descriptor.far_plane_distance
+        {
+            self.collider = CameraFrustumDescriptor {
+                focal_point: Vec3::ZERO,
+                forward_vector: Vec3::Z,
+                ..*new_descriptor
+            }
+            .as_convex_polyhedron();
+        }
+
+        if self.descriptor.focal_point != new_descriptor.focal_point
+            || self.descriptor.forward_vector != new_descriptor.forward_vector
+        {
+            self.isometry = new_descriptor.get_isometry();
+        }
+
+        self.descriptor = *new_descriptor;
     }
 }
 
@@ -715,10 +781,11 @@ pub struct RendererPrivateData {
     debug_culling_frustum_nodes: Vec<GameNodeId>,
     debug_culling_frustum_mesh_index: Option<usize>,
 
-    bloom_threshold_cleared: bool,
-    new_bloom_cleared: bool,
+    culling_frustum_collider: Option<CachedCameraFrustumCollider>,
     frustum_culling_lock: CullingFrustumLock, // for debug
     skybox_weights: [f32; 2],
+    bloom_threshold_cleared: bool,
+    new_bloom_cleared: bool,
 
     // gpu
     camera_lights_and_pbr_shader_options_bind_group_layout: wgpu::BindGroupLayout,
@@ -2919,11 +2986,12 @@ impl Renderer {
                 debug_culling_frustum_nodes: vec![],
                 debug_culling_frustum_mesh_index: None,
 
+                culling_frustum_collider: None,
+                frustum_culling_lock: CullingFrustumLock::None,
+                skybox_weights,
                 // TODO: instead of clearing the texture when bloom is disabled, just don't read from it in the tone mapping shader
                 bloom_threshold_cleared: true,
                 new_bloom_cleared: true,
-                frustum_culling_lock: CullingFrustumLock::None,
-                skybox_weights,
 
                 camera_lights_and_pbr_shader_options_bind_group_layout,
 
@@ -3723,12 +3791,16 @@ impl Renderer {
                     };
                     let debug_culling_frustum_mesh = debug_frustum_descriptor.to_basic_mesh();
 
-                    let identity = rapier3d_f64::na::Isometry::identity();
+                    let culling_frustum_collider = private_data
+                        .culling_frustum_collider
+                        .as_ref()
+                        .expect("Should have have checked for None above");
+
                     let collision_based_color = if rapier3d_f64::parry::query::intersection_test(
-                        &identity,
-                        &frustum_descriptor.to_convex_polyhedron(),
-                        &identity,
-                        &main_culling_frustum_desc.to_convex_polyhedron(),
+                        &frustum_descriptor.get_isometry(),
+                        get_point_light_frustum_collider(),
+                        culling_frustum_collider.isometry(),
+                        culling_frustum_collider.collider(),
                     )
                     .unwrap()
                     {
@@ -4234,6 +4306,16 @@ impl Renderer {
             CullingFrustumLock::None => camera_frustum_desc,
         };
 
+        match private_data.culling_frustum_collider.as_mut() {
+            Some(collider) => {
+                collider.update(&culling_frustum_desc);
+            }
+            None => {
+                private_data.culling_frustum_collider =
+                    Some(CachedCameraFrustumCollider::new(culling_frustum_desc));
+            }
+        };
+
         let culling_frustum = Frustum::from(culling_frustum_desc);
 
         let mut resolved_directional_light_cascades = vec![];
@@ -4316,10 +4398,7 @@ impl Renderer {
                         * (projection_half_depth - projection_volume_half_thickness);
 
                 let transform = {
-                    let mut transform = Transform::from(
-                        look_in_dir(projection_center, directional_light.direction)
-                            .to_cols_array_2d(),
-                    );
+                    let mut transform = look_in_dir(projection_center, directional_light.direction);
 
                     transform.set_scale(Vec3::new(
                         projection_volume_half_thickness,
@@ -4374,6 +4453,11 @@ impl Renderer {
             &culling_frustum_desc,
             &resolved_directional_light_cascades,
         );
+
+        let culling_frustum_collider = private_data
+            .culling_frustum_collider
+            .as_ref()
+            .expect("Should have have checked for None above");
 
         engine_state.scene.recompute_global_node_transforms(data);
 
@@ -4445,11 +4529,10 @@ impl Renderer {
                                     // render pass for this light view
                                     let is_light_view_culled = if USE_EXTRA_SHADOW_MAP_CULLING {
                                         !rapier3d_f64::parry::query::intersection_test(
-                                            &rapier3d_f64::na::Isometry::identity(),
-                                            // TODO: this is SLOW. cache the result and use isometry to move it.
-                                            &desc.to_convex_polyhedron(),
-                                            &rapier3d_f64::na::Isometry::identity(),
-                                            &culling_frustum_desc.to_convex_polyhedron(),
+                                            culling_frustum_collider.isometry(),
+                                            culling_frustum_collider.collider(),
+                                            &desc.get_isometry(),
+                                            get_point_light_frustum_collider(),
                                         )
                                         .unwrap()
                                     } else {

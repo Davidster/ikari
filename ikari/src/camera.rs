@@ -1,14 +1,16 @@
+use std::{cell::OnceCell, sync::OnceLock};
+
 use glam::{
     f32::{Mat4, Quat, Vec3},
     EulerRot,
 };
+use rapier3d_f64::geometry::ConvexPolyhedron;
 
 use crate::{
     collisions::CameraFrustumDescriptor,
     player_controller::ControlledViewDirection,
     transform::{
-        clear_translation_from_matrix, get_translation_from_matrix, make_orthographic_proj_matrix,
-        make_perspective_proj_matrix, TransformBuilder,
+        make_orthographic_proj_matrix, make_perspective_proj_matrix, Transform, TransformBuilder,
     },
 };
 
@@ -43,7 +45,7 @@ pub struct ShaderCameraData {
 
 impl ShaderCameraData {
     pub fn perspective(
-        transform: Mat4,
+        transform: Transform,
         aspect_ratio: f32,
         near_plane_distance: f32,
         far_plane_distance: f32,
@@ -57,10 +59,9 @@ impl ShaderCameraData {
             aspect_ratio,
             reverse_z,
         );
-        let rotation_only_matrix = clear_translation_from_matrix(transform);
-        let rotation_only_view = rotation_only_matrix.inverse();
-        let view = transform.inverse();
-        let position = get_translation_from_matrix(transform);
+        let rotation_only_view = Mat4::from_mat3a(transform.matrix3.inverse());
+        let view = Mat4::from(transform.inverse());
+        let position = transform.position();
         Self {
             proj,
             view,
@@ -72,7 +73,7 @@ impl ShaderCameraData {
     }
 
     pub fn orthographic(
-        transform: Mat4,
+        transform: Transform,
         width: f32,
         height: f32,
         near_plane_distance: f32,
@@ -86,10 +87,9 @@ impl ShaderCameraData {
             far_plane_distance,
             reverse_z,
         );
-        let rotation_only_matrix = clear_translation_from_matrix(transform);
-        let rotation_only_view = rotation_only_matrix.inverse();
-        let view = transform.inverse();
-        let position = get_translation_from_matrix(transform);
+        let rotation_only_view = Mat4::from_mat3a(transform.matrix3.inverse());
+        let view = Mat4::from(transform.inverse());
+        let position = transform.position();
         Self {
             proj,
             view,

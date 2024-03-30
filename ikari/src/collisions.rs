@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use crate::mesh::BasicMesh;
 use crate::mesh::ShaderVertex;
 use crate::physics::rapier3d_f64::prelude::*;
+use crate::transform::look_in_dir;
 use glam::f32::Vec3;
 use rand::Rng;
 use rand::SeedableRng;
@@ -29,7 +30,7 @@ pub struct Frustum {
     pub far: Plane,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CameraFrustumDescriptor {
     pub focal_point: Vec3,
     pub forward_vector: Vec3,
@@ -372,7 +373,7 @@ impl From<CameraFrustumDescriptor> for Frustum {
 
 impl CameraFrustumDescriptor {
     /// this is SLOW. takes about 2 microseconds. consider caching the result
-    pub fn to_convex_polyhedron(&self) -> ConvexPolyhedron {
+    pub fn as_convex_polyhedron(&self) -> ConvexPolyhedron {
         let points: Vec<_> = self
             .to_basic_mesh()
             .vertices
@@ -392,6 +393,10 @@ impl CameraFrustumDescriptor {
             .as_convex_polyhedron()
             .unwrap()
             .clone()
+    }
+
+    pub fn get_isometry(&self) -> Isometry<f64> {
+        look_in_dir(self.focal_point, self.forward_vector).as_isometry()
     }
 
     /// here we're less worried about the bounding sphere being optimally tight
