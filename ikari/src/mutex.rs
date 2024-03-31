@@ -19,6 +19,12 @@ mod std {
             self.0.try_lock().ok()
         }
     }
+
+    impl<T> From<T> for Mutex<T> {
+        fn from(value: T) -> Self {
+            Mutex::new(value)
+        }
+    }
 }
 
 mod spin {
@@ -40,6 +46,12 @@ mod spin {
 
         pub fn try_lock(&self) -> Option<SpinMutexGuard<T>> {
             self.0.try_lock()
+        }
+    }
+
+    impl<T> From<T> for Mutex<T> {
+        fn from(value: T) -> Self {
+            Mutex::new(value)
         }
     }
 }
