@@ -74,12 +74,13 @@ mod native {
 #[cfg(target_arch = "wasm32")]
 mod web {
     use js_sys::Reflect;
+    use std::path::PathBuf;
     use std::sync::Arc;
-    use std::{path::PathBuf, sync::Mutex};
     use wasm_bindgen::prelude::*;
     use wasm_bindgen_futures::JsFuture;
 
     use super::{FileManager, GameFilePath, GamePathMaker};
+    use crate::mutex::Mutex;
     use crate::thread::sleep_async;
     use crate::time::Duration;
 
@@ -277,7 +278,7 @@ mod web {
 
         async fn run_producer_loop(inner: Arc<Mutex<HttpFileStreamerSyncInner>>) {
             if let Err(err) = Self::run_producer_loop_inner(inner.clone()).await {
-                inner.lock().unwrap().error = Some(err.as_string().unwrap_or_default());
+                inner.lock().error = Some(err.as_string().unwrap_or_default());
             }
         }
 
@@ -292,7 +293,7 @@ mod web {
                     break Ok(());
                 }
 
-                let mut inner_guard = inner.lock().unwrap();
+                let mut inner_guard = inner.lock();
 
                 // if there's no more work to do, we spin-wait for more
                 if inner_guard.current_requested_chunk_size == 0 {
@@ -333,7 +334,7 @@ mod web {
             }
 
             {
-                let mut inner_guard = self.inner.lock().unwrap();
+                let mut inner_guard = self.inner.lock();
 
                 if let Some(err) = inner_guard.error.take() {
                     return io_error(&err);
@@ -348,7 +349,7 @@ mod web {
 
             // wait for some data
             let mut inner_guard = loop {
-                let inner_guard = self.inner.lock().unwrap();
+                let inner_guard = self.inner.lock();
                 if inner_guard.current_requested_chunk_size == 0 {
                     break inner_guard;
                 }
@@ -366,7 +367,7 @@ mod web {
 
     impl std::io::Seek for HttpFileStreamerSync {
         fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
-            let mut inner_guard = self.inner.lock().unwrap();
+            let mut inner_guard = self.inner.lock();
 
             if let Some(err) = inner_guard.error.take() {
                 return io_error(&err);

@@ -1,7 +1,7 @@
-
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use ikari::asset_loader::AssetId;
+use ikari::mutex::Mutex;
 use ikari::physics::rapier3d_f64::prelude::*;
 use ikari::player_controller::PlayerController;
 use ikari::scene::GameNodeId;

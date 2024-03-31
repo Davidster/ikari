@@ -9,6 +9,7 @@ use crate::gltf_loader::load_scene;
 use crate::mesh::IndexedPbrTextures;
 use crate::mesh::PbrTextures;
 use crate::mesh::ShaderVertex;
+use crate::mutex::Mutex;
 use crate::raw_image::RawImage;
 use crate::raw_image::RawImageDepthJoiner;
 use crate::renderer::BaseRenderer;
@@ -50,7 +51,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct AssetId(u64);
@@ -150,7 +151,7 @@ impl AssetLoader {
     }
 
     fn next_asset_id(&self) -> AssetId {
-        let mut next_asset_id_guard = self.next_asset_id.lock().unwrap();
+        let mut next_asset_id_guard = self.next_asset_id.lock();
         let next_asset_id: AssetId = *next_asset_id_guard;
 
         next_asset_id_guard.0 += 1;
@@ -162,7 +163,7 @@ impl AssetLoader {
         let asset_id = self.next_asset_id();
 
         let pending_scenes = self.pending_scenes.clone();
-        let mut pending_scenes_guard = pending_scenes.lock().unwrap();
+        let mut pending_scenes_guard = pending_scenes.lock();
         pending_scenes_guard.push((asset_id, params));
 
         if pending_scenes_guard.len() == 1 {
@@ -173,20 +174,17 @@ impl AssetLoader {
             crate::thread::spawn(move || {
                 profiling::register_thread!("GLTF loader");
                 crate::block_on(async move {
-                    while pending_scenes.lock().unwrap().len() > 0 {
+                    while pending_scenes.lock().len() > 0 {
                         if is_exiting.load(Ordering::SeqCst) {
                             break;
                         }
 
-                        let (next_scene_id, next_scene_params) =
-                            pending_scenes.lock().unwrap().remove(0);
+                        let (next_scene_id, next_scene_params) = pending_scenes.lock().remove(0);
 
                         match load_scene(next_scene_params.clone()).await {
                             Ok(bindable_scene) => {
-                                let _replaced_ignored = bindable_scenes
-                                    .lock()
-                                    .unwrap()
-                                    .insert(next_scene_id, bindable_scene);
+                                let _replaced_ignored =
+                                    bindable_scenes.lock().insert(next_scene_id, bindable_scene);
                             }
                             Err(err) => {
                                 log::error!(
@@ -209,7 +207,7 @@ impl AssetLoader {
         let asset_id = self.next_asset_id();
 
         let pending_audio_clone = self.pending_audio.clone();
-        let mut pending_audio_clone_guard = pending_audio_clone.lock().unwrap();
+        let mut pending_audio_clone_guard = pending_audio_clone.lock();
         pending_audio_clone_guard.push((asset_id, params));
 
         if pending_audio_clone_guard.len() == 1 {
@@ -221,17 +219,15 @@ impl AssetLoader {
             crate::thread::spawn(move || {
                 profiling::register_thread!("Audio loader");
                 crate::block_on(async move {
-                    while pending_audio.lock().unwrap().len() > 0 {
+                    while pending_audio.lock().len() > 0 {
                         if is_exiting.load(Ordering::SeqCst) {
                             break;
                         }
 
-                        let (next_audio_id, next_audio_params) =
-                            pending_audio.lock().unwrap().remove(0);
+                        let (next_audio_id, next_audio_params) = pending_audio.lock().remove(0);
 
                         let do_load = || async {
-                            let device_sample_rate =
-                                audio_manager.lock().unwrap().device_sample_rate();
+                            let device_sample_rate = audio_manager.lock().device_sample_rate();
                             let mut audio_file_streamer = AudioFileStreamer::new(
                                 device_sample_rate,
                                 next_audio_params.path.clone(),
@@ -247,7 +243,7 @@ impl AssetLoader {
                                 next_audio_params.sound_params.clone(),
                                 device_sample_rate,
                             );
-                            let sound_index = audio_manager.lock().unwrap().add_sound(
+                            let sound_index = audio_manager.lock().add_sound(
                                 next_audio_params.path.clone(),
                                 sound_data,
                                 audio_file_streamer.track_length_seconds(),
@@ -269,7 +265,7 @@ impl AssetLoader {
                         match do_load().await {
                             Ok(result) => {
                                 let _replaced_ignored =
-                                    loaded_audio.lock().unwrap().insert(next_audio_id, result);
+                                    loaded_audio.lock().insert(next_audio_id, result);
                             }
                             Err(err) => {
                                 log::error!(
@@ -294,7 +290,7 @@ impl AssetLoader {
         sound_index: usize,
         mut audio_file_streamer: AudioFileStreamer,
     ) {
-        let device_sample_rate = audio_manager.lock().unwrap().device_sample_rate();
+        let device_sample_rate = audio_manager.lock().device_sample_rate();
         let mut is_first_chunk = true;
         let mut last_buffer_fill_time: Option<Instant> = None;
         let target_max_buffer_length_seconds = AUDIO_STREAM_BUFFER_LENGTH_SECONDS * 0.4;
@@ -348,14 +344,13 @@ impl AssetLoader {
 
                             audio_manager
                                 .lock()
-                                .unwrap()
                                 .write_stream_data(sound_index, sound_data);
                             loop {
                                 if is_exiting.load(Ordering::SeqCst) {
                                     break;
                                 }
 
-                                if !audio_manager.lock().unwrap().sound_is_playing(sound_index) {
+                                if !audio_manager.lock().sound_is_playing(sound_index) {
                                     crate::thread::sleep_async(Duration::from_secs_f32(0.05)).await;
                                 } else {
                                     break;
@@ -395,7 +390,7 @@ impl AssetLoader {
     pub fn load_skybox(&self, paths: SkyboxPaths) -> AssetId {
         let asset_id = self.next_asset_id();
 
-        let mut pending_skyboxes_guard = self.pending_skyboxes.lock().unwrap();
+        let mut pending_skyboxes_guard = self.pending_skyboxes.lock();
         pending_skyboxes_guard.push((asset_id, paths));
 
         if pending_skyboxes_guard.len() == 1 {
@@ -407,13 +402,12 @@ impl AssetLoader {
             crate::thread::spawn(move || {
                 profiling::register_thread!("Skybox loader");
                 crate::block_on(async move {
-                    while pending_skyboxes.lock().unwrap().len() > 0 {
+                    while pending_skyboxes.lock().len() > 0 {
                         if is_exiting.load(Ordering::SeqCst) {
                             break;
                         }
 
-                        let (next_skybox_id, next_skybox_paths) =
-                            pending_skyboxes.lock().unwrap().remove(0);
+                        let (next_skybox_id, next_skybox_paths) = pending_skyboxes.lock().remove(0);
 
                         let _get_skybox_paths_str = || {
                             let mut result = next_skybox_paths
@@ -429,10 +423,8 @@ impl AssetLoader {
 
                         match make_bindable_skybox(&next_skybox_paths).await {
                             Ok(result) => {
-                                let _replaced_ignored = bindable_skyboxes
-                                    .lock()
-                                    .unwrap()
-                                    .insert(next_skybox_id, result);
+                                let _replaced_ignored =
+                                    bindable_skyboxes.lock().insert(next_skybox_id, result);
                             }
                             Err(err) => {
                                 log::error!(
@@ -748,7 +740,7 @@ impl BindScene for ThreadedSceneBinder {
 
         let mut bindable_scenes: Vec<_> = vec![];
         {
-            let mut bindable_scenes_guard = asset_loader.bindable_scenes.lock().unwrap();
+            let mut bindable_scenes_guard = asset_loader.bindable_scenes.lock();
             for item in bindable_scenes_guard.drain() {
                 bindable_scenes.push(item);
             }
@@ -766,7 +758,7 @@ impl BindScene for ThreadedSceneBinder {
                     break;
                 }
 
-                let mut bind_group_caches_guard = bind_group_caches_clone.lock().unwrap();
+                let mut bind_group_caches_guard = bind_group_caches_clone.lock();
                 let bind_group_cache = bind_group_caches_guard.entry(scene_id).or_default();
 
                 match Self::bind_scene(
@@ -776,10 +768,8 @@ impl BindScene for ThreadedSceneBinder {
                     bindable_scene,
                 ) {
                     Ok(binded_scene) => {
-                        let _replaced_ignored = loaded_scenes_clone
-                            .lock()
-                            .unwrap()
-                            .insert(scene_id, binded_scene);
+                        let _replaced_ignored =
+                            loaded_scenes_clone.lock().insert(scene_id, binded_scene);
                     }
                     Err(err) => {
                         log::error!(
@@ -905,7 +895,7 @@ impl BindScene for TimeSlicedSceneBinder {
         const SLICE_BUDGET_SECONDS: f32 = 0.001;
 
         let start_time = crate::time::Instant::now();
-        let mut bindable_scenes_guard = asset_loader.bindable_scenes.lock().unwrap();
+        let mut bindable_scenes_guard = asset_loader.bindable_scenes.lock();
         let loaded_scenes_clone = self.loaded_scenes.clone();
 
         let scene_ids: Vec<_> = bindable_scenes_guard.keys().cloned().collect();
@@ -915,22 +905,20 @@ impl BindScene for TimeSlicedSceneBinder {
 
                 let bindable_scene = bindable_scenes_guard.remove(&scene_id).unwrap();
 
-                let mut bind_group_caches_guard = self.bind_group_caches.lock().unwrap();
+                let mut bind_group_caches_guard = self.bind_group_caches.lock();
                 let bind_group_cache = bind_group_caches_guard.entry(scene_id).or_default();
 
                 match Self::bind_scene_slice(
                     &base_renderer,
                     &renderer_constant_data,
-                    &mut self.staged_scenes.lock().unwrap(),
+                    &mut self.staged_scenes.lock(),
                     bind_group_cache,
                     scene_id,
                     &bindable_scene,
                 ) {
                     Ok(Some(binded_scene)) => {
-                        let _replaced_ignored = loaded_scenes_clone
-                            .lock()
-                            .unwrap()
-                            .insert(scene_id, binded_scene);
+                        let _replaced_ignored =
+                            loaded_scenes_clone.lock().insert(scene_id, binded_scene);
                         break;
                     }
                     Ok(None) => {
@@ -1069,14 +1057,13 @@ impl BindSkybox for TimeSlicedSkyboxBinder {
         asset_loader: Arc<AssetLoader>,
     ) {
         let next_skybox_id = {
-            let guard = asset_loader.bindable_skyboxes.lock().unwrap();
+            let guard = asset_loader.bindable_skyboxes.lock();
             guard.keys().next().cloned()
         };
         if let Some(next_skybox_id) = next_skybox_id {
             if let Some(next_bindable_skybox) = asset_loader
                 .bindable_skyboxes
                 .lock()
-                .unwrap()
                 .remove(&next_skybox_id)
             {
                 match bind_skybox(
@@ -1085,11 +1072,8 @@ impl BindSkybox for TimeSlicedSkyboxBinder {
                     next_bindable_skybox,
                 ) {
                     Ok(result) => {
-                        let _replaced_ignored = self
-                            .loaded_skyboxes
-                            .lock()
-                            .unwrap()
-                            .insert(next_skybox_id, result);
+                        let _replaced_ignored =
+                            self.loaded_skyboxes.lock().insert(next_skybox_id, result);
                     }
                     Err(err) => {
                         log::error!(

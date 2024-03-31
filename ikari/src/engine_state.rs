@@ -1,13 +1,14 @@
-use std::sync::{Arc, Mutex};
-
 use crate::{
     asset_loader::{AssetBinder, AssetLoader},
     audio::{AudioManager, AudioStreams},
+    mutex::Mutex,
     physics::PhysicsState,
     scene::Scene,
     time_tracker::TimeTracker,
     wasm_not_sync::WasmNotArc,
 };
+
+use std::sync::Arc;
 
 pub struct EngineState {
     pub scene: Scene,

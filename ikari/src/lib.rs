@@ -15,6 +15,7 @@ pub mod gameloop;
 pub mod gltf_loader;
 pub mod math;
 pub mod mesh;
+pub mod mutex;
 pub mod physics;
 pub mod player_controller;
 pub mod profile_dump;

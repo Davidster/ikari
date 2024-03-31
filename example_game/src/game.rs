@@ -12,7 +12,6 @@ use crate::ui_overlay::DEFAULT_FONT_BYTES;
 use crate::ui_overlay::DEFAULT_FONT_NAME;
 use crate::ui_overlay::KOOKY_FONT_BYTES;
 
-use std::sync::Mutex;
 use std::{collections::hash_map::Entry, sync::Arc};
 
 use anyhow::Result;
@@ -31,6 +30,7 @@ use ikari::mesh::BasicMesh;
 use ikari::mesh::DynamicPbrParams;
 use ikari::mesh::PbrTextures;
 use ikari::mesh::Vertex;
+use ikari::mutex::Mutex;
 use ikari::physics::rapier3d_f64::prelude::*;
 use ikari::physics::PhysicsState;
 use ikari::player_controller::ControlledViewDirection;
@@ -280,7 +280,7 @@ pub async fn init_game_state(
     });
 
     {
-        let mut renderer_data_guard = renderer.data.lock().unwrap();
+        let mut renderer_data_guard = renderer.data.lock();
         renderer_data_guard.enable_shadows = INITIAL_ENABLE_SHADOWS;
         renderer_data_guard.bloom_type = INITIAL_BLOOM_TYPE;
         renderer_data_guard.bloom_threshold = INITIAL_BLOOM_THRESHOLD;
@@ -313,7 +313,7 @@ pub async fn init_game_state(
                 })
             };
 
-            let mut asset_ids = asset_ids_clone.lock().unwrap();
+            let mut asset_ids = asset_ids_clone.lock();
 
             // player's revolver
             // https://done3d.com/colt-python-8-inch/
@@ -444,7 +444,7 @@ pub async fn init_game_state(
     physics_state.set_gravity_is_enabled(ENABLE_GRAVITY);
     player_controller.set_is_gravity_enabled(physics_state, ENABLE_GRAVITY_ON_PLAYER);
 
-    renderer.data.lock().unwrap().camera_node_id = Some(player_node_id);
+    renderer.data.lock().camera_node_id = Some(player_node_id);
 
     let mut point_light_node_ids: Vec<GameNodeId> = Vec::new();
     for (transform, color, intensity) in point_lights {
@@ -616,7 +616,7 @@ pub async fn init_game_state(
     let test_object_pbr_material_index = Renderer::bind_pbr_material(
         &renderer.base,
         &renderer.constant_data,
-        &mut renderer.data.lock().unwrap(),
+        &mut renderer.data.lock(),
         &PbrTextures {
             base_color: Some(&rainbow_texture),
             normal: Some(&brick_normal_map),
@@ -652,7 +652,7 @@ pub async fn init_game_state(
     let ball_pbr_material_index = Renderer::bind_pbr_material(
         &renderer.base,
         &renderer.constant_data,
-        &mut renderer.data.lock().unwrap(),
+        &mut renderer.data.lock(),
         &PbrTextures {
             base_color: Some(&rainbow_texture),
             ..Default::default()
@@ -704,7 +704,7 @@ pub async fn init_game_state(
         let ball_pbr_mesh_index = Renderer::bind_pbr_material(
             &renderer.base,
             &renderer.constant_data,
-            &mut renderer.data.lock().unwrap(),
+            &mut renderer.data.lock(),
             &PbrTextures {
                 base_color: Some(&rainbow_texture),
                 normal: Some(&brick_normal_map),
@@ -733,7 +733,7 @@ pub async fn init_game_state(
         let wall_pbr_material_index = Renderer::bind_pbr_material(
             &renderer.base,
             &renderer.constant_data,
-            &mut renderer.data.lock().unwrap(),
+            &mut renderer.data.lock(),
             &PbrTextures {
                 base_color: Some(&checkerboard_texture),
                 ..Default::default()
@@ -898,7 +898,7 @@ pub async fn init_game_state(
     let floor_material_index = Renderer::bind_pbr_material(
         &renderer.base,
         &renderer.constant_data,
-        &mut renderer.data.lock().unwrap(),
+        &mut renderer.data.lock(),
         &PbrTextures {
             base_color: Some(&checkerboard_texture),
             ..Default::default()
@@ -958,7 +958,7 @@ pub async fn init_game_state(
         let bouncing_ball_pbr_mesh_index = Renderer::bind_pbr_material(
             &renderer.base,
             &renderer.constant_data,
-            &mut renderer.data.lock().unwrap(),
+            &mut renderer.data.lock(),
             &PbrTextures {
                 base_color: Some(&checkerboard_texture),
                 ..Default::default()
@@ -1074,7 +1074,7 @@ pub async fn init_game_state(
     };
     let crosshair_mesh_index = Renderer::bind_basic_mesh(
         &renderer.base,
-        &mut renderer.data.lock().unwrap(),
+        &mut renderer.data.lock(),
         &crosshair_quad,
         false,
     );
@@ -1083,7 +1083,7 @@ pub async fn init_game_state(
     let crosshair_material_index = Renderer::bind_pbr_material(
         &renderer.base,
         &renderer.constant_data,
-        &mut renderer.data.lock().unwrap(),
+        &mut renderer.data.lock(),
         &PbrTextures {
             ambient_occlusion: Some(&crosshair_ambient_occlusion),
             metallic_roughness: Some(&crosshair_metallic_roughness),
@@ -1192,7 +1192,7 @@ pub fn process_window_input(
             }
 
             if event.state == ElementState::Released {
-                let mut render_data_guard = renderer.data.lock().unwrap();
+                let mut render_data_guard = renderer.data.lock();
                 match key {
                     Key::Character(character) => match character.to_lowercase().as_str() {
                         "z" => {
@@ -1311,7 +1311,7 @@ pub fn increment_render_scale(
     let change = if increase { delta } else { -delta };
 
     {
-        let mut renderer_data_guard = renderer.data.lock().unwrap();
+        let mut renderer_data_guard = renderer.data.lock();
 
         renderer_data_guard.render_scale =
             (renderer_data_guard.render_scale + change).clamp(0.1, 4.0);
@@ -1365,8 +1365,8 @@ pub fn update_game_state(
 
     {
         let loaded_skyboxes = engine_state.asset_binder.loaded_skyboxes();
-        let mut loaded_skyboxes_guard = loaded_skyboxes.lock().unwrap();
-        let asset_ids_guard = game_state.asset_ids.lock().unwrap();
+        let mut loaded_skyboxes_guard = loaded_skyboxes.lock();
+        let asset_ids_guard = game_state.asset_ids.lock();
 
         if let Some(asset_id) = asset_ids_guard.skybox {
             if let Entry::Occupied(entry) = loaded_skyboxes_guard.entry(asset_id) {
@@ -1378,9 +1378,9 @@ pub fn update_game_state(
 
     {
         let loaded_scenes = engine_state.asset_binder.loaded_scenes();
-        let mut loaded_assets_guard = loaded_scenes.lock().unwrap();
-        let asset_ids_guard = game_state.asset_ids.lock().unwrap();
-        let mut renderer_data_guard = renderer_data.lock().unwrap();
+        let mut loaded_assets_guard = loaded_scenes.lock();
+        let asset_ids_guard = game_state.asset_ids.lock();
+        let mut renderer_data_guard = renderer_data.lock();
 
         if let (Some(_gunshot_sound_index), Some(camera_node_id)) = (
             game_state.gunshot_sound_index,
@@ -1534,8 +1534,8 @@ pub fn update_game_state(
     }
 
     {
-        let mut loaded_audio_guard = engine_state.asset_loader.loaded_audio.lock().unwrap();
-        let asset_ids_guard = game_state.asset_ids.lock().unwrap();
+        let mut loaded_audio_guard = engine_state.asset_loader.loaded_audio.lock();
+        let asset_ids_guard = game_state.asset_ids.lock();
 
         if let Some(asset_id) = asset_ids_guard.bgm {
             if let Entry::Occupied(entry) = loaded_audio_guard.entry(asset_id) {
@@ -1548,7 +1548,7 @@ pub fn update_game_state(
                     // #[cfg(not(target_arch = "wasm32"))]
                     // ikari::thread::sleep(ikari::time::Duration::from_secs_f32(5.0));
 
-                    let mut audio_manager_guard = audio_manager_clone.lock().unwrap();
+                    let mut audio_manager_guard = audio_manager_clone.lock();
                     audio_manager_guard.play_sound(bgm_sound_index_clone);
                 });
             }
@@ -1620,7 +1620,7 @@ pub fn update_game_state(
     let new_player_transform = game_state
         .player_controller
         .transform(&engine_state.physics_state);
-    if let Some(camera_node_id) = renderer_data.lock().unwrap().camera_node_id {
+    if let Some(camera_node_id) = renderer_data.lock().camera_node_id {
         if let Some(player_transform) = engine_state.scene.get_node_mut(camera_node_id) {
             player_transform.transform = new_player_transform;
         }
@@ -1842,7 +1842,6 @@ pub fn update_game_state(
                     game_state
                         .audio_manager
                         .lock()
-                        .unwrap()
                         .play_sound(bgm_sound_index);
                     game_state.bgm_sound_index = None;
                 }
@@ -1850,7 +1849,7 @@ pub fn update_game_state(
 
             if let Some(gunshot_sound_index) = game_state.gunshot_sound_index {
                 {
-                    let mut audio_manager_guard = engine_state.audio_manager.lock().unwrap();
+                    let mut audio_manager_guard = engine_state.audio_manager.lock();
                     audio_manager_guard.play_sound(gunshot_sound_index);
                     audio_manager_guard.reload_sound(
                         gunshot_sound_index,
@@ -1936,7 +1935,7 @@ pub fn update_game_state(
     {
         profiling::scope!("Sync UI");
 
-        let mut renderer_data_guard = renderer.data.lock().unwrap();
+        let mut renderer_data_guard = renderer.data.lock();
 
         if let Some((instants, durations)) = engine_state.time().last_frame_times() {
             game_state
@@ -1950,7 +1949,7 @@ pub fn update_game_state(
         }
 
         {
-            let audio_manager_guard = engine_state.audio_manager.lock().unwrap();
+            let audio_manager_guard = engine_state.audio_manager.lock();
             for sound_index in audio_manager_guard.sound_indices() {
                 let file_path = audio_manager_guard
                     .get_sound_file_path(sound_index)

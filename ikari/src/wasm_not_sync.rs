@@ -14,7 +14,7 @@ mod sync {
 
     pub type WasmNotArc<T> = std::sync::Arc<T>;
 
-    pub type WasmNotMutex<T> = std::sync::Mutex<T>;
+    pub type WasmNotMutex<T> = crate::mutex::Mutex<T>;
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -45,8 +45,8 @@ mod unsync {
 
     impl<T> WasmNotMutex<T> {
         #[allow(clippy::result_unit_err)]
-        pub fn lock(&self) -> Result<RefMut<T>, ()> {
-            Ok(self.cell.borrow_mut())
+        pub fn lock(&self) -> RefMut<T> {
+            self.cell.borrow_mut()
         }
 
         pub fn try_lock(&self) -> Option<RefMut<T>> {

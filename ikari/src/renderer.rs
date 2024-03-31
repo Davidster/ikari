@@ -10,6 +10,7 @@ use crate::mesh::{
     BasicMesh, DynamicPbrParams, GpuPbrMeshInstance, GpuTransparentMeshInstance,
     GpuUnlitMeshInstance, GpuWireframeMeshInstance, IndexedPbrTextures, PbrTextures, ShaderVertex,
 };
+use crate::mutex::Mutex;
 use crate::physics::rapier3d_f64::prelude::*;
 use crate::raw_image::RawImage;
 use crate::sampler_cache::{SamplerCache, SamplerDescriptor};
@@ -25,7 +26,6 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::num::NonZeroU64;
 use std::ops::Deref;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::sync::{Arc, OnceLock};
 
 use bitvec::prelude::*;
@@ -735,7 +735,7 @@ impl BaseRenderer {
         &self,
         default_texture_type: DefaultTextureType,
     ) -> anyhow::Result<WasmNotArc<Texture>> {
-        let mut default_texture_cache_guard = self.default_texture_cache.lock().unwrap();
+        let mut default_texture_cache_guard = self.default_texture_cache.lock();
         let default_texture = match default_texture_cache_guard.entry(default_texture_type) {
             Entry::Occupied(texture) => texture.get().clone(),
             Entry::Vacant(_) => {
@@ -2282,7 +2282,7 @@ impl Renderer {
         let new_bloom_texture_bind_group;
         let new_bloom_texture_mip_bind_groups;
         {
-            let sampler_cache_guard = base.sampler_cache.lock().unwrap();
+            let sampler_cache_guard = base.sampler_cache.lock();
 
             shading_texture_bind_group =
                 base.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -3109,7 +3109,7 @@ impl Renderer {
             }
         };
 
-        let sampler_cache_guard = base.sampler_cache.lock().unwrap();
+        let sampler_cache_guard = base.sampler_cache.lock();
 
         let textures_bind_group = base.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &constant_data.pbr_textures_bind_group_layout,
@@ -3345,8 +3345,8 @@ impl Renderer {
             .surface
             .configure(&self.base.device, &surface_data.surface_config);
 
-        let data_guard = self.data.lock().unwrap();
-        let mut private_data_guard = self.private_data.lock().unwrap();
+        let data_guard = self.data.lock();
+        let mut private_data_guard = self.private_data.lock();
         let render_scale = data_guard.render_scale;
 
         private_data_guard.shading_texture = Texture::create_scaled_surface_texture(
@@ -3417,7 +3417,7 @@ impl Renderer {
         let single_texture_bind_group_layout = &self.constant_data.single_texture_bind_group_layout;
         let two_texture_bind_group_layout = &self.constant_data.two_texture_bind_group_layout;
 
-        let sampler_cache_guard = self.base.sampler_cache.lock().unwrap();
+        let sampler_cache_guard = self.base.sampler_cache.lock();
 
         private_data_guard.shading_texture_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -3940,8 +3940,8 @@ impl Renderer {
     ) {
         let aspect_ratio = surface_config.width as f32 / surface_config.height as f32;
 
-        let data_guard = self.data.lock().unwrap();
-        let mut private_data_guard = self.private_data.lock().unwrap();
+        let data_guard = self.data.lock();
+        let mut private_data_guard = self.private_data.lock();
 
         if CullingFrustumLockMode::from(private_data_guard.frustum_culling_lock.clone())
             == lock_mode
@@ -4156,7 +4156,7 @@ impl Renderer {
         point_shadow_map_textures: &Texture,
         directional_shadow_map_textures: &Texture,
     ) -> wgpu::BindGroup {
-        let sampler_cache_guard = base.sampler_cache.lock().unwrap();
+        let sampler_cache_guard = base.sampler_cache.lock();
 
         base.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &constant_data.environment_textures_bind_group_layout,
@@ -4237,7 +4237,7 @@ impl Renderer {
     }
 
     pub fn set_skybox(&self, slot: SkyboxSlot, skybox: BindedSkybox) {
-        let mut private_data_guard = self.private_data.lock().unwrap();
+        let mut private_data_guard = self.private_data.lock();
 
         private_data_guard.skyboxes[slot.as_index()] = skybox;
 
@@ -4258,11 +4258,11 @@ impl Renderer {
             let total = weights[0] + weights[1];
             [weights[0] / total, weights[1] / total]
         };
-        self.private_data.lock().unwrap().skybox_weights = normalized;
+        self.private_data.lock().skybox_weights = normalized;
     }
 
     pub fn get_skybox_weights(&self) -> [f32; 2] {
-        self.private_data.lock().unwrap().skybox_weights
+        self.private_data.lock().skybox_weights
     }
 
     /// Prepare and send all data to gpu so it's ready to render
@@ -4272,10 +4272,10 @@ impl Renderer {
         engine_state: &mut EngineState,
         surface_config: &wgpu::SurfaceConfiguration,
     ) {
-        let mut data_guard = self.data.lock().unwrap();
+        let mut data_guard = self.data.lock();
         let data: &mut RendererData = &mut data_guard;
 
-        let mut private_data_guard = self.private_data.lock().unwrap();
+        let mut private_data_guard = self.private_data.lock();
         let private_data: &mut RendererPrivateData = &mut private_data_guard;
 
         let aspect_ratio = surface_config.width as f32 / surface_config.height as f32;
@@ -5079,13 +5079,13 @@ impl Renderer {
     where
         UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + 'static,
     {
-        let mut data_guard = self.data.lock().unwrap();
+        let mut data_guard = self.data.lock();
         let data: &mut RendererData = &mut data_guard;
 
-        let mut private_data_guard = self.private_data.lock().unwrap();
+        let mut private_data_guard = self.private_data.lock();
         let private_data: &mut RendererPrivateData = &mut private_data_guard;
 
-        let mut profiler_guard = self.profiler.lock().unwrap();
+        let mut profiler_guard = self.profiler.lock();
         let profiler: &mut wgpu_profiler::GpuProfiler = &mut profiler_guard;
 
         let surface_texture_view =
@@ -5965,7 +5965,6 @@ impl Renderer {
     pub fn process_profiler_frame(&self) -> Option<Vec<wgpu_profiler::GpuTimerQueryResult>> {
         self.profiler
             .lock()
-            .unwrap()
             .process_finished_frame(self.base.queue.get_timestamp_period())
     }
 
