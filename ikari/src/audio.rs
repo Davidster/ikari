@@ -103,7 +103,7 @@ mod web {
         }
 
         fn byte_len(&self) -> Option<u64> {
-            Some(self.inner.lock().unwrap().file_size)
+            Some(self.inner.lock().file_size)
         }
     }
 

@@ -2354,6 +2354,7 @@ dependencies = [
  "serde",
  "size",
  "smallvec",
+ "spin",
  "symphonia",
  "twox-hash",
  "urlencoding",

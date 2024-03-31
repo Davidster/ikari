@@ -496,7 +496,7 @@ impl UiOverlay {
     fn poll_perf_dump_state(&mut self) {
         let mut clear = false;
         if let Some(pending_perf_dump) = &self.pending_perf_dump {
-            let pending_perf_dump_guard = pending_perf_dump.lock().unwrap();
+            let pending_perf_dump_guard = pending_perf_dump.lock();
             if pending_perf_dump_guard.is_some() {
                 if let Some(perf_dump_completion_time) = self.perf_dump_completion_time {
                     if perf_dump_completion_time.elapsed() > std::time::Duration::from_secs_f32(2.0)
@@ -1134,7 +1134,7 @@ impl runtime::Program for UiOverlay {
             if can_generate_profile_dump() {
                 if let Some(pending_perf_dump) = &self.pending_perf_dump {
                     let (message, color) = if self.perf_dump_completion_time.is_some() {
-                        match *pending_perf_dump.lock().unwrap() {
+                        match *pending_perf_dump.lock() {
                             Some(Ok(_)) => (
                                 "Profile dump complete!".to_string(),
                                 iced::Color::from_rgb(0.7, 1.0, 0.0),
