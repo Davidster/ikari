@@ -152,9 +152,7 @@ make -I/opt/homebrew/Cellar/capstone/4.0.2/include/capstone -j12
 - Run tracy
 
 ```sh
-# the TRACY_DPI_SCALE env var might be needed for the high dpi monitor of your macbook
-# you can export it in ~/.zprofile (add `export TRACY_DPI_SCALE=1.0`) to make it work when running from spotlight (cmd+space search thingy)
-TRACY_DPI_SCALE=1.0 ./Tracy-release
+./Tracy-release
 ```
 
 ## Running clippy for wasm target

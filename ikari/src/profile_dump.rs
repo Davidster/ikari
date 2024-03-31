@@ -11,7 +11,7 @@ use chrono::prelude::*;
 pub type PendingPerfDump = Arc<Mutex<Option<anyhow::Result<String>>>>;
 
 pub fn profiling_is_enabled() -> bool {
-    cfg!(feature = "tracy-profile-dumps")
+    cfg!(feature = "tracy-profiling")
 }
 
 pub fn can_generate_profile_dump() -> bool {
@@ -20,7 +20,7 @@ pub fn can_generate_profile_dump() -> bool {
 
 pub fn generate_profile_dump() -> PendingPerfDump {
     if !profiling_is_enabled() {
-        let msg = "Warning: tried to capture a profile dump but profiling is not enabled. Please enable the tracy-profile-dumps feature in cargo";
+        let msg = "Warning: tried to capture a profile dump but profiling is not enabled. Please enable the tracy-profiling feature in cargo";
         log::warn!("{msg}");
         return Arc::new(Mutex::new(Some(Err(anyhow::anyhow!(msg)))));
     }

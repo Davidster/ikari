@@ -12,7 +12,7 @@ path = "src/main.rs"
 [features]
 default = ["cpu-profiling", "gpu-profiling"]
 cpu-profiling = [
-  "ikari/tracy-profile-dumps",
+  "ikari/tracy-profiling",
   "profiling/profile-with-tracy",
   "dep:tracing-tracy",
 ]

@@ -5627,6 +5627,7 @@ checksum = "9d5026bcb9625f0ad9bc0570811b40b4bc5249548a992feb695542d15faeadac"
 dependencies = [
  "parking_lot 0.12.1",
  "thiserror",
+ "tracy-client",
  "web-sys",
  "wgpu",
 ]
