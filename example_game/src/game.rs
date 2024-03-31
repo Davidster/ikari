@@ -63,14 +63,15 @@ use winit::keyboard::NamedKey;
 pub const INITIAL_ENABLE_VSYNC: bool = true;
 pub const INITIAL_NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const INITIAL_FAR_PLANE_DISTANCE: f32 = 100000.0;
+// TODO: change the controlled value to fov_x instead of y and use 103 as default.
 pub const INITIAL_FOV_Y: f32 = 45.0 * std::f32::consts::PI / 180.0;
 pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
 pub const INITIAL_ENABLE_SHADOWS: bool = true;
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
 pub const INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS: f32 = 0.075;
-pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
-pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
+pub const INITIAL_OLD_BLOOM_THRESHOLD: f32 = 0.8;
+pub const INITIAL_OLD_BLOOM_RAMP_SIZE: f32 = 0.2;
 pub const INITIAL_NEW_BLOOM_RADIUS: f32 = 0.005;
 pub const INITIAL_NEW_BLOOM_INTENSITY: f32 = 0.04;
 pub const INITIAL_BLOOM_TYPE: BloomType = BloomType::New;
@@ -281,12 +282,17 @@ pub async fn init_game_state(
 
     {
         let mut renderer_data_guard = renderer.data.lock();
-        renderer_data_guard.enable_shadows = INITIAL_ENABLE_SHADOWS;
-        renderer_data_guard.bloom_type = INITIAL_BLOOM_TYPE;
-        renderer_data_guard.bloom_threshold = INITIAL_BLOOM_THRESHOLD;
-        renderer_data_guard.bloom_ramp_size = INITIAL_BLOOM_RAMP_SIZE;
-        renderer_data_guard.tone_mapping_exposure = INITIAL_TONE_MAPPING_EXPOSURE;
-        renderer_data_guard.render_scale = INITIAL_RENDER_SCALE;
+        renderer_data_guard.general_settings.render_scale = INITIAL_RENDER_SCALE;
+
+        renderer_data_guard
+            .post_effect_settings
+            .tone_mapping_exposure = INITIAL_TONE_MAPPING_EXPOSURE;
+
+        renderer_data_guard.post_effect_settings.bloom_type = INITIAL_BLOOM_TYPE;
+        renderer_data_guard.post_effect_settings.old_bloom_threshold = INITIAL_OLD_BLOOM_THRESHOLD;
+        renderer_data_guard.post_effect_settings.old_bloom_ramp_size = INITIAL_OLD_BLOOM_RAMP_SIZE;
+
+        renderer_data_guard.shadow_settings.enable_shadows = INITIAL_ENABLE_SHADOWS;
     }
 
     let unscaled_framebuffer_size = winit::dpi::PhysicalSize::new(
@@ -1222,21 +1228,23 @@ pub fn process_window_input(
                             increment_exposure(&mut render_data_guard, true);
                         }
                         "y" => {
-                            increment_bloom_threshold(&mut render_data_guard, false);
+                            increment_old_bloom_threshold(&mut render_data_guard, false);
                         }
                         "u" => {
-                            increment_bloom_threshold(&mut render_data_guard, true);
+                            increment_old_bloom_threshold(&mut render_data_guard, true);
                         }
                         "p" => {
                             game_state.is_playing_animations = !game_state.is_playing_animations;
                         }
                         "m" => {
-                            render_data_guard.enable_shadows = !render_data_guard.enable_shadows;
+                            render_data_guard.shadow_settings.enable_shadows =
+                                !render_data_guard.shadow_settings.enable_shadows;
                         }
                         "b" => {
                             game_state
                                 .ui_overlay
                                 .queue_message(Message::BloomTypeChanged(match render_data_guard
+                                    .post_effect_settings
                                     .bloom_type
                                 {
                                     BloomType::Disabled => BloomType::Old,
@@ -1245,12 +1253,12 @@ pub fn process_window_input(
                                 }));
                         }
                         "f" => {
-                            render_data_guard.enable_wireframe_mode =
-                                !render_data_guard.enable_wireframe_mode;
+                            render_data_guard.debug_settings.enable_wireframe_mode =
+                                !render_data_guard.debug_settings.enable_wireframe_mode;
                         }
                         "j" => {
-                            render_data_guard.draw_node_bounding_spheres =
-                                !render_data_guard.draw_node_bounding_spheres;
+                            render_data_guard.debug_settings.draw_node_bounding_spheres =
+                                !render_data_guard.debug_settings.draw_node_bounding_spheres;
                         }
                         "c" => {
                             if let Some(character) = game_state.character.as_mut() {
@@ -1313,15 +1321,13 @@ pub fn increment_render_scale(
     {
         let mut renderer_data_guard = renderer.data.lock();
 
-        renderer_data_guard.render_scale =
-            (renderer_data_guard.render_scale + change).clamp(0.1, 4.0);
+        let render_scale = &mut renderer_data_guard.general_settings.render_scale;
+        *render_scale = (*render_scale + change).clamp(0.1, 4.0);
         log::info!(
             "Render scale: {:?} ({:?}x{:?})",
-            renderer_data_guard.render_scale,
-            (surface_data.surface_config.width as f32 * renderer_data_guard.render_scale.sqrt())
-                .round() as u32,
-            (surface_data.surface_config.height as f32 * renderer_data_guard.render_scale.sqrt())
-                .round() as u32,
+            render_scale,
+            (surface_data.surface_config.width as f32 * render_scale.sqrt()).round() as u32,
+            (surface_data.surface_config.height as f32 * render_scale.sqrt()).round() as u32,
         );
     }
 
@@ -1337,16 +1343,17 @@ pub fn increment_render_scale(
 pub fn increment_exposure(renderer_data: &mut RendererData, increase: bool) {
     let delta = 0.05;
     let change = if increase { delta } else { -delta };
-    renderer_data.tone_mapping_exposure =
-        (renderer_data.tone_mapping_exposure + change).clamp(0.0, 20.0);
-    log::info!("Exposure: {:?}", renderer_data.tone_mapping_exposure);
+    let mut tone_mapping_exposure = &mut renderer_data.post_effect_settings.tone_mapping_exposure;
+    *tone_mapping_exposure = (*tone_mapping_exposure + change).clamp(0.0, 20.0);
+    log::info!("Exposure: {:?}", tone_mapping_exposure);
 }
 
-pub fn increment_bloom_threshold(renderer_data: &mut RendererData, increase: bool) {
+pub fn increment_old_bloom_threshold(renderer_data: &mut RendererData, increase: bool) {
     let delta = 0.05;
     let change = if increase { delta } else { -delta };
-    renderer_data.bloom_threshold = (renderer_data.bloom_threshold + change).clamp(0.0, 20.0);
-    log::info!("Bloom Threshold: {:?}", renderer_data.bloom_threshold);
+    let mut old_bloom_threshold = &mut renderer_data.post_effect_settings.old_bloom_threshold;
+    *old_bloom_threshold = (*old_bloom_threshold + change).clamp(0.0, 20.0);
+    log::info!("Old Bloom Threshold: {:?}", old_bloom_threshold);
 }
 
 #[profiling::function]
@@ -1994,28 +2001,56 @@ pub fn update_game_state(
             elwt.exit();
         }
 
-        renderer_data_guard.fov_y = ui_state.fov_y;
-        renderer_data_guard.near_plane_distance = ui_state.near_plane_distance;
-        renderer_data_guard.far_plane_distance = ui_state.far_plane_distance;
-        renderer_data_guard.bloom_type = ui_state.bloom_type;
-        renderer_data_guard.new_bloom_radius = ui_state.new_bloom_radius;
-        renderer_data_guard.new_bloom_intensity = ui_state.new_bloom_intensity;
-        renderer_data_guard.enable_depth_prepass = ui_state.enable_depth_prepass;
-        renderer_data_guard.record_culling_stats = ui_state.is_recording_culling_stats;
-        renderer_data_guard.enable_soft_shadows = ui_state.enable_soft_shadows;
-        renderer_data_guard.shadow_small_object_culling_size_pixels =
-            ui_state.shadow_small_object_culling_size_pixels;
-        renderer_data_guard.soft_shadow_factor = ui_state.soft_shadow_factor;
-        renderer_data_guard.soft_shadows_max_distance = ui_state.soft_shadows_max_distance;
-        renderer_data_guard.shadow_bias = ui_state.shadow_bias;
-        renderer_data_guard.enable_shadow_debug = ui_state.enable_shadow_debug;
-        renderer_data_guard.enable_cascade_debug = ui_state.enable_cascade_debug;
-        renderer_data_guard.soft_shadow_grid_dims = ui_state.soft_shadow_grid_dims;
-        renderer_data_guard.draw_culling_frustum = ui_state.draw_culling_frustum;
-        renderer_data_guard.draw_point_light_culling_frusta =
-            ui_state.draw_point_light_culling_frusta;
-        renderer_data_guard.draw_directional_light_culling_frusta =
-            ui_state.draw_directional_light_culling_frusta;
+        renderer_data_guard.general_settings.enable_depth_prepass =
+            ui_state.general_settings.enable_depth_prepass;
+
+        renderer_data_guard.camera_settings.fov_y = ui_state.camera_settings.fov_y;
+        renderer_data_guard.camera_settings.near_plane_distance =
+            ui_state.camera_settings.near_plane_distance;
+        renderer_data_guard.camera_settings.far_plane_distance =
+            ui_state.camera_settings.far_plane_distance;
+
+        renderer_data_guard.post_effect_settings.bloom_type =
+            ui_state.post_effect_settings.bloom_type;
+        renderer_data_guard.post_effect_settings.new_bloom_radius =
+            ui_state.post_effect_settings.new_bloom_radius;
+        renderer_data_guard.post_effect_settings.new_bloom_intensity =
+            ui_state.post_effect_settings.new_bloom_intensity;
+
+        renderer_data_guard.shadow_settings.enable_soft_shadows =
+            ui_state.shadow_settings.enable_soft_shadows;
+        renderer_data_guard
+            .shadow_settings
+            .shadow_small_object_culling_size_pixels = ui_state
+            .shadow_settings
+            .shadow_small_object_culling_size_pixels;
+        renderer_data_guard.shadow_settings.soft_shadow_factor =
+            ui_state.shadow_settings.soft_shadow_factor;
+        renderer_data_guard
+            .shadow_settings
+            .soft_shadows_max_distance = ui_state.shadow_settings.soft_shadows_max_distance;
+        renderer_data_guard.shadow_settings.shadow_bias = ui_state.shadow_settings.shadow_bias;
+        renderer_data_guard.shadow_settings.soft_shadow_grid_dims =
+            ui_state.shadow_settings.soft_shadow_grid_dims;
+
+        renderer_data_guard.debug_settings.record_culling_stats =
+            ui_state.debug_settings.record_culling_stats;
+        renderer_data_guard.debug_settings.enable_shadow_debug =
+            ui_state.debug_settings.enable_shadow_debug;
+        renderer_data_guard.debug_settings.enable_cascade_debug =
+            ui_state.debug_settings.enable_cascade_debug;
+        renderer_data_guard.debug_settings.draw_culling_frustum =
+            ui_state.debug_settings.draw_culling_frustum;
+        renderer_data_guard
+            .debug_settings
+            .draw_point_light_culling_frusta =
+            ui_state.debug_settings.draw_point_light_culling_frusta;
+        renderer_data_guard
+            .debug_settings
+            .draw_directional_light_culling_frusta = ui_state
+            .debug_settings
+            .draw_directional_light_culling_frusta;
+
         renderer.set_skybox_weights([1.0 - ui_state.skybox_weight, ui_state.skybox_weight]);
         renderer.set_vsync(ui_state.enable_vsync, surface_data);
 

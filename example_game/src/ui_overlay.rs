@@ -15,6 +15,7 @@ use iced::Length;
 use iced::{mouse, Background, Command, Element, Rectangle, Theme};
 use iced_aw::{floating_element, Modal};
 use iced_winit::runtime;
+use iced_winit::runtime::Debug;
 use ikari::file_manager::GameFilePath;
 use ikari::player_controller::ControlledViewDirection;
 use ikari::profile_dump::can_generate_profile_dump;
@@ -128,13 +129,110 @@ pub enum Message {
     GenerateProfileDump,
 }
 
-// TODO: split these settings into categories and add tree menu in the UI to organize them
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct GeneralSettings {
+    pub enable_depth_prepass: bool,
+}
+
+impl Default for GeneralSettings {
+    fn default() -> Self {
+        Self {
+            enable_depth_prepass: INITIAL_ENABLE_DEPTH_PREPASS,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct CameraSettings {
+    pub fov_y: f32,
+    pub near_plane_distance: f32,
+    pub far_plane_distance: f32,
+}
+
+impl Default for CameraSettings {
+    fn default() -> Self {
+        Self {
+            fov_y: INITIAL_FOV_Y,
+            near_plane_distance: INITIAL_NEAR_PLANE_DISTANCE,
+            far_plane_distance: INITIAL_FAR_PLANE_DISTANCE,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct PostEffectSettings {
+    pub bloom_type: BloomType,
+
+    pub new_bloom_radius: f32,
+    pub new_bloom_intensity: f32,
+}
+
+impl Default for PostEffectSettings {
+    fn default() -> Self {
+        Self {
+            bloom_type: INITIAL_BLOOM_TYPE,
+
+            new_bloom_radius: INITIAL_NEW_BLOOM_RADIUS,
+            new_bloom_intensity: INITIAL_NEW_BLOOM_INTENSITY,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct ShadowSettings {
+    // TODO: remove 'shadow' from names
+    pub enable_soft_shadows: bool,
+    pub shadow_bias: f32,
+    pub soft_shadow_factor: f32,
+    pub soft_shadows_max_distance: f32,
+    pub soft_shadow_grid_dims: u32,
+    pub shadow_small_object_culling_size_pixels: f32,
+}
+
+impl Default for ShadowSettings {
+    fn default() -> Self {
+        Self {
+            enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
+            shadow_bias: INITIAL_SHADOW_BIAS,
+            soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
+            soft_shadows_max_distance: INITIAL_SOFT_SHADOWS_MAX_DISTANCE,
+            soft_shadow_grid_dims: INITIAL_SOFT_SHADOW_GRID_DIMS,
+            shadow_small_object_culling_size_pixels:
+                INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct DebugSettings {
+    pub draw_culling_frustum: bool,
+    pub draw_point_light_culling_frusta: bool,
+    pub draw_directional_light_culling_frusta: bool,
+    pub enable_shadow_debug: bool,
+    pub enable_cascade_debug: bool,
+    pub record_culling_stats: bool,
+}
+
+impl Default for DebugSettings {
+    fn default() -> Self {
+        Self {
+            draw_culling_frustum: INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG,
+            draw_point_light_culling_frusta: INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG,
+            draw_directional_light_culling_frusta:
+                INITIAL_ENABLE_DIRECTIONAL_LIGHT_CULLING_FRUSTUM_DEBUG,
+            enable_shadow_debug: INITIAL_ENABLE_SHADOW_DEBUG,
+            enable_cascade_debug: INITIAL_ENABLE_CASCADE_DEBUG,
+            record_culling_stats: false,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct UiOverlay {
     clock: canvas::Cache,
     viewport_dims: (u32, u32),
-    pub cursor_position: winit::dpi::PhysicalPosition<f64>,
+    cursor_position: winit::dpi::PhysicalPosition<f64>,
+
     fps_chart: FpsChart,
     is_showing_fps_chart: bool,
     is_showing_gpu_spans: bool,
@@ -142,37 +240,24 @@ pub struct UiOverlay {
     pub is_showing_options_menu: bool,
     pub was_exit_button_pressed: bool,
     camera_pose: Option<(Vec3, ControlledViewDirection)>, // position, direction
-
     audio_sound_stats: BTreeMap<String, AudioSoundStats>,
+    pending_perf_dump: Option<PendingPerfDump>,
+    perf_dump_completion_time: Option<Instant>,
+
+    pub general_settings: GeneralSettings,
+    pub camera_settings: CameraSettings,
+    pub post_effect_settings: PostEffectSettings,
+    pub shadow_settings: ShadowSettings,
+    pub debug_settings: DebugSettings,
 
     pub enable_vsync: bool,
-    pub bloom_type: BloomType,
-    pub new_bloom_radius: f32,
-    pub new_bloom_intensity: f32,
-    pub enable_depth_prepass: bool,
-    pub enable_soft_shadows: bool,
     pub skybox_weight: f32,
-    pub shadow_bias: f32,
-    pub soft_shadow_factor: f32,
-    pub enable_shadow_debug: bool,
-    pub enable_cascade_debug: bool,
-    pub draw_culling_frustum: bool,
-    pub draw_point_light_culling_frusta: bool,
-    pub draw_directional_light_culling_frusta: bool,
+    // TODO: move into DebugSettings?
     pub culling_frustum_lock_mode: CullingFrustumLockMode,
-    pub soft_shadow_grid_dims: u32,
     pub is_showing_camera_pose: bool,
+    // TODO: not working on mac??
     pub is_showing_cursor_marker: bool,
-    pub is_recording_culling_stats: bool,
     pub culling_stats: Option<CullingStats>,
-    pub shadow_small_object_culling_size_pixels: f32,
-    pub soft_shadows_max_distance: f32,
-    pub fov_y: f32,
-    pub near_plane_distance: f32,
-    pub far_plane_distance: f32,
-
-    pub pending_perf_dump: Option<PendingPerfDump>,
-    perf_dump_completion_time: Option<Instant>,
 }
 
 pub struct ContainerStyle;
@@ -463,33 +548,18 @@ impl UiOverlay {
             is_showing_options_menu: false,
             was_exit_button_pressed: false,
             is_showing_audio_stats: false,
-            is_recording_culling_stats: false,
             culling_stats: None,
-            shadow_small_object_culling_size_pixels:
-                INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS,
-            soft_shadows_max_distance: INITIAL_SOFT_SHADOWS_MAX_DISTANCE,
             enable_vsync: INITIAL_ENABLE_VSYNC,
-            bloom_type: INITIAL_BLOOM_TYPE,
-            new_bloom_radius: INITIAL_NEW_BLOOM_RADIUS,
-            new_bloom_intensity: INITIAL_NEW_BLOOM_INTENSITY,
-            enable_depth_prepass: INITIAL_ENABLE_DEPTH_PREPASS,
-            enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
             skybox_weight: INITIAL_SKYBOX_WEIGHT,
-            shadow_bias: INITIAL_SHADOW_BIAS,
-            soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
-            enable_shadow_debug: INITIAL_ENABLE_SHADOW_DEBUG,
-            enable_cascade_debug: INITIAL_ENABLE_CASCADE_DEBUG,
-            draw_culling_frustum: INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG,
-            draw_point_light_culling_frusta: INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG,
-            draw_directional_light_culling_frusta:
-                INITIAL_ENABLE_DIRECTIONAL_LIGHT_CULLING_FRUSTUM_DEBUG,
             culling_frustum_lock_mode: CullingFrustumLockMode::None,
-            soft_shadow_grid_dims: INITIAL_SOFT_SHADOW_GRID_DIMS,
             pending_perf_dump: None,
             perf_dump_completion_time: None,
-            fov_y: INITIAL_FOV_Y,
-            near_plane_distance: INITIAL_NEAR_PLANE_DISTANCE,
-            far_plane_distance: INITIAL_FAR_PLANE_DISTANCE,
+
+            general_settings: GeneralSettings::default(),
+            camera_settings: CameraSettings::default(),
+            post_effect_settings: PostEffectSettings::default(),
+            shadow_settings: ShadowSettings::default(),
+            debug_settings: DebugSettings::default(),
         }
     }
 
@@ -564,44 +634,19 @@ impl runtime::Program for UiOverlay {
                 self.culling_stats = frame_stats.culling_stats;
                 self.poll_perf_dump_state();
             }
-            Message::ShadowSmallObjectCullingSizeChanged(new_state) => {
-                self.shadow_small_object_culling_size_pixels = new_state
-            }
-            Message::SoftShadowsMaxDistanceChanged(new_state) => {
-                self.soft_shadows_max_distance = new_state
-            }
             Message::AudioSoundStatsChanged((track_path, stats)) => {
                 self.audio_sound_stats.insert(
                     track_path.relative_path.to_string_lossy().to_string(),
                     stats,
                 );
             }
-            Message::CameraPoseChanged(new_state) => {
-                self.camera_pose = Some(new_state);
+            Message::ClosePopupMenu => self.is_showing_options_menu = false,
+            Message::ExitButtonPressed => self.was_exit_button_pressed = true,
+            Message::GenerateProfileDump => {
+                self.pending_perf_dump = Some(generate_profile_dump());
             }
-            Message::VsyncChanged(new_state) => {
-                self.enable_vsync = new_state;
-            }
-            Message::FovyChanged(new_state) => {
-                self.fov_y = new_state.to_radians();
-            }
-            Message::NearPlaneDistanceChanged(new_state) => {
-                self.near_plane_distance = new_state;
-            }
-            Message::FarPlaneDistanceChanged(new_state) => {
-                self.far_plane_distance = new_state;
-            }
-            Message::BloomTypeChanged(new_state) => {
-                self.bloom_type = new_state;
-            }
-            Message::NewBloomRadiusChanged(new_state) => {
-                self.new_bloom_radius = new_state;
-            }
-            Message::NewBloomIntensityChanged(new_state) => {
-                self.new_bloom_intensity = new_state;
-            }
-            Message::ToggleDepthPrepass(new_state) => {
-                self.enable_depth_prepass = new_state;
+            Message::TogglePopupMenu => {
+                self.is_showing_options_menu = !self.is_showing_options_menu
             }
             Message::ToggleCameraPose(new_state) => {
                 self.is_showing_camera_pose = new_state;
@@ -615,55 +660,85 @@ impl runtime::Program for UiOverlay {
             Message::ToggleGpuSpans(new_state) => {
                 self.is_showing_gpu_spans = new_state;
             }
-            Message::ToggleSoftShadows(new_state) => {
-                self.enable_soft_shadows = new_state;
+            Message::CameraPoseChanged(new_state) => {
+                self.camera_pose = Some(new_state);
             }
+            Message::VsyncChanged(new_state) => {
+                self.enable_vsync = new_state;
+            }
+            Message::CullingFrustumLockModeChanged(new_state) => {
+                self.culling_frustum_lock_mode = new_state;
+            }
+
+            Message::ToggleDepthPrepass(new_state) => {
+                self.general_settings.enable_depth_prepass = new_state;
+            }
+            Message::SkyboxWeightChanged(new_state) => {
+                self.skybox_weight = new_state;
+            }
+
+            Message::FovyChanged(new_state) => {
+                self.camera_settings.fov_y = new_state.to_radians();
+            }
+            Message::NearPlaneDistanceChanged(new_state) => {
+                self.camera_settings.near_plane_distance = new_state;
+            }
+            Message::FarPlaneDistanceChanged(new_state) => {
+                self.camera_settings.far_plane_distance = new_state;
+            }
+
+            Message::BloomTypeChanged(new_state) => {
+                self.post_effect_settings.bloom_type = new_state;
+            }
+            Message::NewBloomRadiusChanged(new_state) => {
+                self.post_effect_settings.new_bloom_radius = new_state;
+            }
+            Message::NewBloomIntensityChanged(new_state) => {
+                self.post_effect_settings.new_bloom_intensity = new_state;
+            }
+
+            Message::ShadowSmallObjectCullingSizeChanged(new_state) => {
+                self.shadow_settings.shadow_small_object_culling_size_pixels = new_state
+            }
+            Message::SoftShadowsMaxDistanceChanged(new_state) => {
+                self.shadow_settings.soft_shadows_max_distance = new_state
+            }
+            Message::ToggleSoftShadows(new_state) => {
+                self.shadow_settings.enable_soft_shadows = new_state;
+            }
+            Message::ShadowBiasChanged(new_state) => {
+                self.shadow_settings.shadow_bias = new_state;
+            }
+            Message::SoftShadowFactorChanged(new_state) => {
+                self.shadow_settings.soft_shadow_factor = new_state;
+            }
+            Message::SoftShadowGridDimsChanged(new_state) => {
+                self.shadow_settings.soft_shadow_grid_dims = new_state;
+            }
+
             Message::ToggleDrawCullingFrustum(new_state) => {
-                self.draw_culling_frustum = new_state;
-                if !self.draw_culling_frustum {
+                self.debug_settings.draw_culling_frustum = new_state;
+                if !self.debug_settings.draw_culling_frustum {
                     self.culling_frustum_lock_mode = CullingFrustumLockMode::None;
                 }
             }
             Message::ToggleDrawPointLightCullingFrusta(new_state) => {
-                self.draw_point_light_culling_frusta = new_state;
+                self.debug_settings.draw_point_light_culling_frusta = new_state;
             }
             Message::ToggleDrawDirectionalLightCullingFrusta(new_state) => {
-                self.draw_directional_light_culling_frusta = new_state;
+                self.debug_settings.draw_directional_light_culling_frusta = new_state;
             }
             Message::ToggleShadowDebug(new_state) => {
-                self.enable_shadow_debug = new_state;
+                self.debug_settings.enable_shadow_debug = new_state;
             }
             Message::ToggleCascadeDebug(new_state) => {
-                self.enable_cascade_debug = new_state;
+                self.debug_settings.enable_cascade_debug = new_state;
             }
             Message::ToggleAudioStats(new_state) => {
                 self.is_showing_audio_stats = new_state;
             }
             Message::ToggleCullingStats(new_state) => {
-                self.is_recording_culling_stats = new_state;
-            }
-            Message::SkyboxWeightChanged(new_state) => {
-                self.skybox_weight = new_state;
-            }
-            Message::ShadowBiasChanged(new_state) => {
-                self.shadow_bias = new_state;
-            }
-            Message::SoftShadowFactorChanged(new_state) => {
-                self.soft_shadow_factor = new_state;
-            }
-            Message::SoftShadowGridDimsChanged(new_state) => {
-                self.soft_shadow_grid_dims = new_state;
-            }
-            Message::CullingFrustumLockModeChanged(new_state) => {
-                self.culling_frustum_lock_mode = new_state;
-            }
-            Message::ClosePopupMenu => self.is_showing_options_menu = false,
-            Message::ExitButtonPressed => self.was_exit_button_pressed = true,
-            Message::GenerateProfileDump => {
-                self.pending_perf_dump = Some(generate_profile_dump());
-            }
-            Message::TogglePopupMenu => {
-                self.is_showing_options_menu = !self.is_showing_options_menu
+                self.debug_settings.record_culling_stats = new_state;
             }
         }
 
@@ -729,7 +804,10 @@ impl runtime::Program for UiOverlay {
         }
 
         if SHOW_BLOOM_TYPE {
-            rows = rows.push(text(&format!("Bloom type: {}", self.bloom_type)));
+            rows = rows.push(text(&format!(
+                "Bloom type: {}",
+                self.post_effect_settings.bloom_type
+            )));
         }
 
         if self.is_showing_camera_pose {
@@ -890,6 +968,40 @@ impl runtime::Program for UiOverlay {
                 .padding([6, 48, 6, 6])
                 .width(Length::Fill);
 
+            let GeneralSettings {
+                enable_depth_prepass,
+            } = self.general_settings;
+
+            let CameraSettings {
+                fov_y,
+                near_plane_distance,
+                far_plane_distance,
+            } = self.camera_settings;
+
+            let PostEffectSettings {
+                bloom_type,
+                new_bloom_radius,
+                new_bloom_intensity,
+            } = self.post_effect_settings;
+
+            let ShadowSettings {
+                enable_soft_shadows,
+                shadow_bias,
+                soft_shadow_factor,
+                soft_shadows_max_distance,
+                soft_shadow_grid_dims,
+                shadow_small_object_culling_size_pixels,
+            } = self.shadow_settings;
+
+            let DebugSettings {
+                draw_culling_frustum,
+                draw_point_light_culling_frusta,
+                draw_directional_light_culling_frusta,
+                enable_shadow_debug,
+                enable_cascade_debug,
+                record_culling_stats,
+            } = self.debug_settings;
+
             // vsync
             #[cfg(not(target_arch = "wasm32"))]
             {
@@ -899,8 +1011,11 @@ impl runtime::Program for UiOverlay {
             }
 
             options = options.push(
-                checkbox("Enable Depth Pre-pass", self.enable_depth_prepass)
-                    .on_toggle(Message::ToggleDepthPrepass),
+                checkbox(
+                    "Enable Depth Pre-pass",
+                    self.general_settings.enable_depth_prepass,
+                )
+                .on_toggle(Message::ToggleDepthPrepass),
             );
 
             options = options.push(Text::new("Bloom Type"));
@@ -908,26 +1023,26 @@ impl runtime::Program for UiOverlay {
                 options = options.push(radio(
                     format!("{mode}"),
                     mode,
-                    Some(self.bloom_type),
+                    Some(bloom_type),
                     Message::BloomTypeChanged,
                 ));
             }
 
             options = options.push(Text::new(format!(
                 "Vertical FOV: {:.4}",
-                self.fov_y.to_degrees()
+                fov_y.to_degrees()
             )));
             options = options
-                .push(slider(10.0..=90.0, self.fov_y.to_degrees(), Message::FovyChanged).step(0.1));
+                .push(slider(10.0..=90.0, fov_y.to_degrees(), Message::FovyChanged).step(0.1));
 
             options = options.push(Text::new(format!(
                 "Near plane distance: {:.4}",
-                self.near_plane_distance
+                near_plane_distance
             )));
             options = options.push(
                 slider(
                     0.0001..=1.0,
-                    self.near_plane_distance,
+                    near_plane_distance,
                     Message::NearPlaneDistanceChanged,
                 )
                 .step(0.0001),
@@ -935,12 +1050,12 @@ impl runtime::Program for UiOverlay {
 
             options = options.push(Text::new(format!(
                 "Far plane distance: {:.4}",
-                self.far_plane_distance
+                far_plane_distance
             )));
             options = options.push(
                 slider(
                     100.0..=100000.0,
-                    self.far_plane_distance,
+                    far_plane_distance,
                     Message::FarPlaneDistanceChanged,
                 )
                 .step(10.0),
@@ -948,12 +1063,12 @@ impl runtime::Program for UiOverlay {
 
             options = options.push(Text::new(format!(
                 "New Bloom Radius: {:.4}",
-                self.new_bloom_radius
+                new_bloom_radius
             )));
             options = options.push(
                 slider(
                     0.0001..=0.025,
-                    self.new_bloom_radius,
+                    new_bloom_radius,
                     Message::NewBloomRadiusChanged,
                 )
                 .step(0.0001),
@@ -961,12 +1076,12 @@ impl runtime::Program for UiOverlay {
 
             options = options.push(Text::new(format!(
                 "New Bloom Intensity: {:.4}",
-                self.new_bloom_intensity
+                new_bloom_intensity
             )));
             options = options.push(
                 slider(
                     0.001..=0.25,
-                    self.new_bloom_intensity,
+                    new_bloom_intensity,
                     Message::NewBloomIntensityChanged,
                 )
                 .step(0.001),
@@ -992,7 +1107,7 @@ impl runtime::Program for UiOverlay {
 
             // culling stats debug
             options = options.push(
-                checkbox("Show Culling Stats", self.is_recording_culling_stats)
+                checkbox("Show Culling Stats", record_culling_stats)
                     .on_toggle(Message::ToggleCullingStats),
             );
 
@@ -1017,10 +1132,10 @@ impl runtime::Program for UiOverlay {
             // frustum culling debug
             options = options.push(separator_line.clone());
             options = options.push(
-                checkbox("Enable Frustum Culling Debug", self.draw_culling_frustum)
+                checkbox("Enable Frustum Culling Debug", draw_culling_frustum)
                     .on_toggle(Message::ToggleDrawCullingFrustum),
             );
-            if self.draw_culling_frustum {
+            if draw_culling_frustum {
                 options = options.push(Text::new("Lock Culling Frustum"));
                 for mode in CullingFrustumLockMode::ALL {
                     options = options.push(radio(
@@ -1036,7 +1151,7 @@ impl runtime::Program for UiOverlay {
             options = options.push(
                 checkbox(
                     "Enable Point Light Frustum Culling Debug",
-                    self.draw_point_light_culling_frusta,
+                    draw_point_light_culling_frusta,
                 )
                 .on_toggle(Message::ToggleDrawPointLightCullingFrusta),
             );
@@ -1045,22 +1160,22 @@ impl runtime::Program for UiOverlay {
             options = options.push(
                 checkbox(
                     "Enable Directional Light Frustum Culling Debug",
-                    self.draw_directional_light_culling_frusta,
+                    draw_directional_light_culling_frusta,
                 )
                 .on_toggle(Message::ToggleDrawDirectionalLightCullingFrusta),
             );
             // shadow debug
             options = options.push(separator_line.clone());
             options = options.push(
-                checkbox("Enable Shadow Debug", self.enable_shadow_debug)
+                checkbox("Enable Shadow Debug", enable_shadow_debug)
                     .on_toggle(Message::ToggleShadowDebug),
             );
             options = options.push(
-                checkbox("Enable Cascade Debug", self.enable_cascade_debug)
+                checkbox("Enable Cascade Debug", enable_cascade_debug)
                     .on_toggle(Message::ToggleCascadeDebug),
             );
             options = options.push(
-                checkbox("Enable Soft Shadows", self.enable_soft_shadows)
+                checkbox("Enable Soft Shadows", enable_soft_shadows)
                     .on_toggle(Message::ToggleSoftShadows),
             );
             options = options.push(Text::new(format!(
@@ -1070,35 +1185,35 @@ impl runtime::Program for UiOverlay {
             options = options.push(
                 slider(0.0..=1.0, self.skybox_weight, Message::SkyboxWeightChanged).step(0.01),
             );
-            options = options.push(Text::new(format!("Shadow Bias: {:.5}", self.shadow_bias)));
+            options = options.push(Text::new(format!("Shadow Bias: {:.5}", shadow_bias)));
             options = options.push(
                 slider(
                     MIN_SHADOW_MAP_BIAS..=0.005,
-                    self.shadow_bias,
+                    shadow_bias,
                     Message::ShadowBiasChanged,
                 )
                 .step(0.00001),
             );
             options = options.push(Text::new(format!(
                 "Soft Shadow Factor: {:.6}",
-                self.soft_shadow_factor
+                soft_shadow_factor
             )));
             options = options.push(
                 slider(
                     0.000001..=0.00015,
-                    self.soft_shadow_factor,
+                    soft_shadow_factor,
                     Message::SoftShadowFactorChanged,
                 )
                 .step(0.000001),
             );
             options = options.push(Text::new(format!(
                 "Soft Shadow Grid Dims: {:}",
-                self.soft_shadow_grid_dims
+                soft_shadow_grid_dims
             )));
             options = options.push(
                 slider(
                     0..=16u32,
-                    self.soft_shadow_grid_dims,
+                    soft_shadow_grid_dims,
                     Message::SoftShadowGridDimsChanged,
                 )
                 .step(1u32),
@@ -1106,12 +1221,12 @@ impl runtime::Program for UiOverlay {
 
             options = options.push(Text::new(format!(
                 "Shadow Small Object Culling Size Pixels: {:.4}",
-                self.shadow_small_object_culling_size_pixels
+                shadow_small_object_culling_size_pixels
             )));
             options = options.push(
                 slider(
                     0.001..=1.0,
-                    self.shadow_small_object_culling_size_pixels,
+                    shadow_small_object_culling_size_pixels,
                     Message::ShadowSmallObjectCullingSizeChanged,
                 )
                 .step(0.001),
@@ -1119,12 +1234,12 @@ impl runtime::Program for UiOverlay {
 
             options = options.push(Text::new(format!(
                 "Soft Shadows Max Distance: {:.4}",
-                self.soft_shadows_max_distance
+                soft_shadows_max_distance
             )));
             options = options.push(
                 slider(
                     10.0..=500.0,
-                    self.soft_shadows_max_distance,
+                    soft_shadows_max_distance,
                     Message::SoftShadowsMaxDistanceChanged,
                 )
                 .step(1.0),
