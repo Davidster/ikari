@@ -594,6 +594,7 @@ impl<Message> canvas::Program<Message, iced::Theme, iced::Renderer> for UiOverla
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<canvas::Geometry> {
+        self.clock.clear();
         let clock = self.clock.draw(renderer, bounds.size(), |frame| {
             let center = iced::Point::new(
                 frame.width() * self.cursor_position.x as f32,
