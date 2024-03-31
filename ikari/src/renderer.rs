@@ -419,12 +419,11 @@ fn make_pbr_shader_options_uniform_buffer(
 ) -> PbrShaderOptionsUniform {
     let ShadowSettings {
         enable_soft_shadows,
-        enable_shadows,
         shadow_bias,
         soft_shadow_factor,
         soft_shadows_max_distance,
         soft_shadow_grid_dims,
-        shadow_small_object_culling_size_pixels,
+        ..
     } = shadow_settings;
 
     let options_1 = [
@@ -3722,14 +3721,11 @@ impl Renderer {
         }
 
         let DebugSettings {
-            enable_wireframe_mode,
             draw_node_bounding_spheres,
             draw_culling_frustum,
             draw_point_light_culling_frusta,
             draw_directional_light_culling_frusta,
-            enable_shadow_debug,
-            enable_cascade_debug,
-            record_culling_stats,
+            ..
         } = data.debug_settings;
 
         if draw_node_bounding_spheres {
@@ -4362,14 +4358,9 @@ impl Renderer {
         } = data.camera_settings;
 
         let DebugSettings {
-            enable_wireframe_mode,
-            draw_node_bounding_spheres,
-            draw_culling_frustum,
-            draw_point_light_culling_frusta,
-            draw_directional_light_culling_frusta,
             enable_shadow_debug,
             enable_cascade_debug,
-            record_culling_stats,
+            ..
         } = data.debug_settings;
 
         let PostEffectSettings {
@@ -5186,39 +5177,13 @@ impl Renderer {
         let profiler: &mut wgpu_profiler::GpuProfiler = &mut profiler_guard;
 
         let GeneralSettings {
-            render_scale,
             enable_depth_prepass,
+            ..
         } = data.general_settings;
 
-        let PostEffectSettings {
-            tone_mapping_exposure,
-            bloom_type,
-            old_bloom_threshold,
-            old_bloom_ramp_size,
-            new_bloom_radius,
-            new_bloom_intensity,
-        } = data.post_effect_settings;
+        let PostEffectSettings { bloom_type, .. } = data.post_effect_settings;
 
-        let ShadowSettings {
-            enable_shadows,
-            enable_soft_shadows,
-            shadow_bias,
-            soft_shadow_factor,
-            soft_shadows_max_distance,
-            soft_shadow_grid_dims,
-            shadow_small_object_culling_size_pixels,
-        } = data.shadow_settings;
-
-        let DebugSettings {
-            enable_wireframe_mode,
-            draw_node_bounding_spheres,
-            draw_culling_frustum,
-            draw_point_light_culling_frusta,
-            draw_directional_light_culling_frusta,
-            enable_shadow_debug,
-            enable_cascade_debug,
-            record_culling_stats,
-        } = data.debug_settings;
+        let ShadowSettings { enable_shadows, .. } = data.shadow_settings;
 
         let surface_texture_view =
             surface_texture

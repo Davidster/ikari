@@ -1343,7 +1343,7 @@ pub fn increment_render_scale(
 pub fn increment_exposure(renderer_data: &mut RendererData, increase: bool) {
     let delta = 0.05;
     let change = if increase { delta } else { -delta };
-    let mut tone_mapping_exposure = &mut renderer_data.post_effect_settings.tone_mapping_exposure;
+    let tone_mapping_exposure = &mut renderer_data.post_effect_settings.tone_mapping_exposure;
     *tone_mapping_exposure = (*tone_mapping_exposure + change).clamp(0.0, 20.0);
     log::info!("Exposure: {:?}", tone_mapping_exposure);
 }
@@ -1351,7 +1351,7 @@ pub fn increment_exposure(renderer_data: &mut RendererData, increase: bool) {
 pub fn increment_old_bloom_threshold(renderer_data: &mut RendererData, increase: bool) {
     let delta = 0.05;
     let change = if increase { delta } else { -delta };
-    let mut old_bloom_threshold = &mut renderer_data.post_effect_settings.old_bloom_threshold;
+    let old_bloom_threshold = &mut renderer_data.post_effect_settings.old_bloom_threshold;
     *old_bloom_threshold = (*old_bloom_threshold + change).clamp(0.0, 20.0);
     log::info!("Old Bloom Threshold: {:?}", old_bloom_threshold);
 }

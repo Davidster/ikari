@@ -15,7 +15,6 @@ use iced::Length;
 use iced::{mouse, Background, Command, Element, Rectangle, Theme};
 use iced_aw::{floating_element, Modal};
 use iced_winit::runtime;
-use iced_winit::runtime::Debug;
 use ikari::file_manager::GameFilePath;
 use ikari::player_controller::ControlledViewDirection;
 use ikari::profile_dump::can_generate_profile_dump;
@@ -1011,11 +1010,8 @@ impl runtime::Program for UiOverlay {
             }
 
             options = options.push(
-                checkbox(
-                    "Enable Depth Pre-pass",
-                    self.general_settings.enable_depth_prepass,
-                )
-                .on_toggle(Message::ToggleDepthPrepass),
+                checkbox("Enable Depth Pre-pass", enable_depth_prepass)
+                    .on_toggle(Message::ToggleDepthPrepass),
             );
 
             options = options.push(Text::new("Bloom Type"));
