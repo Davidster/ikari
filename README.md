@@ -87,7 +87,6 @@ https://user-images.githubusercontent.com/2389735/180101651-86ba2084-4196-494b-9
 You can profile ikari with [tracy](https://github.com/wolfpld/tracy) via [profiling](https://github.com/aclysma/profiling) crate.
 To do that you have to:
 - Download [tracy 0.10](https://github.com/wolfpld/tracy/releases/tag/v0.10)
-- Build ikari by adding --features="tracy" to the cargo command
 - Run ikari and tracy (in any order), when the game is loading tracy will start profiling
 
 If something does not work it is possible that the crate profiling has been updated and is no longer aligned with the tracy version and a more recent one must be used.
