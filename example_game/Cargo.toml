@@ -10,12 +10,13 @@ name = "example_game"
 path = "src/main.rs"
 
 [features]
-tracy = [
+default = ["cpu-profiling"]
+cpu-profiling = [
   "ikari/tracy-profile-dumps",
   "profiling/profile-with-tracy",
   "dep:tracing-tracy",
 ]
-tracy-n-alloc = []
+memory-profiling = []
 
 [dependencies]
 winit.workspace = true

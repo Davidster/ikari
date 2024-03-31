@@ -158,14 +158,15 @@ fn main() {
             .init();
     }
 
-    #[cfg(feature = "tracy-n-alloc")]
+    #[cfg(feature = "memory-profiling")]
     {
         use profiling::tracy_client::ProfiledAllocator;
         #[global_allocator]
         static GLOBAL: ProfiledAllocator<std::alloc::System> =
             ProfiledAllocator::new(std::alloc::System, 100);
     }
-    #[cfg(feature = "tracy")]
+
+    #[cfg(feature = "cpu-profiling")]
     profiling::tracy_client::Client::start();
 
     ikari::block_on(start());
