@@ -63,8 +63,7 @@ use winit::keyboard::NamedKey;
 pub const INITIAL_ENABLE_VSYNC: bool = true;
 pub const INITIAL_NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const INITIAL_FAR_PLANE_DISTANCE: f32 = 100000.0;
-// TODO: change the controlled value to fov_x instead of y and use 103 as default.
-pub const INITIAL_FOV_Y: f32 = 45.0 * std::f32::consts::PI / 180.0;
+pub const INITIAL_FOV_X: f32 = 103.0 * std::f32::consts::PI / 180.0;
 pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
 pub const INITIAL_ENABLE_SHADOWS: bool = true;
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
@@ -97,6 +96,7 @@ pub const PLAYER_MOVEMENT_SPEED: f32 = 6.0;
 
 pub const CREATE_POINT_SHADOW_MAP_DEBUG_OBJECTS: bool = false;
 pub const REMOVE_LARGE_OBJECTS_FROM_FOREST: bool = false;
+pub const ARROW_KEYS_ADJUST_WEAPON_POSITION: bool = false;
 
 // linear colors, not srgb
 pub const _DIRECTIONAL_LIGHT_COLOR_A: Vec3 = Vec3::new(0.84922975, 0.81581426, 0.8832506);
@@ -324,6 +324,7 @@ pub async fn init_game_state(
             // player's revolver
             // https://done3d.com/colt-python-8-inch/
             asset_ids.gun = load_gltf("src/models/gltf/ColtPython/colt_python.glb").into();
+            // asset_ids.gun = load_gltf("src/models/gltf/Revolver/revolver_low_poly.gltf").into();
 
             // forest
             // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
@@ -1271,6 +1272,44 @@ pub fn process_window_input(
                         elwt.exit();
                     }
                     _ => {}
+                };
+
+                if ARROW_KEYS_ADJUST_WEAPON_POSITION {
+                    if let Some(revolver) = game_state.revolver.as_mut() {
+                        if let Some(node) = engine_state.scene.get_node_mut(revolver.node_id) {
+                            match key {
+                                Key::Named(NamedKey::ArrowUp) => {
+                                    node.transform.set_position(dbg!(Vec3::new(
+                                        node.transform.position().x,
+                                        node.transform.position().y,
+                                        node.transform.position().z - 0.01,
+                                    )));
+                                }
+                                Key::Named(NamedKey::ArrowDown) => {
+                                    node.transform.set_position(dbg!(Vec3::new(
+                                        node.transform.position().x,
+                                        node.transform.position().y,
+                                        node.transform.position().z + 0.01,
+                                    )));
+                                }
+                                Key::Named(NamedKey::ArrowRight) => {
+                                    node.transform.set_position(dbg!(Vec3::new(
+                                        node.transform.position().x + 0.01,
+                                        node.transform.position().y,
+                                        node.transform.position().z,
+                                    )));
+                                }
+                                Key::Named(NamedKey::ArrowLeft) => {
+                                    node.transform.set_position(dbg!(Vec3::new(
+                                        node.transform.position().x - 0.01,
+                                        node.transform.position().y,
+                                        node.transform.position().z,
+                                    )));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1396,13 +1435,21 @@ pub fn update_game_state(
             if let Some(asset_id) = asset_ids_guard.gun {
                 if let Entry::Occupied(entry) = loaded_assets_guard.entry(asset_id) {
                     let (_, other_loaded_scene) = entry.remove_entry();
+                    let revolver_scene_node_count = other_loaded_scene.scene.node_count();
+
                     engine_state
                         .scene
                         .merge_scene(&mut renderer_data_guard, other_loaded_scene);
 
-                    let node_id = engine_state.scene.nodes().last().unwrap().id();
+                    let merged_scene_node_count = engine_state.scene.node_count();
+                    let node_id = engine_state
+                        .scene
+                        .nodes()
+                        .skip(merged_scene_node_count - revolver_scene_node_count)
+                        .next()
+                        .unwrap()
+                        .id();
                     let animation_index = engine_state.scene.animations.len() - 1;
-                    // revolver_indices = Some((revolver_model_node_id, animation_index));
                     game_state.revolver = Some(Revolver::new(
                         &mut engine_state.scene,
                         camera_node_id,
@@ -1410,16 +1457,18 @@ pub fn update_game_state(
                         animation_index,
                         // revolver model
                         // TransformBuilder::new()
-                        //     .position(Vec3::new(0.21, -0.09, -1.0))
-                        //     .rotation(Quat::from_axis_angle(
-                        //         Vec3::new(0.0, 1.0, 0.0),
-                        //         deg_to_rad(180.0).into(),
-                        //     ))
+                        //     .position(Vec3::new(0.23, -0.09, -0.81))
+                        //     .rotation(
+                        //         Quat::from_axis_angle(
+                        //             Vec3::new(0.0, 1.0, 0.0),
+                        //             180.0_f32.to_radians(),
+                        //         ) * Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.1),
+                        //     )
                         //     .scale(0.17f32 * Vec3::new(1.0, 1.0, 1.0))
                         //     .build(),
                         // colt python model
                         TransformBuilder::new()
-                            .position(Vec3::new(0.21, -0.13, -1.0))
+                            .position(Vec3::new(0.19, -0.13, -0.75))
                             .rotation(
                                 Quat::from_axis_angle(
                                     Vec3::new(0.0, 1.0, 0.0),
@@ -2004,7 +2053,7 @@ pub fn update_game_state(
         renderer_data_guard.general_settings.enable_depth_prepass =
             ui_state.general_settings.enable_depth_prepass;
 
-        renderer_data_guard.camera_settings.fov_y = ui_state.camera_settings.fov_y;
+        renderer_data_guard.camera_settings.fov_x = ui_state.camera_settings.fov_x;
         renderer_data_guard.camera_settings.near_plane_distance =
             ui_state.camera_settings.near_plane_distance;
         renderer_data_guard.camera_settings.far_plane_distance =

@@ -354,7 +354,7 @@ pub fn get_point_light_frustum_collider() -> &'static ConvexPolyhedron {
             aspect_ratio: 1.0,
             near_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
             far_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
-            fov_y: 90.0_f32.to_radians(),
+            fov_x: 90.0_f32.to_radians(),
         }
         .as_convex_polyhedron()
     })
@@ -390,7 +390,7 @@ impl CachedCameraFrustumCollider {
 
     pub fn update(&mut self, new_descriptor: &CameraFrustumDescriptor) {
         if self.descriptor.aspect_ratio != new_descriptor.aspect_ratio
-            || self.descriptor.fov_y != new_descriptor.fov_y
+            || self.descriptor.fov_x != new_descriptor.fov_x
             || self.descriptor.near_plane_distance != new_descriptor.near_plane_distance
             || self.descriptor.far_plane_distance != new_descriptor.far_plane_distance
         {
@@ -996,7 +996,7 @@ impl Default for GeneralSettings {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct CameraSettings {
-    pub fov_y: f32,
+    pub fov_x: f32,
     pub near_plane_distance: f32,
     pub far_plane_distance: f32,
 }
@@ -1004,7 +1004,7 @@ pub struct CameraSettings {
 impl Default for CameraSettings {
     fn default() -> Self {
         Self {
-            fov_y: 45.0f32.to_radians(),
+            fov_x: 103.0f32.to_radians(),
             near_plane_distance: 0.001,
             far_plane_distance: 100000.0,
         }
@@ -3844,7 +3844,7 @@ impl Renderer {
                         forward_vector: controlled_direction.to_vector(),
                         near_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
                         far_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
-                        fov_y: 90.0_f32.to_radians(),
+                        fov_x: 90.0_f32.to_radians(),
                         aspect_ratio: 1.0,
                     };
 
@@ -4033,7 +4033,7 @@ impl Renderer {
         };
 
         let CameraSettings {
-            fov_y,
+            fov_x,
             near_plane_distance,
             far_plane_distance,
         } = data_guard.camera_settings;
@@ -4045,7 +4045,7 @@ impl Renderer {
                 aspect_ratio,
                 near_plane_distance,
                 far_plane_distance,
-                fov_y,
+                fov_x,
             }),
             CullingFrustumLockMode::FocalPoint => CullingFrustumLock::FocalPoint(position),
             CullingFrustumLockMode::None => CullingFrustumLock::None,
@@ -4352,7 +4352,7 @@ impl Renderer {
         let aspect_ratio = surface_config.width as f32 / surface_config.height as f32;
 
         let CameraSettings {
-            fov_y,
+            fov_x,
             near_plane_distance,
             far_plane_distance,
         } = data.camera_settings;
@@ -4386,7 +4386,7 @@ impl Renderer {
             aspect_ratio,
             near_plane_distance,
             far_plane_distance,
-            fov_y,
+            fov_x,
         };
 
         let culling_frustum_desc = match private_data.frustum_culling_lock {
@@ -4951,7 +4951,7 @@ impl Renderer {
                 aspect_ratio,
                 near_plane_distance,
                 far_plane_distance,
-                fov_y,
+                fov_x,
                 true,
             )
         };

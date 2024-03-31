@@ -42,7 +42,7 @@ use crate::game::INITIAL_ENABLE_SHADOW_DEBUG;
 use crate::game::INITIAL_ENABLE_SOFT_SHADOWS;
 use crate::game::INITIAL_ENABLE_VSYNC;
 use crate::game::INITIAL_FAR_PLANE_DISTANCE;
-use crate::game::INITIAL_FOV_Y;
+use crate::game::INITIAL_FOV_X;
 use crate::game::INITIAL_IS_SHOWING_CAMERA_POSE;
 use crate::game::INITIAL_IS_SHOWING_CURSOR_MARKER;
 use crate::game::INITIAL_NEAR_PLANE_DISTANCE;
@@ -96,7 +96,7 @@ pub enum Message {
     AudioSoundStatsChanged((GameFilePath, AudioSoundStats)),
     #[allow(dead_code)]
     VsyncChanged(bool),
-    FovyChanged(f32),
+    FovxChanged(f32),
     NearPlaneDistanceChanged(f32),
     FarPlaneDistanceChanged(f32),
     BloomTypeChanged(BloomType),
@@ -143,7 +143,7 @@ impl Default for GeneralSettings {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct CameraSettings {
-    pub fov_y: f32,
+    pub fov_x: f32,
     pub near_plane_distance: f32,
     pub far_plane_distance: f32,
 }
@@ -151,7 +151,7 @@ pub struct CameraSettings {
 impl Default for CameraSettings {
     fn default() -> Self {
         Self {
-            fov_y: INITIAL_FOV_Y,
+            fov_x: INITIAL_FOV_X,
             near_plane_distance: INITIAL_NEAR_PLANE_DISTANCE,
             far_plane_distance: INITIAL_FAR_PLANE_DISTANCE,
         }
@@ -676,8 +676,8 @@ impl runtime::Program for UiOverlay {
                 self.skybox_weight = new_state;
             }
 
-            Message::FovyChanged(new_state) => {
-                self.camera_settings.fov_y = new_state.to_radians();
+            Message::FovxChanged(new_state) => {
+                self.camera_settings.fov_x = new_state.to_radians();
             }
             Message::NearPlaneDistanceChanged(new_state) => {
                 self.camera_settings.near_plane_distance = new_state;
@@ -972,7 +972,7 @@ impl runtime::Program for UiOverlay {
             } = self.general_settings;
 
             let CameraSettings {
-                fov_y,
+                fov_x,
                 near_plane_distance,
                 far_plane_distance,
             } = self.camera_settings;
@@ -1025,11 +1025,11 @@ impl runtime::Program for UiOverlay {
             }
 
             options = options.push(Text::new(format!(
-                "Vertical FOV: {:.4}",
-                fov_y.to_degrees()
+                "Horizontal FOV: {:.4}",
+                fov_x.to_degrees()
             )));
             options = options
-                .push(slider(10.0..=90.0, fov_y.to_degrees(), Message::FovyChanged).step(0.1));
+                .push(slider(10.0..=150.0, fov_x.to_degrees(), Message::FovxChanged).step(0.1));
 
             options = options.push(Text::new(format!(
                 "Near plane distance: {:.4}",

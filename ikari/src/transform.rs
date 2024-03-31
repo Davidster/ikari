@@ -250,13 +250,14 @@ impl Default for TransformBuilder {
 pub fn make_perspective_proj_matrix(
     near_plane_distance: f32,
     far_plane_distance: f32,
-    vertical_fov: f32,
+    fov_x: f32,
     aspect_ratio: f32,
     reverse_z: bool,
 ) -> Mat4 {
     let n = near_plane_distance;
     let f = far_plane_distance;
-    let cot = 1.0 / (vertical_fov / 2.0).tan();
+    let fov_y = fov_x / aspect_ratio;
+    let cot = 1.0 / (fov_y / 2.0).tan();
     let ar = aspect_ratio;
     #[rustfmt::skip]
     let persp_matrix = Mat4::from_cols_array(&[
