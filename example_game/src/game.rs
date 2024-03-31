@@ -2108,7 +2108,7 @@ pub fn update_game_state(
         renderer.set_culling_frustum_lock(
             engine_state,
             &surface_data.surface_config,
-            ui_state.culling_frustum_lock_mode,
+            ui_state.debug_settings.culling_frustum_lock_mode,
         );
     }
 

@@ -179,7 +179,6 @@ impl Default for PostEffectSettings {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ShadowSettings {
-    // TODO: remove 'shadow' from names
     pub enable_soft_shadows: bool,
     pub shadow_bias: f32,
     pub soft_shadow_factor: f32,
@@ -210,6 +209,7 @@ pub struct DebugSettings {
     pub enable_shadow_debug: bool,
     pub enable_cascade_debug: bool,
     pub record_culling_stats: bool,
+    pub culling_frustum_lock_mode: CullingFrustumLockMode,
 }
 
 impl Default for DebugSettings {
@@ -222,6 +222,7 @@ impl Default for DebugSettings {
             enable_shadow_debug: INITIAL_ENABLE_SHADOW_DEBUG,
             enable_cascade_debug: INITIAL_ENABLE_CASCADE_DEBUG,
             record_culling_stats: false,
+            culling_frustum_lock_mode: CullingFrustumLockMode::default(),
         }
     }
 }
@@ -251,8 +252,6 @@ pub struct UiOverlay {
 
     pub enable_vsync: bool,
     pub skybox_weight: f32,
-    // TODO: move into DebugSettings?
-    pub culling_frustum_lock_mode: CullingFrustumLockMode,
     pub is_showing_camera_pose: bool,
     // TODO: not working on mac??
     pub is_showing_cursor_marker: bool,
@@ -550,7 +549,6 @@ impl UiOverlay {
             culling_stats: None,
             enable_vsync: INITIAL_ENABLE_VSYNC,
             skybox_weight: INITIAL_SKYBOX_WEIGHT,
-            culling_frustum_lock_mode: CullingFrustumLockMode::None,
             pending_perf_dump: None,
             perf_dump_completion_time: None,
 
@@ -665,9 +663,6 @@ impl runtime::Program for UiOverlay {
             Message::VsyncChanged(new_state) => {
                 self.enable_vsync = new_state;
             }
-            Message::CullingFrustumLockModeChanged(new_state) => {
-                self.culling_frustum_lock_mode = new_state;
-            }
 
             Message::ToggleDepthPrepass(new_state) => {
                 self.general_settings.enable_depth_prepass = new_state;
@@ -718,7 +713,7 @@ impl runtime::Program for UiOverlay {
             Message::ToggleDrawCullingFrustum(new_state) => {
                 self.debug_settings.draw_culling_frustum = new_state;
                 if !self.debug_settings.draw_culling_frustum {
-                    self.culling_frustum_lock_mode = CullingFrustumLockMode::None;
+                    self.debug_settings.culling_frustum_lock_mode = CullingFrustumLockMode::None;
                 }
             }
             Message::ToggleDrawPointLightCullingFrusta(new_state) => {
@@ -738,6 +733,9 @@ impl runtime::Program for UiOverlay {
             }
             Message::ToggleCullingStats(new_state) => {
                 self.debug_settings.record_culling_stats = new_state;
+            }
+            Message::CullingFrustumLockModeChanged(new_state) => {
+                self.debug_settings.culling_frustum_lock_mode = new_state;
             }
         }
 
@@ -999,6 +997,7 @@ impl runtime::Program for UiOverlay {
                 enable_shadow_debug,
                 enable_cascade_debug,
                 record_culling_stats,
+                culling_frustum_lock_mode,
             } = self.debug_settings;
 
             // vsync
@@ -1137,7 +1136,7 @@ impl runtime::Program for UiOverlay {
                     options = options.push(radio(
                         format!("{mode}"),
                         mode,
-                        Some(self.culling_frustum_lock_mode),
+                        Some(culling_frustum_lock_mode),
                         Message::CullingFrustumLockModeChanged,
                     ));
                 }
