@@ -1445,8 +1445,7 @@ pub fn update_game_state(
                     let node_id = engine_state
                         .scene
                         .nodes()
-                        .skip(merged_scene_node_count - revolver_scene_node_count)
-                        .next()
+                        .nth(merged_scene_node_count - revolver_scene_node_count)
                         .unwrap()
                         .id();
                     let animation_index = engine_state.scene.animations.len() - 1;
@@ -2100,8 +2099,11 @@ pub fn update_game_state(
             .debug_settings
             .draw_directional_light_culling_frusta;
 
-        renderer.set_skybox_weights([1.0 - ui_state.skybox_weight, ui_state.skybox_weight]);
-        renderer.set_vsync(ui_state.enable_vsync, surface_data);
+        renderer.set_skybox_weights([
+            1.0 - ui_state.post_effect_settings.skybox_weight,
+            ui_state.post_effect_settings.skybox_weight,
+        ]);
+        renderer.set_vsync(ui_state.general_settings.enable_vsync, surface_data);
 
         drop(renderer_data_guard);
 
@@ -2133,7 +2135,11 @@ pub fn update_game_state(
     }
 
     let is_showing_options_menu = game_state.ui_overlay.get_state().is_showing_options_menu;
-    let is_showing_cursor_marker = game_state.ui_overlay.get_state().is_showing_cursor_marker;
+    let is_showing_cursor_marker = game_state
+        .ui_overlay
+        .get_state()
+        .debug_settings
+        .is_showing_cursor_marker;
     game_state.player_controller.update_cursor_grab(
         !is_showing_options_menu && !is_showing_cursor_marker,
         window,

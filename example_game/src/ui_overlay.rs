@@ -131,11 +131,13 @@ pub enum Message {
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct GeneralSettings {
     pub enable_depth_prepass: bool,
+    pub enable_vsync: bool,
 }
 
 impl Default for GeneralSettings {
     fn default() -> Self {
         Self {
+            enable_vsync: INITIAL_ENABLE_VSYNC,
             enable_depth_prepass: INITIAL_ENABLE_DEPTH_PREPASS,
         }
     }
@@ -164,6 +166,8 @@ pub struct PostEffectSettings {
 
     pub new_bloom_radius: f32,
     pub new_bloom_intensity: f32,
+
+    pub skybox_weight: f32,
 }
 
 impl Default for PostEffectSettings {
@@ -173,6 +177,8 @@ impl Default for PostEffectSettings {
 
             new_bloom_radius: INITIAL_NEW_BLOOM_RADIUS,
             new_bloom_intensity: INITIAL_NEW_BLOOM_INTENSITY,
+
+            skybox_weight: INITIAL_SKYBOX_WEIGHT,
         }
     }
 }
@@ -210,6 +216,12 @@ pub struct DebugSettings {
     pub enable_cascade_debug: bool,
     pub record_culling_stats: bool,
     pub culling_frustum_lock_mode: CullingFrustumLockMode,
+
+    is_showing_fps_chart: bool,
+    is_showing_gpu_spans: bool,
+    is_showing_audio_stats: bool,
+    is_showing_camera_pose: bool,
+    pub is_showing_cursor_marker: bool,
 }
 
 impl Default for DebugSettings {
@@ -223,6 +235,12 @@ impl Default for DebugSettings {
             enable_cascade_debug: INITIAL_ENABLE_CASCADE_DEBUG,
             record_culling_stats: false,
             culling_frustum_lock_mode: CullingFrustumLockMode::default(),
+
+            is_showing_camera_pose: INITIAL_IS_SHOWING_CAMERA_POSE,
+            is_showing_cursor_marker: INITIAL_IS_SHOWING_CURSOR_MARKER,
+            is_showing_fps_chart: false,
+            is_showing_gpu_spans: false,
+            is_showing_audio_stats: false,
         }
     }
 }
@@ -232,30 +250,21 @@ pub struct UiOverlay {
     clock: canvas::Cache,
     viewport_dims: (u32, u32),
     cursor_position: winit::dpi::PhysicalPosition<f64>,
-
     fps_chart: FpsChart,
-    is_showing_fps_chart: bool,
-    is_showing_gpu_spans: bool,
-    is_showing_audio_stats: bool,
-    pub is_showing_options_menu: bool,
-    pub was_exit_button_pressed: bool,
     camera_pose: Option<(Vec3, ControlledViewDirection)>, // position, direction
     audio_sound_stats: BTreeMap<String, AudioSoundStats>,
     pending_perf_dump: Option<PendingPerfDump>,
     perf_dump_completion_time: Option<Instant>,
+    culling_stats: Option<CullingStats>,
+
+    pub is_showing_options_menu: bool,
+    pub was_exit_button_pressed: bool,
 
     pub general_settings: GeneralSettings,
     pub camera_settings: CameraSettings,
     pub post_effect_settings: PostEffectSettings,
     pub shadow_settings: ShadowSettings,
     pub debug_settings: DebugSettings,
-
-    pub enable_vsync: bool,
-    pub skybox_weight: f32,
-    pub is_showing_camera_pose: bool,
-    // TODO: not working on mac??
-    pub is_showing_cursor_marker: bool,
-    pub culling_stats: Option<CullingStats>,
 }
 
 pub struct ContainerStyle;
@@ -273,7 +282,7 @@ impl container::StyleSheet for ContainerStyle {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct FpsChart {
     recent_frame_times: Vec<(Instant, FrameDurations, Option<Duration>)>,
     avg_total_frame_time_millis: Option<f64>,
@@ -527,30 +536,15 @@ impl UiOverlay {
             clock: Default::default(),
             viewport_dims: (window.inner_size().width, window.inner_size().height),
             cursor_position,
-            fps_chart: FpsChart {
-                recent_frame_times: vec![],
-                avg_total_frame_time_millis: None,
-                avg_update_time_ms: None,
-                avg_render_time_ms: None,
-                avg_gpu_frame_time_ms: None,
-                avg_gpu_frame_time_per_span: HashMap::new(),
-            },
-
-            audio_sound_stats: BTreeMap::new(),
-
+            fps_chart: FpsChart::default(),
             camera_pose: None,
-            is_showing_camera_pose: INITIAL_IS_SHOWING_CAMERA_POSE,
-            is_showing_cursor_marker: INITIAL_IS_SHOWING_CURSOR_MARKER,
-            is_showing_fps_chart: false,
-            is_showing_gpu_spans: false,
-            is_showing_options_menu: false,
-            was_exit_button_pressed: false,
-            is_showing_audio_stats: false,
-            culling_stats: None,
-            enable_vsync: INITIAL_ENABLE_VSYNC,
-            skybox_weight: INITIAL_SKYBOX_WEIGHT,
+            audio_sound_stats: BTreeMap::new(),
             pending_perf_dump: None,
             perf_dump_completion_time: None,
+            culling_stats: None,
+
+            is_showing_options_menu: false,
+            was_exit_button_pressed: false,
 
             general_settings: GeneralSettings::default(),
             camera_settings: CameraSettings::default(),
@@ -646,30 +640,15 @@ impl runtime::Program for UiOverlay {
             Message::TogglePopupMenu => {
                 self.is_showing_options_menu = !self.is_showing_options_menu
             }
-            Message::ToggleCameraPose(new_state) => {
-                self.is_showing_camera_pose = new_state;
-            }
-            Message::ToggleCursorMarker(new_state) => {
-                self.is_showing_cursor_marker = new_state;
-            }
-            Message::ToggleFpsChart(new_state) => {
-                self.is_showing_fps_chart = new_state;
-            }
-            Message::ToggleGpuSpans(new_state) => {
-                self.is_showing_gpu_spans = new_state;
-            }
             Message::CameraPoseChanged(new_state) => {
                 self.camera_pose = Some(new_state);
             }
-            Message::VsyncChanged(new_state) => {
-                self.enable_vsync = new_state;
-            }
 
+            Message::VsyncChanged(new_state) => {
+                self.general_settings.enable_vsync = new_state;
+            }
             Message::ToggleDepthPrepass(new_state) => {
                 self.general_settings.enable_depth_prepass = new_state;
-            }
-            Message::SkyboxWeightChanged(new_state) => {
-                self.skybox_weight = new_state;
             }
 
             Message::FovxChanged(new_state) => {
@@ -690,6 +669,9 @@ impl runtime::Program for UiOverlay {
             }
             Message::NewBloomIntensityChanged(new_state) => {
                 self.post_effect_settings.new_bloom_intensity = new_state;
+            }
+            Message::SkyboxWeightChanged(new_state) => {
+                self.post_effect_settings.skybox_weight = new_state;
             }
 
             Message::ShadowSmallObjectCullingSizeChanged(new_state) => {
@@ -729,14 +711,27 @@ impl runtime::Program for UiOverlay {
             Message::ToggleCascadeDebug(new_state) => {
                 self.debug_settings.enable_cascade_debug = new_state;
             }
-            Message::ToggleAudioStats(new_state) => {
-                self.is_showing_audio_stats = new_state;
-            }
             Message::ToggleCullingStats(new_state) => {
                 self.debug_settings.record_culling_stats = new_state;
             }
             Message::CullingFrustumLockModeChanged(new_state) => {
                 self.debug_settings.culling_frustum_lock_mode = new_state;
+            }
+
+            Message::ToggleCameraPose(new_state) => {
+                self.debug_settings.is_showing_camera_pose = new_state;
+            }
+            Message::ToggleCursorMarker(new_state) => {
+                self.debug_settings.is_showing_cursor_marker = new_state;
+            }
+            Message::ToggleFpsChart(new_state) => {
+                self.debug_settings.is_showing_fps_chart = new_state;
+            }
+            Message::ToggleGpuSpans(new_state) => {
+                self.debug_settings.is_showing_gpu_spans = new_state;
+            }
+            Message::ToggleAudioStats(new_state) => {
+                self.debug_settings.is_showing_audio_stats = new_state;
             }
         }
 
@@ -764,6 +759,15 @@ impl runtime::Program for UiOverlay {
             )
         };
 
+        let DebugSettings {
+            is_showing_fps_chart,
+            is_showing_gpu_spans,
+            is_showing_audio_stats,
+            is_showing_camera_pose,
+            is_showing_cursor_marker,
+            ..
+        } = self.debug_settings;
+
         if let Some(avg_frame_time_millis) = self.fps_chart.avg_total_frame_time_millis {
             let mut text = text(format!(
                 "Frametime: {:.2}ms ({:.2}fps)",
@@ -771,7 +775,7 @@ impl runtime::Program for UiOverlay {
                 1_000.0 / avg_frame_time_millis,
             ));
 
-            if self.is_showing_fps_chart {
+            if is_showing_fps_chart {
                 text = text.style(get_chart_line_color(0))
             }
             rows = rows.push(text);
@@ -779,7 +783,7 @@ impl runtime::Program for UiOverlay {
 
         if let Some(millis) = self.fps_chart.avg_update_time_ms {
             let mut text = text(&format!("Update: {:.2}ms", millis));
-            if self.is_showing_fps_chart {
+            if is_showing_fps_chart {
                 text = text.style(get_chart_line_color(1))
             }
             rows = rows.push(text);
@@ -787,7 +791,7 @@ impl runtime::Program for UiOverlay {
 
         if let Some(millis) = self.fps_chart.avg_render_time_ms {
             let mut text = text(&format!("Render: {:.2}ms", millis));
-            if self.is_showing_fps_chart {
+            if is_showing_fps_chart {
                 text = text.style(get_chart_line_color(2))
             }
             rows = rows.push(text);
@@ -795,7 +799,7 @@ impl runtime::Program for UiOverlay {
 
         if let Some(millis) = self.fps_chart.avg_gpu_frame_time_ms {
             let mut text = text(&format!("GPU: {:.2}ms", millis));
-            if self.is_showing_fps_chart {
+            if is_showing_fps_chart {
                 text = text.style(get_chart_line_color(3))
             }
             rows = rows.push(text);
@@ -808,7 +812,7 @@ impl runtime::Program for UiOverlay {
             )));
         }
 
-        if self.is_showing_camera_pose {
+        if is_showing_camera_pose {
             if let Some((camera_position, camera_direction)) = self.camera_pose {
                 rows = rows.push(text(&format!(
                     "Camera position:  x={:.2}, y={:.2}, z={:.2}",
@@ -831,7 +835,7 @@ impl runtime::Program for UiOverlay {
             }
         }
 
-        if self.is_showing_audio_stats {
+        if is_showing_audio_stats {
             for (file_path, stats) in &self.audio_sound_stats {
                 let format_timestamp = |timestamp| format!("{timestamp:.2}");
                 let pos = format_timestamp(stats.pos_seconds);
@@ -915,7 +919,7 @@ impl runtime::Program for UiOverlay {
             }
         }
 
-        if self.is_showing_gpu_spans {
+        if is_showing_gpu_spans {
             let mut avg_span_times_vec: Vec<_> =
                 self.fps_chart.avg_gpu_frame_time_per_span.iter().collect();
 
@@ -930,7 +934,7 @@ impl runtime::Program for UiOverlay {
             }
         }
 
-        if self.is_showing_fps_chart {
+        if is_showing_fps_chart {
             let padding = [16, 20, 16, 0]; // top, right, bottom, left
             rows = rows.push(
                 Container::new(
@@ -968,6 +972,7 @@ impl runtime::Program for UiOverlay {
 
             let GeneralSettings {
                 enable_depth_prepass,
+                enable_vsync,
             } = self.general_settings;
 
             let CameraSettings {
@@ -980,6 +985,8 @@ impl runtime::Program for UiOverlay {
                 bloom_type,
                 new_bloom_radius,
                 new_bloom_intensity,
+                skybox_weight,
+                ..
             } = self.post_effect_settings;
 
             let ShadowSettings {
@@ -999,14 +1006,14 @@ impl runtime::Program for UiOverlay {
                 enable_cascade_debug,
                 record_culling_stats,
                 culling_frustum_lock_mode,
+                ..
             } = self.debug_settings;
 
             // vsync
             #[cfg(not(target_arch = "wasm32"))]
             {
-                options = options.push(
-                    checkbox("Enable VSync", self.enable_vsync).on_toggle(Message::VsyncChanged),
-                );
+                options = options
+                    .push(checkbox("Enable VSync", enable_vsync).on_toggle(Message::VsyncChanged));
             }
 
             options = options.push(
@@ -1085,19 +1092,19 @@ impl runtime::Program for UiOverlay {
 
             // camera debug
             options = options.push(
-                checkbox("Show Camera Pose", self.is_showing_camera_pose)
+                checkbox("Show Camera Pose", is_showing_camera_pose)
                     .on_toggle(Message::ToggleCameraPose),
             );
 
             // cursor marker debug
             options = options.push(
-                checkbox("Show Cursor Marker", self.is_showing_cursor_marker)
+                checkbox("Show Cursor Marker", is_showing_cursor_marker)
                     .on_toggle(Message::ToggleCursorMarker),
             );
 
             // audio stats debug
             options = options.push(
-                checkbox("Show Audio Stats", self.is_showing_audio_stats)
+                checkbox("Show Audio Stats", is_showing_audio_stats)
                     .on_toggle(Message::ToggleAudioStats),
             );
 
@@ -1109,8 +1116,7 @@ impl runtime::Program for UiOverlay {
 
             // fps overlay
             options = options.push(
-                checkbox("Show FPS Chart", self.is_showing_fps_chart)
-                    .on_toggle(Message::ToggleFpsChart),
+                checkbox("Show FPS Chart", is_showing_fps_chart).on_toggle(Message::ToggleFpsChart),
             );
 
             if self
@@ -1120,7 +1126,7 @@ impl runtime::Program for UiOverlay {
                 .any(|(_, _, gpu_duration)| gpu_duration.is_some())
             {
                 options = options.push(
-                    checkbox("Show Detailed GPU Frametimes", self.is_showing_gpu_spans)
+                    checkbox("Show Detailed GPU Frametimes", is_showing_gpu_spans)
                         .on_toggle(Message::ToggleGpuSpans),
                 );
             }
@@ -1174,13 +1180,9 @@ impl runtime::Program for UiOverlay {
                 checkbox("Enable Soft Shadows", enable_soft_shadows)
                     .on_toggle(Message::ToggleSoftShadows),
             );
-            options = options.push(Text::new(format!(
-                "Skybox weight: {:.5}",
-                self.skybox_weight
-            )));
-            options = options.push(
-                slider(0.0..=1.0, self.skybox_weight, Message::SkyboxWeightChanged).step(0.01),
-            );
+            options = options.push(Text::new(format!("Skybox weight: {:.5}", skybox_weight)));
+            options = options
+                .push(slider(0.0..=1.0, skybox_weight, Message::SkyboxWeightChanged).step(0.01));
             options = options.push(Text::new(format!("Shadow Bias: {:.5}", shadow_bias)));
             options = options.push(
                 slider(
@@ -1301,7 +1303,7 @@ impl runtime::Program for UiOverlay {
             .into()
         });
 
-        if self.is_showing_cursor_marker {
+        if is_showing_cursor_marker {
             let overlay = {
                 let canvas: canvas::Canvas<&Self, Message, iced::Theme, iced::Renderer> =
                     canvas(self as &Self)
