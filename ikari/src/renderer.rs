@@ -2959,7 +2959,7 @@ impl Renderer {
         constant_data.plane_mesh_index = Self::bind_basic_mesh(&base, &mut data, &plane_mesh, true);
 
         let profiler = wgpu_profiler::GpuProfiler::new(wgpu_profiler::GpuProfilerSettings {
-            enable_timer_queries: !cfg!(target_arch = "wasm32"),
+            enable_timer_queries: !cfg!(target_arch = "wasm32") && cfg!(feature = "gpu-profiling"),
             enable_debug_groups: true,
             // buffer up to 4 frames
             max_num_pending_frames: 4,

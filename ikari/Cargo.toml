@@ -16,6 +16,7 @@ path = "src/lib.rs"
 [features]
 default = []
 tracy-profile-dumps = ["profiling/profile-with-tracy"]
+gpu-profiling = []
 
 [dependencies]
 bytemuck = { version = "1", features = ["derive"] }
