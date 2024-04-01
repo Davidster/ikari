@@ -703,7 +703,6 @@ impl BaseRenderer {
 
         let mut required_limits = wgpu::Limits::default();
 
-        // TODO: so far untested since macos reports the same value as default (256)
         if USE_ADAPTER_MIN_STORAGE_BUFFER_OFFSET_ALIGNMENT {
             required_limits.min_storage_buffer_offset_alignment =
                 adapter.limits().min_storage_buffer_offset_alignment;
@@ -4594,8 +4593,6 @@ impl Renderer {
             .iter()
             .map(|(_, (_, culling_mask, _))| culling_mask.clone())
             .collect();
-
-        log::info!("start");
 
         private_data.all_pbr_instances.replace(
             pbr_mesh_instances

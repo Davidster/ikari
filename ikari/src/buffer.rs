@@ -165,13 +165,13 @@ impl<T: bytemuck::Pod, ID> ChunkedBuffer<T, ID> {
             let start_index = self.buffer.len();
             let end_index = start_index + chunk.len() * stride;
             let chunk_bytes = bytemuck::cast_slice(&chunk);
-            total_bytes += chunk_bytes.len();
+            let chunk_length = chunk_bytes.len();
+
             self.buffer.extend_from_slice(chunk_bytes);
 
             // add padding
             let needed_padding = alignment - (self.buffer.len() % alignment);
-            total_bytes += needed_padding;
-            wasted_bytes += needed_padding;
+
             self.buffer.resize(self.buffer.len() + needed_padding, 0);
 
             if chunk.len() > self.biggest_chunk_length {
@@ -182,11 +182,16 @@ impl<T: bytemuck::Pod, ID> ChunkedBuffer<T, ID> {
                 id,
                 start_index,
                 end_index,
-            })
+            });
+
+            if log::log_enabled!(log::Level::Debug) {
+                total_bytes += needed_padding + chunk_length;
+                wasted_bytes += needed_padding;
+            }
         }
 
         if total_bytes > 0 {
-            log::info!(
+            log::debug!(
                 "wasted_bytes={wasted_bytes}, total_bytes={total_bytes} ({:.4}%)",
                 100.0 * wasted_bytes as f32 / total_bytes as f32
             );
