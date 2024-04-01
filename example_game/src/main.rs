@@ -76,7 +76,7 @@ async fn start() {
 
         let (base_renderer, mut surface_data) = {
             let backends = if cfg!(target_os = "windows") {
-                wgpu::Backends::from(wgpu::Backend::Vulkan)
+                wgpu::Backends::from(wgpu::Backend::Dx12)
                 // wgpu::Backends::PRIMARY
             } else {
                 wgpu::Backends::PRIMARY

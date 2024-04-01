@@ -48,6 +48,7 @@ pub(crate) const USE_EXTRA_SHADOW_MAP_CULLING: bool = true;
 pub(crate) const DRAW_FRUSTUM_BOUNDING_SPHERE_FOR_SHADOW_MAPS: bool = false;
 pub(crate) const ENABLE_GRAPHICS_API_VALIDATION: bool = false;
 pub(crate) const PRESORT_INSTANCES_BY_MESH_MATERIAL: bool = false;
+pub(crate) const USE_ADAPTER_MIN_STORAGE_BUFFER_OFFSET_ALIGNMENT: bool = true;
 
 pub const MAX_LIGHT_COUNT: usize = 32;
 pub const MAX_SHADOW_CASCADES: usize = 4;
@@ -700,12 +701,19 @@ impl BaseRenderer {
 
         let features = (adapter.features() & optional_features) | required_features;
 
+        let mut required_limits = wgpu::Limits::default();
+
+        if USE_ADAPTER_MIN_STORAGE_BUFFER_OFFSET_ALIGNMENT {
+            required_limits.min_storage_buffer_offset_alignment =
+                adapter.limits().min_storage_buffer_offset_alignment;
+        }
+
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
                     required_features: features,
-                    required_limits: Default::default(),
+                    required_limits,
                 },
                 None,
             )

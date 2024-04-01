@@ -156,16 +156,22 @@ impl<T: bytemuck::Pod, ID> ChunkedBuffer<T, ID> {
     pub fn replace(&mut self, chunks: impl Iterator<Item = (ID, Box<[T]>)>, alignment: usize) {
         self.clear();
 
+        let mut wasted_bytes = 0;
+        let mut total_bytes = 0;
+
         let stride = std::mem::size_of::<T>();
 
         for (id, chunk) in chunks {
             let start_index = self.buffer.len();
             let end_index = start_index + chunk.len() * stride;
             let chunk_bytes = bytemuck::cast_slice(&chunk);
+            let chunk_length = chunk_bytes.len();
+
             self.buffer.extend_from_slice(chunk_bytes);
 
             // add padding
             let needed_padding = alignment - (self.buffer.len() % alignment);
+
             self.buffer.resize(self.buffer.len() + needed_padding, 0);
 
             if chunk.len() > self.biggest_chunk_length {
@@ -176,7 +182,19 @@ impl<T: bytemuck::Pod, ID> ChunkedBuffer<T, ID> {
                 id,
                 start_index,
                 end_index,
-            })
+            });
+
+            if log::log_enabled!(log::Level::Debug) {
+                total_bytes += needed_padding + chunk_length;
+                wasted_bytes += needed_padding;
+            }
+        }
+
+        if total_bytes > 0 {
+            log::debug!(
+                "wasted_bytes={wasted_bytes}, total_bytes={total_bytes} ({:.4}%)",
+                100.0 * wasted_bytes as f32 / total_bytes as f32
+            );
         }
 
         // to avoid 'Dynamic binding at index x with offset y would overrun the buffer' error
