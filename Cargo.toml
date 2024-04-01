@@ -64,6 +64,9 @@ iced_winit = "0.12"
 
 [patch.crates-io]
 winit = { version = "0.29", git = "https://github.com/iced-rs/winit.git", rev = "b91e39ece2c0d378c3b80da7f3ab50e17bb798a5" }
+tracing-tracy = { path = "../rust_tracy_client_fork/tracing-tracy" }
+tracy-client = { path = "../rust_tracy_client_fork/tracy-client" }
+tracy-client-sys = { path = "../rust_tracy_client_fork/tracy-client-sys" }
 
 [profile.dev]
 opt-level = 1
