@@ -67,6 +67,7 @@ winit = { version = "0.29", git = "https://github.com/iced-rs/winit.git", rev = 
 tracing-tracy = { path = "../rust_tracy_client_fork/tracing-tracy" }
 tracy-client = { path = "../rust_tracy_client_fork/tracy-client" }
 tracy-client-sys = { path = "../rust_tracy_client_fork/tracy-client-sys" }
+wgpu-profiler = { path = "../wgpu-profiler-fork" }
 
 [profile.dev]
 opt-level = 1

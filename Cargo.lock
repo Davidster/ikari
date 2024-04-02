@@ -5527,7 +5527,7 @@ dependencies = [
  "js-sys",
  "log",
  "naga",
- "parking_lot 0.12.1",
+ "parking_lot 0.11.2",
  "profiling",
  "raw-window-handle 0.6.0",
  "serde",
@@ -5556,7 +5556,7 @@ dependencies = [
  "log",
  "naga",
  "once_cell",
- "parking_lot 0.12.1",
+ "parking_lot 0.11.2",
  "profiling",
  "raw-window-handle 0.6.0",
  "ron",
@@ -5599,7 +5599,7 @@ dependencies = [
  "naga",
  "objc",
  "once_cell",
- "parking_lot 0.12.1",
+ "parking_lot 0.11.2",
  "profiling",
  "range-alloc",
  "raw-window-handle 0.6.0",
@@ -5616,8 +5616,6 @@ dependencies = [
 [[package]]
 name = "wgpu-profiler"
 version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d5026bcb9625f0ad9bc0570811b40b4bc5249548a992feb695542d15faeadac"
 dependencies = [
  "parking_lot 0.12.1",
  "thiserror",
