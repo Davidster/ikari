@@ -24,7 +24,7 @@ winit.workspace = true
 ikari.workspace = true
 log.workspace = true
 wgpu.workspace = true
-wgpu-profiler.workspace = true
+# wgpu-profiler = { workspace = true, features = ["tracy"] }
 anyhow.workspace = true
 env_logger.workspace = true
 profiling.workspace = true
@@ -49,6 +49,7 @@ iced_aw = { git = "https://github.com/iced-rs/iced_aw.git", rev = "ed594559ac8f5
 ] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+# wgpu-profiler = { workspace = true }
 web-sys.workspace = true
 wasm-bindgen.workspace = true
 wasm-bindgen-futures.workspace = true
