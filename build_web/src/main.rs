@@ -171,6 +171,7 @@ fn main() {
         // When this issue is resolved we might be able to remove this hack: https://github.com/rust-lang/cargo/issues/8716
         "--target-dir".as_ref(),
         target_target.as_os_str(),
+        "--no-default-features".as_ref(),
     ];
 
     if let Some(package) = args.package.as_ref() {
