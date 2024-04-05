@@ -448,6 +448,7 @@ pub struct BindableTexture {
     pub raw_image: RawImage,
     pub name: Option<String>,
     pub sampler_descriptor: crate::sampler_cache::SamplerDescriptor,
+    pub path: GameFilePath,
 }
 
 #[derive(Debug)]

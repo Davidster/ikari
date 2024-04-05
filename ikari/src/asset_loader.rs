@@ -409,7 +409,7 @@ impl AssetLoader {
 
                         let (next_skybox_id, next_skybox_paths) = pending_skyboxes.lock().remove(0);
 
-                        let _get_skybox_paths_str = || {
+                        let get_skybox_paths_str = || {
                             let mut result = next_skybox_paths
                                 .to_flattened_file_paths()
                                 .iter()
@@ -419,7 +419,7 @@ impl AssetLoader {
                             result.truncate(100);
                             result
                         };
-                        profiling::scope!("Load skybox", &_get_skybox_paths_str());
+                        profiling::scope!("Load skybox", &get_skybox_paths_str());
 
                         match make_bindable_skybox(&next_skybox_paths).await {
                             Ok(result) => {
@@ -447,7 +447,7 @@ impl AssetLoader {
 impl AssetBinder {
     pub fn new() -> Self {
         #[cfg(not(target_arch = "wasm32"))]
-        let scene_binder = Box::new(ThreadedSceneBinder::new(WasmNotArc::new(
+        let scene_binder = Box::new(TimeSlicedSceneBinder::new(WasmNotArc::new(
             WasmNotMutex::new(HashMap::new()),
         )));
 
@@ -1093,7 +1093,6 @@ impl BindSkybox for TimeSlicedSkyboxBinder {
     }
 }
 
-#[profiling::function]
 fn bind_texture(
     base_renderer: &BaseRenderer,
     bindable_texture: &BindableTexture,
@@ -1102,7 +1101,11 @@ fn bind_texture(
         raw_image,
         name,
         sampler_descriptor,
+        path,
     } = bindable_texture;
+
+    profiling::scope!("bind_texture", &path.relative_path.to_string_lossy());
+
     Texture::from_raw_image(
         base_renderer,
         raw_image,

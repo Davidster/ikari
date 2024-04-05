@@ -458,7 +458,7 @@ impl UiOverlay {
             camera_pose: None,
             is_showing_camera_pose: INITIAL_IS_SHOWING_CAMERA_POSE,
             is_showing_cursor_marker: INITIAL_IS_SHOWING_CURSOR_MARKER,
-            is_showing_fps_chart: false,
+            is_showing_fps_chart: true,
             is_showing_gpu_spans: false,
             is_showing_options_menu: false,
             was_exit_button_pressed: false,
