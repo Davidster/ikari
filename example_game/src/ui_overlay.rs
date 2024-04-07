@@ -9,13 +9,12 @@ use iced::alignment::Horizontal;
 use iced::font::Family;
 use iced::font::Weight;
 use iced::widget::button;
-use iced::widget::row;
+
 use iced::Border;
 use iced::Font;
 
 use iced::widget::{
-    canvas, checkbox, container, radio, scrollable, slider, text, Button, Column, Container, Row,
-    Text,
+    canvas, checkbox, container, radio, scrollable, slider, text, Column, Container, Row,
 };
 use iced::Length;
 use iced::{mouse, Background, Command, Element, Rectangle, Theme};
