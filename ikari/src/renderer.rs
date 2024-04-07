@@ -1059,7 +1059,7 @@ impl Default for ShadowSettings {
             soft_shadow_factor: 0.00003,
             soft_shadows_max_distance: 100.0,
             soft_shadow_grid_dims: 4,
-            shadow_small_object_culling_size_pixels: 0.075,
+            shadow_small_object_culling_size_pixels: 16.0,
         }
     }
 }
@@ -4168,9 +4168,8 @@ impl Renderer {
                 // If the object is fully inside both of the previous cascades then it can
                 // also be culled. This should work well when combined with LOD
                 if projection_volume.pixel_size
-                    > node_bounding_sphere.radius
-                        * 2.0
-                        * data.shadow_settings.shadow_small_object_culling_size_pixels
+                    * data.shadow_settings.shadow_small_object_culling_size_pixels
+                    > node_bounding_sphere.radius * 2.0
                 // TODO: this doesn't seem to work for objects that remain close to the player. is it fundamentally wrong?
                 // || fully_contained_cascades >= 2
                 {

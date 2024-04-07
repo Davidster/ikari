@@ -8,9 +8,10 @@ use crate::ui_overlay::AudioSoundStats;
 use crate::ui_overlay::FrameStats;
 use crate::ui_overlay::Message;
 use crate::ui_overlay::UiOverlay;
-use crate::ui_overlay::DEFAULT_FONT_BYTES;
-use crate::ui_overlay::DEFAULT_FONT_NAME;
-use crate::ui_overlay::KOOKY_FONT_BYTES;
+use crate::ui_overlay::LATO_BOLD_FONT_BYTES;
+use crate::ui_overlay::LATO_FONT_BYTES;
+use crate::ui_overlay::LATO_FONT_NAME;
+use crate::ui_overlay::PACIFICO_FONT_BYTES;
 
 use std::{collections::hash_map::Entry, sync::Arc};
 
@@ -60,6 +61,7 @@ use winit::keyboard::Key;
 use winit::keyboard::NamedKey;
 
 // graphics settings
+// TODO: replace the ones that are using the defaults with a call to ::default
 pub const INITIAL_ENABLE_VSYNC: bool = true;
 pub const INITIAL_NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const INITIAL_FAR_PLANE_DISTANCE: f32 = 100000.0;
@@ -68,7 +70,7 @@ pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
 pub const INITIAL_ENABLE_SHADOWS: bool = true;
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
-pub const INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS: f32 = 0.075;
+pub const INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS: f32 = 16.0;
 pub const INITIAL_OLD_BLOOM_THRESHOLD: f32 = 0.8;
 pub const INITIAL_OLD_BLOOM_RAMP_SIZE: f32 = 0.2;
 pub const INITIAL_NEW_BLOOM_RADIUS: f32 = 0.005;
@@ -1130,10 +1132,11 @@ pub async fn init_game_state(
             &renderer.base.queue,
             surface_format,
             UiOverlay::new(window),
-            Some(DEFAULT_FONT_NAME),
+            Some(LATO_FONT_NAME),
             vec![
-                DEFAULT_FONT_BYTES,
-                KOOKY_FONT_BYTES,
+                LATO_FONT_BYTES,
+                LATO_BOLD_FONT_BYTES,
+                PACIFICO_FONT_BYTES,
                 iced_aw::graphics::icons::BOOTSTRAP_FONT_BYTES,
             ],
             crate::ui_overlay::THEME,
