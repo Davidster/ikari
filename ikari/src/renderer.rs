@@ -355,7 +355,7 @@ pub fn get_point_light_frustum_collider() -> &'static ConvexPolyhedron {
             aspect_ratio: 1.0,
             near_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
             far_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
-            fov_y: 90.0_f32.to_radians(),
+            fov_x: 90.0_f32.to_radians(),
         }
         .as_convex_polyhedron()
     })
@@ -391,7 +391,7 @@ impl CachedCameraFrustumCollider {
 
     pub fn update(&mut self, new_descriptor: &CameraFrustumDescriptor) {
         if self.descriptor.aspect_ratio != new_descriptor.aspect_ratio
-            || self.descriptor.fov_y != new_descriptor.fov_y
+            || self.descriptor.fov_x != new_descriptor.fov_x
             || self.descriptor.near_plane_distance != new_descriptor.near_plane_distance
             || self.descriptor.far_plane_distance != new_descriptor.far_plane_distance
         {
@@ -414,14 +414,19 @@ impl CachedCameraFrustumCollider {
 }
 
 fn make_pbr_shader_options_uniform_buffer(
-    enable_soft_shadows: bool,
-    shadow_bias: f32,
-    soft_shadow_factor: f32,
+    shadow_settings: ShadowSettings,
     enable_shadow_debug: bool,
     enable_cascade_debug: bool,
-    soft_shadow_grid_dims: u32,
-    soft_shadows_max_distance: f32,
 ) -> PbrShaderOptionsUniform {
+    let ShadowSettings {
+        enable_soft_shadows,
+        shadow_bias,
+        soft_shadow_factor,
+        soft_shadows_max_distance,
+        soft_shadow_grid_dims,
+        ..
+    } = shadow_settings;
+
     let options_1 = [
         if enable_soft_shadows { 1.0 } else { 0.0 },
         soft_shadow_factor,
@@ -792,7 +797,7 @@ pub struct RendererPrivateData {
     culling_frustum_collider: Option<CachedCameraFrustumCollider>,
     frustum_culling_lock: CullingFrustumLock, // for debug
     skybox_weights: [f32; 2],
-    bloom_threshold_cleared: bool,
+    old_bloom_threshold_cleared: bool,
     new_bloom_cleared: bool,
 
     // gpu
@@ -803,16 +808,16 @@ pub struct RendererPrivateData {
     bones_and_unlit_instances_bind_group: wgpu::BindGroup,
     bones_and_transparent_instances_bind_group: wgpu::BindGroup,
     bones_and_wireframe_instances_bind_group: wgpu::BindGroup,
-    bloom_config_bind_groups: [wgpu::BindGroup; 2],
+    old_bloom_config_bind_groups: [wgpu::BindGroup; 2],
     new_bloom_downscale_config_bind_groups: Vec<wgpu::BindGroup>,
     new_bloom_upscale_config_bind_group: wgpu::BindGroup,
     tone_mapping_config_bind_group: wgpu::BindGroup,
     environment_textures_bind_group: wgpu::BindGroup,
-    shading_and_bloom_textures_bind_group: wgpu::BindGroup,
+    shading_and_old_bloom_textures_bind_group: wgpu::BindGroup,
     shading_and_new_bloom_texture_bind_group: wgpu::BindGroup,
     tone_mapping_texture_bind_group: wgpu::BindGroup,
     shading_texture_bind_group: wgpu::BindGroup,
-    bloom_pingpong_texture_bind_groups: [wgpu::BindGroup; 2],
+    old_bloom_pingpong_texture_bind_groups: [wgpu::BindGroup; 2],
     new_bloom_texture_bind_group: wgpu::BindGroup,
     new_bloom_texture_mip_bind_groups: Vec<wgpu::BindGroup>,
 
@@ -820,7 +825,7 @@ pub struct RendererPrivateData {
     point_lights_buffer: wgpu::Buffer,
     directional_lights_buffer: wgpu::Buffer,
     pbr_shader_options_buffer: wgpu::Buffer,
-    bloom_config_buffers: [wgpu::Buffer; 2],
+    old_bloom_config_buffers: [wgpu::Buffer; 2],
     new_bloom_downscale_config_buffers: Vec<wgpu::Buffer>,
     new_bloom_upscale_config_buffer: wgpu::Buffer,
     tone_mapping_config_buffer: wgpu::Buffer,
@@ -839,7 +844,7 @@ pub struct RendererPrivateData {
     shading_texture: Texture,
     tone_mapping_texture: Texture,
     depth_texture: Texture,
-    bloom_pingpong_textures: [Texture; 2],
+    old_bloom_pingpong_textures: [Texture; 2],
     new_bloom_texture: Texture,
     new_bloom_texture_mip_views: Vec<wgpu::TextureView>,
     brdf_lut: Texture,
@@ -982,40 +987,118 @@ impl std::fmt::Display for BloomType {
     }
 }
 
-pub struct RendererData {
-    pub binded_meshes: Vec<BindedGeometryBuffers>,
-    pub binded_wireframe_meshes: Vec<BindedWireframeMesh>,
-    pub binded_pbr_materials: Vec<BindedPbrMaterial>,
-    pub textures: Vec<Texture>,
-
-    pub fov_y: f32,
-    pub near_plane_distance: f32,
-    pub far_plane_distance: f32,
-    pub tone_mapping_exposure: f32,
-    pub bloom_threshold: f32,
-    pub bloom_ramp_size: f32,
-    pub new_bloom_radius: f32,
-    pub new_bloom_intensity: f32,
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct GeneralSettings {
     pub render_scale: f32,
     pub enable_depth_prepass: bool,
+}
+
+impl Default for GeneralSettings {
+    fn default() -> Self {
+        Self {
+            render_scale: 1.0,
+            enable_depth_prepass: false,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct CameraSettings {
+    pub fov_x: f32,
+    pub near_plane_distance: f32,
+    pub far_plane_distance: f32,
+}
+
+impl Default for CameraSettings {
+    fn default() -> Self {
+        Self {
+            fov_x: 103.0f32.to_radians(),
+            near_plane_distance: 0.001,
+            far_plane_distance: 100000.0,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct PostEffectSettings {
+    pub tone_mapping_exposure: f32,
+
     pub bloom_type: BloomType,
+
+    pub old_bloom_threshold: f32,
+    pub old_bloom_ramp_size: f32,
+
+    pub new_bloom_radius: f32,
+    pub new_bloom_intensity: f32,
+}
+
+impl Default for PostEffectSettings {
+    fn default() -> Self {
+        Self {
+            tone_mapping_exposure: 1.0,
+            bloom_type: BloomType::New,
+
+            old_bloom_threshold: 0.8,
+            old_bloom_ramp_size: 0.2,
+
+            new_bloom_radius: 0.005,
+            new_bloom_intensity: 0.04,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct ShadowSettings {
     pub enable_shadows: bool,
+    pub enable_soft_shadows: bool,
+    pub shadow_bias: f32,
+    pub soft_shadow_factor: f32,
+    pub soft_shadows_max_distance: f32,
+    pub soft_shadow_grid_dims: u32,
+    pub shadow_small_object_culling_size_pixels: f32,
+}
+
+impl Default for ShadowSettings {
+    fn default() -> Self {
+        Self {
+            enable_shadows: true,
+            enable_soft_shadows: true,
+            shadow_bias: 0.001,
+            soft_shadow_factor: 0.00003,
+            soft_shadows_max_distance: 100.0,
+            soft_shadow_grid_dims: 4,
+            shadow_small_object_culling_size_pixels: 16.0,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Default)]
+pub struct DebugSettings {
     pub enable_wireframe_mode: bool,
     pub draw_node_bounding_spheres: bool,
     pub draw_culling_frustum: bool,
     pub draw_point_light_culling_frusta: bool,
     pub draw_directional_light_culling_frusta: bool,
-    pub enable_soft_shadows: bool,
-    pub shadow_bias: f32,
-    pub soft_shadow_factor: f32,
-    pub soft_shadows_max_distance: f32,
     pub enable_shadow_debug: bool,
     pub enable_cascade_debug: bool,
-    pub soft_shadow_grid_dims: u32,
-    pub camera_node_id: Option<GameNodeId>,
     pub record_culling_stats: bool,
+}
+
+pub struct RendererData {
+    pub camera_node_id: Option<GameNodeId>,
     pub last_frame_culling_stats: Option<CullingStats>,
-    pub shadow_small_object_culling_size_pixels: f32,
+
+    pub general_settings: GeneralSettings,
+    pub camera_settings: CameraSettings,
+    pub post_effect_settings: PostEffectSettings,
+    pub shadow_settings: ShadowSettings,
+    pub debug_settings: DebugSettings,
+
+    // binded (uploaded to gpu) data
+    pub binded_meshes: Vec<BindedGeometryBuffers>,
+    pub binded_wireframe_meshes: Vec<BindedWireframeMesh>,
+    pub binded_pbr_materials: Vec<BindedPbrMaterial>,
+    pub textures: Vec<Texture>,
 }
 
 pub struct RendererConstantData {
@@ -1040,8 +1123,8 @@ pub struct RendererConstantData {
     pub surface_blit_pipeline: wgpu::RenderPipeline,
     pub point_shadow_map_pipeline: wgpu::RenderPipeline,
     pub directional_shadow_map_pipeline: wgpu::RenderPipeline,
-    pub bloom_threshold_pipeline: wgpu::RenderPipeline,
-    pub bloom_blur_pipeline: wgpu::RenderPipeline,
+    pub old_bloom_threshold_pipeline: wgpu::RenderPipeline,
+    pub old_bloom_blur_pipeline: wgpu::RenderPipeline,
     pub new_bloom_downscale_pipeline: wgpu::RenderPipeline,
     pub new_bloom_upscale_pipeline: wgpu::RenderPipeline,
     pub equirectangular_to_cubemap_pipeline: wgpu::RenderPipeline,
@@ -1663,7 +1746,7 @@ impl Renderer {
             .device
             .create_render_pipeline(&wireframe_pipeline_descriptor);
 
-        let bloom_pipeline_layout =
+        let old_bloom_pipeline_layout =
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: None,
@@ -1673,9 +1756,9 @@ impl Renderer {
                     ],
                     push_constant_ranges: &[],
                 });
-        let bloom_threshold_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: USE_LABELS.then_some("Bloom Threshold Pipeline"),
-            layout: Some(&bloom_pipeline_layout),
+        let old_bloom_threshold_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: USE_LABELS.then_some("Old Bloom Threshold Pipeline"),
+            layout: Some(&old_bloom_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &blit_shader,
                 entry_point: "vs_main",
@@ -1694,13 +1777,13 @@ impl Renderer {
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
         };
-        let bloom_threshold_pipeline = base
+        let old_bloom_threshold_pipeline = base
             .device
-            .create_render_pipeline(&bloom_threshold_pipeline_descriptor);
+            .create_render_pipeline(&old_bloom_threshold_pipeline_descriptor);
 
-        let bloom_blur_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: USE_LABELS.then_some("Bloom Blur Pipeline"),
-            layout: Some(&bloom_pipeline_layout),
+        let old_bloom_blur_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: USE_LABELS.then_some("Old Bloom Blur Pipeline"),
+            layout: Some(&old_bloom_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &blit_shader,
                 entry_point: "vs_main",
@@ -1719,9 +1802,9 @@ impl Renderer {
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
         };
-        let bloom_blur_pipeline = base
+        let old_bloom_blur_pipeline = base
             .device
-            .create_render_pipeline(&bloom_blur_pipeline_descriptor);
+            .create_render_pipeline(&old_bloom_blur_pipeline_descriptor);
 
         let new_bloom_texture_format = if base
             .device
@@ -2186,7 +2269,7 @@ impl Renderer {
             .device
             .create_render_pipeline(&directional_shadow_map_pipeline_descriptor);
 
-        let initial_render_scale = 1.0;
+        let general_settings = GeneralSettings::default();
 
         let cube_mesh = BasicMesh::new(include_bytes!("models/cube.obj"))?;
 
@@ -2214,8 +2297,8 @@ impl Renderer {
             surface_blit_pipeline,
             point_shadow_map_pipeline,
             directional_shadow_map_pipeline,
-            bloom_threshold_pipeline,
-            bloom_blur_pipeline,
+            old_bloom_threshold_pipeline,
+            old_bloom_blur_pipeline,
             new_bloom_downscale_pipeline,
             new_bloom_upscale_pipeline,
             equirectangular_to_cubemap_pipeline,
@@ -2231,20 +2314,20 @@ impl Renderer {
         let shading_texture = Texture::create_scaled_surface_texture(
             &base,
             framebuffer_size,
-            initial_render_scale,
+            general_settings.render_scale,
             "shading_texture",
         );
-        let bloom_pingpong_textures = [
+        let old_bloom_pingpong_textures = [
             Texture::create_scaled_surface_texture(
                 &base,
                 framebuffer_size,
-                initial_render_scale,
+                general_settings.render_scale,
                 "bloom_texture_1",
             ),
             Texture::create_scaled_surface_texture(
                 &base,
                 framebuffer_size,
-                initial_render_scale,
+                general_settings.render_scale,
                 "bloom_texture_2",
             ),
         ];
@@ -2278,14 +2361,14 @@ impl Renderer {
         let tone_mapping_texture = Texture::create_scaled_surface_texture(
             &base,
             framebuffer_size,
-            initial_render_scale,
+            general_settings.render_scale,
             "tone_mapping_texture",
         );
 
         let shading_texture_bind_group;
         let tone_mapping_texture_bind_group;
-        let shading_and_bloom_textures_bind_group;
-        let bloom_pingpong_texture_bind_groups;
+        let shading_and_old_bloom_textures_bind_group;
+        let old_bloom_pingpong_texture_bind_groups;
         let shading_and_new_bloom_texture_bind_group;
         let new_bloom_texture_bind_group;
         let new_bloom_texture_mip_bind_groups;
@@ -2330,7 +2413,7 @@ impl Renderer {
                     ],
                     label: USE_LABELS.then_some("tone_mapping_texture_bind_group"),
                 });
-            shading_and_bloom_textures_bind_group =
+            shading_and_old_bloom_textures_bind_group =
                 base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: &constant_data.two_texture_bind_group_layout,
                     entries: &[
@@ -2348,35 +2431,37 @@ impl Renderer {
                         wgpu::BindGroupEntry {
                             binding: 2,
                             resource: wgpu::BindingResource::TextureView(
-                                &bloom_pingpong_textures[0].view,
+                                &old_bloom_pingpong_textures[0].view,
                             ),
                         },
                         wgpu::BindGroupEntry {
                             binding: 3,
                             resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard
-                                    .get_sampler_by_index(bloom_pingpong_textures[0].sampler_index),
+                                sampler_cache_guard.get_sampler_by_index(
+                                    old_bloom_pingpong_textures[0].sampler_index,
+                                ),
                             ),
                         },
                     ],
                     label: USE_LABELS.then_some("shading_and_bloom_textures_bind_group"),
                 });
 
-            bloom_pingpong_texture_bind_groups = [
+            old_bloom_pingpong_texture_bind_groups = [
                 base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: &constant_data.single_texture_bind_group_layout,
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
                             resource: wgpu::BindingResource::TextureView(
-                                &bloom_pingpong_textures[0].view,
+                                &old_bloom_pingpong_textures[0].view,
                             ),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard
-                                    .get_sampler_by_index(bloom_pingpong_textures[0].sampler_index),
+                                sampler_cache_guard.get_sampler_by_index(
+                                    old_bloom_pingpong_textures[0].sampler_index,
+                                ),
                             ),
                         },
                     ],
@@ -2388,14 +2473,15 @@ impl Renderer {
                         wgpu::BindGroupEntry {
                             binding: 0,
                             resource: wgpu::BindingResource::TextureView(
-                                &bloom_pingpong_textures[1].view,
+                                &old_bloom_pingpong_textures[1].view,
                             ),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard
-                                    .get_sampler_by_index(bloom_pingpong_textures[1].sampler_index),
+                                sampler_cache_guard.get_sampler_by_index(
+                                    old_bloom_pingpong_textures[1].sampler_index,
+                                ),
                             ),
                         },
                     ],
@@ -2478,7 +2564,7 @@ impl Renderer {
                 .collect::<Vec<_>>();
         }
 
-        let bloom_config_buffers = [
+        let old_bloom_config_buffers = [
             base.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: USE_LABELS.then_some("Bloom Config Buffer 0"),
@@ -2518,7 +2604,7 @@ impl Renderer {
                 layout: &constant_data.single_uniform_bind_group_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: bloom_config_buffers[0].as_entire_binding(),
+                    resource: old_bloom_config_buffers[0].as_entire_binding(),
                 }],
                 label: USE_LABELS.then_some("bloom_config_bind_group_0"),
             }),
@@ -2526,7 +2612,7 @@ impl Renderer {
                 layout: &constant_data.single_uniform_bind_group_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: bloom_config_buffers[1].as_entire_binding(),
+                    resource: old_bloom_config_buffers[1].as_entire_binding(),
                 }],
                 label: USE_LABELS.then_some("bloom_config_bind_group_1"),
             }),
@@ -2579,7 +2665,7 @@ impl Renderer {
         let depth_texture = Texture::create_depth_texture(
             &base,
             framebuffer_size,
-            initial_render_scale,
+            general_settings.render_scale,
             "depth_texture",
         );
 
@@ -2727,21 +2813,12 @@ impl Renderer {
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
-        let enable_soft_shadows = true;
-        let shadow_bias = 0.001;
-        let soft_shadow_factor = 0.00003;
-        let enable_shadow_debug = false;
-        let enable_cascade_debug = false;
-        let soft_shadow_grid_dims = 4;
-        let soft_shadows_max_distance = 100.0;
+        let shadow_settings = ShadowSettings::default();
+        let debug_settings = DebugSettings::default();
         let initial_pbr_shader_options_buffer = make_pbr_shader_options_uniform_buffer(
-            enable_soft_shadows,
-            shadow_bias,
-            soft_shadow_factor,
-            enable_shadow_debug,
-            enable_cascade_debug,
-            soft_shadow_grid_dims,
-            soft_shadows_max_distance,
+            shadow_settings,
+            debug_settings.enable_shadow_debug,
+            debug_settings.enable_cascade_debug,
         );
         let pbr_shader_options_buffer =
             base.device
@@ -2922,39 +2999,19 @@ impl Renderer {
         );
 
         let mut data = RendererData {
+            camera_node_id: None,
+            last_frame_culling_stats: None,
+
+            general_settings,
+            camera_settings: CameraSettings::default(),
+            post_effect_settings: PostEffectSettings::default(),
+            shadow_settings,
+            debug_settings,
+
             binded_meshes: vec![],
             binded_wireframe_meshes: vec![],
             binded_pbr_materials: vec![],
             textures: vec![],
-
-            tone_mapping_exposure: 1.0,
-            bloom_threshold: 0.8,
-            bloom_ramp_size: 0.2,
-            new_bloom_radius: 0.005,
-            new_bloom_intensity: 0.04,
-            render_scale: initial_render_scale,
-            bloom_type: BloomType::Old,
-            enable_depth_prepass: false,
-            enable_shadows: true,
-            enable_wireframe_mode: false,
-            draw_node_bounding_spheres: false,
-            draw_culling_frustum: false,
-            draw_point_light_culling_frusta: false,
-            draw_directional_light_culling_frusta: false,
-            enable_soft_shadows,
-            shadow_bias,
-            soft_shadow_factor,
-            soft_shadows_max_distance,
-            enable_shadow_debug,
-            enable_cascade_debug,
-            soft_shadow_grid_dims,
-            camera_node_id: None,
-            record_culling_stats: false,
-            last_frame_culling_stats: None,
-            shadow_small_object_culling_size_pixels: 0.075,
-            fov_y: 45.0f32.to_radians(),
-            near_plane_distance: 0.001,
-            far_plane_distance: 100000.0,
         };
 
         constant_data.cube_mesh_index = Self::bind_basic_mesh(&base, &mut data, &cube_mesh, true);
@@ -2998,7 +3055,7 @@ impl Renderer {
                 frustum_culling_lock: CullingFrustumLock::None,
                 skybox_weights,
                 // TODO: instead of clearing the texture when bloom is disabled, just don't read from it in the tone mapping shader
-                bloom_threshold_cleared: true,
+                old_bloom_threshold_cleared: true,
                 new_bloom_cleared: true,
 
                 camera_lights_and_pbr_shader_options_bind_group_layout,
@@ -3008,23 +3065,23 @@ impl Renderer {
                 bones_and_unlit_instances_bind_group,
                 bones_and_transparent_instances_bind_group,
                 bones_and_wireframe_instances_bind_group,
-                bloom_config_bind_groups,
+                old_bloom_config_bind_groups: bloom_config_bind_groups,
                 new_bloom_downscale_config_bind_groups,
                 new_bloom_upscale_config_bind_group,
                 tone_mapping_config_bind_group,
                 environment_textures_bind_group,
-                shading_and_bloom_textures_bind_group,
+                shading_and_old_bloom_textures_bind_group,
                 shading_and_new_bloom_texture_bind_group,
                 tone_mapping_texture_bind_group,
                 shading_texture_bind_group,
-                bloom_pingpong_texture_bind_groups,
+                old_bloom_pingpong_texture_bind_groups,
                 new_bloom_texture_bind_group,
                 new_bloom_texture_mip_bind_groups,
 
                 camera_buffers: vec![],
                 point_lights_buffer,
                 directional_lights_buffer,
-                bloom_config_buffers,
+                old_bloom_config_buffers,
                 new_bloom_downscale_config_buffers,
                 new_bloom_upscale_config_buffer,
                 tone_mapping_config_buffer,
@@ -3044,7 +3101,7 @@ impl Renderer {
                 shading_texture,
                 tone_mapping_texture,
                 depth_texture,
-                bloom_pingpong_textures,
+                old_bloom_pingpong_textures,
                 new_bloom_texture,
                 new_bloom_texture_mip_views,
                 brdf_lut,
@@ -3355,7 +3412,7 @@ impl Renderer {
 
         let data_guard = self.data.lock();
         let mut private_data_guard = self.private_data.lock();
-        let render_scale = data_guard.render_scale;
+        let render_scale = data_guard.general_settings.render_scale;
 
         private_data_guard.shading_texture = Texture::create_scaled_surface_texture(
             &self.base,
@@ -3363,7 +3420,7 @@ impl Renderer {
             render_scale,
             "shading_texture",
         );
-        private_data_guard.bloom_pingpong_textures = [
+        private_data_guard.old_bloom_pingpong_textures = [
             Texture::create_scaled_surface_texture(
                 &self.base,
                 new_unscaled_framebuffer_size,
@@ -3470,7 +3527,7 @@ impl Renderer {
                 ],
                 label: USE_LABELS.then_some("tone_mapping_texture_bind_group"),
             });
-        private_data_guard.shading_and_bloom_textures_bind_group =
+        private_data_guard.shading_and_old_bloom_textures_bind_group =
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: two_texture_bind_group_layout,
                 entries: &[
@@ -3491,35 +3548,35 @@ impl Renderer {
                     wgpu::BindGroupEntry {
                         binding: 2,
                         resource: wgpu::BindingResource::TextureView(
-                            &private_data_guard.bloom_pingpong_textures[0].view,
+                            &private_data_guard.old_bloom_pingpong_textures[0].view,
                         ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: wgpu::BindingResource::Sampler(
                             sampler_cache_guard.get_sampler_by_index(
-                                private_data_guard.bloom_pingpong_textures[0].sampler_index,
+                                private_data_guard.old_bloom_pingpong_textures[0].sampler_index,
                             ),
                         ),
                     },
                 ],
                 label: USE_LABELS.then_some("shading_and_bloom_textures_bind_group"),
             });
-        private_data_guard.bloom_pingpong_texture_bind_groups = [
+        private_data_guard.old_bloom_pingpong_texture_bind_groups = [
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: single_texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
                         resource: wgpu::BindingResource::TextureView(
-                            &private_data_guard.bloom_pingpong_textures[0].view,
+                            &private_data_guard.old_bloom_pingpong_textures[0].view,
                         ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(
                             sampler_cache_guard.get_sampler_by_index(
-                                private_data_guard.bloom_pingpong_textures[0].sampler_index,
+                                private_data_guard.old_bloom_pingpong_textures[0].sampler_index,
                             ),
                         ),
                     },
@@ -3532,14 +3589,14 @@ impl Renderer {
                     wgpu::BindGroupEntry {
                         binding: 0,
                         resource: wgpu::BindingResource::TextureView(
-                            &private_data_guard.bloom_pingpong_textures[1].view,
+                            &private_data_guard.old_bloom_pingpong_textures[1].view,
                         ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(
                             sampler_cache_guard.get_sampler_by_index(
-                                private_data_guard.bloom_pingpong_textures[1].sampler_index,
+                                private_data_guard.old_bloom_pingpong_textures[1].sampler_index,
                             ),
                         ),
                     },
@@ -3671,7 +3728,15 @@ impl Renderer {
             Self::unbind_mesh(data, mesh_index);
         }
 
-        if data.draw_node_bounding_spheres {
+        let DebugSettings {
+            draw_node_bounding_spheres,
+            draw_culling_frustum,
+            draw_point_light_culling_frusta,
+            draw_directional_light_culling_frusta,
+            ..
+        } = data.debug_settings;
+
+        if draw_node_bounding_spheres {
             let node_ids: Vec<_> = scene.nodes().map(|node| node.id()).collect();
             for node_id in node_ids {
                 if let Some(bounding_sphere) = scene.get_node_bounding_sphere(node_id, data) {
@@ -3727,7 +3792,7 @@ impl Renderer {
             ..(*main_culling_frustum_desc)
         };
 
-        if data.draw_culling_frustum {
+        if draw_culling_frustum {
             let debug_main_camera_frustum_mesh =
                 debug_main_camera_frustum_descriptor.to_basic_mesh();
 
@@ -3775,7 +3840,7 @@ impl Renderer {
             );
         }
 
-        if data.draw_point_light_culling_frusta {
+        if draw_point_light_culling_frusta {
             let mut new_node_descs = vec![];
             for point_light in &scene.point_lights {
                 for controlled_direction in build_cubemap_face_camera_view_directions() {
@@ -3787,7 +3852,7 @@ impl Renderer {
                         forward_vector: controlled_direction.to_vector(),
                         near_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
                         far_plane_distance: POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
-                        fov_y: 90.0_f32.to_radians(),
+                        fov_x: 90.0_f32.to_radians(),
                         aspect_ratio: 1.0,
                     };
 
@@ -3861,7 +3926,7 @@ impl Renderer {
             }
         }
 
-        if data.draw_directional_light_culling_frusta {
+        if draw_directional_light_culling_frusta {
             let mut new_node_descs = vec![];
             for (light_index, _) in scene.directional_lights.iter().enumerate() {
                 for (cascade_index, resolved_cascade) in resolved_directional_light_cascades
@@ -3975,14 +4040,20 @@ impl Renderer {
             CullingFrustumLock::None => camera_transform.position(),
         };
 
+        let CameraSettings {
+            fov_x,
+            near_plane_distance,
+            far_plane_distance,
+        } = data_guard.camera_settings;
+
         private_data_guard.frustum_culling_lock = match lock_mode {
             CullingFrustumLockMode::Full => CullingFrustumLock::Full(CameraFrustumDescriptor {
                 focal_point: camera_transform.position(),
                 forward_vector: (-camera_transform.z_axis).into(),
                 aspect_ratio,
-                near_plane_distance: data_guard.near_plane_distance,
-                far_plane_distance: data_guard.far_plane_distance,
-                fov_y: data_guard.fov_y,
+                near_plane_distance,
+                far_plane_distance,
+                fov_x,
             }),
             CullingFrustumLockMode::FocalPoint => CullingFrustumLock::FocalPoint(position),
             CullingFrustumLockMode::None => CullingFrustumLock::None,
@@ -4055,7 +4126,7 @@ impl Renderer {
             || !node.visual.as_ref().unwrap().cullable
             || node.skin_index.is_some()
         {
-            if data.enable_shadows {
+            if data.shadow_settings.enable_shadows {
                 culling_mask.set_elements(usize::MAX);
             } else {
                 culling_mask.set(0, true);
@@ -4086,7 +4157,7 @@ impl Renderer {
             culling_mask.set(mask_pos, true);
         }
 
-        if !data.enable_shadows {
+        if !data.shadow_settings.enable_shadows {
             return;
         }
 
@@ -4105,9 +4176,8 @@ impl Renderer {
                 // If the object is fully inside both of the previous cascades then it can
                 // also be culled. This should work well when combined with LOD
                 if projection_volume.pixel_size
-                    > node_bounding_sphere.radius
-                        * 2.0
-                        * data.shadow_small_object_culling_size_pixels
+                    * data.shadow_settings.shadow_small_object_culling_size_pixels
+                    > node_bounding_sphere.radius * 2.0
                 // TODO: this doesn't seem to work for objects that remain close to the player. is it fundamentally wrong?
                 // || fully_contained_cascades >= 2
                 {
@@ -4288,6 +4358,27 @@ impl Renderer {
 
         let aspect_ratio = surface_config.width as f32 / surface_config.height as f32;
 
+        let CameraSettings {
+            fov_x,
+            near_plane_distance,
+            far_plane_distance,
+        } = data.camera_settings;
+
+        let DebugSettings {
+            enable_shadow_debug,
+            enable_cascade_debug,
+            ..
+        } = data.debug_settings;
+
+        let PostEffectSettings {
+            tone_mapping_exposure,
+            bloom_type,
+            old_bloom_threshold,
+            old_bloom_ramp_size,
+            new_bloom_radius,
+            new_bloom_intensity,
+        } = data.post_effect_settings;
+
         let camera_transform = data
             .camera_node_id
             .and_then(|camera_node_id| engine_state.scene.get_node(camera_node_id))
@@ -4300,9 +4391,9 @@ impl Renderer {
             focal_point: camera_position,
             forward_vector: (-camera_transform.z_axis).into(),
             aspect_ratio,
-            near_plane_distance: data.near_plane_distance,
-            far_plane_distance: data.far_plane_distance,
-            fov_y: data.fov_y,
+            near_plane_distance,
+            far_plane_distance,
+            fov_x,
         };
 
         let culling_frustum_desc = match private_data.frustum_culling_lock {
@@ -4865,9 +4956,9 @@ impl Renderer {
             ShaderCameraData::perspective(
                 camera_transform,
                 aspect_ratio,
-                data.near_plane_distance,
-                data.far_plane_distance,
-                data.fov_y,
+                near_plane_distance,
+                far_plane_distance,
+                fov_x,
                 true,
             )
         };
@@ -5015,9 +5106,9 @@ impl Renderer {
             &private_data.tone_mapping_config_buffer,
             0,
             bytemuck::cast_slice(&[
-                data.tone_mapping_exposure,
-                if data.bloom_type == BloomType::New {
-                    data.new_bloom_intensity
+                tone_mapping_exposure,
+                if bloom_type == BloomType::New {
+                    new_bloom_intensity
                 } else {
                     -1.0f32
                 },
@@ -5026,14 +5117,14 @@ impl Renderer {
             ]),
         );
         queue.write_buffer(
-            &private_data.bloom_config_buffers[0],
+            &private_data.old_bloom_config_buffers[0],
             0,
-            bytemuck::cast_slice(&[0.0f32, data.bloom_threshold, data.bloom_ramp_size, 0.0f32]),
+            bytemuck::cast_slice(&[0.0f32, old_bloom_threshold, old_bloom_ramp_size, 0.0f32]),
         );
         queue.write_buffer(
-            &private_data.bloom_config_buffers[1],
+            &private_data.old_bloom_config_buffers[1],
             0,
-            bytemuck::cast_slice(&[1.0f32, data.bloom_threshold, data.bloom_ramp_size, 0.0f32]),
+            bytemuck::cast_slice(&[1.0f32, old_bloom_threshold, old_bloom_ramp_size, 0.0f32]),
         );
         for mip_index in 0..private_data.new_bloom_mip_count {
             queue.write_buffer(
@@ -5050,19 +5141,15 @@ impl Renderer {
         queue.write_buffer(
             &private_data.new_bloom_upscale_config_buffer,
             0,
-            bytemuck::cast_slice(&[data.new_bloom_radius, 0.0f32, 0.0f32, 0.0f32]),
+            bytemuck::cast_slice(&[new_bloom_radius, 0.0f32, 0.0f32, 0.0f32]),
         );
         queue.write_buffer(
             &private_data.pbr_shader_options_buffer,
             0,
             bytemuck::cast_slice(&[make_pbr_shader_options_uniform_buffer(
-                data.enable_soft_shadows,
-                data.shadow_bias,
-                data.soft_shadow_factor,
-                data.enable_shadow_debug,
-                data.enable_cascade_debug,
-                data.soft_shadow_grid_dims,
-                data.soft_shadows_max_distance,
+                data.shadow_settings,
+                enable_shadow_debug,
+                enable_cascade_debug,
             )]),
         );
         queue.write_buffer(
@@ -5096,6 +5183,15 @@ impl Renderer {
         let mut profiler_guard = self.profiler.lock();
         let profiler: &mut wgpu_profiler::GpuProfiler = &mut profiler_guard;
 
+        let GeneralSettings {
+            enable_depth_prepass,
+            ..
+        } = data.general_settings;
+
+        let PostEffectSettings { bloom_type, .. } = data.post_effect_settings;
+
+        let ShadowSettings { enable_shadows, .. } = data.shadow_settings;
+
         let surface_texture_view =
             surface_texture
                 .texture
@@ -5109,7 +5205,7 @@ impl Renderer {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        if data.enable_shadows {
+        if enable_shadows {
             let mut culling_mask_camera_index = 1; // start at one to skip main camera
 
             for (light_index, light) in engine_state.scene.directional_lights.iter().enumerate() {
@@ -5254,7 +5350,7 @@ impl Renderer {
             a: 1.0,
         };
 
-        if data.enable_depth_prepass {
+        if enable_depth_prepass {
             let depth_prepass_pass_label = "Depth pre-pass";
 
             let depth_prepass_render_pass_desc = wgpu::RenderPassDescriptor {
@@ -5308,7 +5404,7 @@ impl Renderer {
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &private_data.depth_texture.view,
                     depth_ops: Some(wgpu::Operations {
-                        load: if data.enable_depth_prepass {
+                        load: if enable_depth_prepass {
                             wgpu::LoadOp::Load
                         } else {
                             wgpu::LoadOp::Clear(0.0)
@@ -5453,9 +5549,9 @@ impl Renderer {
             }
         }
 
-        match data.bloom_type {
+        match bloom_type {
             BloomType::Old => {
-                private_data.bloom_threshold_cleared = false;
+                private_data.old_bloom_threshold_cleared = false;
 
                 {
                     let pass_label = "Bloom threshold";
@@ -5469,7 +5565,7 @@ impl Renderer {
                         wgpu::RenderPassDescriptor {
                             label: USE_LABELS.then_some(pass_label),
                             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view: &private_data.bloom_pingpong_textures[0].view,
+                                view: &private_data.old_bloom_pingpong_textures[0].view,
                                 resolve_target: None,
                                 ops: wgpu::Operations {
                                     load: wgpu::LoadOp::Clear(black),
@@ -5482,9 +5578,13 @@ impl Renderer {
                         },
                     );
 
-                    render_pass.set_pipeline(&self.constant_data.bloom_threshold_pipeline);
+                    render_pass.set_pipeline(&self.constant_data.old_bloom_threshold_pipeline);
                     render_pass.set_bind_group(0, &private_data.shading_texture_bind_group, &[]);
-                    render_pass.set_bind_group(1, &private_data.bloom_config_bind_groups[0], &[]);
+                    render_pass.set_bind_group(
+                        1,
+                        &private_data.old_bloom_config_bind_groups[0],
+                        &[],
+                    );
                     render_pass.draw(0..3, 0..1);
                 }
 
@@ -5516,11 +5616,12 @@ impl Renderer {
                             },
                         );
 
-                        render_pass.set_pipeline(&self.constant_data.bloom_blur_pipeline);
+                        render_pass.set_pipeline(&self.constant_data.old_bloom_blur_pipeline);
                         render_pass.set_bind_group(0, src_texture, &[]);
                         render_pass.set_bind_group(
                             1,
-                            &private_data.bloom_config_bind_groups[if horizontal { 0 } else { 1 }],
+                            &private_data.old_bloom_config_bind_groups
+                                [if horizontal { 0 } else { 1 }],
                             &[],
                         );
                         render_pass.draw(0..3, 0..1);
@@ -5531,8 +5632,8 @@ impl Renderer {
                 let blur_passes = 10;
                 (0..blur_passes).for_each(|i| {
                     do_bloom_blur_pass(
-                        &private_data.bloom_pingpong_texture_bind_groups[i % 2],
-                        &private_data.bloom_pingpong_textures[(i + 1) % 2].view,
+                        &private_data.old_bloom_pingpong_texture_bind_groups[i % 2],
+                        &private_data.old_bloom_pingpong_textures[(i + 1) % 2].view,
                         i % 2 == 0,
                     );
                 });
@@ -5624,8 +5725,8 @@ impl Renderer {
             BloomType::Disabled => {}
         };
 
-        if (data.bloom_type == BloomType::New || data.bloom_type == BloomType::Disabled)
-            && !private_data.bloom_threshold_cleared
+        if (bloom_type == BloomType::New || bloom_type == BloomType::Disabled)
+            && !private_data.old_bloom_threshold_cleared
         {
             let pass_label = "Bloom clear";
 
@@ -5637,7 +5738,7 @@ impl Renderer {
                 wgpu::RenderPassDescriptor {
                     label: USE_LABELS.then_some(pass_label),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &private_data.bloom_pingpong_textures[0].view,
+                        view: &private_data.old_bloom_pingpong_textures[0].view,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(black),
@@ -5649,9 +5750,9 @@ impl Renderer {
                     timestamp_writes: None, // overwritten by wgpu_profiler
                 },
             );
-            private_data.bloom_threshold_cleared = true;
+            private_data.old_bloom_threshold_cleared = true;
         }
-        if (data.bloom_type == BloomType::Old || data.bloom_type == BloomType::Disabled)
+        if (bloom_type == BloomType::Old || bloom_type == BloomType::Disabled)
             && !private_data.new_bloom_cleared
         {
             let pass_label = "New Bloom clear";
@@ -5765,10 +5866,10 @@ impl Renderer {
             render_pass.set_pipeline(&self.constant_data.tone_mapping_pipeline);
             render_pass.set_bind_group(
                 0,
-                if data.bloom_type == BloomType::New {
+                if bloom_type == BloomType::New {
                     &private_data.shading_and_new_bloom_texture_bind_group
                 } else {
-                    &private_data.shading_and_bloom_textures_bind_group
+                    &private_data.shading_and_old_bloom_textures_bind_group
                 },
                 &[],
             );
@@ -6005,6 +6106,12 @@ impl Renderer {
         let mut tmp_node_culling_mask = BitVec::repeat(false, camera_count);
         let mut culled_object_counts_per_camera: Vec<u64> = vec![0; camera_count];
 
+        let DebugSettings {
+            enable_wireframe_mode,
+            record_culling_stats,
+            ..
+        } = data.debug_settings;
+
         for node in engine_state.scene.nodes() {
             let transform = Mat4::from(
                 engine_state
@@ -6025,7 +6132,7 @@ impl Renderer {
                     .distance_squared(camera_position)
                     - node_bounding_sphere.radius;
 
-                match (material, data.enable_wireframe_mode, wireframe) {
+                match (material, enable_wireframe_mode, wireframe) {
                     (
                         Material::Pbr {
                             binded_material_index,
@@ -6055,7 +6162,7 @@ impl Renderer {
                             }
                         }
 
-                        if data.record_culling_stats {
+                        if record_culling_stats {
                             for (camera_index, element) in
                                 tmp_node_culling_mask.iter().by_vals().enumerate()
                             {
@@ -6226,7 +6333,7 @@ impl Renderer {
             }
         }
 
-        if data.record_culling_stats {
+        if record_culling_stats {
             stats.time_to_cull = start.elapsed();
 
             stats.main_camera_culled_count = culled_object_counts_per_camera[0];
