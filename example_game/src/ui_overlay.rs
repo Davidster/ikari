@@ -71,9 +71,10 @@ pub const PACIFICO_FONT_NAME: &str = "Pacifico";
 
 const FRAME_TIME_HISTORY_SIZE: usize = 5 * 144 + 1; // 1 more than 5 seconds of 144hz
 const FRAME_TIMES_MOVING_AVERAGE_ALPHA: f64 = 0.01;
-const FPS_CHART_LINE_COLORS: [RGBAColor; 4] = [
+const FPS_CHART_LINE_COLORS: [RGBAColor; 5] = [
     RGBAColor(165, 242, 85, 1.0),  // total
     RGBAColor(49, 168, 224, 0.8),  // update
+    RGBAColor(34, 20, 200, 0.8),   // get surface
     RGBAColor(159, 127, 242, 0.8), // render
     RGBAColor(253, 183, 23, 0.8),  // gpu
 ];
@@ -115,6 +116,7 @@ pub enum Message {
     ToggleDepthPrepass(bool),
     ToggleCameraPose(bool),
     ToggleCursorMarker(bool),
+    ToggleFps(bool),
     ToggleFpsChart(bool),
     ToggleGpuSpans(bool),
     ToggleSoftShadows(bool),
@@ -385,6 +387,7 @@ struct FpsChart {
     recent_frame_times: Vec<(Instant, FrameDurations, Option<Duration>)>,
     avg_total_frame_time_millis: Option<f64>,
     avg_update_time_ms: Option<f64>,
+    avg_get_surface_time_ms: Option<f64>,
     avg_render_time_ms: Option<f64>,
     avg_gpu_frame_time_ms: Option<f64>,
     avg_gpu_frame_time_per_span: HashMap<String, f64>,
@@ -400,7 +403,7 @@ impl Chart<Message> for FpsChart {
 
             let oldest_ft_age_secs =
                 (most_recent_start_time - self.recent_frame_times[0].0).as_secs_f32();
-            let mut chart_data: [Vec<(f32, i32)>; 4] = Default::default();
+            let mut chart_data: [Vec<(f32, i32)>; 5] = Default::default();
 
             for chart_data in chart_data.iter_mut() {
                 chart_data.reserve_exact(self.recent_frame_times.len());
@@ -415,12 +418,17 @@ impl Chart<Message> for FpsChart {
                     chart_data[1].push((x, (1.0 / update_duration.as_secs_f32()).round() as i32));
                 }
 
+                if let Some(get_surface_duration) = durations.get_surface {
+                    chart_data[2]
+                        .push((x, (1.0 / get_surface_duration.as_secs_f32()).round() as i32));
+                }
+
                 if let Some(render_duration) = durations.render {
-                    chart_data[2].push((x, (1.0 / render_duration.as_secs_f32()).round() as i32));
+                    chart_data[3].push((x, (1.0 / render_duration.as_secs_f32()).round() as i32));
                 }
 
                 if let Some(gpu_duration) = gpu_duration {
-                    chart_data[3].push((x, (1.0 / gpu_duration.as_secs_f32()).round() as i32));
+                    chart_data[4].push((x, (1.0 / gpu_duration.as_secs_f32()).round() as i32));
                 }
             }
 
@@ -569,6 +577,8 @@ impl FpsChart {
             compute_new_avg_frametime(self.avg_total_frame_time_millis, Some(new_durations.total));
         self.avg_update_time_ms =
             compute_new_avg_frametime(self.avg_update_time_ms, new_durations.update);
+        self.avg_get_surface_time_ms =
+            compute_new_avg_frametime(self.avg_get_surface_time_ms, new_durations.get_surface);
         self.avg_render_time_ms =
             compute_new_avg_frametime(self.avg_render_time_ms, new_durations.render);
         self.avg_gpu_frame_time_ms =
@@ -858,6 +868,9 @@ impl runtime::Program for UiOverlay {
             Message::ToggleCursorMarker(new_state) => {
                 self.debug_settings.is_showing_cursor_marker = new_state;
             }
+            Message::ToggleFps(new_state) => {
+                self.debug_settings.is_showing_fps = new_state;
+            }
             Message::ToggleFpsChart(new_state) => {
                 self.debug_settings.is_showing_fps_chart = new_state;
             }
@@ -922,10 +935,18 @@ impl runtime::Program for UiOverlay {
                 rows.push(text.into());
             }
 
+            if let Some(millis) = self.fps_chart.avg_get_surface_time_ms {
+                let mut text = text(&format!("Get surface: {:.2}ms", millis));
+                if is_showing_fps_chart {
+                    text = text.style(get_chart_line_color(2))
+                }
+                rows.push(text.into());
+            }
+
             if let Some(millis) = self.fps_chart.avg_render_time_ms {
                 let mut text = text(&format!("Render: {:.2}ms", millis));
                 if is_showing_fps_chart {
-                    text = text.style(get_chart_line_color(2))
+                    text = text.style(get_chart_line_color(3))
                 }
                 rows.push(text.into());
             }
@@ -933,7 +954,7 @@ impl runtime::Program for UiOverlay {
             if let Some(millis) = self.fps_chart.avg_gpu_frame_time_ms {
                 let mut text = text(&format!("GPU: {:.2}ms", millis));
                 if is_showing_fps_chart {
-                    text = text.style(get_chart_line_color(3))
+                    text = text.style(get_chart_line_color(4))
                 }
                 rows.push(text.into());
             }
@@ -1428,31 +1449,10 @@ impl runtime::Program for UiOverlay {
 
                 if !collapsed {
                     options = options.push(
-                        checkbox("Camera Pose", is_showing_camera_pose)
+                        checkbox("FPS", is_showing_fps)
                             .size(checkbox_size)
                             .text_size(small_text_size)
-                            .on_toggle(Message::ToggleCameraPose),
-                    );
-
-                    options = options.push(
-                        checkbox("Cursor Marker", is_showing_cursor_marker)
-                            .size(checkbox_size)
-                            .text_size(small_text_size)
-                            .on_toggle(Message::ToggleCursorMarker),
-                    );
-
-                    options = options.push(
-                        checkbox("Audio Stats", is_showing_audio_stats)
-                            .size(checkbox_size)
-                            .text_size(small_text_size)
-                            .on_toggle(Message::ToggleAudioStats),
-                    );
-
-                    options = options.push(
-                        checkbox("Culling Stats", record_culling_stats)
-                            .size(checkbox_size)
-                            .text_size(small_text_size)
-                            .on_toggle(Message::ToggleCullingStats),
+                            .on_toggle(Message::ToggleFps),
                     );
 
                     options = options.push(
@@ -1460,6 +1460,13 @@ impl runtime::Program for UiOverlay {
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleFpsChart),
+                    );
+
+                    options = options.push(
+                        checkbox("Culling Stats", record_culling_stats)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleCullingStats),
                     );
 
                     if self
@@ -1475,6 +1482,27 @@ impl runtime::Program for UiOverlay {
                                 .on_toggle(Message::ToggleGpuSpans),
                         );
                     }
+
+                    options = options.push(
+                        checkbox("Camera Pose", is_showing_camera_pose)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleCameraPose),
+                    );
+
+                    options = options.push(
+                        checkbox("Cascade Debug", enable_cascade_debug)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleCascadeDebug),
+                    );
+
+                    options = options.push(
+                        checkbox("Shadow Debug", enable_shadow_debug)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleShadowDebug),
+                    );
 
                     options = options.push(
                         checkbox("Frustum Culling Overlay", draw_culling_frustum)
@@ -1516,17 +1544,19 @@ impl runtime::Program for UiOverlay {
                         .text_size(small_text_size)
                         .on_toggle(Message::ToggleDrawDirectionalLightCullingFrusta),
                     );
+
                     options = options.push(
-                        checkbox("Shadow Debug", enable_shadow_debug)
+                        checkbox("Audio Stats", is_showing_audio_stats)
                             .size(checkbox_size)
                             .text_size(small_text_size)
-                            .on_toggle(Message::ToggleShadowDebug),
+                            .on_toggle(Message::ToggleAudioStats),
                     );
+
                     options = options.push(
-                        checkbox("Cascade Debug", enable_cascade_debug)
+                        checkbox("Cursor Marker", is_showing_cursor_marker)
                             .size(checkbox_size)
                             .text_size(small_text_size)
-                            .on_toggle(Message::ToggleCascadeDebug),
+                            .on_toggle(Message::ToggleCursorMarker),
                     );
                 }
             }

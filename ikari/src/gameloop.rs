@@ -81,6 +81,52 @@ pub fn run<
                     logged_start_time = true;
                 }
 
+                if let (Some((_, last_frame_durations)), Some(monitor_refresh_rate)) = (
+                    engine_state.time_tracker.last_frame_times(),
+                    window
+                        .current_monitor()
+                        .and_then(|window| window.refresh_rate_millihertz()),
+                ) {
+                    let refresh_rate_period_secs = 1000.0 / monitor_refresh_rate as f64;
+                    let delta = (refresh_rate_period_secs
+                        - last_frame_durations.total.as_secs_f64())
+                    .max(0.0);
+                    dbg!(
+                        refresh_rate_period_secs,
+                        last_frame_durations.total.as_secs_f64(),
+                        delta
+                    );
+                    crate::thread::sleep(crate::time::Duration::from_secs_f64(delta));
+                }
+
+                let surface_texture_result = surface_data.surface.get_current_texture();
+
+                engine_state.time_tracker.on_get_surface_completed();
+
+                if let Err(err) = &surface_texture_result {
+                    match err {
+                        // Reconfigure the surface if lost
+                        wgpu::SurfaceError::Lost => {
+                            let size = window.inner_size();
+
+                            renderer.resize_surface(&mut surface_data, size);
+                            on_window_resize(
+                                GameContext {
+                                    game_state: &mut game_state,
+                                    engine_state: &mut engine_state,
+                                    renderer: &mut renderer,
+                                    surface_data: &mut surface_data,
+                                    window: &mut window,
+                                    elwt,
+                                },
+                                size,
+                            );
+                        }
+                        wgpu::SurfaceError::OutOfMemory => elwt.exit(),
+                        _ => log::error!("{err:?}"),
+                    }
+                }
+
                 engine_state.asset_binder.update(
                     renderer.base.clone(),
                     renderer.constant_data.clone(),
@@ -98,31 +144,14 @@ pub fn run<
 
                 engine_state.time_tracker.on_update_completed();
 
-                if let Err(err) = renderer.render(
-                    &mut engine_state,
-                    &surface_data,
-                    game_state.get_ui_container(),
-                ) {
-                    match err.downcast_ref::<wgpu::SurfaceError>() {
-                        // Reconfigure the surface if lost
-                        Some(wgpu::SurfaceError::Lost) => {
-                            let size = window.inner_size();
-
-                            renderer.resize_surface(&mut surface_data, size);
-                            on_window_resize(
-                                GameContext {
-                                    game_state: &mut game_state,
-                                    engine_state: &mut engine_state,
-                                    renderer: &mut renderer,
-                                    surface_data: &mut surface_data,
-                                    window: &mut window,
-                                    elwt,
-                                },
-                                size,
-                            );
-                        }
-                        Some(wgpu::SurfaceError::OutOfMemory) => elwt.exit(),
-                        _ => log::error!("{err:?}"),
+                if let Ok(surface_texture) = surface_texture_result {
+                    if let Err(err) = renderer.render(
+                        &mut engine_state,
+                        &surface_data,
+                        surface_texture,
+                        game_state.get_ui_container(),
+                    ) {
+                        log::error!("{err:?}");
                     }
                 }
 
