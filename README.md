@@ -111,7 +111,8 @@ sudo make install
 git clone git@github.com:wolfpld/tracy.git
 cd tracy/profiler/build/unix
 git checkout v0.10
-PATH=/usr/local/bin:/usr/bin:/bin CC=clang CXX=clang++ make -j12
+# LEGACY=1 is needed for it to work on x11
+LEGACY=1 make -j12
 ```
 - Run tracy
 
