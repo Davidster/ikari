@@ -248,6 +248,7 @@ pub struct DebugSettings {
     pub record_culling_stats: bool,
     pub culling_frustum_lock_mode: CullingFrustumLockMode,
 
+    is_showing_fps: bool,
     is_showing_fps_chart: bool,
     is_showing_gpu_spans: bool,
     is_showing_audio_stats: bool,
@@ -269,6 +270,7 @@ impl Default for DebugSettings {
             record_culling_stats: false,
             culling_frustum_lock_mode: CullingFrustumLockMode::default(),
 
+            is_showing_fps: true,
             is_showing_camera_pose: INITIAL_IS_SHOWING_CAMERA_POSE,
             is_showing_cursor_marker: INITIAL_IS_SHOWING_CURSOR_MARKER,
             is_showing_fps_chart: false,
@@ -877,11 +879,6 @@ impl runtime::Program for UiOverlay {
 
         let container_style = Box::new(ContainerStyle {});
 
-        let mut rows = Column::new()
-            .width(Length::Shrink)
-            .height(Length::Shrink)
-            .spacing(4);
-
         let get_chart_line_color = |i: usize| {
             iced::Color::from_rgba8(
                 FPS_CHART_LINE_COLORS[i].0,
@@ -892,6 +889,7 @@ impl runtime::Program for UiOverlay {
         };
 
         let DebugSettings {
+            is_showing_fps,
             is_showing_fps_chart,
             is_showing_gpu_spans,
             is_showing_audio_stats,
@@ -900,66 +898,79 @@ impl runtime::Program for UiOverlay {
             ..
         } = self.debug_settings;
 
-        if let Some(avg_frame_time_millis) = self.fps_chart.avg_total_frame_time_millis {
-            let mut text = text(format!(
-                "Frametime: {:.2}ms ({:.2}fps)",
-                avg_frame_time_millis,
-                1_000.0 / avg_frame_time_millis,
-            ));
+        let mut rows: Vec<Element<_>> = vec![];
 
-            if is_showing_fps_chart {
-                text = text.style(get_chart_line_color(0))
-            }
-            rows = rows.push(text);
-        }
+        if is_showing_fps {
+            if let Some(avg_frame_time_millis) = self.fps_chart.avg_total_frame_time_millis {
+                let mut text = text(format!(
+                    "Frametime: {:.2}ms ({:.2}fps)",
+                    avg_frame_time_millis,
+                    1_000.0 / avg_frame_time_millis,
+                ));
 
-        if let Some(millis) = self.fps_chart.avg_update_time_ms {
-            let mut text = text(&format!("Update: {:.2}ms", millis));
-            if is_showing_fps_chart {
-                text = text.style(get_chart_line_color(1))
+                if is_showing_fps_chart {
+                    text = text.style(get_chart_line_color(0))
+                }
+                rows.push(text.into());
             }
-            rows = rows.push(text);
-        }
 
-        if let Some(millis) = self.fps_chart.avg_render_time_ms {
-            let mut text = text(&format!("Render: {:.2}ms", millis));
-            if is_showing_fps_chart {
-                text = text.style(get_chart_line_color(2))
+            if let Some(millis) = self.fps_chart.avg_update_time_ms {
+                let mut text = text(&format!("Update: {:.2}ms", millis));
+                if is_showing_fps_chart {
+                    text = text.style(get_chart_line_color(1))
+                }
+                rows.push(text.into());
             }
-            rows = rows.push(text);
-        }
 
-        if let Some(millis) = self.fps_chart.avg_gpu_frame_time_ms {
-            let mut text = text(&format!("GPU: {:.2}ms", millis));
-            if is_showing_fps_chart {
-                text = text.style(get_chart_line_color(3))
+            if let Some(millis) = self.fps_chart.avg_render_time_ms {
+                let mut text = text(&format!("Render: {:.2}ms", millis));
+                if is_showing_fps_chart {
+                    text = text.style(get_chart_line_color(2))
+                }
+                rows.push(text.into());
             }
-            rows = rows.push(text);
+
+            if let Some(millis) = self.fps_chart.avg_gpu_frame_time_ms {
+                let mut text = text(&format!("GPU: {:.2}ms", millis));
+                if is_showing_fps_chart {
+                    text = text.style(get_chart_line_color(3))
+                }
+                rows.push(text.into());
+            }
         }
 
         if SHOW_BLOOM_TYPE {
-            rows = rows.push(text(&format!(
-                "Bloom type: {}",
-                self.post_effect_settings.bloom_type
-            )));
+            rows.push(
+                text(&format!(
+                    "Bloom type: {}",
+                    self.post_effect_settings.bloom_type
+                ))
+                .into(),
+            );
         }
 
         if is_showing_camera_pose {
             if let Some((camera_position, camera_direction)) = self.camera_pose {
-                rows = rows.push(text(&format!(
-                    "Camera position:  x={:.2}, y={:.2}, z={:.2}",
-                    camera_position.x, camera_position.y, camera_position.z
-                )));
+                rows.push(
+                    text(&format!(
+                        "Camera position:  x={:.2}, y={:.2}, z={:.2}",
+                        camera_position.x, camera_position.y, camera_position.z
+                    ))
+                    .into(),
+                );
                 let two_pi = 2.0 * std::f32::consts::PI;
                 let camera_horizontal = (camera_direction.horizontal + two_pi) % two_pi;
                 let camera_vertical = camera_direction.vertical;
-                rows = rows.push(text(&format!(
-                    "Camera direction: h={:.2} ({:.2} deg), v={:.2} ({:.2} deg)",
-                    camera_horizontal,
-                    camera_horizontal.to_degrees(),
-                    camera_vertical,
-                    camera_vertical.to_degrees(),
-                )));
+                rows.push(
+                    text(&format!(
+                        "Camera direction: h={:.2} ({:.2} deg), v={:.2} ({:.2} deg)",
+                        camera_horizontal,
+                        camera_horizontal.to_degrees(),
+                        camera_vertical,
+                        camera_vertical.to_degrees(),
+                    ))
+                    .into(),
+                );
             }
         }
 
@@ -975,38 +986,49 @@ impl runtime::Program for UiOverlay {
                     })
                     .unwrap_or_default();
                 let buffered_pos = format_timestamp(stats.buffered_to_pos_seconds);
-                rows = rows.push(text(&format!(
-                    "{file_path}: {pos}{length}, buffer to {buffered_pos}"
-                )));
+                rows.push(
+                    text(&format!(
+                        "{file_path}: {pos}{length}, buffer to {buffered_pos}"
+                    ))
+                    .into(),
+                );
             }
         }
 
         if let Some(culling_stats) = &self.culling_stats {
             let text_size = 14;
-            rows = rows.push(text("Culling stats:").size(text_size));
+            rows.push(text("Culling stats:").size(text_size).into());
 
-            rows = rows.push(
-                text(&format!("  Time to cull: {:?}", culling_stats.time_to_cull)).size(text_size),
+            rows.push(
+                text(&format!("  Time to cull: {:?}", culling_stats.time_to_cull))
+                    .size(text_size)
+                    .into(),
             );
 
             let total_count = culling_stats.total_count;
 
-            rows = rows.push(text(&format!("  Total objects: {}", total_count)).size(text_size));
-            rows = rows.push(
+            rows.push(
+                text(&format!("  Total objects: {}", total_count))
+                    .size(text_size)
+                    .into(),
+            );
+            rows.push(
                 text(&format!(
                     "  Completely culled: {} ({:.2}%)",
                     culling_stats.completely_culled_count,
                     100.0 * culling_stats.completely_culled_count as f32 / total_count as f32
                 ))
-                .size(text_size),
+                .size(text_size)
+                .into(),
             );
-            rows = rows.push(
+            rows.push(
                 text(&format!(
                     "  Main camera: {} ({:.2}%)",
                     culling_stats.main_camera_culled_count,
                     100.0 * culling_stats.main_camera_culled_count as f32 / total_count as f32
                 ))
-                .size(text_size),
+                .size(text_size)
+                .into(),
             );
 
             for (light_index, cascades) in culling_stats
@@ -1014,34 +1036,43 @@ impl runtime::Program for UiOverlay {
                 .iter()
                 .enumerate()
             {
-                rows = rows
-                    .push(text(&format!("  Directional light: {}", light_index)).size(text_size));
+                rows.push(
+                    text(&format!("  Directional light: {}", light_index))
+                        .size(text_size)
+                        .into(),
+                );
 
                 for (cascade_index, cascade_count) in cascades.iter().enumerate() {
-                    rows = rows.push(
+                    rows.push(
                         text(&format!(
                             "    Cascade {}: {} ({:.2}%)",
                             cascade_index,
                             cascade_count,
                             100.0 * (*cascade_count as f32) / total_count as f32
                         ))
-                        .size(text_size),
+                        .size(text_size)
+                        .into(),
                     );
                 }
             }
             for (light_index, frusta) in culling_stats.point_light_culled_counts.iter().enumerate()
             {
-                rows = rows.push(text(&format!("  Point light: {}", light_index)).size(text_size));
+                rows.push(
+                    text(&format!("  Point light: {}", light_index))
+                        .size(text_size)
+                        .into(),
+                );
 
                 for (frustum_index, frustum_count) in frusta.iter().enumerate() {
-                    rows = rows.push(
+                    rows.push(
                         text(&format!(
                             "    Frustum {}: {} ({:.2}%)",
                             frustum_index,
                             frustum_count,
                             100.0 * (*frustum_count as f32) / total_count as f32
                         ))
-                        .size(text_size),
+                        .size(text_size)
+                        .into(),
                     );
                 }
             }
@@ -1058,31 +1089,38 @@ impl runtime::Program for UiOverlay {
             avg_span_times_vec.reverse();
             for (span, span_frame_time) in avg_span_times_vec {
                 let msg = &format!("{span:}: {span_frame_time:.2}ms");
-                rows = rows.push(text(msg).size(14));
+                rows.push(text(msg).size(14).into());
             }
         }
 
         if is_showing_fps_chart {
             let padding = [16, 20, 16, 0]; // top, right, bottom, left
-            rows = rows.push(
+            rows.push(
                 Container::new(
                     ChartWidget::new(&self.fps_chart)
                         .width(Length::Fixed(400.0))
                         .height(Length::Fixed(300.0)),
                 )
-                .padding(padding),
+                .padding(padding)
+                .into(),
             );
         }
 
+        let padding = if rows.is_empty() { 0 } else { 8 };
         let background_content = Container::new(
             Row::new()
                 .width(Length::Shrink)
                 .height(Length::Shrink)
-                .padding(8)
+                .padding(padding)
                 .push(
-                    Container::new(rows)
-                        .padding(8)
-                        .style(iced::theme::Container::Custom(container_style)),
+                    Container::new(
+                        Column::with_children(rows)
+                            .width(Length::Shrink)
+                            .height(Length::Shrink)
+                            .spacing(4),
+                    )
+                    .padding(padding)
+                    .style(iced::theme::Container::Custom(container_style)),
                 ),
         )
         .width(Length::Fill)
