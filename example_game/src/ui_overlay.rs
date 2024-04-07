@@ -5,11 +5,12 @@ use std::collections::HashSet;
 
 use glam::Vec3;
 use iced::alignment::Horizontal;
+use iced::widget::Component;
 use iced::Font;
 
 use iced::widget::{
-    canvas, checkbox, container, radio, scrollable, slider, text, Button, Column, Container, Row,
-    Text,
+    button, canvas, checkbox, column, container, radio, scrollable, slider, text, Button, Column,
+    Container, Row, Text,
 };
 use iced::Length;
 use iced::{mouse, Background, Command, Element, Rectangle, Theme};
@@ -126,6 +127,7 @@ pub enum Message {
     ClosePopupMenu,
     ExitButtonPressed,
     GenerateProfileDump,
+    OnCollapsibleStateChanged(bool),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -265,6 +267,8 @@ pub struct UiOverlay {
     pub post_effect_settings: PostEffectSettings,
     pub shadow_settings: ShadowSettings,
     pub debug_settings: DebugSettings,
+
+    is_collapsed: bool,
 }
 
 pub struct ContainerStyle;
@@ -551,6 +555,8 @@ impl UiOverlay {
             post_effect_settings: PostEffectSettings::default(),
             shadow_settings: ShadowSettings::default(),
             debug_settings: DebugSettings::default(),
+
+            is_collapsed: true,
         }
     }
 
@@ -732,6 +738,9 @@ impl runtime::Program for UiOverlay {
             }
             Message::ToggleAudioStats(new_state) => {
                 self.debug_settings.is_showing_audio_stats = new_state;
+            }
+            Message::OnCollapsibleStateChanged(new_state) => {
+                self.is_collapsed = new_state;
             }
         }
 
@@ -1009,7 +1018,15 @@ impl runtime::Program for UiOverlay {
                 ..
             } = self.debug_settings;
 
-            // vsync
+            options = options.push(counter_component::Counter::new(5));
+
+            options = options.push(collapsible_component::Collapsible::new(
+                self.is_collapsed,
+                "Collapsible",
+                "Collapsible content",
+                Message::OnCollapsibleStateChanged,
+            ));
+
             #[cfg(not(target_arch = "wasm32"))]
             {
                 options = options
@@ -1326,6 +1343,157 @@ impl runtime::Program for UiOverlay {
             .into()
         } else {
             Modal::new(background_content, modal_content).into()
+        }
+    }
+}
+
+mod counter_component {
+    use std::marker::PhantomData;
+
+    use iced::widget::button;
+    use iced::widget::column;
+    use iced::widget::component;
+    use iced::widget::row;
+    use iced::widget::text;
+    use iced::widget::Column;
+    use iced::widget::Component;
+
+    pub struct Counter<Message> {
+        max_min: i32,
+        phantom: PhantomData<Message>,
+    }
+
+    #[derive(Default)]
+    pub struct CounterState {
+        value: i32,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub enum Event {
+        Increment,
+        Decrement,
+    }
+
+    impl<Message> Counter<Message> {
+        pub fn new(max_min: i32) -> Self {
+            Self {
+                max_min,
+                phantom: PhantomData,
+            }
+        }
+    }
+
+    impl<Message> Component<Message> for Counter<Message> {
+        type State = CounterState;
+        type Event = Event;
+
+        fn update(&mut self, state: &mut Self::State, event: Event) -> Option<Message> {
+            match event {
+                Event::Increment => {
+                    state.value += 1;
+                }
+                Event::Decrement => {
+                    state.value -= 1;
+                }
+            };
+
+            state.value = state.value.clamp(-self.max_min, self.max_min);
+
+            None
+        }
+
+        fn view(&self, state: &Self::State) -> iced::Element<Event> {
+            let mut increment_button = button("+");
+            if state.value < self.max_min {
+                increment_button = increment_button.on_press(Event::Increment);
+            }
+
+            let mut decrement_button = button("-");
+            if state.value > -self.max_min {
+                decrement_button = decrement_button.on_press(Event::Decrement);
+            }
+
+            row![increment_button, text(state.value), decrement_button].into()
+        }
+    }
+
+    impl<'a, Message> From<Counter<Message>> for iced::Element<'a, Message>
+    where
+        Message: 'a,
+    {
+        fn from(counter: Counter<Message>) -> Self {
+            component(counter)
+        }
+    }
+}
+
+mod collapsible_component {
+
+    use iced::widget::button;
+    use iced::widget::column;
+    use iced::widget::component;
+    use iced::widget::container;
+    use iced::widget::row;
+    use iced::widget::text;
+    use iced::widget::Column;
+    use iced::widget::Component;
+
+    pub struct Collapsible<'a, Message> {
+        collapsed: bool,
+        title: &'a str,
+        content: iced::Element<'a, Message>,
+        on_collapsed_state_changed: Box<dyn Fn(bool) -> Message>,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub enum Event {
+        ArrowClicked,
+    }
+
+    impl<'a, Message> Collapsible<'a, Message> {
+        pub fn new(
+            collapsed: bool,
+            title: &'a str,
+            content: impl Into<iced::Element<'a, Message>>,
+            on_collapsed_state_changed: impl Fn(bool) -> Message + 'static,
+        ) -> Self {
+            Self {
+                collapsed,
+                title,
+                content: content.into(),
+                on_collapsed_state_changed: Box::new(on_collapsed_state_changed),
+            }
+        }
+    }
+
+    impl<Message> Component<Message> for Collapsible<'_, Message> {
+        type State = ();
+        type Event = Event;
+
+        fn update(&mut self, _state: &mut Self::State, event: Event) -> Option<Message> {
+            match event {
+                Event::ArrowClicked => Some((self.on_collapsed_state_changed)(!self.collapsed)),
+            }
+        }
+
+        fn view(&self, state: &Self::State) -> iced::Element<Event> {
+            // let arrow_button =
+            //     button(if self.collapsed { ">" } else { "v" }).on_press(Event::ArrowClicked);
+
+            // let mut column = column![row![arrow_button, text(self.title)]];
+
+            // if !self.collapsed {
+            //     column = column.push(self.content);
+            // }
+
+            // column.into()
+            self.content.map(|message| )
+        }
+    }
+
+    impl<'a, Message: 'a> From<Collapsible<'a, Message>> for iced::Element<'a, Message> {
+        fn from(collapsible: Collapsible<'a, Message>) -> Self {
+            component(collapsible)
         }
     }
 }
