@@ -627,8 +627,9 @@ impl BaseRenderer {
         surface_config.usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
         // surface_config.format = wgpu::TextureFormat::Bgra8UnormSrgb;
         surface_config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
-        surface_config.present_mode = wgpu::PresentMode::AutoVsync;
+        surface_config.present_mode = wgpu::PresentMode::Mailbox;
         surface_config.view_formats = vec![surface_config.format.add_srgb_suffix()];
+        surface_config.desired_maximum_frame_latency = 1;
         surface.configure(&base.device, &surface_config);
 
         let capabilities = surface.get_capabilities(&base.adapter);
@@ -3376,7 +3377,7 @@ impl Renderer {
 
     pub fn set_vsync(&self, vsync: bool, surface_data: &mut SurfaceData) {
         let new_present_mode = if vsync {
-            wgpu::PresentMode::AutoVsync
+            wgpu::PresentMode::Mailbox
         } else {
             wgpu::PresentMode::AutoNoVsync
         };

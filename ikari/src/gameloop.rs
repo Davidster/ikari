@@ -62,6 +62,14 @@ pub fn run<
     let _last_frame_start_time: Option<Instant> = None;
     let web_canvas_manager = WebCanvasManager::new(window.clone());
 
+    let mut monitor_refresh_rate = window
+        .current_monitor()
+        .and_then(|window| window.refresh_rate_millihertz());
+
+    let mut latest_surface_texture_result = None;
+
+    let mut sleep_start = None;
+
     let handler = move |event: Event<()>, elwt: &EventLoopWindowTarget<()>| {
         web_canvas_manager.on_update(&event);
 
@@ -70,92 +78,147 @@ pub fn run<
                 event: WindowEvent::RedrawRequested,
                 ..
             } => {
-                engine_state.time_tracker.on_frame_started();
-                profiling::finish_frame!();
+                // TODO: the time tracker currently doesn't process any of the events happening outside this match block!
+                // TODO: the real 'frame start' time should come immediately after get_current_texture call, because this ends right
+                //       after the vblank under vsync. on_frame_started and profiling::finish_frame! should be moved around accordingly.
+                if sleep_start.is_none() {
+                    dbg!("on frame start");
+                    engine_state.time_tracker.on_frame_started();
 
-                if !logged_start_time && engine_state.time_tracker.last_frame_times().is_some() {
-                    log::debug!(
-                        "Took {:?} from process startup till first frame",
-                        application_start_time.elapsed()
-                    );
-                    logged_start_time = true;
-                }
-
-                if let (Some((_, last_frame_durations)), Some(monitor_refresh_rate)) = (
-                    engine_state.time_tracker.last_frame_times(),
-                    window
-                        .current_monitor()
-                        .and_then(|window| window.refresh_rate_millihertz()),
-                ) {
-                    let refresh_rate_period_secs = 1000.0 / monitor_refresh_rate as f64;
-                    let delta = (refresh_rate_period_secs
-                        - last_frame_durations.total.as_secs_f64())
-                    .max(0.0);
-                    dbg!(
-                        refresh_rate_period_secs,
-                        last_frame_durations.total.as_secs_f64(),
-                        delta
-                    );
-                    crate::thread::sleep(crate::time::Duration::from_secs_f64(delta));
-                }
-
-                let surface_texture_result = surface_data.surface.get_current_texture();
-
-                engine_state.time_tracker.on_get_surface_completed();
-
-                if let Err(err) = &surface_texture_result {
-                    match err {
-                        // Reconfigure the surface if lost
-                        wgpu::SurfaceError::Lost => {
-                            let size = window.inner_size();
-
-                            renderer.resize_surface(&mut surface_data, size);
-                            on_window_resize(
-                                GameContext {
-                                    game_state: &mut game_state,
-                                    engine_state: &mut engine_state,
-                                    renderer: &mut renderer,
-                                    surface_data: &mut surface_data,
-                                    window: &mut window,
-                                    elwt,
-                                },
-                                size,
-                            );
-                        }
-                        wgpu::SurfaceError::OutOfMemory => elwt.exit(),
-                        _ => log::error!("{err:?}"),
+                    if !logged_start_time && engine_state.time_tracker.last_frame_times().is_some()
+                    {
+                        log::debug!(
+                            "Took {:?} from process startup till first frame",
+                            application_start_time.elapsed()
+                        );
+                        logged_start_time = true;
                     }
                 }
 
-                engine_state.asset_binder.update(
-                    renderer.base.clone(),
-                    renderer.constant_data.clone(),
-                    engine_state.asset_loader.clone(),
-                );
+                const INTELLIGENT_SLEEP: bool = true;
 
-                on_update(GameContext {
-                    game_state: &mut game_state,
-                    engine_state: &mut engine_state,
-                    renderer: &mut renderer,
-                    surface_data: &mut surface_data,
-                    window: &mut window,
-                    elwt,
-                });
-
-                engine_state.time_tracker.on_update_completed();
-
-                if let Ok(surface_texture) = surface_texture_result {
-                    if let Err(err) = renderer.render(
-                        &mut engine_state,
-                        &surface_data,
-                        surface_texture,
-                        game_state.get_ui_container(),
+                let sleeping =
+                    if let (Some(last_frame_busy_time_secs), Some(monitor_refresh_rate)) = (
+                        engine_state.time_tracker.last_frame_busy_time_secs(),
+                        monitor_refresh_rate,
                     ) {
-                        log::error!("{err:?}");
-                    }
-                }
+                        profiling::scope!("Sleep");
+                        let refresh_rate_period_secs = 1000.0 / monitor_refresh_rate as f64;
+                        let sleep_time =
+                            (refresh_rate_period_secs - last_frame_busy_time_secs).max(0.0) * 1.01;
+                        let sleep_time = 0.0;
+                        // dbg!(
+                        //     refresh_rate_period_secs * 1000.0,
+                        //     last_frame_busy_time_secs * 1000.0,
+                        //     delta * 1000.0
+                        // );
 
-                engine_state.time_tracker.on_render_completed();
+                        if sleep_time > 0.0 {
+                            let sleep_start_value =
+                                sleep_start.get_or_insert_with(|| crate::time::Instant::now());
+
+                            if INTELLIGENT_SLEEP {
+                                if sleep_start_value.elapsed().as_secs_f64() < sleep_time {
+                                    // TODO: yield here?
+                                    // std::thread::yield_now();
+                                    window.request_redraw();
+                                    true
+                                } else {
+                                    false
+                                }
+                            } else {
+                                loop {
+                                    if sleep_start_value.elapsed().as_secs_f64() >= sleep_time {
+                                        break false;
+                                    }
+                                    std::thread::yield_now();
+                                }
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                // let actual_sleep_time = sleep_start.elapsed().as_secs_f64();
+                // dbg!(expected_sleep_time * 1000.0);
+                // dbg!(actual_sleep_time * 1000.0);
+                // dbg!((expected_sleep_time - actual_sleep_time).abs() * 1000.0);
+
+                if !sleeping {
+                    sleep_start = None;
+
+                    engine_state.time_tracker.on_sleep_completed();
+
+                    engine_state.asset_binder.update(
+                        renderer.base.clone(),
+                        renderer.constant_data.clone(),
+                        engine_state.asset_loader.clone(),
+                    );
+
+                    on_update(GameContext {
+                        game_state: &mut game_state,
+                        engine_state: &mut engine_state,
+                        renderer: &mut renderer,
+                        surface_data: &mut surface_data,
+                        window: &mut window,
+                        elwt,
+                    });
+
+                    engine_state.time_tracker.on_update_completed();
+
+                    // on the first frame we get the surface texture before rendering
+                    let surface_texture_result = latest_surface_texture_result
+                        .take()
+                        .unwrap_or_else(|| dbg!(surface_data.surface.get_current_texture()));
+
+                    // TODO: merge into a match
+                    if let Err(err) = &surface_texture_result {
+                        match err {
+                            // Reconfigure the surface if lost
+                            wgpu::SurfaceError::Lost => {
+                                let size = window.inner_size();
+
+                                renderer.resize_surface(&mut surface_data, size);
+                                on_window_resize(
+                                    GameContext {
+                                        game_state: &mut game_state,
+                                        engine_state: &mut engine_state,
+                                        renderer: &mut renderer,
+                                        surface_data: &mut surface_data,
+                                        window: &mut window,
+                                        elwt,
+                                    },
+                                    size,
+                                );
+                            }
+                            wgpu::SurfaceError::OutOfMemory => elwt.exit(),
+                            _ => log::error!("{err:?}"),
+                        }
+                    }
+
+                    // TODO: merge into a match
+                    if let Ok(surface_texture) = surface_texture_result {
+                        if let Err(err) = renderer.render(
+                            &mut engine_state,
+                            &surface_data,
+                            surface_texture,
+                            game_state.get_ui_container(),
+                        ) {
+                            log::error!("{err:?}");
+                        }
+                    }
+
+                    engine_state.time_tracker.on_render_completed();
+
+                    latest_surface_texture_result =
+                        Some(surface_data.surface.get_current_texture());
+
+                    engine_state.time_tracker.on_get_surface_completed();
+
+                    profiling::finish_frame!();
+                }
             }
             Event::AboutToWait => {
                 window.request_redraw();
@@ -214,9 +277,15 @@ pub fn run<
                         }
                     }
                     WindowEvent::CloseRequested => elwt.exit(),
+                    WindowEvent::Moved(_) => {
+                        monitor_refresh_rate = window
+                            .current_monitor()
+                            .and_then(|window| window.refresh_rate_millihertz())
+                    }
                     _ => {}
                 };
 
+                // dbg!(sleep_start.is_some());
                 on_window_event(
                     GameContext {
                         game_state: &mut game_state,

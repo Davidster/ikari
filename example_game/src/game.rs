@@ -67,7 +67,7 @@ pub const INITIAL_NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const INITIAL_FAR_PLANE_DISTANCE: f32 = 100000.0;
 pub const INITIAL_FOV_X: f32 = 103.0 * std::f32::consts::PI / 180.0;
 pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
-pub const INITIAL_ENABLE_SHADOWS: bool = true;
+pub const INITIAL_ENABLE_SHADOWS: bool = false;
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
 pub const INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS: f32 = 16.0;
@@ -296,6 +296,8 @@ pub async fn init_game_state(
 
         renderer_data_guard.shadow_settings.enable_shadows = INITIAL_ENABLE_SHADOWS;
     }
+
+    // dbg!(&surface_data.surface_config);
 
     let unscaled_framebuffer_size = winit::dpi::PhysicalSize::new(
         surface_data.surface_config.width,

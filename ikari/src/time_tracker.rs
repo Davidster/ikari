@@ -11,27 +11,29 @@ pub struct TimeTracker {
 #[derive(Debug, Copy, Clone)]
 pub struct FrameInstants {
     pub start: Instant,
+    pub sleep_done: Option<Instant>,
     pub update_done: Option<Instant>,
-    pub get_surface_done: Option<Instant>,
     pub render_done: Option<Instant>,
+    pub get_surface_done: Option<Instant>,
 }
 
 #[derive(Debug, Copy, Clone)]
 pub struct FrameDurations {
     pub total: Duration,
-    pub get_surface: Option<Duration>,
+    pub sleep: Option<Duration>,
     pub update: Option<Duration>,
     pub render: Option<Duration>,
+    pub get_surface: Option<Duration>,
 }
 
 impl FrameInstants {
     pub fn new(start: Instant) -> Self {
         Self {
             start,
-            get_surface_done: None,
+            sleep_done: None,
             update_done: None,
-
             render_done: None,
+            get_surface_done: None,
         }
     }
 }
@@ -46,21 +48,27 @@ impl TimeTracker {
         self.current_frame = Some(FrameInstants::new(Instant::now()));
     }
 
+    pub(crate) fn on_sleep_completed(&mut self) {
+        if let Some(current_frame) = self.current_frame.as_mut() {
+            current_frame.sleep_done = Some(Instant::now());
+        }
+    }
+
     pub(crate) fn on_update_completed(&mut self) {
         if let Some(current_frame) = self.current_frame.as_mut() {
             current_frame.update_done = Some(Instant::now());
         }
     }
 
-    pub(crate) fn on_get_surface_completed(&mut self) {
-        if let Some(current_frame) = self.current_frame.as_mut() {
-            current_frame.get_surface_done = Some(Instant::now());
-        }
-    }
-
     pub(crate) fn on_render_completed(&mut self) {
         if let Some(current_frame) = self.current_frame.as_mut() {
             current_frame.render_done = Some(Instant::now());
+        }
+    }
+
+    pub(crate) fn on_get_surface_completed(&mut self) {
+        if let Some(current_frame) = self.current_frame.as_mut() {
+            current_frame.get_surface_done = Some(Instant::now());
         }
     }
 
@@ -74,31 +82,29 @@ impl TimeTracker {
                 last_frame,
                 FrameDurations {
                     total: current_frame.start - last_frame.start,
-                    // update: last_frame
-                    //     .update_done
-                    //     .map(|update_done| update_done - last_frame.start),
-                    // get_surface: match (last_frame.update_done, last_frame.get_surface_done) {
-                    //     (Some(update_done), Some(get_surface_done)) => {
-                    //         Some(get_surface_done - update_done)
-                    //     }
-                    //     _ => None,
-                    // },
-                    get_surface: last_frame
-                        .get_surface_done
-                        .map(|get_surface_done| get_surface_done - last_frame.start),
-                    update: match (last_frame.get_surface_done, last_frame.update_done) {
-                        (Some(get_surface_done), Some(update_done)) => {
-                            Some(update_done - get_surface_done)
-                        }
-                        _ => None,
-                    },
-                    render: match (last_frame.update_done, last_frame.render_done) {
-                        (Some(update_done), Some(render_done)) => Some(render_done - update_done),
-                        _ => None,
-                    },
+                    sleep: option_delta(last_frame.sleep_done, Some(last_frame.start)),
+                    update: option_delta(last_frame.update_done, last_frame.sleep_done),
+                    render: option_delta(last_frame.render_done, last_frame.update_done),
+                    get_surface: option_delta(last_frame.get_surface_done, last_frame.render_done),
                 },
             )),
             _ => None,
         }
+    }
+
+    pub fn last_frame_busy_time_secs(&self) -> Option<f64> {
+        self.last_frame_times()
+            .and_then(|(_, last_frame_durations)| {
+                last_frame_durations.sleep.map(|sleep_duration| {
+                    last_frame_durations.total.as_secs_f64() - sleep_duration.as_secs_f64()
+                })
+            })
+    }
+}
+
+fn option_delta(end: Option<Instant>, start: Option<Instant>) -> Option<Duration> {
+    match (end, start) {
+        (Some(end), Some(start)) => Some(end - start),
+        _ => None,
     }
 }

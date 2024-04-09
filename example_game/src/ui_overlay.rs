@@ -71,10 +71,11 @@ pub const PACIFICO_FONT_NAME: &str = "Pacifico";
 
 const FRAME_TIME_HISTORY_SIZE: usize = 5 * 144 + 1; // 1 more than 5 seconds of 144hz
 const FRAME_TIMES_MOVING_AVERAGE_ALPHA: f64 = 0.01;
-const FPS_CHART_LINE_COLORS: [RGBAColor; 5] = [
+const FPS_CHART_LINE_COLORS: [RGBAColor; 6] = [
     RGBAColor(165, 242, 85, 1.0),  // total
-    RGBAColor(49, 168, 224, 0.8),  // update
-    RGBAColor(34, 20, 200, 0.8),   // get surface
+    RGBAColor(240, 140, 10, 0.8),  // sleep
+    RGBAColor(49, 80, 112, 0.8),   // get surface
+    RGBAColor(34, 20, 200, 0.8),   // update
     RGBAColor(159, 127, 242, 0.8), // render
     RGBAColor(253, 183, 23, 0.8),  // gpu
 ];
@@ -293,6 +294,7 @@ pub struct UiOverlay {
     pending_perf_dump: Option<PendingPerfDump>,
     perf_dump_completion_time: Option<Instant>,
     culling_stats: Option<CullingStats>,
+    frame_counter: usize,
 
     pub is_showing_options_menu: bool,
     pub was_exit_button_pressed: bool,
@@ -386,8 +388,9 @@ impl modal::StyleSheet for ModalStyle {
 struct FpsChart {
     recent_frame_times: Vec<(Instant, FrameDurations, Option<Duration>)>,
     avg_total_frame_time_millis: Option<f64>,
-    avg_update_time_ms: Option<f64>,
+    avg_sleep_time_ms: Option<f64>,
     avg_get_surface_time_ms: Option<f64>,
+    avg_update_time_ms: Option<f64>,
     avg_render_time_ms: Option<f64>,
     avg_gpu_frame_time_ms: Option<f64>,
     avg_gpu_frame_time_per_span: HashMap<String, f64>,
@@ -414,13 +417,17 @@ impl Chart<Message> for FpsChart {
 
                 chart_data[0].push((x, (1.0 / durations.total.as_secs_f32()).round() as i32));
 
-                if let Some(update_duration) = durations.update {
-                    chart_data[1].push((x, (1.0 / update_duration.as_secs_f32()).round() as i32));
+                if let Some(sleep_duration) = durations.sleep {
+                    chart_data[1].push((x, (1.0 / sleep_duration.as_secs_f32()).round() as i32));
                 }
 
-                if let Some(get_surface_duration) = durations.get_surface {
-                    chart_data[2]
-                        .push((x, (1.0 / get_surface_duration.as_secs_f32()).round() as i32));
+                // if let Some(get_surface_duration) = durations.get_surface {
+                //     chart_data[2]
+                //         .push((x, (1.0 / get_surface_duration.as_secs_f32()).round() as i32));
+                // }
+
+                if let Some(update_duration) = durations.update {
+                    chart_data[2].push((x, (1.0 / update_duration.as_secs_f32()).round() as i32));
                 }
 
                 if let Some(render_duration) = durations.render {
@@ -575,10 +582,12 @@ impl FpsChart {
 
         self.avg_total_frame_time_millis =
             compute_new_avg_frametime(self.avg_total_frame_time_millis, Some(new_durations.total));
-        self.avg_update_time_ms =
-            compute_new_avg_frametime(self.avg_update_time_ms, new_durations.update);
+        self.avg_sleep_time_ms =
+            compute_new_avg_frametime(self.avg_sleep_time_ms, new_durations.sleep);
         self.avg_get_surface_time_ms =
             compute_new_avg_frametime(self.avg_get_surface_time_ms, new_durations.get_surface);
+        self.avg_update_time_ms =
+            compute_new_avg_frametime(self.avg_update_time_ms, new_durations.update);
         self.avg_render_time_ms =
             compute_new_avg_frametime(self.avg_render_time_ms, new_durations.render);
         self.avg_gpu_frame_time_ms =
@@ -651,6 +660,8 @@ impl UiOverlay {
             perf_dump_completion_time: None,
             culling_stats: None,
 
+            frame_counter: 0,
+
             is_showing_options_menu: false,
             was_exit_button_pressed: false,
 
@@ -698,13 +709,23 @@ impl<Message> canvas::Program<Message, iced::Theme, iced::Renderer> for UiOverla
     ) -> Vec<canvas::Geometry> {
         self.clock.clear();
         let clock = self.clock.draw(renderer, bounds.size(), |frame| {
+            // let mut color: iced::Color = FPS_CHART_LINE_COLORS[self.frame_counter % 3]..into();
+            let colors = [
+                iced::Color::from_rgba8(255, 0, 0, 0.5),
+                iced::Color::from_rgba8(0, 255, 0, 0.5),
+                iced::Color::from_rgba8(0, 0, 255, 0.5),
+            ];
+            let color = colors[self.frame_counter % 3];
+
             let center = iced::Point::new(
                 frame.width() * self.cursor_position.x as f32,
                 frame.height() * self.cursor_position.y as f32,
             );
             let radius = 24.0;
             let background = canvas::Path::circle(center, radius);
-            frame.fill(&background, iced::Color::from_rgba8(0x12, 0x93, 0xD8, 0.5));
+            frame.fill(&background, color);
+
+            // self.frame_counter
         });
 
         vec![clock]
@@ -732,6 +753,7 @@ impl runtime::Program for UiOverlay {
                     frame_stats.gpu_timer_query_results,
                 );
                 self.culling_stats = frame_stats.culling_stats;
+                self.frame_counter += 1;
                 self.poll_perf_dump_state();
             }
             Message::AudioSoundStatsChanged((track_path, stats)) => {
@@ -927,16 +949,24 @@ impl runtime::Program for UiOverlay {
                 rows.push(text.into());
             }
 
-            if let Some(millis) = self.fps_chart.avg_update_time_ms {
-                let mut text = text(&format!("Update: {:.2}ms", millis));
+            if let Some(millis) = self.fps_chart.avg_sleep_time_ms {
+                let mut text = text(&format!("Sleep: {:.2}ms", millis));
                 if is_showing_fps_chart {
                     text = text.style(get_chart_line_color(1))
                 }
                 rows.push(text.into());
             }
 
-            if let Some(millis) = self.fps_chart.avg_get_surface_time_ms {
-                let mut text = text(&format!("Get surface: {:.2}ms", millis));
+            // if let Some(millis) = self.fps_chart.avg_get_surface_time_ms {
+            //     let mut text = text(&format!("Get surface: {:.2}ms", millis));
+            //     if is_showing_fps_chart {
+            //         text = text.style(get_chart_line_color(2))
+            //     }
+            //     rows.push(text.into());
+            // }
+
+            if let Some(millis) = self.fps_chart.avg_update_time_ms {
+                let mut text = text(&format!("Update: {:.2}ms", millis));
                 if is_showing_fps_chart {
                     text = text.style(get_chart_line_color(2))
                 }
