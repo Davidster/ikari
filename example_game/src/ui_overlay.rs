@@ -957,13 +957,13 @@ impl runtime::Program for UiOverlay {
                 rows.push(text.into());
             }
 
-            // if let Some(millis) = self.fps_chart.avg_get_surface_time_ms {
-            //     let mut text = text(&format!("Get surface: {:.2}ms", millis));
-            //     if is_showing_fps_chart {
-            //         text = text.style(get_chart_line_color(2))
-            //     }
-            //     rows.push(text.into());
-            // }
+            if let Some(millis) = self.fps_chart.avg_get_surface_time_ms {
+                let mut text = text(&format!("Get surface: {:.2}ms", millis));
+                if is_showing_fps_chart {
+                    text = text.style(get_chart_line_color(2))
+                }
+                rows.push(text.into());
+            }
 
             if let Some(millis) = self.fps_chart.avg_update_time_ms {
                 let mut text = text(&format!("Update: {:.2}ms", millis));

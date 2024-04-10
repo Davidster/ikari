@@ -82,7 +82,7 @@ pub fn run<
                 // TODO: the real 'frame start' time should come immediately after get_current_texture call, because this ends right
                 //       after the vblank under vsync. on_frame_started and profiling::finish_frame! should be moved around accordingly.
                 if sleep_start.is_none() {
-                    dbg!("on frame start");
+                    // dbg!("on frame start");
                     engine_state.time_tracker.on_frame_started();
 
                     if !logged_start_time && engine_state.time_tracker.last_frame_times().is_some()
@@ -106,7 +106,8 @@ pub fn run<
                         let refresh_rate_period_secs = 1000.0 / monitor_refresh_rate as f64;
                         let sleep_time =
                             (refresh_rate_period_secs - last_frame_busy_time_secs).max(0.0) * 1.01;
-                        let sleep_time = 0.0;
+                        // let sleep_time = 0.016;
+                        // let sleep_time = 0.0;
                         // dbg!(
                         //     refresh_rate_period_secs * 1000.0,
                         //     last_frame_busy_time_secs * 1000.0,
