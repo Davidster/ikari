@@ -67,7 +67,7 @@ pub const INITIAL_NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const INITIAL_FAR_PLANE_DISTANCE: f32 = 100000.0;
 pub const INITIAL_FOV_X: f32 = 103.0 * std::f32::consts::PI / 180.0;
 pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
-pub const INITIAL_ENABLE_SHADOWS: bool = false;
+pub const INITIAL_ENABLE_SHADOWS: bool = true;
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
 pub const INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS: f32 = 16.0;
@@ -297,12 +297,11 @@ pub async fn init_game_state(
         renderer_data_guard.shadow_settings.enable_shadows = INITIAL_ENABLE_SHADOWS;
     }
 
-    // dbg!(&surface_data.surface_config);
-
     let unscaled_framebuffer_size = winit::dpi::PhysicalSize::new(
         surface_data.surface_config.width,
         surface_data.surface_config.height,
     );
+    // TODO: change render scale change to be its own function
     // must call this after changing the render scale
     renderer.resize_surface(surface_data, unscaled_framebuffer_size);
 
@@ -1379,6 +1378,7 @@ pub fn increment_render_scale(
         surface_data.surface_config.width,
         surface_data.surface_config.height,
     );
+    // TODO: change render scale change to be its own function
     // must call this after changing the render scale
     renderer.resize_surface(surface_data, unscaled_framebuffer_size);
     ui_overlay.resize(unscaled_framebuffer_size, window.scale_factor());
@@ -2108,7 +2108,14 @@ pub fn update_game_state(
             1.0 - ui_state.post_effect_settings.skybox_weight,
             ui_state.post_effect_settings.skybox_weight,
         ]);
-        renderer.set_vsync(ui_state.general_settings.enable_vsync, surface_data);
+        renderer.set_present_mode(
+            surface_data,
+            if ui_state.general_settings.enable_vsync {
+                wgpu::PresentMode::AutoVsync
+            } else {
+                wgpu::PresentMode::AutoNoVsync
+            },
+        );
 
         drop(renderer_data_guard);
 
