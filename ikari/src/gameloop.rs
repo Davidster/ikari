@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::engine_state::EngineState;
-use crate::renderer::{FramerateLimit, Renderer, SurfaceData};
+use crate::renderer::{Renderer, SurfaceData};
 use crate::time::Instant;
 use crate::ui::IkariUiContainer;
 use crate::web_canvas_manager::WebCanvasManager;
@@ -59,17 +59,16 @@ pub fn run<
     GameStateType: GameState<UiOverlay> + 'static,
 {
     let mut logged_start_time = false;
-    let _last_frame_start_time: Option<Instant> = None;
     let web_canvas_manager = WebCanvasManager::new(window.clone());
 
-    let mut monitor_refresh_rate = window
-        .current_monitor()
-        .and_then(|window| window.refresh_rate_millihertz())
-        .map(|millihertz| millihertz as f32 / 1000.0);
+    engine_state.framerate_limiter.set_monitor_refresh_rate(
+        window
+            .current_monitor()
+            .and_then(|window| window.refresh_rate_millihertz())
+            .map(|millihertz| millihertz as f32 / 1000.0),
+    );
 
     let mut latest_surface_texture_result = None;
-
-    let mut sleep_start = None;
 
     let mut pending_resize_event: Option<winit::dpi::PhysicalSize<u32>> = None;
 
@@ -84,8 +83,11 @@ pub fn run<
                 // TODO: the time tracker currently doesn't process any of the events happening outside this match block!
                 // TODO: the real 'frame start' time should come immediately after get_current_texture call, because this ends right
                 //       after the vblank under vsync. on_frame_started and profiling::finish_frame! should be moved around accordingly.
-                if sleep_start.is_none() {
-                    // dbg!("on frame start");
+                if engine_state
+                    .framerate_limiter
+                    .get_remaining_sleep_time(&engine_state.time_tracker)
+                    .is_none()
+                {
                     engine_state.time_tracker.on_frame_started();
 
                     if !logged_start_time && engine_state.time_tracker.last_frame_times().is_some()
@@ -98,32 +100,21 @@ pub fn run<
                     }
                 }
 
-                if let (Some(last_frame_busy_time_secs), Some(framerate_limit)) = (
-                    engine_state.time_tracker.last_frame_busy_time_secs(),
-                    resolve_framerate_limit(
-                        renderer.data.lock().general_settings.framerate_limit,
-                        monitor_refresh_rate,
-                    ),
-                ) {
-                    let refresh_rate_period_secs = 1.0 / framerate_limit as f64;
-                    let sleep_time =
-                        (refresh_rate_period_secs - last_frame_busy_time_secs).max(0.0) * 1.01;
-                    if sleep_time > 0.0
-                        && sleep_start
-                            .get_or_insert_with(|| crate::time::Instant::now())
-                            .elapsed()
-                            .as_secs_f64()
-                            < sleep_time
-                    {
-                        // TODO: start a profiling zone so we can see the sleep time in tracy
-                        // TODO: yield here?
-                        // std::thread::yield_now();
-                        window.request_redraw();
-                        return;
-                    }
-                }
+                engine_state
+                    .framerate_limiter
+                    .update(&engine_state.time_tracker);
 
-                sleep_start = None;
+                if engine_state
+                    .framerate_limiter
+                    .get_remaining_sleep_time(&engine_state.time_tracker)
+                    .is_some()
+                {
+                    // TODO: start a profiling zone so we can see the sleep time in tracy
+                    // TODO: yield here?
+                    // std::thread::yield_now();
+                    window.request_redraw();
+                    return;
+                }
 
                 engine_state.time_tracker.on_sleep_completed();
 
@@ -177,9 +168,7 @@ pub fn run<
                     Err(err) => match err {
                         // Reconfigure the surface if lost
                         wgpu::SurfaceError::Lost => {
-                            let size = window.inner_size();
-                            // TODO: this shouldn't be a 'resize'. it should only reconfigure the surface.
-                            renderer.resize_surface(&mut surface_data, size);
+                            renderer.resize_surface(&mut surface_data, window.inner_size());
                         }
                         wgpu::SurfaceError::OutOfMemory => {
                             elwt.exit();
@@ -230,24 +219,25 @@ pub fn run<
                         }
                     }
                     WindowEvent::ScaleFactorChanged { .. } => {
-                        let new_inner_size = window.inner_size();
-                        if new_inner_size.width > 0 && new_inner_size.height > 0 {
-                            renderer.resize_surface(&mut surface_data, new_inner_size);
+                        let size = window.inner_size();
+                        if size.width > 0 && size.height > 0 {
+                            renderer.resize_surface(&mut surface_data, size);
                         }
                     }
                     WindowEvent::CloseRequested => {
                         elwt.exit();
                     }
                     WindowEvent::Moved(_) => {
-                        monitor_refresh_rate = window
-                            .current_monitor()
-                            .and_then(|window| window.refresh_rate_millihertz())
-                            .map(|millihertz| millihertz as f32 / 1000.0);
+                        engine_state.framerate_limiter.set_monitor_refresh_rate(
+                            window
+                                .current_monitor()
+                                .and_then(|window| window.refresh_rate_millihertz())
+                                .map(|millihertz| millihertz as f32 / 1000.0),
+                        );
                     }
                     _ => {}
                 };
 
-                // dbg!(sleep_start.is_some());
                 on_window_event(
                     GameContext {
                         game_state: &mut game_state,
@@ -270,15 +260,4 @@ pub fn run<
     }
     #[cfg(not(target_arch = "wasm32"))]
     event_loop.run(handler).unwrap();
-}
-
-fn resolve_framerate_limit(
-    limit: FramerateLimit,
-    monitor_refresh_rate: Option<f32>,
-) -> Option<f32> {
-    match limit {
-        FramerateLimit::None => None,
-        FramerateLimit::Monitor => monitor_refresh_rate,
-        FramerateLimit::Custom(custom_limit) => Some(custom_limit),
-    }
 }

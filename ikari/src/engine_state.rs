@@ -1,6 +1,7 @@
 use crate::{
     asset_loader::{AssetBinder, AssetLoader},
     audio::{AudioManager, AudioStreams},
+    framerate_limiter::FrameRateLimiter,
     mutex::Mutex,
     physics::PhysicsState,
     scene::Scene,
@@ -12,7 +13,8 @@ use std::sync::Arc;
 
 pub struct EngineState {
     pub scene: Scene,
-    pub(crate) time_tracker: TimeTracker,
+    pub time_tracker: TimeTracker,
+    pub framerate_limiter: FrameRateLimiter,
     pub physics_state: PhysicsState,
     pub audio_streams: AudioStreams,
     pub audio_manager: Arc<Mutex<AudioManager>>,
@@ -32,13 +34,10 @@ impl EngineState {
             audio_streams,
             audio_manager,
             time_tracker: Default::default(),
+            framerate_limiter: Default::default(),
             physics_state: PhysicsState::new(),
             asset_loader,
             asset_binder,
         })
-    }
-
-    pub fn time(&self) -> TimeTracker {
-        self.time_tracker
     }
 }

@@ -26,6 +26,8 @@ use ikari::asset_loader::SceneAssetLoadParams;
 use ikari::audio::SoundParams;
 use ikari::engine_state::EngineState;
 use ikari::file_manager::{FileManager, GamePathMaker};
+use ikari::framerate_limiter::FramerateLimit;
+use ikari::framerate_limiter::FramerateLimitType;
 use ikari::gameloop::GameContext;
 use ikari::mesh::BasicMesh;
 use ikari::mesh::DynamicPbrParams;
@@ -63,12 +65,13 @@ use winit::keyboard::NamedKey;
 // graphics settings
 // TODO: replace the ones that are using the defaults with a call to ::default
 pub const INITIAL_ENABLE_VSYNC: bool = true;
+pub const INITIAL_FRAMERATE_LIMIT: FramerateLimit = FramerateLimit::None;
 pub const INITIAL_NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const INITIAL_FAR_PLANE_DISTANCE: f32 = 100000.0;
 pub const INITIAL_FOV_X: f32 = 103.0 * std::f32::consts::PI / 180.0;
 pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
 pub const INITIAL_ENABLE_SHADOWS: bool = true;
-pub const INITIAL_RENDER_SCALE: f32 = 1.0;
+pub const INITIAL_RENDER_SCALE: f32 = 2.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
 pub const INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS: f32 = 16.0;
 pub const INITIAL_OLD_BLOOM_THRESHOLD: f32 = 0.8;
@@ -266,7 +269,6 @@ pub async fn init_game_state(
         "Look Around:             Mouse",
         "Move Around:             WASD, E, Space Bar, LCtrl, Q",
         "Adjust Speed:            Scroll or Up/Down Arrow Keys",
-        "Adjust Render Scale:     Z / X",
         "Adjust Exposure:         R / T",
         "Adjust Bloom Threshold:  Y / U",
         "Pause/Resume Animations: P",
@@ -296,14 +298,6 @@ pub async fn init_game_state(
 
         renderer_data_guard.shadow_settings.enable_shadows = INITIAL_ENABLE_SHADOWS;
     }
-
-    let unscaled_framebuffer_size = winit::dpi::PhysicalSize::new(
-        surface_data.surface_config.width,
-        surface_data.surface_config.height,
-    );
-    // TODO: change render scale change to be its own function
-    // must call this after changing the render scale
-    renderer.resize_surface(surface_data, unscaled_framebuffer_size);
 
     let asset_loader = engine_state.asset_loader.clone();
     let asset_ids = Arc::new(Mutex::new(AssetIds::default()));
@@ -1185,7 +1179,6 @@ pub fn process_window_input(
         game_state,
         engine_state,
         renderer,
-        surface_data,
         window,
         elwt,
         ..
@@ -1206,26 +1199,6 @@ pub fn process_window_input(
                 let mut render_data_guard = renderer.data.lock();
                 match key {
                     Key::Character(character) => match character.to_lowercase().as_str() {
-                        "z" => {
-                            drop(render_data_guard);
-                            increment_render_scale(
-                                renderer,
-                                surface_data,
-                                false,
-                                window,
-                                &mut game_state.ui_overlay,
-                            );
-                        }
-                        "x" => {
-                            drop(render_data_guard);
-                            increment_render_scale(
-                                renderer,
-                                surface_data,
-                                true,
-                                window,
-                                &mut game_state.ui_overlay,
-                            );
-                        }
                         "r" => {
                             increment_exposure(&mut render_data_guard, false);
                         }
@@ -1317,6 +1290,16 @@ pub fn process_window_input(
                 }
             }
         }
+        WindowEvent::Moved(_) => {
+            game_state
+                .ui_overlay
+                .queue_message(Message::MonitorRefreshRateChanged(
+                    window
+                        .current_monitor()
+                        .and_then(|window| window.refresh_rate_millihertz())
+                        .map(|millihertz| millihertz as f32 / 1000.0),
+                ));
+        }
         _ => {}
     };
 
@@ -1349,39 +1332,6 @@ pub fn resize_ui_overlay(
     new_size: winit::dpi::PhysicalSize<u32>,
 ) {
     ui_overlay.resize(new_size, window.scale_factor());
-}
-
-pub fn increment_render_scale(
-    renderer: &mut Renderer,
-    surface_data: &mut SurfaceData,
-    increase: bool,
-    window: &winit::window::Window,
-    ui_overlay: &mut IkariUiContainer<UiOverlay>,
-) {
-    let delta = 0.1;
-    let change = if increase { delta } else { -delta };
-
-    {
-        let mut renderer_data_guard = renderer.data.lock();
-
-        let render_scale = &mut renderer_data_guard.general_settings.render_scale;
-        *render_scale = (*render_scale + change).clamp(0.1, 4.0);
-        log::info!(
-            "Render scale: {:?} ({:?}x{:?})",
-            render_scale,
-            (surface_data.surface_config.width as f32 * render_scale.sqrt()).round() as u32,
-            (surface_data.surface_config.height as f32 * render_scale.sqrt()).round() as u32,
-        );
-    }
-
-    let unscaled_framebuffer_size = winit::dpi::PhysicalSize::new(
-        surface_data.surface_config.width,
-        surface_data.surface_config.height,
-    );
-    // TODO: change render scale change to be its own function
-    // must call this after changing the render scale
-    renderer.resize_surface(surface_data, unscaled_framebuffer_size);
-    ui_overlay.resize(unscaled_framebuffer_size, window.scale_factor());
 }
 
 pub fn increment_exposure(renderer_data: &mut RendererData, increase: bool) {
@@ -1651,7 +1601,7 @@ pub fn update_game_state(
 
     // "src/models/gltf/free_low_poly_forest/scene.gltf"
 
-    let time_tracker = engine_state.time();
+    let time_tracker = engine_state.time_tracker;
     let global_time_seconds = time_tracker
         .global_time()
         .map(|global_time| global_time.as_secs_f32())
@@ -1997,7 +1947,7 @@ pub fn update_game_state(
 
         let mut renderer_data_guard = renderer.data.lock();
 
-        if let Some((instants, durations)) = engine_state.time().last_frame_times() {
+        if let Some((instants, durations)) = engine_state.time_tracker.last_frame_times() {
             game_state
                 .ui_overlay
                 .queue_message(Message::FrameCompleted(FrameStats {
@@ -2054,8 +2004,19 @@ pub fn update_game_state(
             elwt.exit();
         }
 
+        engine_state.framerate_limiter.set_framerate_limit(
+            match ui_state.general_settings.framerate_limit_type {
+                FramerateLimitType::None => FramerateLimit::None,
+                FramerateLimitType::Monitor => FramerateLimit::Monitor,
+                FramerateLimitType::Custom => {
+                    FramerateLimit::Custom(ui_state.general_settings.custom_framerate_limit)
+                }
+            },
+        );
+
         renderer_data_guard.general_settings.enable_depth_prepass =
             ui_state.general_settings.enable_depth_prepass;
+        renderer_data_guard.general_settings.render_scale = ui_state.general_settings.render_scale;
 
         renderer_data_guard.camera_settings.fov_x = ui_state.camera_settings.fov_x;
         renderer_data_guard.camera_settings.near_plane_distance =

@@ -992,17 +992,9 @@ impl std::fmt::Display for BloomType {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub enum FramerateLimit {
-    None,
-    Monitor,
-    Custom(f32),
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct GeneralSettings {
     pub render_scale: f32,
     pub enable_depth_prepass: bool,
-    pub framerate_limit: FramerateLimit,
 }
 
 impl Default for GeneralSettings {
@@ -1010,7 +1002,6 @@ impl Default for GeneralSettings {
         Self {
             render_scale: 1.0,
             enable_depth_prepass: false,
-            framerate_limit: FramerateLimit::Custom(29.5),
         }
     }
 }

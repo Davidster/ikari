@@ -22,6 +22,8 @@ use iced_aw::style::modal;
 use iced_aw::{floating_element, Modal};
 use iced_winit::runtime;
 use ikari::file_manager::GameFilePath;
+use ikari::framerate_limiter::FramerateLimit;
+use ikari::framerate_limiter::FramerateLimitType;
 use ikari::player_controller::ControlledViewDirection;
 use ikari::profile_dump::can_generate_profile_dump;
 use ikari::profile_dump::generate_profile_dump;
@@ -49,11 +51,13 @@ use crate::game::INITIAL_ENABLE_SOFT_SHADOWS;
 use crate::game::INITIAL_ENABLE_VSYNC;
 use crate::game::INITIAL_FAR_PLANE_DISTANCE;
 use crate::game::INITIAL_FOV_X;
+use crate::game::INITIAL_FRAMERATE_LIMIT;
 use crate::game::INITIAL_IS_SHOWING_CAMERA_POSE;
 use crate::game::INITIAL_IS_SHOWING_CURSOR_MARKER;
 use crate::game::INITIAL_NEAR_PLANE_DISTANCE;
 use crate::game::INITIAL_NEW_BLOOM_INTENSITY;
 use crate::game::INITIAL_NEW_BLOOM_RADIUS;
+use crate::game::INITIAL_RENDER_SCALE;
 use crate::game::INITIAL_SHADOW_BIAS;
 use crate::game::INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS;
 use crate::game::INITIAL_SKYBOX_WEIGHT;
@@ -71,11 +75,9 @@ pub const PACIFICO_FONT_NAME: &str = "Pacifico";
 
 const FRAME_TIME_HISTORY_SIZE: usize = 5 * 144 + 1; // 1 more than 5 seconds of 144hz
 const FRAME_TIMES_MOVING_AVERAGE_ALPHA: f64 = 0.01;
-const FPS_CHART_LINE_COLORS: [RGBAColor; 6] = [
+const FPS_CHART_LINE_COLORS: [RGBAColor; 4] = [
     RGBAColor(165, 242, 85, 1.0),  // total
-    RGBAColor(240, 140, 10, 0.8),  // sleep
-    RGBAColor(49, 80, 112, 0.8),   // get surface
-    RGBAColor(34, 20, 200, 0.8),   // update
+    RGBAColor(49, 168, 224, 0.8),  // update
     RGBAColor(159, 127, 242, 0.8), // render
     RGBAColor(253, 183, 23, 0.8),  // gpu
 ];
@@ -100,12 +102,15 @@ pub struct FrameStats {
 #[derive(Debug, Clone)]
 pub enum Message {
     ViewportDimsChanged((u32, u32)),
+    MonitorRefreshRateChanged(Option<f32>),
     CursorPosChanged(winit::dpi::PhysicalPosition<f64>),
     FrameCompleted(FrameStats),
     CameraPoseChanged((Vec3, ControlledViewDirection)),
     AudioSoundStatsChanged((GameFilePath, AudioSoundStats)),
-    #[allow(dead_code)]
     VsyncChanged(bool),
+    FramerateLimitTypeChanged(FramerateLimitType),
+    CustomFramerateLimitChanged(f32),
+    RenderScaleChanged(f32),
     FovxChanged(f32),
     NearPlaneDistanceChanged(f32),
     FarPlaneDistanceChanged(f32),
@@ -151,6 +156,9 @@ pub struct GeneralSettings {
 
     pub enable_depth_prepass: bool,
     pub enable_vsync: bool,
+    pub framerate_limit_type: FramerateLimitType,
+    pub custom_framerate_limit: f32,
+    pub render_scale: f32,
 }
 
 impl Default for GeneralSettings {
@@ -159,6 +167,13 @@ impl Default for GeneralSettings {
             collapsed: true,
             enable_vsync: INITIAL_ENABLE_VSYNC,
             enable_depth_prepass: INITIAL_ENABLE_DEPTH_PREPASS,
+            framerate_limit_type: INITIAL_FRAMERATE_LIMIT.into(),
+            custom_framerate_limit: match INITIAL_FRAMERATE_LIMIT {
+                FramerateLimit::None => 60.0,
+                FramerateLimit::Monitor => 60.0,
+                FramerateLimit::Custom(val) => val,
+            },
+            render_scale: INITIAL_RENDER_SCALE,
         }
     }
 }
@@ -287,6 +302,7 @@ impl Default for DebugSettings {
 pub struct UiOverlay {
     clock: canvas::Cache,
     viewport_dims: (u32, u32),
+    monitor_refresh_rate: Option<f32>,
     cursor_position: winit::dpi::PhysicalPosition<f64>,
     fps_chart: FpsChart,
     camera_pose: Option<(Vec3, ControlledViewDirection)>, // position, direction
@@ -406,7 +422,7 @@ impl Chart<Message> for FpsChart {
 
             let oldest_ft_age_secs =
                 (most_recent_start_time - self.recent_frame_times[0].0).as_secs_f32();
-            let mut chart_data: [Vec<(f32, i32)>; 5] = Default::default();
+            let mut chart_data: [Vec<(f32, i32)>; 4] = Default::default();
 
             for chart_data in chart_data.iter_mut() {
                 chart_data.reserve_exact(self.recent_frame_times.len());
@@ -417,25 +433,16 @@ impl Chart<Message> for FpsChart {
 
                 chart_data[0].push((x, (1.0 / durations.total.as_secs_f32()).round() as i32));
 
-                if let Some(sleep_duration) = durations.sleep {
-                    chart_data[1].push((x, (1.0 / sleep_duration.as_secs_f32()).round() as i32));
-                }
-
-                // if let Some(get_surface_duration) = durations.get_surface {
-                //     chart_data[2]
-                //         .push((x, (1.0 / get_surface_duration.as_secs_f32()).round() as i32));
-                // }
-
                 if let Some(update_duration) = durations.update {
-                    chart_data[2].push((x, (1.0 / update_duration.as_secs_f32()).round() as i32));
+                    chart_data[1].push((x, (1.0 / update_duration.as_secs_f32()).round() as i32));
                 }
 
                 if let Some(render_duration) = durations.render {
-                    chart_data[3].push((x, (1.0 / render_duration.as_secs_f32()).round() as i32));
+                    chart_data[2].push((x, (1.0 / render_duration.as_secs_f32()).round() as i32));
                 }
 
                 if let Some(gpu_duration) = gpu_duration {
-                    chart_data[4].push((x, (1.0 / gpu_duration.as_secs_f32()).round() as i32));
+                    chart_data[3].push((x, (1.0 / gpu_duration.as_secs_f32()).round() as i32));
                 }
             }
 
@@ -652,6 +659,11 @@ impl UiOverlay {
         Self {
             clock: Default::default(),
             viewport_dims: (window.inner_size().width, window.inner_size().height),
+            // monitor_refresh_rate: None,
+            monitor_refresh_rate: window
+                .current_monitor()
+                .and_then(|monitor| monitor.refresh_rate_millihertz())
+                .map(|millihertz| millihertz as f32 / 1000.0),
             cursor_position,
             fps_chart: FpsChart::default(),
             camera_pose: None,
@@ -709,7 +721,6 @@ impl<Message> canvas::Program<Message, iced::Theme, iced::Renderer> for UiOverla
     ) -> Vec<canvas::Geometry> {
         self.clock.clear();
         let clock = self.clock.draw(renderer, bounds.size(), |frame| {
-            // let mut color: iced::Color = FPS_CHART_LINE_COLORS[self.frame_counter % 3]..into();
             let colors = [
                 iced::Color::from_rgba8(255, 0, 0, 0.5),
                 iced::Color::from_rgba8(0, 255, 0, 0.5),
@@ -724,8 +735,6 @@ impl<Message> canvas::Program<Message, iced::Theme, iced::Renderer> for UiOverla
             let radius = 24.0;
             let background = canvas::Path::circle(center, radius);
             frame.fill(&background, color);
-
-            // self.frame_counter
         });
 
         vec![clock]
@@ -742,6 +751,9 @@ impl runtime::Program for UiOverlay {
         match message {
             Message::ViewportDimsChanged(new_state) => {
                 self.viewport_dims = new_state;
+            }
+            Message::MonitorRefreshRateChanged(new_state) => {
+                self.monitor_refresh_rate = new_state;
             }
             Message::CursorPosChanged(new_state) => {
                 self.cursor_position = new_state;
@@ -801,6 +813,15 @@ impl runtime::Program for UiOverlay {
             }
             Message::VsyncChanged(new_state) => {
                 self.general_settings.enable_vsync = new_state;
+            }
+            Message::FramerateLimitTypeChanged(new_state) => {
+                self.general_settings.framerate_limit_type = new_state;
+            }
+            Message::CustomFramerateLimitChanged(new_state) => {
+                self.general_settings.custom_framerate_limit = new_state;
+            }
+            Message::RenderScaleChanged(new_state) => {
+                self.general_settings.render_scale = new_state;
             }
             Message::ToggleDepthPrepass(new_state) => {
                 self.general_settings.enable_depth_prepass = new_state;
@@ -949,26 +970,22 @@ impl runtime::Program for UiOverlay {
                 rows.push(text.into());
             }
 
-            if let Some(millis) = self.fps_chart.avg_sleep_time_ms {
-                let mut text = text(&format!("Sleep: {:.2}ms", millis));
-                if is_showing_fps_chart {
-                    text = text.style(get_chart_line_color(1))
+            if self.general_settings.framerate_limit_type != FramerateLimitType::None {
+                if let Some(millis) = self.fps_chart.avg_sleep_time_ms {
+                    let text = text(&format!("Sleep: {:.2}ms", millis));
+                    rows.push(text.into());
                 }
-                rows.push(text.into());
-            }
 
-            if let Some(millis) = self.fps_chart.avg_get_surface_time_ms {
-                let mut text = text(&format!("Get surface: {:.2}ms", millis));
-                if is_showing_fps_chart {
-                    text = text.style(get_chart_line_color(2))
+                if let Some(millis) = self.fps_chart.avg_get_surface_time_ms {
+                    let text = text(&format!("Get surface: {:.2}ms", millis));
+                    rows.push(text.into());
                 }
-                rows.push(text.into());
             }
 
             if let Some(millis) = self.fps_chart.avg_update_time_ms {
                 let mut text = text(&format!("Update: {:.2}ms", millis));
                 if is_showing_fps_chart {
-                    text = text.style(get_chart_line_color(2))
+                    text = text.style(get_chart_line_color(1))
                 }
                 rows.push(text.into());
             }
@@ -976,7 +993,7 @@ impl runtime::Program for UiOverlay {
             if let Some(millis) = self.fps_chart.avg_render_time_ms {
                 let mut text = text(&format!("Render: {:.2}ms", millis));
                 if is_showing_fps_chart {
-                    text = text.style(get_chart_line_color(3))
+                    text = text.style(get_chart_line_color(2))
                 }
                 rows.push(text.into());
             }
@@ -984,7 +1001,7 @@ impl runtime::Program for UiOverlay {
             if let Some(millis) = self.fps_chart.avg_gpu_frame_time_ms {
                 let mut text = text(&format!("GPU: {:.2}ms", millis));
                 if is_showing_fps_chart {
-                    text = text.style(get_chart_line_color(4))
+                    text = text.style(get_chart_line_color(3))
                 }
                 rows.push(text.into());
             }
@@ -1211,6 +1228,9 @@ impl runtime::Program for UiOverlay {
 
                     enable_depth_prepass,
                     enable_vsync,
+                    framerate_limit_type,
+                    custom_framerate_limit,
+                    render_scale,
                 } = self.general_settings;
 
                 options = options.push(collapse_title(
@@ -1223,15 +1243,82 @@ impl runtime::Program for UiOverlay {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         options = options.push(
-                            checkbox("Enable VSync", enable_vsync)
+                            checkbox("VSync", enable_vsync)
                                 .size(checkbox_size)
                                 .text_size(small_text_size)
                                 .on_toggle(Message::VsyncChanged),
                         );
                     }
 
+                    // TODO: expose this as a function in texture.rs
+                    let apply_render_scale =
+                        |dim| ((dim as f32 * render_scale.sqrt()).round() as u32).max(1);
+
                     options = options.push(
-                        checkbox("Enable Depth Pre-pass", enable_depth_prepass)
+                        text(format!(
+                            "Render scale ({render_scale:.1}, {}x{})",
+                            apply_render_scale(self.viewport_dims.0),
+                            apply_render_scale(self.viewport_dims.1)
+                        ))
+                        .size(small_text_size),
+                    );
+                    options = options.push(
+                        slider(0.1..=4.0, render_scale, Message::RenderScaleChanged)
+                            .height(slider_size)
+                            .step(0.1),
+                    );
+
+                    options = options.push(text("Framerate limit").size(small_text_size));
+
+                    let mut framerate_limit_options = vec![];
+                    for limit_type in FramerateLimitType::ALL {
+                        if limit_type == FramerateLimitType::Monitor
+                            && self.monitor_refresh_rate.is_none()
+                        {
+                            continue;
+                        }
+
+                        let value = match limit_type {
+                            FramerateLimitType::None => None,
+                            FramerateLimitType::Monitor => self.monitor_refresh_rate,
+                            FramerateLimitType::Custom => Some(custom_framerate_limit),
+                        };
+                        let value_text = value
+                            .map(|value| format!(" ({value:.2})"))
+                            .unwrap_or_default();
+
+                        framerate_limit_options.push(
+                            radio(
+                                format!("{limit_type}{value_text}"),
+                                limit_type,
+                                Some(framerate_limit_type),
+                                Message::FramerateLimitTypeChanged,
+                            )
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .into(),
+                        );
+                    }
+
+                    options = options.push(
+                        container(Column::with_children(framerate_limit_options).spacing(4))
+                            .padding([0, 0, 8, 0]),
+                    );
+
+                    if framerate_limit_type == FramerateLimitType::Custom {
+                        options = options.push(
+                            slider(
+                                1.0..=300.0,
+                                custom_framerate_limit,
+                                Message::CustomFramerateLimitChanged,
+                            )
+                            .height(slider_size)
+                            .step(1.0),
+                        );
+                    }
+
+                    options = options.push(
+                        checkbox("Depth Pre-pass", enable_depth_prepass)
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleDepthPrepass),
@@ -1314,8 +1401,10 @@ impl runtime::Program for UiOverlay {
 
                 if !collapsed {
                     options = options.push(text("Bloom Type").size(small_text_size));
+
+                    let mut bloom_options = vec![];
                     for mode in BloomType::ALL {
-                        options = options.push(
+                        bloom_options.push(
                             radio(
                                 format!("{mode}"),
                                 mode,
@@ -1323,9 +1412,15 @@ impl runtime::Program for UiOverlay {
                                 Message::BloomTypeChanged,
                             )
                             .size(checkbox_size)
-                            .text_size(small_text_size),
+                            .text_size(small_text_size)
+                            .into(),
                         );
                     }
+
+                    options = options.push(
+                        container(Column::with_children(bloom_options).spacing(4))
+                            .padding([0, 0, 8, 0]),
+                    );
 
                     options = options.push(
                         text(format!("New Bloom Radius: {:.4}", new_bloom_radius))
@@ -1542,8 +1637,10 @@ impl runtime::Program for UiOverlay {
                     );
                     if draw_culling_frustum {
                         options = options.push(text("Lock Culling Frustum").size(small_text_size));
+
+                        let mut culling_lock_options = vec![];
                         for mode in CullingFrustumLockMode::ALL {
-                            options = options.push(
+                            culling_lock_options.push(
                                 radio(
                                     format!("{mode}"),
                                     mode,
@@ -1551,9 +1648,15 @@ impl runtime::Program for UiOverlay {
                                     Message::CullingFrustumLockModeChanged,
                                 )
                                 .size(checkbox_size)
-                                .text_size(small_text_size),
+                                .text_size(small_text_size)
+                                .into(),
                             );
                         }
+
+                        options = options.push(
+                            container(Column::with_children(culling_lock_options).spacing(4))
+                                .padding([0, 0, 8, 0]),
+                        );
                     }
 
                     options = options.push(
