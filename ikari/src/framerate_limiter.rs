@@ -92,22 +92,16 @@ impl FrameRateLimiter {
             return false;
         }
 
-        match self.current_sleep_start {
-            None => {
-                self.current_sleep_start = Some(crate::time::Instant::now());
-                true
-            }
-            Some(current_sleep_start) => {
-                let remaining_sleep_time =
-                    sleep_period_secs - current_sleep_start.elapsed().as_secs_f64();
+        let current_sleep_start = *self
+            .current_sleep_start
+            .get_or_insert_with(|| crate::time::Instant::now());
+        let remaining_sleep_time = sleep_period_secs - current_sleep_start.elapsed().as_secs_f64();
 
-                if remaining_sleep_time > 0.0 {
-                    true
-                } else {
-                    self.current_sleep_start = None;
-                    false
-                }
-            }
+        if remaining_sleep_time > 0.0 {
+            true
+        } else {
+            self.current_sleep_start = None;
+            false
         }
     }
 }
