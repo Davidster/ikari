@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use crate::engine_state::EngineState;
-// use crate::framerate_limiter::FrameRateLimiterState;
 use crate::renderer::{Renderer, SurfaceData};
 use crate::time::Instant;
 use crate::ui::IkariUiContainer;
@@ -144,7 +143,7 @@ pub fn run<
                     Err(err) => match err {
                         // Reconfigure the surface if lost
                         wgpu::SurfaceError::Lost => {
-                            renderer.resize_surface(&mut surface_data, window.inner_size());
+                            renderer.resize_surface(&surface_data, window.inner_size());
                         }
                         wgpu::SurfaceError::OutOfMemory => {
                             elwt.exit();
@@ -200,13 +199,13 @@ pub fn run<
                 match &event {
                     WindowEvent::Resized(size) => {
                         if size.width > 0 && size.height > 0 {
-                            renderer.resize_surface(&mut surface_data, *size);
+                            renderer.resize_surface(&surface_data, *size);
                         }
                     }
                     WindowEvent::ScaleFactorChanged { .. } => {
                         let size = window.inner_size();
                         if size.width > 0 && size.height > 0 {
-                            renderer.resize_surface(&mut surface_data, size);
+                            renderer.resize_surface(&surface_data, size);
                         }
                     }
                     WindowEvent::CloseRequested => {
