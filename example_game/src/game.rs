@@ -62,23 +62,32 @@ use winit::event::{ElementState, WindowEvent};
 use winit::keyboard::Key;
 use winit::keyboard::NamedKey;
 
-// graphics settings
-// TODO: replace the ones that are using the defaults with a call to ::default
+// engine settings
 pub const INITIAL_ENABLE_VSYNC: bool = true;
+pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
 pub const INITIAL_FRAMERATE_LIMIT: FramerateLimit = FramerateLimit::None;
+pub const INITIAL_RENDER_SCALE: f32 = 1.0;
+
+pub const INITIAL_FOV_X: f32 = 103.0 * std::f32::consts::PI / 180.0;
 pub const INITIAL_NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const INITIAL_FAR_PLANE_DISTANCE: f32 = 100000.0;
-pub const INITIAL_FOV_X: f32 = 103.0 * std::f32::consts::PI / 180.0;
-pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
-pub const INITIAL_ENABLE_SHADOWS: bool = true;
-pub const INITIAL_RENDER_SCALE: f32 = 2.0;
+
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
-pub const INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS: f32 = 16.0;
+pub const INITIAL_BLOOM_TYPE: BloomType = BloomType::New;
 pub const INITIAL_OLD_BLOOM_THRESHOLD: f32 = 0.8;
 pub const INITIAL_OLD_BLOOM_RAMP_SIZE: f32 = 0.2;
 pub const INITIAL_NEW_BLOOM_RADIUS: f32 = 0.005;
 pub const INITIAL_NEW_BLOOM_INTENSITY: f32 = 0.04;
-pub const INITIAL_BLOOM_TYPE: BloomType = BloomType::New;
+pub const INITIAL_SKYBOX_WEIGHT: f32 = 1.0;
+
+pub const INITIAL_ENABLE_SHADOWS: bool = true;
+pub const INITIAL_ENABLE_SOFT_SHADOWS: bool = true;
+pub const INITIAL_SHADOW_BIAS: f32 = 0.001;
+pub const INITIAL_SOFT_SHADOW_FACTOR: f32 = 0.00003;
+pub const INITIAL_SOFT_SHADOWS_MAX_DISTANCE: f32 = 100.0;
+pub const INITIAL_SOFT_SHADOW_GRID_DIMS: u32 = 4;
+pub const INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS: f32 = 16.0;
+
 pub const INITIAL_IS_SHOWING_CAMERA_POSE: bool = false;
 pub const INITIAL_IS_SHOWING_CURSOR_MARKER: bool = false;
 pub const INITIAL_ENABLE_SHADOW_DEBUG: bool = false;
@@ -86,12 +95,6 @@ pub const INITIAL_ENABLE_CASCADE_DEBUG: bool = false;
 pub const INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG: bool = false;
 pub const INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG: bool = false;
 pub const INITIAL_ENABLE_DIRECTIONAL_LIGHT_CULLING_FRUSTUM_DEBUG: bool = false;
-pub const INITIAL_ENABLE_SOFT_SHADOWS: bool = true;
-pub const INITIAL_SHADOW_BIAS: f32 = 0.001;
-pub const INITIAL_SKYBOX_WEIGHT: f32 = 1.0;
-pub const INITIAL_SOFT_SHADOW_FACTOR: f32 = 0.00003;
-pub const INITIAL_SOFT_SHADOW_GRID_DIMS: u32 = 4;
-pub const INITIAL_SOFT_SHADOWS_MAX_DISTANCE: f32 = 100.0;
 
 // game settings
 pub const ARENA_SIDE_LENGTH: f32 = 500.0;
