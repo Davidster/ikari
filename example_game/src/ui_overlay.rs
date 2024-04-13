@@ -32,6 +32,7 @@ use ikari::renderer::BloomType;
 use ikari::renderer::CullingFrustumLockMode;
 use ikari::renderer::CullingStats;
 use ikari::renderer::MIN_SHADOW_MAP_BIAS;
+use ikari::texture::apply_render_scale;
 use ikari::time::Instant;
 use ikari::time_tracker::FrameDurations;
 use ikari::time_tracker::FrameInstants;
@@ -1277,15 +1278,11 @@ impl runtime::Program for UiOverlay {
                         );
                     }
 
-                    // TODO: expose this as a function in texture.rs
-                    let apply_render_scale =
-                        |dim| ((dim as f32 * render_scale.sqrt()).round() as u32).max(1);
-
                     options = options.push(
                         text(format!(
                             "Render scale ({render_scale:.1}, {}x{})",
-                            apply_render_scale(self.viewport_dims.0),
-                            apply_render_scale(self.viewport_dims.1)
+                            apply_render_scale(self.viewport_dims.0, render_scale),
+                            apply_render_scale(self.viewport_dims.1, render_scale)
                         ))
                         .size(small_text_size),
                     );

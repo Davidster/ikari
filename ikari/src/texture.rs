@@ -289,8 +289,8 @@ impl Texture {
         label: &str,
     ) -> Self {
         let size = wgpu::Extent3d {
-            width: ((width as f32 * render_scale.sqrt()).round() as u32).max(1),
-            height: ((height as f32 * render_scale.sqrt()).round() as u32).max(1),
+            width: apply_render_scale(width, render_scale),
+            height: apply_render_scale(height, render_scale),
             depth_or_array_layers: 1,
         };
         let texture = base_renderer
@@ -391,8 +391,8 @@ impl Texture {
         label: &str,
     ) -> Self {
         let size = wgpu::Extent3d {
-            width: ((width as f32 * render_scale.sqrt()).round() as u32).max(1),
-            height: ((height as f32 * render_scale.sqrt()).round() as u32).max(1),
+            width: apply_render_scale(width, render_scale),
+            height: apply_render_scale(height, render_scale),
             depth_or_array_layers: 1,
         };
         let texture = base_renderer
@@ -1247,6 +1247,10 @@ impl Texture {
             size,
         }
     }
+}
+
+pub fn apply_render_scale(dimension: u32, render_scale: f32) -> u32 {
+    ((dimension as f32 * render_scale.sqrt()).round() as u32).max(1)
 }
 
 #[profiling::function]
