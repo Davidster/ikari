@@ -7,7 +7,18 @@ use iced::{window, Command, Element, Font, Size};
 use iced_wgpu::graphics::Viewport;
 use iced_winit::{runtime, Clipboard};
 
-use winit::{event::WindowEvent, window::Window};
+use winit::event::{DeviceEvent, WindowEvent};
+use winit::window::Window;
+
+pub trait UiProgramEvents: runtime::Program {
+    fn handle_window_event(&self, _window: &Window, _event: &WindowEvent) -> Vec<Self::Message> {
+        vec![]
+    }
+
+    fn handle_device_event(&self, _window: &Window, _event: &DeviceEvent) -> Vec<Self::Message> {
+        vec![]
+    }
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EmptyUiOverlay;
@@ -16,7 +27,7 @@ pub struct EmptyUiOverlay;
 // based off of https://github.com/iced-rs/iced/tree/master/examples/integration_wgpu
 pub struct IkariUiContainer<UiOverlay>
 where
-    UiOverlay: runtime::Program + 'static,
+    UiOverlay: runtime::Program + UiProgramEvents + 'static,
 {
     debug: runtime::Debug,
     renderer: iced::Renderer,
@@ -32,7 +43,7 @@ where
 
 impl<UiOverlay> IkariUiContainer<UiOverlay>
 where
-    UiOverlay: runtime::Program<Renderer = iced::Renderer>,
+    UiOverlay: runtime::Program<Renderer = iced::Renderer> + UiProgramEvents,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -133,8 +144,25 @@ where
         ) {
             self.program_container.queue_event(event);
         }
+
+        let messages = self
+            .program_container
+            .program()
+            .handle_window_event(window, event);
+        for message in messages {
+            self.program_container.queue_message(message);
+        }
     }
 
+    pub fn handle_device_event(&mut self, window: &Window, event: &DeviceEvent) {
+        let messages = self
+            .program_container
+            .program()
+            .handle_device_event(window, event);
+        for message in messages {
+            self.program_container.queue_message(message);
+        }
+    }
     #[profiling::function]
     pub fn update(&mut self, window: &Window) {
         if !self.program_container.is_queue_empty() {

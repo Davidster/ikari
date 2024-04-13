@@ -19,7 +19,7 @@ use crate::skinning::{get_all_bone_data, AllBoneTransforms};
 use crate::texture::Texture;
 use crate::time::Duration;
 use crate::transform::{look_in_dir, Transform, TransformBuilder};
-use crate::ui::IkariUiContainer;
+use crate::ui::{IkariUiContainer, UiProgramEvents};
 use crate::wasm_not_sync::WasmNotArc;
 
 use std::collections::{hash_map::Entry, HashMap};
@@ -4096,7 +4096,8 @@ impl Renderer {
         ui_overlay: &mut IkariUiContainer<UiOverlay>,
     ) -> anyhow::Result<()>
     where
-        UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + 'static,
+        UiOverlay:
+            iced_winit::runtime::Program<Renderer = iced::Renderer> + UiProgramEvents + 'static,
     {
         if surface_data.surface_config.width == 0 || surface_data.surface_config.height == 0 {
             return Ok(());
@@ -5202,7 +5203,8 @@ impl Renderer {
         ui_overlay: &mut IkariUiContainer<UiOverlay>,
     ) -> anyhow::Result<()>
     where
-        UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + 'static,
+        UiOverlay:
+            iced_winit::runtime::Program<Renderer = iced::Renderer> + UiProgramEvents + 'static,
     {
         let mut data_guard = self.data.lock();
         let data: &mut RendererData = &mut data_guard;

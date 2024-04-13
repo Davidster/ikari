@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::engine_state::EngineState;
 use crate::renderer::{Renderer, SurfaceData};
 use crate::time::Instant;
-use crate::ui::IkariUiContainer;
+use crate::ui::{IkariUiContainer, UiProgramEvents};
 use crate::web_canvas_manager::WebCanvasManager;
 
 use winit::event_loop::EventLoopWindowTarget;
@@ -15,7 +15,7 @@ use winit::{
 
 pub trait GameState<UiOverlay>
 where
-    UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + 'static,
+    UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + UiProgramEvents + 'static,
 {
     fn get_ui_container(&mut self) -> &mut IkariUiContainer<UiOverlay>;
 }
@@ -55,7 +55,7 @@ pub fn run<
     OnDeviceEventFunction: FnMut(GameContext<GameStateType>, &winit::event::DeviceEvent) + 'static,
     OnWindowResizeFunction:
         FnMut(GameContext<GameStateType>, winit::dpi::PhysicalSize<u32>) + 'static,
-    UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + 'static,
+    UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + UiProgramEvents + 'static,
     GameStateType: GameState<UiOverlay> + 'static,
 {
     let mut logged_start_time = false;

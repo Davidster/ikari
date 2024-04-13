@@ -35,6 +35,7 @@ use ikari::renderer::MIN_SHADOW_MAP_BIAS;
 use ikari::time::Instant;
 use ikari::time_tracker::FrameDurations;
 use ikari::time_tracker::FrameInstants;
+use ikari::ui::UiProgramEvents;
 use plotters::prelude::*;
 use plotters_iced::{Chart, ChartWidget, DrawingBackend};
 
@@ -738,6 +739,32 @@ impl<Message> canvas::Program<Message, iced::Theme, iced::Renderer> for UiOverla
         });
 
         vec![clock]
+    }
+}
+
+impl UiProgramEvents for UiOverlay {
+    fn handle_window_event(
+        &self,
+        window: &winit::window::Window,
+        event: &winit::event::WindowEvent,
+    ) -> Vec<Self::Message> {
+        match event {
+            winit::event::WindowEvent::CursorMoved { position, .. } => {
+                vec![Message::CursorPosChanged(
+                    winit::dpi::PhysicalPosition::new(
+                        position.x / window.inner_size().width as f64,
+                        position.y / window.inner_size().height as f64,
+                    ),
+                )]
+            }
+            winit::event::WindowEvent::Resized(size) => {
+                vec![Message::ViewportDimsChanged((
+                    (size.width as f64 / window.scale_factor()) as u32,
+                    (size.height as f64 / window.scale_factor()) as u32,
+                ))]
+            }
+            _ => vec![],
+        }
     }
 }
 

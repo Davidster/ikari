@@ -2089,24 +2089,6 @@ pub fn update_game_state(
 
     game_state.ui_overlay.update(window);
 
-    {
-        let viewport_dims = (
-            (window.inner_size().width as f64 / window.scale_factor()) as u32,
-            (window.inner_size().height as f64 / window.scale_factor()) as u32,
-        );
-        game_state
-            .ui_overlay
-            .queue_message(Message::ViewportDimsChanged(viewport_dims));
-
-        let cursor_pos = winit::dpi::PhysicalPosition::new(
-            game_state.ui_overlay.cursor_position.x / window.inner_size().width as f64,
-            game_state.ui_overlay.cursor_position.y / window.inner_size().height as f64,
-        );
-        game_state
-            .ui_overlay
-            .queue_message(Message::CursorPosChanged(cursor_pos));
-    }
-
     let is_showing_options_menu = game_state.ui_overlay.get_state().is_showing_options_menu;
     let is_showing_cursor_marker = game_state
         .ui_overlay
