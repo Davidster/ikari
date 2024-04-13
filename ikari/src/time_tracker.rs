@@ -90,13 +90,16 @@ impl TimeTracker {
                 last_frame,
                 FrameDurations {
                     total: current_frame.start - last_frame.start,
-                    sleep_and_inputs: option_delta(
+                    sleep_and_inputs: option_subtract(
                         last_frame.sleep_and_inputs,
                         Some(last_frame.start),
                     ),
-                    update: option_delta(last_frame.update_done, last_frame.sleep_and_inputs),
-                    render: option_delta(last_frame.render_done, last_frame.update_done),
-                    get_surface: option_delta(last_frame.get_surface_done, last_frame.render_done),
+                    update: option_subtract(last_frame.update_done, last_frame.sleep_and_inputs),
+                    render: option_subtract(last_frame.render_done, last_frame.update_done),
+                    get_surface: option_subtract(
+                        last_frame.get_surface_done,
+                        last_frame.render_done,
+                    ),
                 },
             )),
             _ => None,
@@ -118,7 +121,7 @@ impl TimeTracker {
     }
 }
 
-fn option_delta(end: Option<Instant>, start: Option<Instant>) -> Option<Duration> {
+fn option_subtract(end: Option<Instant>, start: Option<Instant>) -> Option<Duration> {
     match (end, start) {
         (Some(end), Some(start)) => Some(end - start),
         _ => None,

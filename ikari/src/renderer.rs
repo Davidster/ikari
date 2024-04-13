@@ -630,7 +630,7 @@ impl BaseRenderer {
         surface_config.present_mode = wgpu::PresentMode::AutoVsync;
         surface_config.view_formats = vec![surface_config.format.add_srgb_suffix()];
         // this caused problems on Windows on dx12 and vulkan..
-        surface_config.desired_maximum_frame_latency = 1;
+        // surface_config.desired_maximum_frame_latency = 1;
         surface.configure(&base.device, &surface_config);
 
         let capabilities = surface.get_capabilities(&base.adapter);
@@ -4116,12 +4116,7 @@ impl Renderer {
         }
 
         self.update_internal(engine_state, &surface_data.surface_config);
-        self.render_internal(
-            engine_state,
-            surface_texture,
-            // surface_data.surface.get_current_texture()?,
-            ui_overlay,
-        )
+        self.render_internal(engine_state, surface_texture, ui_overlay)
     }
 
     fn get_node_cam_intersection_result(
