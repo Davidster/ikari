@@ -48,13 +48,13 @@ impl From<FramerateLimit> for FramerateLimitType {
 }
 
 #[derive(Default, Debug, Copy, Clone, PartialEq)]
-pub struct FrameRateLimiter {
+pub struct FramerateLimiter {
     limit: FramerateLimit,
     current_sleep_start: Option<crate::time::Instant>,
     monitor_refresh_rate_hertz: Option<f32>,
 }
 
-impl FrameRateLimiter {
+impl FramerateLimiter {
     pub fn framerate_limit(&self) -> FramerateLimit {
         self.limit
     }
@@ -73,6 +73,10 @@ impl FrameRateLimiter {
 
     /// updates the internal state of the limiter and returns true if we're sleeping
     pub(crate) fn update(&mut self, time_tracker: &TimeTracker) -> bool {
+        if !Self::is_supported() {
+            return false;
+        }
+
         let Some(last_frame_busy_time_secs) = time_tracker.last_frame_busy_time_secs() else {
             return false;
         };
@@ -103,6 +107,18 @@ impl FrameRateLimiter {
         } else {
             self.current_sleep_start = None;
             false
+        }
+    }
+
+    pub fn is_supported() -> bool {
+        #[cfg(target_arch = "wasm32")]
+        {
+            return false;
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            return true;
         }
     }
 }

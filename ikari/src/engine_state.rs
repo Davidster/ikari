@@ -1,7 +1,7 @@
 use crate::{
     asset_loader::{AssetBinder, AssetLoader},
     audio::{AudioManager, AudioStreams},
-    framerate_limiter::FrameRateLimiter,
+    framerate_limiter::FramerateLimiter,
     mutex::Mutex,
     physics::PhysicsState,
     scene::Scene,
@@ -14,7 +14,7 @@ use std::sync::Arc;
 pub struct EngineState {
     pub scene: Scene,
     pub time_tracker: TimeTracker,
-    pub framerate_limiter: FrameRateLimiter,
+    pub framerate_limiter: FramerateLimiter,
     pub physics_state: PhysicsState,
     pub audio_streams: AudioStreams,
     pub audio_manager: Arc<Mutex<AudioManager>>,

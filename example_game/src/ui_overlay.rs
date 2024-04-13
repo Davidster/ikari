@@ -24,6 +24,7 @@ use iced_winit::runtime;
 use ikari::file_manager::GameFilePath;
 use ikari::framerate_limiter::FramerateLimit;
 use ikari::framerate_limiter::FramerateLimitType;
+use ikari::framerate_limiter::FramerateLimiter;
 use ikari::player_controller::ControlledViewDirection;
 use ikari::profile_dump::can_generate_profile_dump;
 use ikari::profile_dump::generate_profile_dump;
@@ -1293,53 +1294,55 @@ impl runtime::Program for UiOverlay {
                             .step(0.1),
                     );
 
-                    options = options.push(text("Framerate limit").size(small_text_size));
+                    if FramerateLimiter::is_supported() {
+                        options = options.push(text("Framerate limit").size(small_text_size));
 
-                    let mut framerate_limit_options = vec![];
-                    for limit_type in FramerateLimitType::ALL {
-                        if limit_type == FramerateLimitType::Monitor
-                            && self.monitor_refresh_rate.is_none()
-                        {
-                            continue;
+                        let mut framerate_limit_options = vec![];
+                        for limit_type in FramerateLimitType::ALL {
+                            if limit_type == FramerateLimitType::Monitor
+                                && self.monitor_refresh_rate.is_none()
+                            {
+                                continue;
+                            }
+
+                            let value = match limit_type {
+                                FramerateLimitType::None => None,
+                                FramerateLimitType::Monitor => self.monitor_refresh_rate,
+                                FramerateLimitType::Custom => Some(custom_framerate_limit),
+                            };
+                            let value_text = value
+                                .map(|value| format!(" ({value:.2})"))
+                                .unwrap_or_default();
+
+                            framerate_limit_options.push(
+                                radio(
+                                    format!("{limit_type}{value_text}"),
+                                    limit_type,
+                                    Some(framerate_limit_type),
+                                    Message::FramerateLimitTypeChanged,
+                                )
+                                .size(checkbox_size)
+                                .text_size(small_text_size)
+                                .into(),
+                            );
                         }
 
-                        let value = match limit_type {
-                            FramerateLimitType::None => None,
-                            FramerateLimitType::Monitor => self.monitor_refresh_rate,
-                            FramerateLimitType::Custom => Some(custom_framerate_limit),
-                        };
-                        let value_text = value
-                            .map(|value| format!(" ({value:.2})"))
-                            .unwrap_or_default();
-
-                        framerate_limit_options.push(
-                            radio(
-                                format!("{limit_type}{value_text}"),
-                                limit_type,
-                                Some(framerate_limit_type),
-                                Message::FramerateLimitTypeChanged,
-                            )
-                            .size(checkbox_size)
-                            .text_size(small_text_size)
-                            .into(),
-                        );
-                    }
-
-                    options = options.push(
-                        container(Column::with_children(framerate_limit_options).spacing(4))
-                            .padding([0, 0, 8, 0]),
-                    );
-
-                    if framerate_limit_type == FramerateLimitType::Custom {
                         options = options.push(
-                            slider(
-                                1.0..=300.0,
-                                custom_framerate_limit,
-                                Message::CustomFramerateLimitChanged,
-                            )
-                            .height(slider_size)
-                            .step(1.0),
+                            container(Column::with_children(framerate_limit_options).spacing(4))
+                                .padding([0, 0, 8, 0]),
                         );
+
+                        if framerate_limit_type == FramerateLimitType::Custom {
+                            options = options.push(
+                                slider(
+                                    1.0..=300.0,
+                                    custom_framerate_limit,
+                                    Message::CustomFramerateLimitChanged,
+                                )
+                                .height(slider_size)
+                                .step(1.0),
+                            );
+                        }
                     }
 
                     options = options.push(

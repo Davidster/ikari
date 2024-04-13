@@ -3395,6 +3395,11 @@ impl Renderer {
         surface_data: &SurfaceData,
         new_unscaled_framebuffer_size: winit::dpi::PhysicalSize<u32>,
     ) {
+        if new_unscaled_framebuffer_size.width == 0 || new_unscaled_framebuffer_size.height == 0 {
+            log::warn!("Tried resizing the surface to an invalid resolution: {new_unscaled_framebuffer_size:?}. This request will be ignored");
+            return;
+        }
+
         let mut private_data = self.private_data.lock();
         let new_pending_surface_config = private_data
             .new_pending_surface_config
@@ -3411,12 +3416,16 @@ impl Renderer {
     ) -> bool {
         let mut private_data_guard = self.private_data.lock();
 
-        let data_guard = self.data.lock();
-
         let new_surface_config = private_data_guard
             .new_pending_surface_config
             .take()
             .unwrap_or_else(|| surface_data.surface_config.clone());
+
+        if new_surface_config.width == 0 || new_surface_config.height == 0 {
+            // log::info!("1");
+            return false;
+        }
+
         let surface_config_changed = surface_data.surface_config != new_surface_config;
 
         let surface_resized = (
@@ -3431,11 +3440,14 @@ impl Renderer {
             );
         }
 
+        let data_guard = self.data.lock();
+
         let new_render_scale = data_guard.general_settings.render_scale;
         let current_render_scale = private_data_guard.current_render_scale;
         let render_scale_changed = current_render_scale != new_render_scale;
 
         if !surface_config_changed && !render_scale_changed && !force_reconfigure {
+            // log::info!("2");
             return false;
         }
 
@@ -3449,6 +3461,7 @@ impl Renderer {
             .configure(&self.base.device, &surface_data.surface_config);
 
         if !surface_resized && !render_scale_changed {
+            // log::info!("3");
             return false;
         }
 
@@ -3735,6 +3748,7 @@ impl Renderer {
             })
             .collect::<Vec<_>>();
 
+        // log::info!("4");
         surface_resized
     }
 
@@ -4704,19 +4718,19 @@ impl Renderer {
             .drain()
             .collect();
 
-        if PRESORT_INSTANCES_BY_MESH_MATERIAL {
-            pbr_mesh_instances.sort_by_key(|((mesh_index, material_index), _)| {
-                ((*mesh_index as u128) << 64) + *material_index as u128
-            });
-        }
+        // if PRESORT_INSTANCES_BY_MESH_MATERIAL {
+        //     pbr_mesh_instances.sort_by_key(|((mesh_index, material_index), _)| {
+        //         ((*mesh_index as u128) << 64) + *material_index as u128
+        //     });
+        // }
 
-        pbr_mesh_instances.sort_by(
-            |(_, (_, _, dist_sq_from_player_a)), (_, (_, _, dist_sq_from_player_b))| {
-                dist_sq_from_player_a
-                    .partial_cmp(dist_sq_from_player_b)
-                    .unwrap()
-            },
-        );
+        // pbr_mesh_instances.sort_by(
+        //     |(_, (_, _, dist_sq_from_player_a)), (_, (_, _, dist_sq_from_player_b))| {
+        //         dist_sq_from_player_a
+        //             .partial_cmp(dist_sq_from_player_b)
+        //             .unwrap()
+        //     },
+        // );
 
         private_data.all_pbr_instances_culling_masks = pbr_mesh_instances
             .iter()

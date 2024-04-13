@@ -74,8 +74,23 @@ pub fn run<
 
     engine_state.time_tracker.on_frame_started();
 
+    // web_canvas_manager.on_update(window.inner_size());
+
     let handler = move |event: Event<()>, elwt: &EventLoopWindowTarget<()>| {
-        web_canvas_manager.on_update(&event);
+        #[cfg(target_arch = "wasm32")]
+        {
+            let new_size = winit::dpi::PhysicalSize::new(
+                (web_canvas_manager.canvas_container.offset_width() as f64
+                    * web_canvas_manager.window.scale_factor()) as u32,
+                (web_canvas_manager.canvas_container.offset_height() as f64
+                    * web_canvas_manager.window.scale_factor()) as u32,
+            );
+            // log::info!("1 {:?}, {:?}", new_size, window.scale_factor());
+            if web_canvas_manager.window.inner_size() != new_size {
+                renderer.resize_surface(&surface_data, new_size);
+                // let _resized_immediately = self.window.request_inner_size(new_size);
+            }
+        }
 
         match event {
             Event::WindowEvent {
@@ -91,20 +106,6 @@ pub fn run<
                 }
 
                 engine_state.time_tracker.on_sleep_and_inputs_completed();
-
-                if let Some(latest_size) = pending_resize_event.take() {
-                    on_surface_resize(
-                        GameContext {
-                            game_state: &mut game_state,
-                            engine_state: &mut engine_state,
-                            renderer: &mut renderer,
-                            surface_data: &mut surface_data,
-                            window: &mut window,
-                            elwt,
-                        },
-                        latest_size,
-                    );
-                }
 
                 on_update(GameContext {
                     game_state: &mut game_state,
@@ -123,6 +124,41 @@ pub fn run<
                     engine_state.asset_loader.clone(),
                 );
 
+                #[cfg(target_arch = "wasm32")]
+                {
+                    latest_surface_texture_result =
+                        Some(surface_data.surface.get_current_texture());
+
+                    // TODO: force_reconfigure_surface
+                    let resized = renderer.reconfigure_surface_if_needed(&mut surface_data, false);
+                    if resized {
+                        pending_resize_event = Some(winit::dpi::PhysicalSize::new(
+                            surface_data.surface_config.width,
+                            surface_data.surface_config.height,
+                        ));
+                    }
+                }
+
+                if let Some(new_size) = pending_resize_event.take() {
+                    on_surface_resize(
+                        GameContext {
+                            game_state: &mut game_state,
+                            engine_state: &mut engine_state,
+                            renderer: &mut renderer,
+                            surface_data: &mut surface_data,
+                            window: &mut window,
+                            elwt,
+                        },
+                        new_size,
+                    );
+
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let _resized_immediately =
+                            web_canvas_manager.window.request_inner_size(new_size);
+                    }
+                }
+
                 // on the first frame we get the surface texture before rendering
                 let surface_texture_result = latest_surface_texture_result
                     .take()
@@ -134,6 +170,7 @@ pub fn run<
                 );
                 match surface_texture_result {
                     Ok(surface_texture) => {
+                        // log::info!("{:?}", &surface_texture);
                         if let Err(err) = renderer.render(
                             &mut engine_state,
                             &surface_data,
@@ -159,16 +196,22 @@ pub fn run<
 
                 engine_state.time_tracker.on_render_completed();
 
-                let resized = renderer
-                    .reconfigure_surface_if_needed(&mut surface_data, force_reconfigure_surface);
-                if resized {
-                    pending_resize_event = Some(winit::dpi::PhysicalSize::new(
-                        surface_data.surface_config.width,
-                        surface_data.surface_config.height,
-                    ));
-                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let resized = renderer.reconfigure_surface_if_needed(
+                        &mut surface_data,
+                        force_reconfigure_surface,
+                    );
+                    if resized {
+                        pending_resize_event = Some(winit::dpi::PhysicalSize::new(
+                            surface_data.surface_config.width,
+                            surface_data.surface_config.height,
+                        ));
+                    }
 
-                latest_surface_texture_result = Some(surface_data.surface.get_current_texture());
+                    latest_surface_texture_result =
+                        Some(surface_data.surface.get_current_texture());
+                }
 
                 engine_state.time_tracker.on_get_surface_completed();
 
@@ -206,15 +249,11 @@ pub fn run<
             } if window_id == window.id() => {
                 match &event {
                     WindowEvent::Resized(size) => {
-                        if size.width > 0 && size.height > 0 {
-                            renderer.resize_surface(&surface_data, *size);
-                        }
+                        // log::info!("{:?}, {:?}", size, window.scale_factor());
+                        renderer.resize_surface(&surface_data, *size);
                     }
                     WindowEvent::ScaleFactorChanged { .. } => {
-                        let size = window.inner_size();
-                        if size.width > 0 && size.height > 0 {
-                            renderer.resize_surface(&surface_data, size);
-                        }
+                        renderer.resize_surface(&surface_data, window.inner_size());
                     }
                     WindowEvent::CloseRequested => {
                         elwt.exit();
