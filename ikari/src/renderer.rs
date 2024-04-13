@@ -3403,7 +3403,11 @@ impl Renderer {
         new_pending_surface_config.height = new_unscaled_framebuffer_size.height;
     }
 
-    pub fn reconfigure_surface_if_needed(&self, surface_data: &mut SurfaceData) -> bool {
+    pub fn reconfigure_surface_if_needed(
+        &self,
+        surface_data: &mut SurfaceData,
+        force_reconfigure: bool,
+    ) -> bool {
         let mut private_data_guard = self.private_data.lock();
 
         let data_guard = self.data.lock();
@@ -3419,11 +3423,18 @@ impl Renderer {
             surface_data.surface_config.height,
         ) != (new_surface_config.width, new_surface_config.height);
 
+        if surface_resized {
+            log::debug!(
+                "Resizing surface to {:?}",
+                (new_surface_config.width, new_surface_config.height)
+            );
+        }
+
         let new_render_scale = data_guard.general_settings.render_scale;
         let current_render_scale = private_data_guard.current_render_scale;
         let render_scale_changed = current_render_scale != new_render_scale;
 
-        if !surface_config_changed && !render_scale_changed {
+        if !surface_config_changed && !render_scale_changed && !force_reconfigure {
             return false;
         }
 

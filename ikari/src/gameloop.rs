@@ -99,7 +99,7 @@ pub fn run<
                     engine_state.asset_loader.clone(),
                 );
 
-                if let Some(latest_size) = pending_resize_event {
+                if let Some(latest_size) = pending_resize_event.take() {
                     on_window_resize(
                         GameContext {
                             game_state: &mut game_state,
@@ -129,6 +129,10 @@ pub fn run<
                     .take()
                     .unwrap_or_else(|| surface_data.surface.get_current_texture());
 
+                let force_reconfigure_surface = matches!(
+                    surface_texture_result,
+                    Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated)
+                );
                 match surface_texture_result {
                     Ok(surface_texture) => {
                         if let Err(err) = renderer.render(
@@ -141,22 +145,28 @@ pub fn run<
                         }
                     }
                     Err(err) => match err {
-                        // Reconfigure the surface if lost
-                        wgpu::SurfaceError::Lost => {
-                            renderer.resize_surface(&surface_data, window.inner_size());
-                        }
                         wgpu::SurfaceError::OutOfMemory => {
+                            log::error!("Received surface error: {err:?}. Application will exit");
                             elwt.exit();
                         }
-                        _ => log::error!("{err:?}"),
+                        wgpu::SurfaceError::Timeout => {
+                            log::warn!("Received surface error: {err:?}. Frame will be skipped");
+                        }
+                        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
+                            log::warn!("Received surface error: {err:?}");
+                        }
                     },
                 };
 
                 engine_state.time_tracker.on_render_completed();
 
-                let resized = renderer.reconfigure_surface_if_needed(&mut surface_data);
+                let resized = renderer
+                    .reconfigure_surface_if_needed(&mut surface_data, force_reconfigure_surface);
                 if resized {
-                    pending_resize_event = Some(window.inner_size());
+                    pending_resize_event = Some(winit::dpi::PhysicalSize::new(
+                        surface_data.surface_config.width,
+                        surface_data.surface_config.height,
+                    ));
                 }
 
                 latest_surface_texture_result = Some(surface_data.surface.get_current_texture());
