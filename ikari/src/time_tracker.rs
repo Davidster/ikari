@@ -5,6 +5,7 @@ use crate::time::Instant;
 pub struct TimeTracker {
     first_frame_start: Option<Instant>,
     current_frame: Option<FrameInstants>,
+    current_frame_index: usize,
     last_frame: Option<FrameInstants>,
 }
 
@@ -44,7 +45,9 @@ impl TimeTracker {
 
         if let Some(current_frame) = self.current_frame {
             self.last_frame = Some(current_frame);
+            self.current_frame_index += 1;
         }
+
         self.current_frame = Some(FrameInstants::new(Instant::now()));
     }
 
@@ -70,6 +73,10 @@ impl TimeTracker {
         if let Some(current_frame) = self.current_frame.as_mut() {
             current_frame.get_surface_done = Some(Instant::now());
         }
+    }
+
+    pub fn current_frame_index(&self) -> usize {
+        self.current_frame_index
     }
 
     pub fn global_time(&self) -> Option<Duration> {

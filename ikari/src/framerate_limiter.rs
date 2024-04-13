@@ -67,52 +67,10 @@ impl FrameRateLimiter {
         self.monitor_refresh_rate = monitor_refresh_rate;
     }
 
-    /// starts and ends the sleep timer.
-    /// call get_remaining_sleep_time immediately after this to know if we need should sleep
-    pub(crate) fn update(&mut self, time_tracker: &TimeTracker) {
-        let Some(sleep_period_secs) = self.get_sleep_period_secs(time_tracker) else {
-            self.current_sleep_start = None;
-            return;
-        };
-
-        let current_sleep_start = self
-            .current_sleep_start
-            .get_or_insert_with(|| crate::time::Instant::now());
-        let remaining_sleep_time =
-            (sleep_period_secs - current_sleep_start.elapsed().as_secs_f64()).max(0.0);
-
-        if remaining_sleep_time <= 0.0 {
-            self.current_sleep_start = None;
-        }
-    }
-
-    /// duration will never be 0
-    pub(crate) fn get_remaining_sleep_time(
-        &self,
-        time_tracker: &TimeTracker,
-    ) -> Option<crate::time::Duration> {
-        let Some(sleep_period_secs) = self.get_sleep_period_secs(time_tracker) else {
-            return None;
-        };
-
-        let Some(current_sleep_start) = self.current_sleep_start else {
-            return None;
-        };
-
-        let remaining_sleep_time =
-            (sleep_period_secs - current_sleep_start.elapsed().as_secs_f64()).max(0.0);
-
-        if remaining_sleep_time <= 0.0 {
-            return None;
-        }
-
-        Some(crate::time::Duration::from_secs_f64(remaining_sleep_time))
-    }
-
-    /// returns None if sleeping is disabled
-    pub fn get_sleep_period_secs(&self, time_tracker: &TimeTracker) -> Option<f64> {
+    /// updates the internal state of the limiter and returns true if we're sleeping
+    pub(crate) fn update(&mut self, time_tracker: &TimeTracker) -> bool {
         let Some(last_frame_busy_time_secs) = time_tracker.last_frame_busy_time_secs() else {
-            return None;
+            return false;
         };
 
         let Some(limit_hz) = (match self.limit {
@@ -120,15 +78,32 @@ impl FrameRateLimiter {
             FramerateLimit::Monitor => self.monitor_refresh_rate,
             FramerateLimit::Custom(custom_limit) => Some(custom_limit),
         }) else {
-            return None;
+            return false;
         };
 
         let limit_period_secs = 1.0 / limit_hz as f64;
-        let sleep_period = (limit_period_secs - last_frame_busy_time_secs).max(0.0) * 1.01;
-        if sleep_period > 0.0 {
-            Some(sleep_period)
-        } else {
-            None
+        let sleep_period_secs = (limit_period_secs - last_frame_busy_time_secs).max(0.0) * 1.01;
+
+        if sleep_period_secs <= 0.0 {
+            return false;
+        }
+
+        match self.current_sleep_start {
+            None => {
+                self.current_sleep_start = Some(crate::time::Instant::now());
+                true
+            }
+            Some(current_sleep_start) => {
+                let remaining_sleep_time =
+                    sleep_period_secs - current_sleep_start.elapsed().as_secs_f64();
+
+                if remaining_sleep_time > 0.0 {
+                    true
+                } else {
+                    self.current_sleep_start = None;
+                    false
+                }
+            }
         }
     }
 }

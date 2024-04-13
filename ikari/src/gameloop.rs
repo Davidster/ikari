@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::engine_state::EngineState;
+// use crate::framerate_limiter::FrameRateLimiterState;
 use crate::renderer::{Renderer, SurfaceData};
 use crate::time::Instant;
 use crate::ui::IkariUiContainer;
@@ -72,6 +73,8 @@ pub fn run<
 
     let mut pending_resize_event: Option<winit::dpi::PhysicalSize<u32>> = None;
 
+    engine_state.time_tracker.on_frame_started();
+
     let handler = move |event: Event<()>, elwt: &EventLoopWindowTarget<()>| {
         web_canvas_manager.on_update(&event);
 
@@ -81,37 +84,10 @@ pub fn run<
                 ..
             } => {
                 // TODO: the time tracker currently doesn't process any of the events happening outside this match block!
-                // TODO: the real 'frame start' time should come immediately after get_current_texture call, because this ends right
-                //       after the vblank under vsync. on_frame_started and profiling::finish_frame! should be moved around accordingly.
-                if engine_state
-                    .framerate_limiter
-                    .get_remaining_sleep_time(&engine_state.time_tracker)
-                    .is_none()
-                {
-                    engine_state.time_tracker.on_frame_started();
-
-                    if !logged_start_time && engine_state.time_tracker.last_frame_times().is_some()
-                    {
-                        log::debug!(
-                            "Took {:?} from process startup till first frame",
-                            application_start_time.elapsed()
-                        );
-                        logged_start_time = true;
-                    }
-                }
-
-                engine_state
+                let sleeping = engine_state
                     .framerate_limiter
                     .update(&engine_state.time_tracker);
-
-                if engine_state
-                    .framerate_limiter
-                    .get_remaining_sleep_time(&engine_state.time_tracker)
-                    .is_some()
-                {
-                    // TODO: start a profiling zone so we can see the sleep time in tracy
-                    // TODO: yield here?
-                    // std::thread::yield_now();
+                if sleeping {
                     window.request_redraw();
                     return;
                 }
@@ -152,7 +128,7 @@ pub fn run<
                 // on the first frame we get the surface texture before rendering
                 let surface_texture_result = latest_surface_texture_result
                     .take()
-                    .unwrap_or_else(|| dbg!(surface_data.surface.get_current_texture()));
+                    .unwrap_or_else(|| surface_data.surface.get_current_texture());
 
                 match surface_texture_result {
                     Ok(surface_texture) => {
@@ -189,6 +165,15 @@ pub fn run<
                 engine_state.time_tracker.on_get_surface_completed();
 
                 profiling::finish_frame!();
+
+                engine_state.time_tracker.on_frame_started();
+                if !logged_start_time {
+                    log::debug!(
+                        "Took {:?} from process startup till first frame",
+                        application_start_time.elapsed()
+                    );
+                    logged_start_time = true;
+                }
             }
             Event::AboutToWait => {
                 window.request_redraw();
