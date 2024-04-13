@@ -12,7 +12,7 @@ pub struct TimeTracker {
 #[derive(Debug, Copy, Clone)]
 pub struct FrameInstants {
     pub start: Instant,
-    pub sleep_done: Option<Instant>,
+    pub sleep_and_inputs: Option<Instant>,
     pub update_done: Option<Instant>,
     pub render_done: Option<Instant>,
     pub get_surface_done: Option<Instant>,
@@ -21,7 +21,7 @@ pub struct FrameInstants {
 #[derive(Debug, Copy, Clone)]
 pub struct FrameDurations {
     pub total: Duration,
-    pub sleep: Option<Duration>,
+    pub sleep_and_inputs: Option<Duration>,
     pub update: Option<Duration>,
     pub render: Option<Duration>,
     pub get_surface: Option<Duration>,
@@ -31,7 +31,7 @@ impl FrameInstants {
     pub fn new(start: Instant) -> Self {
         Self {
             start,
-            sleep_done: None,
+            sleep_and_inputs: None,
             update_done: None,
             render_done: None,
             get_surface_done: None,
@@ -44,6 +44,7 @@ impl TimeTracker {
         self.first_frame_start = Some(self.first_frame_start.unwrap_or_else(Instant::now));
 
         if let Some(current_frame) = self.current_frame {
+            profiling::finish_frame!();
             self.last_frame = Some(current_frame);
             self.current_frame_index += 1;
         }
@@ -51,9 +52,9 @@ impl TimeTracker {
         self.current_frame = Some(FrameInstants::new(Instant::now()));
     }
 
-    pub(crate) fn on_sleep_completed(&mut self) {
+    pub(crate) fn on_sleep_and_inputs_completed(&mut self) {
         if let Some(current_frame) = self.current_frame.as_mut() {
-            current_frame.sleep_done = Some(Instant::now());
+            current_frame.sleep_and_inputs = Some(Instant::now());
         }
     }
 
@@ -89,8 +90,11 @@ impl TimeTracker {
                 last_frame,
                 FrameDurations {
                     total: current_frame.start - last_frame.start,
-                    sleep: option_delta(last_frame.sleep_done, Some(last_frame.start)),
-                    update: option_delta(last_frame.update_done, last_frame.sleep_done),
+                    sleep_and_inputs: option_delta(
+                        last_frame.sleep_and_inputs,
+                        Some(last_frame.start),
+                    ),
+                    update: option_delta(last_frame.update_done, last_frame.sleep_and_inputs),
                     render: option_delta(last_frame.render_done, last_frame.update_done),
                     get_surface: option_delta(last_frame.get_surface_done, last_frame.render_done),
                 },
@@ -102,9 +106,14 @@ impl TimeTracker {
     pub fn last_frame_busy_time_secs(&self) -> Option<f64> {
         self.last_frame_times()
             .and_then(|(_, last_frame_durations)| {
-                last_frame_durations.sleep.map(|sleep_duration| {
-                    last_frame_durations.total.as_secs_f64() - sleep_duration.as_secs_f64()
-                })
+                last_frame_durations
+                    .sleep_and_inputs
+                    .map(|sleep_and_inputs_duration| {
+                        // it's not a problem that the input processing isn't included in the 'busy' time
+                        // as long as the input processing is cut off as soon as the sleep is complete
+                        last_frame_durations.total.as_secs_f64()
+                            - sleep_and_inputs_duration.as_secs_f64()
+                    })
             })
     }
 }

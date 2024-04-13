@@ -406,7 +406,7 @@ impl modal::StyleSheet for ModalStyle {
 struct FpsChart {
     recent_frame_times: Vec<(Instant, FrameDurations, Option<Duration>)>,
     avg_total_frame_time_millis: Option<f64>,
-    avg_sleep_time_ms: Option<f64>,
+    avg_sleep_and_inputs_time_ms: Option<f64>,
     avg_get_surface_time_ms: Option<f64>,
     avg_update_time_ms: Option<f64>,
     avg_render_time_ms: Option<f64>,
@@ -591,8 +591,10 @@ impl FpsChart {
 
         self.avg_total_frame_time_millis =
             compute_new_avg_frametime(self.avg_total_frame_time_millis, Some(new_durations.total));
-        self.avg_sleep_time_ms =
-            compute_new_avg_frametime(self.avg_sleep_time_ms, new_durations.sleep);
+        self.avg_sleep_and_inputs_time_ms = compute_new_avg_frametime(
+            self.avg_sleep_and_inputs_time_ms,
+            new_durations.sleep_and_inputs,
+        );
         self.avg_get_surface_time_ms =
             compute_new_avg_frametime(self.avg_get_surface_time_ms, new_durations.get_surface);
         self.avg_update_time_ms =
@@ -998,8 +1000,8 @@ impl runtime::Program for UiOverlay {
             }
 
             if self.general_settings.framerate_limit_type != FramerateLimitType::None {
-                if let Some(millis) = self.fps_chart.avg_sleep_time_ms {
-                    let text = text(&format!("Sleep: {:.2}ms", millis));
+                if let Some(millis) = self.fps_chart.avg_sleep_and_inputs_time_ms {
+                    let text = text(&format!("Sleep and inputs: {:.2}ms", millis));
                     rows.push(text.into());
                 }
 

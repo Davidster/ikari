@@ -1310,7 +1310,7 @@ pub fn process_device_input(
     game_state.player_controller.process_device_event(event);
 }
 
-pub fn handle_window_resize(
+pub fn handle_surface_resize(
     GameContext {
         game_state, window, ..
     }: GameContext<GameState>,

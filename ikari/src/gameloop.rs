@@ -34,7 +34,7 @@ pub fn run<
     OnUpdateFunction,
     OnWindowEventFunction,
     OnDeviceEventFunction,
-    OnWindowResizeFunction,
+    OnSurfaceResizeFunction,
     GameStateType,
     UiOverlay,
 >(
@@ -47,13 +47,13 @@ pub fn run<
     mut on_update: OnUpdateFunction,
     mut on_window_event: OnWindowEventFunction,
     mut on_device_event: OnDeviceEventFunction,
-    mut on_window_resize: OnWindowResizeFunction,
+    mut on_surface_resize: OnSurfaceResizeFunction,
     application_start_time: Instant,
 ) where
     OnUpdateFunction: FnMut(GameContext<GameStateType>) + 'static,
     OnWindowEventFunction: FnMut(GameContext<GameStateType>, &winit::event::WindowEvent) + 'static,
     OnDeviceEventFunction: FnMut(GameContext<GameStateType>, &winit::event::DeviceEvent) + 'static,
-    OnWindowResizeFunction:
+    OnSurfaceResizeFunction:
         FnMut(GameContext<GameStateType>, winit::dpi::PhysicalSize<u32>) + 'static,
     UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + UiProgramEvents + 'static,
     GameStateType: GameState<UiOverlay> + 'static,
@@ -82,7 +82,6 @@ pub fn run<
                 event: WindowEvent::RedrawRequested,
                 ..
             } => {
-                // TODO: the time tracker currently doesn't process any of the events happening outside this match block!
                 let sleeping = engine_state
                     .framerate_limiter
                     .update(&engine_state.time_tracker);
@@ -91,16 +90,10 @@ pub fn run<
                     return;
                 }
 
-                engine_state.time_tracker.on_sleep_completed();
-
-                engine_state.asset_binder.update(
-                    renderer.base.clone(),
-                    renderer.constant_data.clone(),
-                    engine_state.asset_loader.clone(),
-                );
+                engine_state.time_tracker.on_sleep_and_inputs_completed();
 
                 if let Some(latest_size) = pending_resize_event.take() {
-                    on_window_resize(
+                    on_surface_resize(
                         GameContext {
                             game_state: &mut game_state,
                             engine_state: &mut engine_state,
@@ -123,6 +116,12 @@ pub fn run<
                 });
 
                 engine_state.time_tracker.on_update_completed();
+
+                engine_state.asset_binder.update(
+                    renderer.base.clone(),
+                    renderer.constant_data.clone(),
+                    engine_state.asset_loader.clone(),
+                );
 
                 // on the first frame we get the surface texture before rendering
                 let surface_texture_result = latest_surface_texture_result
@@ -173,8 +172,7 @@ pub fn run<
 
                 engine_state.time_tracker.on_get_surface_completed();
 
-                profiling::finish_frame!();
-
+                // start the frame right away so that input processing gets tracked by the time tracker
                 engine_state.time_tracker.on_frame_started();
                 if !logged_start_time {
                     log::debug!(

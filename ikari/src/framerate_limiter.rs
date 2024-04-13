@@ -95,6 +95,7 @@ impl FrameRateLimiter {
         let current_sleep_start = *self
             .current_sleep_start
             .get_or_insert_with(|| crate::time::Instant::now());
+
         let remaining_sleep_time = sleep_period_secs - current_sleep_start.elapsed().as_secs_f64();
 
         if remaining_sleep_time > 0.0 {
