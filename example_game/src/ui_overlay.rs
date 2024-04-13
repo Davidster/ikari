@@ -661,7 +661,6 @@ impl UiOverlay {
         Self {
             clock: Default::default(),
             viewport_dims: (window.inner_size().width, window.inner_size().height),
-            // monitor_refresh_rate: None,
             monitor_refresh_rate: window
                 .current_monitor()
                 .and_then(|monitor| monitor.refresh_rate_millihertz())

@@ -51,7 +51,7 @@ impl From<FramerateLimit> for FramerateLimitType {
 pub struct FrameRateLimiter {
     limit: FramerateLimit,
     current_sleep_start: Option<crate::time::Instant>,
-    monitor_refresh_rate: Option<f32>,
+    monitor_refresh_rate_hertz: Option<f32>,
 }
 
 impl FrameRateLimiter {
@@ -63,8 +63,12 @@ impl FrameRateLimiter {
         self.limit = limit;
     }
 
-    pub(crate) fn set_monitor_refresh_rate(&mut self, monitor_refresh_rate: Option<f32>) {
-        self.monitor_refresh_rate = monitor_refresh_rate;
+    pub fn monitor_refresh_rate_hertz(&self) -> Option<f32> {
+        self.monitor_refresh_rate_hertz
+    }
+
+    pub(crate) fn set_monitor_refresh_rate(&mut self, monitor_refresh_rate_hertz: Option<f32>) {
+        self.monitor_refresh_rate_hertz = monitor_refresh_rate_hertz;
     }
 
     /// updates the internal state of the limiter and returns true if we're sleeping
@@ -75,7 +79,7 @@ impl FrameRateLimiter {
 
         let Some(limit_hz) = (match self.limit {
             FramerateLimit::None => None,
-            FramerateLimit::Monitor => self.monitor_refresh_rate,
+            FramerateLimit::Monitor => self.monitor_refresh_rate_hertz,
             FramerateLimit::Custom(custom_limit) => Some(custom_limit),
         }) else {
             return false;

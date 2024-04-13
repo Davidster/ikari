@@ -1293,16 +1293,6 @@ pub fn process_window_input(
                 }
             }
         }
-        WindowEvent::Moved(_) => {
-            game_state
-                .ui_overlay
-                .queue_message(Message::MonitorRefreshRateChanged(
-                    window
-                        .current_monitor()
-                        .and_then(|window| window.refresh_rate_millihertz())
-                        .map(|millihertz| millihertz as f32 / 1000.0),
-                ));
-        }
         _ => {}
     };
 
@@ -2089,6 +2079,12 @@ pub fn update_game_state(
             ui_state.debug_settings.culling_frustum_lock_mode,
         );
     }
+
+    game_state
+        .ui_overlay
+        .queue_message(Message::MonitorRefreshRateChanged(
+            engine_state.framerate_limiter.monitor_refresh_rate_hertz(),
+        ));
 
     game_state.ui_overlay.update(window);
 
