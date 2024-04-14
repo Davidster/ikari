@@ -213,6 +213,7 @@ pub fn run<
                         Some(surface_data.surface.get_current_texture());
                 }
 
+                // TODO: this is not correct on wasm
                 engine_state.time_tracker.on_get_surface_completed();
 
                 // start the frame right away so that input processing gets tracked by the time tracker
