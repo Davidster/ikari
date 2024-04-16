@@ -68,11 +68,13 @@ pub fn run<
             .map(|millihertz| millihertz as f32 / 1000.0),
     );
 
-    let mut latest_surface_texture_result = None;
+    // let mut latest_surface_texture_result = None;
 
     let mut pending_resize_event: Option<winit::dpi::PhysicalSize<u32>> = None;
 
     engine_state.time_tracker.on_frame_started();
+
+    let mut force_reconfigure_surface = false;
 
     // web_canvas_manager.on_update(window.inner_size());
 
@@ -124,20 +126,19 @@ pub fn run<
                     engine_state.asset_loader.clone(),
                 );
 
-                #[cfg(target_arch = "wasm32")]
-                {
-                    latest_surface_texture_result =
-                        Some(surface_data.surface.get_current_texture());
-
-                    // TODO: force_reconfigure_surface
-                    let resized = renderer.reconfigure_surface_if_needed(&mut surface_data, false);
-                    if resized {
-                        pending_resize_event = Some(winit::dpi::PhysicalSize::new(
-                            surface_data.surface_config.width,
-                            surface_data.surface_config.height,
-                        ));
-                    }
+                let resized = renderer
+                    .reconfigure_surface_if_needed(&mut surface_data, force_reconfigure_surface);
+                if resized {
+                    pending_resize_event = Some(winit::dpi::PhysicalSize::new(
+                        surface_data.surface_config.width,
+                        surface_data.surface_config.height,
+                    ));
                 }
+
+                let surface_texture_result = surface_data.surface.get_current_texture();
+
+                // TODO: this is not correct on wasm
+                engine_state.time_tracker.on_get_surface_completed();
 
                 if let Some(new_size) = pending_resize_event.take() {
                     on_surface_resize(
@@ -159,15 +160,7 @@ pub fn run<
                     }
                 }
 
-                // on the first frame we get the surface texture before rendering
-                let surface_texture_result = latest_surface_texture_result
-                    .take()
-                    .unwrap_or_else(|| surface_data.surface.get_current_texture());
-
-                let force_reconfigure_surface = matches!(
-                    surface_texture_result,
-                    Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated)
-                );
+                force_reconfigure_surface = false;
                 match surface_texture_result {
                     Ok(surface_texture) => {
                         // log::info!("{:?}", &surface_texture);
@@ -189,32 +182,13 @@ pub fn run<
                             log::warn!("Received surface error: {err:?}. Frame will be skipped");
                         }
                         wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
+                            force_reconfigure_surface = true;
                             log::warn!("Received surface error: {err:?}");
                         }
                     },
                 };
 
                 engine_state.time_tracker.on_render_completed();
-
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    let resized = renderer.reconfigure_surface_if_needed(
-                        &mut surface_data,
-                        force_reconfigure_surface,
-                    );
-                    if resized {
-                        pending_resize_event = Some(winit::dpi::PhysicalSize::new(
-                            surface_data.surface_config.width,
-                            surface_data.surface_config.height,
-                        ));
-                    }
-
-                    latest_surface_texture_result =
-                        Some(surface_data.surface.get_current_texture());
-                }
-
-                // TODO: this is not correct on wasm
-                engine_state.time_tracker.on_get_surface_completed();
 
                 // start the frame right away so that input processing gets tracked by the time tracker
                 engine_state.time_tracker.on_frame_started();
