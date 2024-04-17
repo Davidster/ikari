@@ -4,6 +4,7 @@ use std::{
     sync::{mpsc::channel, Arc},
 };
 
+use anyhow::bail;
 use threadpool::ThreadPool;
 use walkdir::WalkDir;
 
@@ -23,13 +24,12 @@ pub struct TextureCompressorArgs {
     pub force: bool,
 }
 
-pub async fn run(args: TextureCompressorArgs) {
+pub async fn run(args: TextureCompressorArgs) -> anyhow::Result<()> {
     if !args.search_folder.exists() {
-        log::error!(
+        bail!(
             "Error: search folder {:?} does not exist",
             args.search_folder
         );
-        return;
     }
 
     let threads_per_texture = args
@@ -40,18 +40,16 @@ pub async fn run(args: TextureCompressorArgs) {
     log::info!("worker_count={worker_count}");
 
     let texture_paths = {
-        let mut texture_paths = find_gltf_texture_paths(&args.search_folder).unwrap();
+        let mut texture_paths = find_gltf_texture_paths(&args.search_folder)?;
 
-        let gltf_exlusion_map: HashSet<PathBuf> = texture_paths
-            .iter()
-            .cloned()
-            .map(|(path, _, _)| path.canonicalize().unwrap())
-            .collect();
+        let mut gltf_exlusion_map: HashSet<PathBuf> = HashSet::new();
+        for (path, _, _) in &texture_paths {
+            gltf_exlusion_map.insert(path.canonicalize()?);
+        }
 
         // interpret all dangling textures as srgb color maps
         texture_paths.extend(
-            find_dangling_texture_paths(&args.search_folder, gltf_exlusion_map)
-                .unwrap()
+            find_dangling_texture_paths(&args.search_folder, gltf_exlusion_map)?
                 .iter()
                 .cloned()
                 .map(|path| (path, true, false)),
@@ -101,12 +99,13 @@ pub async fn run(args: TextureCompressorArgs) {
                 }
             });
 
-            tx.send(texture_index).unwrap();
+            tx.send(texture_index)
+                .expect("Failed to send texture out of thread pool worker");
         });
     }
     let mut done_count = 0;
     for _ in 0..texture_count {
-        let texture_index = rx.recv().unwrap();
+        let texture_index = rx.recv()?;
         done_count += 1;
         log::info!(
             "done {:?} ({:?}/{:?})",
@@ -115,6 +114,8 @@ pub async fn run(args: TextureCompressorArgs) {
             texture_count
         );
     }
+
+    Ok(())
 }
 
 fn find_gltf_texture_paths(search_folder: &Path) -> anyhow::Result<Vec<(PathBuf, bool, bool)>> {
@@ -123,9 +124,9 @@ fn find_gltf_texture_paths(search_folder: &Path) -> anyhow::Result<Vec<(PathBuf,
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| !e.file_type().is_dir())
-        .filter(|e| e.path().extension().is_some())
-        .filter(|e| {
-            e.path().extension().unwrap() == "gltf" || e.path().extension().unwrap() == "glb"
+        .filter(|e| match e.path().extension() {
+            Some(ext) => ext == "gltf" || ext == "glb",
+            None => false,
         })
         .map(|e| e.path().to_path_buf())
         .collect();
@@ -150,10 +151,14 @@ fn find_gltf_texture_paths(search_folder: &Path) -> anyhow::Result<Vec<(PathBuf,
 
             match texture.source().source() {
                 gltf::image::Source::View { .. } => {
-                    log::warn!("Warning: found inline texture in gltf file {:?}, texture index {:?}. This texture won't be compressed", path, texture.index());
+                    log::warn!("Found inline texture in gltf file {:?}, texture index {:?}. This texture won't be compressed", path, texture.index());
                 }
                 gltf::image::Source::Uri { uri, .. } => {
-                    let path = path.parent().unwrap().join(PathBuf::from(uri));
+                    let Some(parent) = path.parent() else {
+                        log::warn!("Found uri texture but gltf file path doesn't have a parent. uri={uri}, path={path:?}");
+                        continue;
+                    };
+                    let path = parent.join(PathBuf::from(uri));
                     result.push((path, is_srgb, is_normal_map));
                 }
             };
@@ -170,10 +175,13 @@ fn find_dangling_texture_paths(
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| !e.file_type().is_dir())
-        .filter(|e| !exclude_list.contains(&e.path().canonicalize().unwrap()))
-        .filter(|e| e.path().extension().is_some())
-        .filter(|e| {
-            e.path().extension().unwrap() == "jpg" || e.path().extension().unwrap() == "png"
+        .filter(|e| match e.path().canonicalize() {
+            Ok(absolute_path) => !exclude_list.contains(&absolute_path),
+            Err(_) => false,
+        })
+        .filter(|e| match e.path().extension() {
+            Some(ext) => ext == "jpg" || ext == "png",
+            None => false,
         })
         .map(|e| e.path().to_path_buf())
         .collect())
