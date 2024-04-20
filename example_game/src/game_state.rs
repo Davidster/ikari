@@ -26,7 +26,9 @@ pub struct GameState {
     pub prev_balls: Vec<BallComponent>,
     pub actual_balls: Vec<BallComponent>,
     pub ball_node_ids: Vec<GameNodeId>,
-    pub ball_pbr_mesh_index: usize,
+    pub physics_ball_pending_pingpong_material: AssetId,
+    pub physics_ball_pingppong_binded_texture_index: Option<usize>,
+    pub physics_ball_pingpong_texture_is_mars: bool,
 
     pub ball_spawner_acc: f64,
 

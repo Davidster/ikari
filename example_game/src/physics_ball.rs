@@ -1,6 +1,6 @@
 use glam::f32::Vec3;
 use ikari::physics::PhysicsState;
-use ikari::scene::{GameNodeDescBuilder, GameNodeId, GameNodeVisual, Scene};
+use ikari::scene::{GameNodeDescBuilder, GameNodeId, GameNodeVisual, Material, Scene};
 
 use ikari::physics::rapier3d_f64::prelude::*;
 use ikari::transform::TransformBuilder;
@@ -19,7 +19,7 @@ impl PhysicsBall {
     pub fn new(
         scene: &mut Scene,
         physics_state: &mut PhysicsState,
-        mesh: GameNodeVisual,
+        visual: GameNodeVisual,
         position: Vec3,
         radius: f32,
     ) -> Self {
@@ -30,7 +30,7 @@ impl PhysicsBall {
 
         let node = scene.add_node(
             GameNodeDescBuilder::new()
-                .visual(Some(mesh))
+                .visual(Some(visual))
                 .transform(transform)
                 .name(Some("physics_ball".to_string()))
                 .build(),
@@ -87,6 +87,10 @@ impl PhysicsBall {
                 self.destroy(scene, physics_state);
             }
         }
+    }
+
+    pub fn node_id(&self) -> GameNodeId {
+        self.node_id
     }
 
     pub fn destroy(&self, scene: &mut Scene, physics_state: &mut PhysicsState) {

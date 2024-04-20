@@ -854,7 +854,7 @@ pub struct RendererPrivateData {
 
 #[derive(Debug)]
 pub struct BindableScene {
-    pub path: GameFilePath,
+    pub name: Option<String>,
     pub scene: Scene,
     pub bindable_meshes: Vec<BindableGeometryBuffers>,
     pub bindable_wireframe_meshes: Vec<BindableWireframeMesh>,
@@ -864,7 +864,7 @@ pub struct BindableScene {
 
 #[derive(Debug)]
 pub struct BindedScene {
-    pub path: GameFilePath,
+    pub name: Option<String>,
     pub scene: Scene,
     pub binded_meshes: Vec<BindedGeometryBuffers>,
     pub binded_wireframe_meshes: Vec<BindedWireframeMesh>,
@@ -3283,11 +3283,11 @@ impl Renderer {
         base: &BaseRenderer,
         constant_data: &RendererConstantData,
         data: &mut RendererData,
-        pbr_textures: &PbrTextures,
+        textures: &PbrTextures,
         dynamic_pbr_params: DynamicPbrParams,
     ) -> Result<usize> {
         let textures_bind_group =
-            Self::make_pbr_textures_bind_group(base, constant_data, pbr_textures, false)?;
+            Self::make_pbr_textures_bind_group(base, constant_data, textures, false)?;
 
         data.binded_pbr_materials.push(BindedPbrMaterial {
             dynamic_pbr_params,

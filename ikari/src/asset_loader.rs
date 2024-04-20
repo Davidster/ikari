@@ -5,8 +5,11 @@ use crate::audio::AUDIO_STREAM_BUFFER_LENGTH_SECONDS;
 use crate::buffer::GpuBuffer;
 use crate::file_manager::FileManager;
 use crate::file_manager::GameFilePath;
+use crate::gltf_loader::load_pbr_material;
 use crate::gltf_loader::load_scene;
+use crate::mesh::DynamicPbrParams;
 use crate::mesh::IndexedPbrTextures;
+use crate::mesh::PbrTexturePaths;
 use crate::mesh::PbrTextures;
 use crate::mesh::ShaderVertex;
 use crate::mutex::Mutex;
@@ -35,6 +38,7 @@ use crate::renderer::SkyboxEnvironmentHDRPath;
 use crate::renderer::SkyboxPaths;
 use crate::renderer::F16;
 use crate::sampler_cache::SamplerDescriptor;
+use crate::scene::Scene;
 use crate::texture::Texture;
 use crate::texture_compression::TextureCompressor;
 use crate::time::Duration;
@@ -64,6 +68,13 @@ pub struct SceneAssetLoadParams {
 }
 
 #[derive(Clone, Debug)]
+pub struct PbrMaterialLoadParams {
+    pub name: Option<String>,
+    pub paths: PbrTexturePaths,
+    pub params: DynamicPbrParams,
+}
+
+#[derive(Clone, Debug)]
 pub struct AudioAssetLoadParams {
     pub path: GameFilePath,
     pub sound_params: SoundParams,
@@ -78,8 +89,10 @@ pub struct AssetLoader {
     pub loaded_audio: Arc<Mutex<HashMap<AssetId, usize>>>,
 
     audio_manager: Arc<Mutex<AudioManager>>,
+
     pending_scenes: Arc<Mutex<Vec<(AssetId, SceneAssetLoadParams)>>>,
     bindable_scenes: Arc<Mutex<HashMap<AssetId, BindableScene>>>,
+    pending_pbr_materials: Arc<Mutex<Vec<(AssetId, PbrMaterialLoadParams)>>>,
 
     pending_skyboxes: Arc<Mutex<Vec<(AssetId, SkyboxPaths)>>>,
     bindable_skyboxes: Arc<Mutex<HashMap<AssetId, BindableSkybox>>>,
@@ -104,6 +117,16 @@ trait BindScene: WasmNotSend + WasmNotSync {
         asset_loader: Arc<AssetLoader>,
     );
     fn loaded_scenes(&self) -> WasmNotArc<WasmNotMutex<HashMap<AssetId, BindedScene>>>;
+}
+
+trait BindPbrMaterial: WasmNotSend + WasmNotSync {
+    fn update(
+        &self,
+        base_renderer: WasmNotArc<BaseRenderer>,
+        renderer_constant_data: WasmNotArc<RendererConstantData>,
+        asset_loader: Arc<AssetLoader>,
+    );
+    fn loaded_materials(&self) -> WasmNotArc<WasmNotMutex<HashMap<AssetId, BindedScene>>>;
 }
 
 type BindGroupCache = HashMap<IndexedPbrTextures, WasmNotArc<wgpu::BindGroup>>;
@@ -137,6 +160,9 @@ impl AssetLoader {
 
             pending_scenes: Arc::new(Mutex::new(Vec::new())),
             bindable_scenes: Arc::new(Mutex::new(HashMap::new())),
+
+            pending_pbr_materials: Arc::new(Mutex::new(Vec::new())),
+
             audio_manager,
             pending_audio: Arc::new(Mutex::new(Vec::new())),
             loaded_audio: Arc::new(Mutex::new(HashMap::new())),
@@ -150,6 +176,7 @@ impl AssetLoader {
         self.is_exiting.store(true, Ordering::SeqCst);
     }
 
+    // TODO: use atomicu64 instead
     fn next_asset_id(&self) -> AssetId {
         let mut next_asset_id_guard = self.next_asset_id.lock();
         let next_asset_id: AssetId = *next_asset_id_guard;
@@ -190,6 +217,61 @@ impl AssetLoader {
                                 log::error!(
                                     "Error loading scene asset {:?}: {}\n{}",
                                     next_scene_params.path,
+                                    err,
+                                    err.backtrace()
+                                );
+                            }
+                        }
+                    }
+                });
+            });
+        }
+
+        asset_id
+    }
+
+    pub fn load_pbr_material(&self, params: PbrMaterialLoadParams) -> AssetId {
+        let asset_id = self.next_asset_id();
+        let name = params.name.clone();
+
+        let pending_materials = self.pending_pbr_materials.clone();
+        let mut pending_materials_guard = pending_materials.lock();
+        pending_materials_guard.push((asset_id, params));
+
+        if pending_materials_guard.len() == 1 {
+            let pending_materials = self.pending_pbr_materials.clone();
+            let bindable_scenes = self.bindable_scenes.clone();
+            let is_exiting = self.is_exiting.clone();
+
+            crate::thread::spawn(move || {
+                profiling::register_thread!("Pbr Material loader");
+                crate::block_on(async move {
+                    while pending_materials.lock().len() > 0 {
+                        if is_exiting.load(Ordering::SeqCst) {
+                            break;
+                        }
+
+                        let (next_material_id, next_material_params) =
+                            pending_materials.lock().remove(0);
+
+                        match load_pbr_material(next_material_params.clone()).await {
+                            Ok((bindable_material, bindable_textures)) => {
+                                let _replaced_ignored = bindable_scenes.lock().insert(
+                                    next_material_id,
+                                    BindableScene {
+                                        name: name.clone(),
+                                        scene: Scene::new(vec![], vec![], vec![]),
+                                        bindable_meshes: vec![],
+                                        bindable_wireframe_meshes: vec![],
+                                        bindable_pbr_materials: vec![bindable_material],
+                                        textures: bindable_textures,
+                                    },
+                                );
+                            }
+                            Err(err) => {
+                                log::error!(
+                                    "Error loading pbr material asset {:?}: {}\n{}",
+                                    next_material_params.paths,
                                     err,
                                     err.backtrace()
                                 );
@@ -674,7 +756,7 @@ impl ThreadedSceneBinder {
     ) -> Result<BindedScene> {
         profiling::scope!(
             "bind_scene",
-            &bindable_scene.path.relative_path.to_string_lossy()
+            &bindable_scene.name.as_deref().unwrap_or_default()
         );
 
         let start_time = crate::time::Instant::now();
@@ -712,12 +794,12 @@ impl ThreadedSceneBinder {
 
         log::debug!(
             "Scene {:?} binded in {:?}:",
-            bindable_scene.path.relative_path,
+            bindable_scene.name.as_deref().unwrap_or("Untitled"),
             start_time.elapsed()
         );
 
         Ok(BindedScene {
-            path: bindable_scene.path,
+            name: bindable_scene.name,
             scene: bindable_scene.scene,
             binded_meshes,
             binded_wireframe_meshes,
@@ -811,7 +893,7 @@ impl TimeSlicedSceneBinder {
             let staged_scene = staged_scenes
                 .entry(scene_id)
                 .or_insert_with(|| BindedScene {
-                    path: bindable_scene.path.clone(),
+                    name: bindable_scene.name.clone(),
                     scene: bindable_scene.scene.clone(),
                     binded_meshes: Vec::with_capacity(bindable_scene.bindable_meshes.len()),
                     binded_wireframe_meshes: Vec::with_capacity(

@@ -1,5 +1,6 @@
 use crate::ball::BallComponent;
 use crate::character::Character;
+use crate::game_state;
 use crate::game_state::AssetIds;
 use crate::game_state::GameState;
 use crate::physics_ball::PhysicsBall;
@@ -22,6 +23,7 @@ use glam::Quat;
 use ikari::animation::step_animations;
 use ikari::animation::LoopType;
 use ikari::asset_loader::AudioAssetLoadParams;
+use ikari::asset_loader::PbrMaterialLoadParams;
 use ikari::asset_loader::SceneAssetLoadParams;
 use ikari::audio::SoundParams;
 use ikari::engine_state::EngineState;
@@ -29,6 +31,7 @@ use ikari::file_manager::{FileManager, GamePathMaker};
 use ikari::gameloop::GameContext;
 use ikari::mesh::BasicMesh;
 use ikari::mesh::DynamicPbrParams;
+use ikari::mesh::PbrTexturePaths;
 use ikari::mesh::PbrTextures;
 use ikari::mesh::Vertex;
 use ikari::mutex::Mutex;
@@ -37,6 +40,7 @@ use ikari::physics::PhysicsState;
 use ikari::player_controller::ControlledViewDirection;
 use ikari::player_controller::PlayerController;
 use ikari::raw_image::RawImage;
+use ikari::renderer::BindedPbrMaterial;
 use ikari::renderer::BloomType;
 use ikari::renderer::DirectionalLight;
 use ikari::renderer::DirectionalLightShadowMappingConfig;
@@ -337,7 +341,7 @@ pub async fn init_game_state(
             asset_ids.legendary_robot =
                 load_gltf("src/models/gltf/LegendaryRobot/Legendary_Robot.gltf").into();
 
-            asset_ids.test_level = load_gltf("src/models/gltf/TestLevel/test_level.gltf").into();
+            // asset_ids.test_level = load_gltf("src/models/gltf/TestLevel/test_level.gltf").into();
 
             for path in get_misc_gltf_paths() {
                 asset_ids.anonymous_scenes.push(load_gltf(path));
@@ -1143,6 +1147,18 @@ pub async fn init_game_state(
         )
     };
 
+    let physics_ball_pending_pingpong_material =
+        engine_state
+            .asset_loader
+            .load_pbr_material(PbrMaterialLoadParams {
+                name: Some(String::from("Ball material pingpong mars")),
+                paths: PbrTexturePaths {
+                    base_color: Some(GAME_PATH_MAKER.make("src/textures/8k_earth.jpg")),
+                    ..Default::default()
+                },
+                params: Default::default(),
+            });
+
     Ok(GameState {
         state_update_time_accumulator: 0.0,
         is_playing_animations: true,
@@ -1156,7 +1172,9 @@ pub async fn init_game_state(
         prev_balls: balls.clone(),
         actual_balls: balls,
         ball_node_ids,
-        ball_pbr_mesh_index: ball_pbr_material_index,
+        physics_ball_pending_pingpong_material,
+        physics_ball_pingpong_texture_is_mars: false,
+        physics_ball_pingppong_binded_texture_index: None,
 
         ball_spawner_acc: 0.0,
 
@@ -1587,6 +1605,89 @@ pub fn update_game_state(
                 engine_state
                     .scene
                     .merge_scene(&mut renderer_data_guard, other_loaded_scene);
+            }
+        }
+
+        if let Entry::Occupied(entry) =
+            loaded_assets_guard.entry(game_state.physics_ball_pending_pingpong_material)
+        {
+            let (_, other_loaded_scene) = entry.remove_entry();
+            engine_state
+                .scene
+                .merge_scene(&mut renderer_data_guard, other_loaded_scene);
+
+            let new_material_index = renderer_data_guard.binded_pbr_materials.len() - 1;
+            let new_texture_index = renderer_data_guard.textures.len() - 1;
+
+            if let Some(physics_ball_pingppong_binded_texture_index) =
+                game_state.physics_ball_pingppong_binded_texture_index
+            {
+                renderer_data_guard.textures[physics_ball_pingppong_binded_texture_index]
+                    .texture
+                    .destroy();
+            }
+
+            if let Some(old_material_index) = game_state
+                .physics_balls
+                .get(0)
+                .map(|first_physics_ball| first_physics_ball.node_id())
+                .and_then(|first_physics_ball_node_id| {
+                    engine_state.scene.get_node(first_physics_ball_node_id)
+                })
+                .and_then(|first_physics_ball_node| first_physics_ball_node.visual.as_ref())
+                .and_then(
+                    |first_physics_ball_visual| match first_physics_ball_visual.material {
+                        Material::Pbr {
+                            binded_material_index,
+                            ..
+                        } => Some(binded_material_index),
+                        _ => None,
+                    },
+                )
+            {
+                renderer_data_guard.binded_pbr_materials[old_material_index] = BindedPbrMaterial {
+                    textures_bind_group: renderer_data_guard.binded_pbr_materials
+                        [new_material_index]
+                        .textures_bind_group
+                        .clone(),
+                    dynamic_pbr_params: renderer_data_guard.binded_pbr_materials
+                        [new_material_index]
+                        .dynamic_pbr_params,
+                };
+
+                // for physics_ball in game_state.physics_balls.iter_mut() {
+                //     let Some(visual) = engine_state
+                //         .scene
+                //         .get_node_mut(physics_ball.node_id())
+                //         .and_then(|node| node.visual.as_mut())
+                //     else {
+                //         continue;
+                //     };
+
+                //     visual.material = Material::Pbr {
+                //         binded_material_index: new_material_index,
+                //         dynamic_pbr_params: None,
+                //     };
+                // }
+
+                game_state.physics_ball_pingpong_texture_is_mars =
+                    !game_state.physics_ball_pingpong_texture_is_mars;
+                game_state.physics_ball_pending_pingpong_material = engine_state
+                    .asset_loader
+                    .load_pbr_material(PbrMaterialLoadParams {
+                        name: Some(String::from("Ball material pingpong mars")),
+                        paths: PbrTexturePaths {
+                            base_color: Some(GAME_PATH_MAKER.make(
+                                if game_state.physics_ball_pingpong_texture_is_mars {
+                                    "src/textures/8k_mars.jpg"
+                                } else {
+                                    "src/textures/8k_earth.jpg"
+                                },
+                            )),
+                            ..Default::default()
+                        },
+                        params: Default::default(),
+                    });
             }
         }
     }

@@ -1,3 +1,4 @@
+use crate::asset_loader::PbrMaterialLoadParams;
 use crate::asset_loader::SceneAssetLoadParams;
 use crate::collisions::Aabb;
 use crate::file_manager::FileManager;
@@ -383,13 +384,61 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
     }
 
     Ok(BindableScene {
-        path: params.path,
+        name: Some(params.path.relative_path.to_string_lossy().into()),
         scene: Scene::new(nodes, skins, animations),
         bindable_meshes,
         bindable_wireframe_meshes,
         bindable_pbr_materials,
         textures,
     })
+}
+
+// TODO: let the user pass the sampler type
+pub async fn load_pbr_material(
+    params: PbrMaterialLoadParams,
+) -> Result<(BindablePbrMaterial, Vec<BindableTexture>)> {
+    let mut textures = vec![];
+    let mut texture_indices = vec![];
+
+    for (path, is_srgb, is_normal_map) in [
+        (params.paths.base_color, true, false),
+        (params.paths.normal, false, true),
+        (params.paths.metallic_roughness, false, false),
+        (params.paths.emissive, true, false),
+        (params.paths.ambient_occlusion, false, false),
+    ] {
+        let texture_index = match path {
+            Some(path) => {
+                let raw_image = load_raw_image(&path, is_srgb, is_normal_map).await?;
+                textures.push(BindableTexture {
+                    raw_image,
+                    name: None,
+                    sampler_descriptor: SamplerDescriptor {
+                        min_filter: wgpu::FilterMode::Linear,
+                        mag_filter: wgpu::FilterMode::Linear,
+                        ..Default::default()
+                    },
+                });
+                Some(textures.len() - 1)
+            }
+            None => None,
+        };
+        texture_indices.push(texture_index);
+    }
+
+    Ok((
+        BindablePbrMaterial {
+            textures: IndexedPbrTextures {
+                base_color: texture_indices[0],
+                normal: texture_indices[1],
+                metallic_roughness: texture_indices[2],
+                emissive: texture_indices[3],
+                ambient_occlusion: texture_indices[4],
+            },
+            dynamic_pbr_params: params.params,
+        },
+        textures,
+    ))
 }
 
 // adapted from https://github.com/gltf-rs/gltf/blob/d7750db79f029d91f57d26afd0d641f5ffdd1453/src/import.rs#L15
@@ -508,7 +557,7 @@ async fn load_raw_textures(
             });
 
         let raw_image =
-            load_raw_image(buffers, gltf_path, &texture, is_srgb, is_normal_map).await?;
+            load_raw_gltf_image(buffers, gltf_path, &texture, is_srgb, is_normal_map).await?;
 
         let gltf_sampler = texture.sampler();
         let default_sampler = SamplerDescriptor {
@@ -658,7 +707,7 @@ fn get_keyframe_times(
 }
 
 #[profiling::function]
-async fn load_raw_image(
+async fn load_raw_gltf_image(
     buffers: &[gltf::buffer::Data],
     gltf_path: &GameFilePath,
     texture: &gltf::Texture<'_>,
@@ -666,7 +715,7 @@ async fn load_raw_image(
     is_normal_map: bool,
 ) -> Result<RawImage> {
     #[cfg(not(target_arch = "wasm32"))]
-    match try_load_raw_image_compressed(gltf_path, texture, is_srgb, is_normal_map).await {
+    match try_load_raw_gltf_image_compressed(gltf_path, texture, is_srgb, is_normal_map).await {
         Some(Ok(raw_image)) => {
             return Ok(raw_image);
         }
@@ -676,11 +725,11 @@ async fn load_raw_image(
         None => {}
     }
 
-    load_raw_image_uncompressed(buffers, gltf_path, texture, is_srgb, is_normal_map).await
+    load_raw_gltf_image_uncompressed(buffers, gltf_path, texture, is_srgb, is_normal_map).await
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn try_load_raw_image_compressed(
+async fn try_load_raw_gltf_image_compressed(
     gltf_path: &GameFilePath,
     texture: &gltf::Texture<'_>,
     is_srgb: bool,
@@ -712,7 +761,7 @@ async fn try_load_raw_image_compressed(
     }
 }
 
-async fn load_raw_image_uncompressed(
+async fn load_raw_gltf_image_uncompressed(
     buffers: &[gltf::buffer::Data],
     gltf_path: &GameFilePath,
     texture: &gltf::Texture<'_>,
@@ -734,6 +783,53 @@ async fn load_raw_image_uncompressed(
             is_srgb,
         )),
     }
+}
+
+#[profiling::function]
+async fn load_raw_image(
+    path: &GameFilePath,
+    is_srgb: bool,
+    is_normal_map: bool,
+) -> Result<RawImage> {
+    #[cfg(not(target_arch = "wasm32"))]
+    match try_load_raw_image_compressed(path, is_srgb, is_normal_map).await {
+        Ok(raw_image) => {
+            return Ok(raw_image);
+        }
+        Err(error) => {
+            log::error!("Failed to load compressed version of texture from path {path:?}. Will fallback to uncompressed version.\n{error:?}");
+        }
+    }
+
+    load_raw_image_uncompressed(path, is_srgb, is_normal_map).await
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn try_load_raw_image_compressed(
+    path: &GameFilePath,
+    is_srgb: bool,
+    is_normal_map: bool,
+) -> Result<RawImage> {
+    use crate::texture_compression::{texture_path_to_compressed_path, TextureCompressor};
+
+    let compressed_texture_path = texture_path_to_compressed_path(&path);
+
+    FileManager::read(&compressed_texture_path)
+        .await
+        .and_then(|compressed_texture_bytes| {
+            TextureCompressor.transcode_image(&compressed_texture_bytes, is_srgb, is_normal_map)
+        })
+}
+
+async fn load_raw_image_uncompressed(
+    path: &GameFilePath,
+    is_srgb: bool,
+    _is_normal_map: bool, // prevents clippy warning on wasm build
+) -> Result<RawImage> {
+    Ok(RawImage::from_dynamic_image(
+        image::load_from_memory(&FileManager::read(&path).await?)?,
+        is_srgb,
+    ))
 }
 
 fn sampler_wrapping_mode_to_wgpu(wrapping_mode: gltf::texture::WrappingMode) -> wgpu::AddressMode {

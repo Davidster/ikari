@@ -1,4 +1,4 @@
-use crate::{renderer::F16, texture::Texture};
+use crate::{file_manager::GameFilePath, renderer::F16, texture::Texture};
 
 use std::{
     collections::{hash_map, HashMap},
@@ -234,6 +234,15 @@ impl Default for DynamicPbrParams {
             alpha_cutoff: -1.0,
         }
     }
+}
+
+#[derive(Debug, Default, Hash, PartialEq, Eq, Clone)]
+pub struct PbrTexturePaths {
+    pub base_color: Option<GameFilePath>,
+    pub normal: Option<GameFilePath>,
+    pub metallic_roughness: Option<GameFilePath>,
+    pub emissive: Option<GameFilePath>,
+    pub ambient_occlusion: Option<GameFilePath>,
 }
 
 #[derive(Debug, Default, Hash, PartialEq, Eq, Clone)]
