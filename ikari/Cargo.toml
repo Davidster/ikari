@@ -41,7 +41,7 @@ log.workspace = true
 
 # profiling
 profiling.workspace = true
-wgpu-profiler = { workspace = true }
+wgpu-profiler.workspace = true
 
 # assets
 gltf.workspace = true
@@ -93,7 +93,6 @@ spin = { version = "0.9.8", default-features = false, features = [
 basis-universal = "0.3.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-# wgpu-profiler = { workspace = true }
 js-sys = "0.3.64"
 wasm-bindgen-futures.workspace = true
 web-sys.workspace = true
