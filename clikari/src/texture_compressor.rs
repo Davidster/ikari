@@ -24,7 +24,13 @@ pub struct TextureCompressorArgs {
     pub force: bool,
 }
 
-pub async fn run(args: TextureCompressorArgs) -> anyhow::Result<()> {
+pub async fn run(args: TextureCompressorArgs) {
+    if let Err(err) = run_internal(args).await {
+        log::error!("Error: {err}\n{}", err.backtrace());
+    }
+}
+
+async fn run_internal(args: TextureCompressorArgs) -> anyhow::Result<()> {
     if !args.search_folder.exists() {
         bail!(
             "Error: search folder {:?} does not exist",

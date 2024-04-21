@@ -123,7 +123,7 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
                 let material_name = primitive
                     .material()
                     .name()
-                    .map(|name| String::from(name))
+                    .map(String::from)
                     .unwrap_or_else(|| {
                         format!(
                             "{}",

@@ -1120,6 +1120,7 @@ impl runtime::Program for UiOverlay {
                 .width(Length::Fill);
 
             {
+                #[allow(unused_variables)]
                 let GeneralSettings {
                     collapsed,
 
