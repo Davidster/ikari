@@ -1337,6 +1337,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "wgpu",
+ "wgpu-profiler",
  "winit",
 ]
 
@@ -5627,6 +5628,7 @@ checksum = "198b96a1940b527c6e21ab829b3630eb4e8ffb602fd12839d8c5e088c8e06192"
 dependencies = [
  "parking_lot 0.12.1",
  "thiserror",
+ "tracy-client",
  "wgpu",
 ]
 

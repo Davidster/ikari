@@ -3021,7 +3021,7 @@ impl Renderer {
         #[cfg(all(
             feature = "gpu-profiling",
             feature = "tracy-profiling",
-            not(target_os = "macos")
+            not(target_arch = "wasm32")
         ))]
         let profiler = wgpu_profiler::GpuProfiler::new_with_tracy_client(
             wgpu_profiler_settings,
@@ -3033,7 +3033,7 @@ impl Renderer {
         #[cfg(not(all(
             feature = "gpu-profiling",
             feature = "tracy-profiling",
-            not(target_os = "macos")
+            not(target_arch = "wasm32")
         )))]
         let profiler = wgpu_profiler::GpuProfiler::new(wgpu_profiler_settings)?;
 
