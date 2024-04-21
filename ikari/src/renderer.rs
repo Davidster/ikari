@@ -4707,11 +4707,11 @@ impl Renderer {
             .drain()
             .collect();
 
-        // if PRESORT_INSTANCES_BY_MESH_MATERIAL {
-        //     pbr_mesh_instances.sort_by_key(|((mesh_index, material_index), _)| {
-        //         ((*mesh_index as u128) << 64) + *material_index as u128
-        //     });
-        // }
+        if PRESORT_INSTANCES_BY_MESH_MATERIAL {
+            pbr_mesh_instances.sort_by_key(|((mesh_index, material_index), _)| {
+                ((*mesh_index as u128) << 64) + *material_index as u128
+            });
+        }
 
         pbr_mesh_instances.sort_by(
             |(_, (_, _, dist_sq_from_player_a)), (_, (_, _, dist_sq_from_player_b))| {

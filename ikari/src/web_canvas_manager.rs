@@ -10,8 +10,7 @@ mod native {
             Self
         }
 
-        pub fn on_update(&self, size: winit::dpi::PhysicalSize<u32>) {}
-        // pub fn on_update(&self, _event: &winit::event::Event<()>) {}
+        pub fn on_update(&self, _event: &winit::event::Event<()>) {}
     }
 }
 
@@ -20,7 +19,6 @@ mod web {
     use std::sync::Arc;
     use wasm_bindgen::prelude::*;
     use winit::event::Event;
-    use winit::event::WindowEvent;
     use winit::window::Window;
 
     pub struct WebCanvasManager {
@@ -43,12 +41,7 @@ mod web {
             }
         }
 
-        pub fn on_update(&self, size: winit::dpi::PhysicalSize<u32>) {
-            // let new_size = winit::dpi::PhysicalSize::new(
-            //     (size.width as f64 * self.window.scale_factor()) as u32,
-            //     (size.height as f64 * self.window.scale_factor()) as u32,
-            // );
-            // self.window.request_inner_size(size);
+        pub fn on_update(&self, event: &Event<()>) {
             let new_size = winit::dpi::PhysicalSize::new(
                 (self.canvas_container.offset_width() as f64 * self.window.scale_factor()) as u32,
                 (self.canvas_container.offset_height() as f64 * self.window.scale_factor()) as u32,
@@ -56,45 +49,11 @@ mod web {
             if self.window.inner_size() != new_size {
                 let _resized_immediately = self.window.request_inner_size(new_size);
             }
+
+            if matches!(event, Event::LoopExiting) {
+                self.canvas_container.remove();
+            }
         }
-
-        // pub fn on_update(&self, event: &Event<()>) {
-        //     match event {
-        //         Event::WindowEvent {
-        //             event: WindowEvent::RedrawRequested,
-        //             ..
-        //         } => {
-        //             self.resize();
-        //         }
-        //         Event::LoopExiting => {
-        //             self.canvas_container.remove();
-        //         }
-        //         Event::WindowEvent {
-        //             event, window_id, ..
-        //         } if *window_id == self.window.id() => {
-        //             match &event {
-        //                 WindowEvent::Resized(_) => {
-        //                     self.resize();
-        //                 }
-        //                 WindowEvent::ScaleFactorChanged { .. } => {
-        //                     self.resize();
-        //                 }
-        //                 _ => {}
-        //             };
-        //         }
-        //         _ => {}
-        //     };
-        // }
-
-        // fn resize(&self) {
-        //     let new_size = winit::dpi::PhysicalSize::new(
-        //         (self.canvas_container.offset_width() as f64 * self.window.scale_factor()) as u32,
-        //         (self.canvas_container.offset_height() as f64 * self.window.scale_factor()) as u32,
-        //     );
-        //     if self.window.inner_size() != new_size {
-        //         let _resized_immediately = self.window.request_inner_size(new_size);
-        //     }
-        // }
     }
 }
 

@@ -110,6 +110,7 @@ pub enum Message {
     FrameCompleted(FrameStats),
     CameraPoseChanged((Vec3, ControlledViewDirection)),
     AudioSoundStatsChanged((GameFilePath, AudioSoundStats)),
+    #[allow(dead_code)]
     VsyncChanged(bool),
     FramerateLimitTypeChanged(FramerateLimitType),
     CustomFramerateLimitChanged(f32),

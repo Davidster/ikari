@@ -162,5 +162,6 @@ TRACY_DPI_SCALE=1.0 ./Tracy-release
 
 ```sh
 # this will run clippy on the example game as well as ikari by dependency
-RUSTFLAGS=--cfg=web_sys_unstable_apis cargo clippy --package example_game --target wasm32-unknown-unknown
+# we need to pass --no-default-features now that tracy is enabled by default
+RUSTFLAGS=--cfg=web_sys_unstable_apis cargo clippy --package example_game --target wasm32-unknown-unknown --no-default-features
 ```

@@ -69,31 +69,14 @@ where
             .map(|millihertz| millihertz as f32 / 1000.0),
     );
 
-    // let mut latest_surface_texture_result = None;
-
     let mut pending_resize_event: Option<winit::dpi::PhysicalSize<u32>> = None;
 
     engine_state.time_tracker.on_frame_started();
 
     let mut force_reconfigure_surface = false;
 
-    // web_canvas_manager.on_update(window.inner_size());
-
     let handler = move |event: Event<()>, elwt: &EventLoopWindowTarget<()>| {
-        #[cfg(target_arch = "wasm32")]
-        {
-            let new_size = winit::dpi::PhysicalSize::new(
-                (web_canvas_manager.canvas_container.offset_width() as f64
-                    * web_canvas_manager.window.scale_factor()) as u32,
-                (web_canvas_manager.canvas_container.offset_height() as f64
-                    * web_canvas_manager.window.scale_factor()) as u32,
-            );
-            // log::info!("1 {:?}, {:?}", new_size, window.scale_factor());
-            if web_canvas_manager.window.inner_size() != new_size {
-                renderer.resize_surface(&surface_data, new_size);
-                // let _resized_immediately = self.window.request_inner_size(new_size);
-            }
-        }
+        web_canvas_manager.on_update(&event);
 
         match event {
             Event::WindowEvent {
@@ -138,7 +121,6 @@ where
 
                 let surface_texture_result = surface_data.surface.get_current_texture();
 
-                // TODO: this is not correct on wasm
                 engine_state.time_tracker.on_get_surface_completed();
 
                 if let Some(new_size) = pending_resize_event.take() {
@@ -153,12 +135,6 @@ where
                         },
                         new_size,
                     );
-
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        let _resized_immediately =
-                            web_canvas_manager.window.request_inner_size(new_size);
-                    }
                 }
 
                 force_reconfigure_surface = false;
@@ -225,7 +201,6 @@ where
             } if window_id == window.id() => {
                 match &event {
                     WindowEvent::Resized(size) => {
-                        // log::info!("{:?}, {:?}", size, window.scale_factor());
                         renderer.resize_surface(&surface_data, *size);
                     }
                     WindowEvent::ScaleFactorChanged { .. } => {

@@ -98,7 +98,7 @@ impl FramerateLimiter {
 
         let current_sleep_start = *self
             .current_sleep_start
-            .get_or_insert_with(|| crate::time::Instant::now());
+            .get_or_insert_with(crate::time::Instant::now);
 
         let remaining_sleep_time = sleep_period_secs - current_sleep_start.elapsed().as_secs_f64();
 
@@ -113,12 +113,12 @@ impl FramerateLimiter {
     pub fn is_supported() -> bool {
         #[cfg(target_arch = "wasm32")]
         {
-            return false;
+            false
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            return true;
+            true
         }
     }
 }
