@@ -1,6 +1,7 @@
 /// Adapted from cargo-run-wasm v0.3.2
 use std::{ffi::OsStr, path::PathBuf, process::Command};
 
+use anyhow::bail;
 use arboard::Clipboard;
 use warp::{http::HeaderValue, hyper::HeaderMap, Filter};
 
@@ -62,13 +63,13 @@ struct Args {
 }
 
 impl Args {
-    pub fn from_env() -> Result<Self, String> {
+    pub fn from_env() -> anyhow::Result<Self> {
         let mut args = pico_args::Arguments::from_env();
 
         let release_arg = args.contains("--release") || args.contains("-r");
-        let profile_arg: Option<String> = args.opt_value_from_str("--profile").unwrap();
+        let profile_arg: Option<String> = args.opt_value_from_str("--profile")?;
         if release_arg && profile_arg.is_some() {
-            return Err(r#"conflicting usage of --profile and --release.
+            bail!(r#"conflicting usage of --profile and --release.
 The `--release` flag is the same as `--profile=release`.
 Remove one flag or the other to continue."#
                 .to_owned());
@@ -84,38 +85,38 @@ Remove one flag or the other to continue."#
         let build_only = args.contains("--build-only");
         let help = args.contains("--help") || args.contains("-h");
 
-        let port: Option<String> = args.opt_value_from_str("--port").unwrap();
+        let port: Option<String> = args.opt_value_from_str("--port")?;
 
-        let package: Option<String> = args
-            .opt_value_from_str("--package")
-            .unwrap()
-            .or_else(|| args.opt_value_from_str("-p").unwrap());
-        let example: Option<String> = args.opt_value_from_str("--example").unwrap();
-        let bin: Option<String> = args.opt_value_from_str("--bin").unwrap();
+        let package: Option<String> = args.opt_value_from_str("--package")?;
+        let package: Option<String> = match package {
+            Some(val) => Some(val),
+            None => args.opt_value_from_str("-p")?,
+        };
+        let example: Option<String> = args.opt_value_from_str("--example")?;
+        let bin: Option<String> = args.opt_value_from_str("--bin")?;
 
         let banned_options = ["--target", "--target-dir"];
         for option in banned_options {
-            if args
-                .opt_value_from_str::<_, String>(option)
-                .unwrap()
-                .is_some()
-            {
-                return Err(format!("build_web does not support the {option} option"));
+            if args.opt_value_from_str::<_, String>(option)?.is_some() {
+                bail!(format!("build_web does not support the {option} option"));
             }
         }
 
         let binary_name = match example.as_ref().or(bin.as_ref()).or(package.as_ref()) {
             Some(name) => name.clone(),
             None => {
-                return Err("Need to use at least one of `--package NAME`, `--example NAME` `--bin NAME`.\nRun cargo build_web --help for more info.".to_owned());
+                bail!("Need to use at least one of `--package NAME`, `--example NAME` `--bin NAME`.\nRun cargo build_web --help for more info.".to_owned());
             }
         };
 
         let build_args = args
             .finish()
             .into_iter()
-            .map(|x| x.into_string().unwrap())
-            .collect();
+            .map(|x| {
+                x.into_string()
+                    .map_err(|_| anyhow::anyhow!("Failed to convert OsStr"))
+            })
+            .collect::<Result<Vec<String>, _>>()?;
 
         Ok(Args {
             help,
@@ -131,7 +132,7 @@ Remove one flag or the other to continue."#
     }
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let args = match Args::from_env() {
@@ -143,7 +144,7 @@ fn main() {
     };
     if args.help {
         println!("{HELP}");
-        return;
+        return Ok(());
     }
 
     let profile_dir_name = match args.profile.as_deref() {
@@ -197,8 +198,7 @@ fn main() {
             "--cfg=web_sys_unstable_apis -C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--max-memory=4294967296",
         )
         .args(&cargo_args)
-        .status()
-        .unwrap();
+        .status()?;
     if !status.success() {
         // We can exit without printing anything because cargo will have already displayed an appropriate error.
         std::process::exit(1);
@@ -224,15 +224,13 @@ fn main() {
 
     let examples_dir_name = "wasm-examples";
     let example_dest = target_directory.join(examples_dir_name).join(&binary_name);
-    std::fs::create_dir_all(&example_dest).unwrap();
+    std::fs::create_dir_all(&example_dest)?;
     let mut bindgen = wasm_bindgen_cli_support::Bindgen::new();
     bindgen
-        .web(true)
-        .unwrap()
+        .web(true)?
         .omit_default_module_path(false)
         .input_path(&wasm_source)
-        .generate(&example_dest)
-        .unwrap();
+        .generate(&example_dest)?;
 
     // process template html and write to the destination folder
     let index_template = include_str!("ikari-web.template.html");
@@ -243,7 +241,7 @@ fn main() {
 
     let html_file_name = "ikari-web.html";
 
-    std::fs::write(workspace_root.join(html_file_name), index_processed).unwrap();
+    std::fs::write(workspace_root.join(html_file_name), index_processed)?;
 
     if !args.build_only {
         let port = args
@@ -265,8 +263,7 @@ fn main() {
 
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
-            .build()
-            .unwrap()
+            .build()?
             .block_on(async {
                 let mut headers = HeaderMap::new();
                 headers.insert(
@@ -284,6 +281,8 @@ fn main() {
                 .await;
             });
     }
+
+    Ok(())
 }
 
 fn copy_text_to_clipboard(text: &str) -> Result<(), arboard::Error> {

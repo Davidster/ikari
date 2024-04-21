@@ -880,7 +880,9 @@ impl TimeSlicedSceneBinder {
             bind_group_cache.clear();
         }
 
-        let staged_scene = staged_scenes.remove(&scene_id).unwrap();
+        let staged_scene = staged_scenes
+            .remove(&scene_id)
+            .expect("Staged scene must have existed or been created above");
         Ok(Some(staged_scene))
     }
 }
@@ -903,7 +905,9 @@ impl BindScene for TimeSlicedSceneBinder {
             while start_time.elapsed().as_secs_f32() < SLICE_BUDGET_SECONDS {
                 let scene_id = scene_id;
 
-                let bindable_scene = bindable_scenes_guard.remove(&scene_id).unwrap();
+                let bindable_scene = bindable_scenes_guard
+                    .remove(&scene_id)
+                    .expect("Scene id should still be valid at this point");
 
                 let mut bind_group_caches_guard = self.bind_group_caches.lock();
                 let bind_group_cache = bind_group_caches_guard.entry(scene_id).or_default();

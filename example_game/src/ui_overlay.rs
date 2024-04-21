@@ -2,17 +2,23 @@ use std::collections::hash_map::Entry;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::rc::Rc;
 
 use glam::Vec3;
 use iced::alignment::Horizontal;
+use iced::font::Family;
+use iced::font::Weight;
+use iced::widget::button;
+
+use iced::Border;
 use iced::Font;
 
 use iced::widget::{
-    canvas, checkbox, container, radio, scrollable, slider, text, Button, Column, Container, Row,
-    Text,
+    canvas, checkbox, container, radio, scrollable, slider, text, Column, Container, Row,
 };
 use iced::Length;
 use iced::{mouse, Background, Command, Element, Rectangle, Theme};
+use iced_aw::style::modal;
 use iced_aw::{floating_element, Modal};
 use iced_winit::runtime;
 use ikari::file_manager::GameFilePath;
@@ -42,7 +48,7 @@ use crate::game::INITIAL_ENABLE_SHADOW_DEBUG;
 use crate::game::INITIAL_ENABLE_SOFT_SHADOWS;
 use crate::game::INITIAL_ENABLE_VSYNC;
 use crate::game::INITIAL_FAR_PLANE_DISTANCE;
-use crate::game::INITIAL_FOV_Y;
+use crate::game::INITIAL_FOV_X;
 use crate::game::INITIAL_IS_SHOWING_CAMERA_POSE;
 use crate::game::INITIAL_IS_SHOWING_CURSOR_MARKER;
 use crate::game::INITIAL_NEAR_PLANE_DISTANCE;
@@ -55,11 +61,13 @@ use crate::game::INITIAL_SOFT_SHADOWS_MAX_DISTANCE;
 use crate::game::INITIAL_SOFT_SHADOW_FACTOR;
 use crate::game::INITIAL_SOFT_SHADOW_GRID_DIMS;
 
-pub const DEFAULT_FONT_BYTES: &[u8] = include_bytes!("./fonts/Lato-Regular.ttf");
-pub const DEFAULT_FONT_NAME: &str = "Lato";
+// Default
+pub const LATO_FONT_BYTES: &[u8] = include_bytes!("./fonts/Lato-Regular.ttf");
+pub const LATO_BOLD_FONT_BYTES: &[u8] = include_bytes!("./fonts/Lato-Bold.ttf");
+pub const LATO_FONT_NAME: &str = "Lato";
 
-pub const KOOKY_FONT_BYTES: &[u8] = include_bytes!("./fonts/Pacifico-Regular.ttf");
-pub const KOOKY_FONT_NAME: &str = "Pacifico";
+pub const PACIFICO_FONT_BYTES: &[u8] = include_bytes!("./fonts/Pacifico-Regular.ttf");
+pub const PACIFICO_FONT_NAME: &str = "Pacifico";
 
 const FRAME_TIME_HISTORY_SIZE: usize = 5 * 144 + 1; // 1 more than 5 seconds of 144hz
 const FRAME_TIMES_MOVING_AVERAGE_ALPHA: f64 = 0.01;
@@ -70,7 +78,7 @@ const FPS_CHART_LINE_COLORS: [RGBAColor; 4] = [
     RGBAColor(253, 183, 23, 0.8),  // gpu
 ];
 const SHOW_BLOOM_TYPE: bool = false;
-pub(crate) const THEME: iced::Theme = iced::Theme::Dark;
+pub(crate) const THEME: iced::Theme = iced::Theme::TokyoNight;
 
 #[derive(Debug, Clone)]
 pub struct AudioSoundStats {
@@ -96,7 +104,7 @@ pub enum Message {
     AudioSoundStatsChanged((GameFilePath, AudioSoundStats)),
     #[allow(dead_code)]
     VsyncChanged(bool),
-    FovyChanged(f32),
+    FovxChanged(f32),
     NearPlaneDistanceChanged(f32),
     FarPlaneDistanceChanged(f32),
     BloomTypeChanged(BloomType),
@@ -126,53 +134,170 @@ pub enum Message {
     ClosePopupMenu,
     ExitButtonPressed,
     GenerateProfileDump,
+    DefaultSettingsButtonPressed,
+    ToggleGeneralSettingsCollapse,
+    ToggleCameraSettingsCollapse,
+    TogglePostEffectSettingsCollapse,
+    ToggleShadowSettingsCollapse,
+    ToggleDebugSettingsCollapse,
 }
 
-// TODO: split these settings into categories and add tree menu in the UI to organize them
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct GeneralSettings {
+    collapsed: bool,
+
+    pub enable_depth_prepass: bool,
+    pub enable_vsync: bool,
+}
+
+impl Default for GeneralSettings {
+    fn default() -> Self {
+        Self {
+            collapsed: true,
+            enable_vsync: INITIAL_ENABLE_VSYNC,
+            enable_depth_prepass: INITIAL_ENABLE_DEPTH_PREPASS,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct CameraSettings {
+    collapsed: bool,
+
+    pub fov_x: f32,
+    pub near_plane_distance: f32,
+    pub far_plane_distance: f32,
+}
+
+impl Default for CameraSettings {
+    fn default() -> Self {
+        Self {
+            collapsed: true,
+
+            fov_x: INITIAL_FOV_X,
+            near_plane_distance: INITIAL_NEAR_PLANE_DISTANCE,
+            far_plane_distance: INITIAL_FAR_PLANE_DISTANCE,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct PostEffectSettings {
+    collapsed: bool,
+
+    pub bloom_type: BloomType,
+
+    pub new_bloom_radius: f32,
+    pub new_bloom_intensity: f32,
+
+    pub skybox_weight: f32,
+}
+
+impl Default for PostEffectSettings {
+    fn default() -> Self {
+        Self {
+            collapsed: true,
+
+            bloom_type: INITIAL_BLOOM_TYPE,
+
+            new_bloom_radius: INITIAL_NEW_BLOOM_RADIUS,
+            new_bloom_intensity: INITIAL_NEW_BLOOM_INTENSITY,
+
+            skybox_weight: INITIAL_SKYBOX_WEIGHT,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct ShadowSettings {
+    collapsed: bool,
+
+    pub enable_soft_shadows: bool,
+    pub shadow_bias: f32,
+    pub soft_shadow_factor: f32,
+    pub soft_shadows_max_distance: f32,
+    pub soft_shadow_grid_dims: u32,
+    pub shadow_small_object_culling_size_pixels: f32,
+}
+
+impl Default for ShadowSettings {
+    fn default() -> Self {
+        Self {
+            collapsed: true,
+
+            enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
+            shadow_bias: INITIAL_SHADOW_BIAS,
+            soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
+            soft_shadows_max_distance: INITIAL_SOFT_SHADOWS_MAX_DISTANCE,
+            soft_shadow_grid_dims: INITIAL_SOFT_SHADOW_GRID_DIMS,
+            shadow_small_object_culling_size_pixels:
+                INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS,
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct DebugSettings {
+    collapsed: bool,
+
+    pub draw_culling_frustum: bool,
+    pub draw_point_light_culling_frusta: bool,
+    pub draw_directional_light_culling_frusta: bool,
+    pub enable_shadow_debug: bool,
+    pub enable_cascade_debug: bool,
+    pub record_culling_stats: bool,
+    pub culling_frustum_lock_mode: CullingFrustumLockMode,
+
+    is_showing_fps_chart: bool,
+    is_showing_gpu_spans: bool,
+    is_showing_audio_stats: bool,
+    is_showing_camera_pose: bool,
+    pub is_showing_cursor_marker: bool,
+}
+
+impl Default for DebugSettings {
+    fn default() -> Self {
+        Self {
+            collapsed: true,
+
+            draw_culling_frustum: INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG,
+            draw_point_light_culling_frusta: INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG,
+            draw_directional_light_culling_frusta:
+                INITIAL_ENABLE_DIRECTIONAL_LIGHT_CULLING_FRUSTUM_DEBUG,
+            enable_shadow_debug: INITIAL_ENABLE_SHADOW_DEBUG,
+            enable_cascade_debug: INITIAL_ENABLE_CASCADE_DEBUG,
+            record_culling_stats: false,
+            culling_frustum_lock_mode: CullingFrustumLockMode::default(),
+
+            is_showing_camera_pose: INITIAL_IS_SHOWING_CAMERA_POSE,
+            is_showing_cursor_marker: INITIAL_IS_SHOWING_CURSOR_MARKER,
+            is_showing_fps_chart: false,
+            is_showing_gpu_spans: false,
+            is_showing_audio_stats: false,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct UiOverlay {
     clock: canvas::Cache,
     viewport_dims: (u32, u32),
-    pub cursor_position: winit::dpi::PhysicalPosition<f64>,
+    cursor_position: winit::dpi::PhysicalPosition<f64>,
     fps_chart: FpsChart,
-    is_showing_fps_chart: bool,
-    is_showing_gpu_spans: bool,
-    is_showing_audio_stats: bool,
+    camera_pose: Option<(Vec3, ControlledViewDirection)>, // position, direction
+    audio_sound_stats: BTreeMap<String, AudioSoundStats>,
+    pending_perf_dump: Option<PendingPerfDump>,
+    perf_dump_completion_time: Option<Instant>,
+    culling_stats: Option<CullingStats>,
+
     pub is_showing_options_menu: bool,
     pub was_exit_button_pressed: bool,
-    camera_pose: Option<(Vec3, ControlledViewDirection)>, // position, direction
 
-    audio_sound_stats: BTreeMap<String, AudioSoundStats>,
-
-    pub enable_vsync: bool,
-    pub bloom_type: BloomType,
-    pub new_bloom_radius: f32,
-    pub new_bloom_intensity: f32,
-    pub enable_depth_prepass: bool,
-    pub enable_soft_shadows: bool,
-    pub skybox_weight: f32,
-    pub shadow_bias: f32,
-    pub soft_shadow_factor: f32,
-    pub enable_shadow_debug: bool,
-    pub enable_cascade_debug: bool,
-    pub draw_culling_frustum: bool,
-    pub draw_point_light_culling_frusta: bool,
-    pub draw_directional_light_culling_frusta: bool,
-    pub culling_frustum_lock_mode: CullingFrustumLockMode,
-    pub soft_shadow_grid_dims: u32,
-    pub is_showing_camera_pose: bool,
-    pub is_showing_cursor_marker: bool,
-    pub is_recording_culling_stats: bool,
-    pub culling_stats: Option<CullingStats>,
-    pub shadow_small_object_culling_size_pixels: f32,
-    pub soft_shadows_max_distance: f32,
-    pub fov_y: f32,
-    pub near_plane_distance: f32,
-    pub far_plane_distance: f32,
-
-    pub pending_perf_dump: Option<PendingPerfDump>,
-    perf_dump_completion_time: Option<Instant>,
+    pub general_settings: GeneralSettings,
+    pub camera_settings: CameraSettings,
+    pub post_effect_settings: PostEffectSettings,
+    pub shadow_settings: ShadowSettings,
+    pub debug_settings: DebugSettings,
 }
 
 pub struct ContainerStyle;
@@ -190,7 +315,70 @@ impl container::StyleSheet for ContainerStyle {
     }
 }
 
-#[derive(Debug, Clone)]
+pub struct CollapsibleButtonStyle;
+
+impl CollapsibleButtonStyle {
+    const HOVERED_ALPHA: f32 = 0.5;
+    const PRESSED_ALPHA: f32 = 0.3;
+    const DISABLED_ALPHA: f32 = 0.3;
+
+    fn transparent_color(color: iced::Color, alpha: f32) -> iced::Color {
+        iced::Color::from_rgba(color.r, color.g, color.b, color.a * alpha)
+    }
+}
+
+impl button::StyleSheet for CollapsibleButtonStyle {
+    type Style = Theme;
+
+    fn active(&self, style: &Self::Style) -> button::Appearance {
+        button::Appearance {
+            border: Border::with_radius(2),
+            text_color: style.palette().text,
+            ..button::Appearance::default()
+        }
+    }
+
+    fn hovered(&self, style: &Self::Style) -> button::Appearance {
+        let active = self.active(style);
+
+        button::Appearance {
+            text_color: Self::transparent_color(active.text_color, Self::HOVERED_ALPHA),
+            ..active
+        }
+    }
+
+    fn pressed(&self, style: &Self::Style) -> button::Appearance {
+        let active = self.active(style);
+
+        button::Appearance {
+            text_color: Self::transparent_color(active.text_color, Self::PRESSED_ALPHA),
+            ..active
+        }
+    }
+
+    fn disabled(&self, style: &Self::Style) -> button::Appearance {
+        let active = self.active(style);
+
+        button::Appearance {
+            text_color: Self::transparent_color(active.text_color, Self::DISABLED_ALPHA),
+            ..active
+        }
+    }
+}
+
+pub struct ModalStyle;
+
+impl modal::StyleSheet for ModalStyle {
+    type Style = Theme;
+
+    fn active(&self, _style: &Self::Style) -> modal::Appearance {
+        modal::Appearance {
+            background: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.5).into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
 struct FpsChart {
     recent_frame_times: Vec<(Instant, FrameDurations, Option<Duration>)>,
     avg_total_frame_time_millis: Option<f64>,
@@ -204,9 +392,12 @@ impl Chart<Message> for FpsChart {
     type State = ();
 
     fn build_chart<DB: DrawingBackend>(&self, _state: &Self::State, mut builder: ChartBuilder<DB>) {
+        if self.recent_frame_times.is_empty() {
+            return;
+        }
+
         let result: Result<(), String> = (|| {
-            let most_recent_start_time =
-                self.recent_frame_times[self.recent_frame_times.len() - 1].0;
+            let most_recent_start_time = self.recent_frame_times.last().unwrap().0;
 
             let oldest_ft_age_secs =
                 (most_recent_start_time - self.recent_frame_times[0].0).as_secs_f32();
@@ -273,7 +464,7 @@ impl Chart<Message> for FpsChart {
                 filled: false,
                 stroke_width: 2,
             };
-            let axis_labels_style = (DEFAULT_FONT_NAME, 16, &WHITE);
+            let axis_labels_style = (LATO_FONT_NAME, 16, &WHITE);
 
             chart
                 .configure_mesh()
@@ -444,52 +635,21 @@ impl UiOverlay {
             clock: Default::default(),
             viewport_dims: (window.inner_size().width, window.inner_size().height),
             cursor_position,
-            fps_chart: FpsChart {
-                recent_frame_times: vec![],
-                avg_total_frame_time_millis: None,
-                avg_update_time_ms: None,
-                avg_render_time_ms: None,
-                avg_gpu_frame_time_ms: None,
-                avg_gpu_frame_time_per_span: HashMap::new(),
-            },
-
-            audio_sound_stats: BTreeMap::new(),
-
+            fps_chart: FpsChart::default(),
             camera_pose: None,
-            is_showing_camera_pose: INITIAL_IS_SHOWING_CAMERA_POSE,
-            is_showing_cursor_marker: INITIAL_IS_SHOWING_CURSOR_MARKER,
-            is_showing_fps_chart: false,
-            is_showing_gpu_spans: false,
-            is_showing_options_menu: false,
-            was_exit_button_pressed: false,
-            is_showing_audio_stats: false,
-            is_recording_culling_stats: false,
-            culling_stats: None,
-            shadow_small_object_culling_size_pixels:
-                INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS,
-            soft_shadows_max_distance: INITIAL_SOFT_SHADOWS_MAX_DISTANCE,
-            enable_vsync: INITIAL_ENABLE_VSYNC,
-            bloom_type: INITIAL_BLOOM_TYPE,
-            new_bloom_radius: INITIAL_NEW_BLOOM_RADIUS,
-            new_bloom_intensity: INITIAL_NEW_BLOOM_INTENSITY,
-            enable_depth_prepass: INITIAL_ENABLE_DEPTH_PREPASS,
-            enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
-            skybox_weight: INITIAL_SKYBOX_WEIGHT,
-            shadow_bias: INITIAL_SHADOW_BIAS,
-            soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
-            enable_shadow_debug: INITIAL_ENABLE_SHADOW_DEBUG,
-            enable_cascade_debug: INITIAL_ENABLE_CASCADE_DEBUG,
-            draw_culling_frustum: INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG,
-            draw_point_light_culling_frusta: INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG,
-            draw_directional_light_culling_frusta:
-                INITIAL_ENABLE_DIRECTIONAL_LIGHT_CULLING_FRUSTUM_DEBUG,
-            culling_frustum_lock_mode: CullingFrustumLockMode::None,
-            soft_shadow_grid_dims: INITIAL_SOFT_SHADOW_GRID_DIMS,
+            audio_sound_stats: BTreeMap::new(),
             pending_perf_dump: None,
             perf_dump_completion_time: None,
-            fov_y: INITIAL_FOV_Y,
-            near_plane_distance: INITIAL_NEAR_PLANE_DISTANCE,
-            far_plane_distance: INITIAL_FAR_PLANE_DISTANCE,
+            culling_stats: None,
+
+            is_showing_options_menu: false,
+            was_exit_button_pressed: false,
+
+            general_settings: GeneralSettings::default(),
+            camera_settings: CameraSettings::default(),
+            post_effect_settings: PostEffectSettings::default(),
+            shadow_settings: ShadowSettings::default(),
+            debug_settings: DebugSettings::default(),
         }
     }
 
@@ -527,6 +687,7 @@ impl<Message> canvas::Program<Message, iced::Theme, iced::Renderer> for UiOverla
         bounds: Rectangle,
         _cursor: mouse::Cursor,
     ) -> Vec<canvas::Geometry> {
+        self.clock.clear();
         let clock = self.clock.draw(renderer, bounds.size(), |frame| {
             let center = iced::Point::new(
                 frame.width() * self.cursor_position.x as f32,
@@ -564,106 +725,148 @@ impl runtime::Program for UiOverlay {
                 self.culling_stats = frame_stats.culling_stats;
                 self.poll_perf_dump_state();
             }
-            Message::ShadowSmallObjectCullingSizeChanged(new_state) => {
-                self.shadow_small_object_culling_size_pixels = new_state
-            }
-            Message::SoftShadowsMaxDistanceChanged(new_state) => {
-                self.soft_shadows_max_distance = new_state
-            }
             Message::AudioSoundStatsChanged((track_path, stats)) => {
                 self.audio_sound_stats.insert(
                     track_path.relative_path.to_string_lossy().to_string(),
                     stats,
                 );
             }
-            Message::CameraPoseChanged(new_state) => {
-                self.camera_pose = Some(new_state);
-            }
-            Message::VsyncChanged(new_state) => {
-                self.enable_vsync = new_state;
-            }
-            Message::FovyChanged(new_state) => {
-                self.fov_y = new_state.to_radians();
-            }
-            Message::NearPlaneDistanceChanged(new_state) => {
-                self.near_plane_distance = new_state;
-            }
-            Message::FarPlaneDistanceChanged(new_state) => {
-                self.far_plane_distance = new_state;
-            }
-            Message::BloomTypeChanged(new_state) => {
-                self.bloom_type = new_state;
-            }
-            Message::NewBloomRadiusChanged(new_state) => {
-                self.new_bloom_radius = new_state;
-            }
-            Message::NewBloomIntensityChanged(new_state) => {
-                self.new_bloom_intensity = new_state;
-            }
-            Message::ToggleDepthPrepass(new_state) => {
-                self.enable_depth_prepass = new_state;
-            }
-            Message::ToggleCameraPose(new_state) => {
-                self.is_showing_camera_pose = new_state;
-            }
-            Message::ToggleCursorMarker(new_state) => {
-                self.is_showing_cursor_marker = new_state;
-            }
-            Message::ToggleFpsChart(new_state) => {
-                self.is_showing_fps_chart = new_state;
-            }
-            Message::ToggleGpuSpans(new_state) => {
-                self.is_showing_gpu_spans = new_state;
-            }
-            Message::ToggleSoftShadows(new_state) => {
-                self.enable_soft_shadows = new_state;
-            }
-            Message::ToggleDrawCullingFrustum(new_state) => {
-                self.draw_culling_frustum = new_state;
-                if !self.draw_culling_frustum {
-                    self.culling_frustum_lock_mode = CullingFrustumLockMode::None;
-                }
-            }
-            Message::ToggleDrawPointLightCullingFrusta(new_state) => {
-                self.draw_point_light_culling_frusta = new_state;
-            }
-            Message::ToggleDrawDirectionalLightCullingFrusta(new_state) => {
-                self.draw_directional_light_culling_frusta = new_state;
-            }
-            Message::ToggleShadowDebug(new_state) => {
-                self.enable_shadow_debug = new_state;
-            }
-            Message::ToggleCascadeDebug(new_state) => {
-                self.enable_cascade_debug = new_state;
-            }
-            Message::ToggleAudioStats(new_state) => {
-                self.is_showing_audio_stats = new_state;
-            }
-            Message::ToggleCullingStats(new_state) => {
-                self.is_recording_culling_stats = new_state;
-            }
-            Message::SkyboxWeightChanged(new_state) => {
-                self.skybox_weight = new_state;
-            }
-            Message::ShadowBiasChanged(new_state) => {
-                self.shadow_bias = new_state;
-            }
-            Message::SoftShadowFactorChanged(new_state) => {
-                self.soft_shadow_factor = new_state;
-            }
-            Message::SoftShadowGridDimsChanged(new_state) => {
-                self.soft_shadow_grid_dims = new_state;
-            }
-            Message::CullingFrustumLockModeChanged(new_state) => {
-                self.culling_frustum_lock_mode = new_state;
-            }
             Message::ClosePopupMenu => self.is_showing_options_menu = false,
             Message::ExitButtonPressed => self.was_exit_button_pressed = true,
+            Message::DefaultSettingsButtonPressed => {
+                self.general_settings = GeneralSettings {
+                    collapsed: self.general_settings.collapsed,
+                    ..GeneralSettings::default()
+                };
+                self.camera_settings = CameraSettings {
+                    collapsed: self.camera_settings.collapsed,
+                    ..CameraSettings::default()
+                };
+                self.post_effect_settings = PostEffectSettings {
+                    collapsed: self.post_effect_settings.collapsed,
+                    ..PostEffectSettings::default()
+                };
+                self.shadow_settings = ShadowSettings {
+                    collapsed: self.shadow_settings.collapsed,
+                    ..ShadowSettings::default()
+                };
+                self.debug_settings = DebugSettings {
+                    collapsed: self.debug_settings.collapsed,
+                    ..DebugSettings::default()
+                };
+            }
             Message::GenerateProfileDump => {
                 self.pending_perf_dump = Some(generate_profile_dump());
             }
             Message::TogglePopupMenu => {
                 self.is_showing_options_menu = !self.is_showing_options_menu
+            }
+            Message::CameraPoseChanged(new_state) => {
+                self.camera_pose = Some(new_state);
+            }
+
+            Message::ToggleGeneralSettingsCollapse => {
+                self.general_settings.collapsed = !self.general_settings.collapsed;
+            }
+            Message::VsyncChanged(new_state) => {
+                self.general_settings.enable_vsync = new_state;
+            }
+            Message::ToggleDepthPrepass(new_state) => {
+                self.general_settings.enable_depth_prepass = new_state;
+            }
+
+            Message::ToggleCameraSettingsCollapse => {
+                self.camera_settings.collapsed = !self.camera_settings.collapsed;
+            }
+            Message::FovxChanged(new_state) => {
+                self.camera_settings.fov_x = new_state.to_radians();
+            }
+            Message::NearPlaneDistanceChanged(new_state) => {
+                self.camera_settings.near_plane_distance = new_state;
+            }
+            Message::FarPlaneDistanceChanged(new_state) => {
+                self.camera_settings.far_plane_distance = new_state;
+            }
+
+            Message::TogglePostEffectSettingsCollapse => {
+                self.post_effect_settings.collapsed = !self.post_effect_settings.collapsed;
+            }
+            Message::BloomTypeChanged(new_state) => {
+                self.post_effect_settings.bloom_type = new_state;
+            }
+            Message::NewBloomRadiusChanged(new_state) => {
+                self.post_effect_settings.new_bloom_radius = new_state;
+            }
+            Message::NewBloomIntensityChanged(new_state) => {
+                self.post_effect_settings.new_bloom_intensity = new_state;
+            }
+            Message::SkyboxWeightChanged(new_state) => {
+                self.post_effect_settings.skybox_weight = new_state;
+            }
+
+            Message::ToggleShadowSettingsCollapse => {
+                self.shadow_settings.collapsed = !self.shadow_settings.collapsed;
+            }
+            Message::ShadowSmallObjectCullingSizeChanged(new_state) => {
+                self.shadow_settings.shadow_small_object_culling_size_pixels = new_state
+            }
+            Message::SoftShadowsMaxDistanceChanged(new_state) => {
+                self.shadow_settings.soft_shadows_max_distance = new_state
+            }
+            Message::ToggleSoftShadows(new_state) => {
+                self.shadow_settings.enable_soft_shadows = new_state;
+            }
+            Message::ShadowBiasChanged(new_state) => {
+                self.shadow_settings.shadow_bias = new_state;
+            }
+            Message::SoftShadowFactorChanged(new_state) => {
+                self.shadow_settings.soft_shadow_factor = new_state;
+            }
+            Message::SoftShadowGridDimsChanged(new_state) => {
+                self.shadow_settings.soft_shadow_grid_dims = new_state;
+            }
+
+            Message::ToggleDebugSettingsCollapse => {
+                self.debug_settings.collapsed = !self.debug_settings.collapsed;
+            }
+            Message::ToggleDrawCullingFrustum(new_state) => {
+                self.debug_settings.draw_culling_frustum = new_state;
+                if !self.debug_settings.draw_culling_frustum {
+                    self.debug_settings.culling_frustum_lock_mode = CullingFrustumLockMode::None;
+                }
+            }
+            Message::ToggleDrawPointLightCullingFrusta(new_state) => {
+                self.debug_settings.draw_point_light_culling_frusta = new_state;
+            }
+            Message::ToggleDrawDirectionalLightCullingFrusta(new_state) => {
+                self.debug_settings.draw_directional_light_culling_frusta = new_state;
+            }
+            Message::ToggleShadowDebug(new_state) => {
+                self.debug_settings.enable_shadow_debug = new_state;
+            }
+            Message::ToggleCascadeDebug(new_state) => {
+                self.debug_settings.enable_cascade_debug = new_state;
+            }
+            Message::ToggleCullingStats(new_state) => {
+                self.debug_settings.record_culling_stats = new_state;
+            }
+            Message::CullingFrustumLockModeChanged(new_state) => {
+                self.debug_settings.culling_frustum_lock_mode = new_state;
+            }
+            Message::ToggleCameraPose(new_state) => {
+                self.debug_settings.is_showing_camera_pose = new_state;
+            }
+            Message::ToggleCursorMarker(new_state) => {
+                self.debug_settings.is_showing_cursor_marker = new_state;
+            }
+            Message::ToggleFpsChart(new_state) => {
+                self.debug_settings.is_showing_fps_chart = new_state;
+            }
+            Message::ToggleGpuSpans(new_state) => {
+                self.debug_settings.is_showing_gpu_spans = new_state;
+            }
+            Message::ToggleAudioStats(new_state) => {
+                self.debug_settings.is_showing_audio_stats = new_state;
             }
         }
 
@@ -691,6 +894,15 @@ impl runtime::Program for UiOverlay {
             )
         };
 
+        let DebugSettings {
+            is_showing_fps_chart,
+            is_showing_gpu_spans,
+            is_showing_audio_stats,
+            is_showing_camera_pose,
+            is_showing_cursor_marker,
+            ..
+        } = self.debug_settings;
+
         if let Some(avg_frame_time_millis) = self.fps_chart.avg_total_frame_time_millis {
             let mut text = text(format!(
                 "Frametime: {:.2}ms ({:.2}fps)",
@@ -698,7 +910,7 @@ impl runtime::Program for UiOverlay {
                 1_000.0 / avg_frame_time_millis,
             ));
 
-            if self.is_showing_fps_chart {
+            if is_showing_fps_chart {
                 text = text.style(get_chart_line_color(0))
             }
             rows = rows.push(text);
@@ -706,7 +918,7 @@ impl runtime::Program for UiOverlay {
 
         if let Some(millis) = self.fps_chart.avg_update_time_ms {
             let mut text = text(&format!("Update: {:.2}ms", millis));
-            if self.is_showing_fps_chart {
+            if is_showing_fps_chart {
                 text = text.style(get_chart_line_color(1))
             }
             rows = rows.push(text);
@@ -714,7 +926,7 @@ impl runtime::Program for UiOverlay {
 
         if let Some(millis) = self.fps_chart.avg_render_time_ms {
             let mut text = text(&format!("Render: {:.2}ms", millis));
-            if self.is_showing_fps_chart {
+            if is_showing_fps_chart {
                 text = text.style(get_chart_line_color(2))
             }
             rows = rows.push(text);
@@ -722,17 +934,20 @@ impl runtime::Program for UiOverlay {
 
         if let Some(millis) = self.fps_chart.avg_gpu_frame_time_ms {
             let mut text = text(&format!("GPU: {:.2}ms", millis));
-            if self.is_showing_fps_chart {
+            if is_showing_fps_chart {
                 text = text.style(get_chart_line_color(3))
             }
             rows = rows.push(text);
         }
 
         if SHOW_BLOOM_TYPE {
-            rows = rows.push(text(&format!("Bloom type: {}", self.bloom_type)));
+            rows = rows.push(text(&format!(
+                "Bloom type: {}",
+                self.post_effect_settings.bloom_type
+            )));
         }
 
-        if self.is_showing_camera_pose {
+        if is_showing_camera_pose {
             if let Some((camera_position, camera_direction)) = self.camera_pose {
                 rows = rows.push(text(&format!(
                     "Camera position:  x={:.2}, y={:.2}, z={:.2}",
@@ -748,14 +963,10 @@ impl runtime::Program for UiOverlay {
                     camera_vertical,
                     camera_vertical.to_degrees(),
                 )));
-                // rows = rows.push(text(&format!(
-                //     "Camera direction: {:?}",
-                //     camera_direction.to_vector()
-                // )));
             }
         }
 
-        if self.is_showing_audio_stats {
+        if is_showing_audio_stats {
             for (file_path, stats) in &self.audio_sound_stats {
                 let format_timestamp = |timestamp| format!("{timestamp:.2}");
                 let pos = format_timestamp(stats.pos_seconds);
@@ -839,7 +1050,7 @@ impl runtime::Program for UiOverlay {
             }
         }
 
-        if self.is_showing_gpu_spans {
+        if is_showing_gpu_spans {
             let mut avg_span_times_vec: Vec<_> =
                 self.fps_chart.avg_gpu_frame_time_per_span.iter().collect();
 
@@ -854,7 +1065,7 @@ impl runtime::Program for UiOverlay {
             }
         }
 
-        if self.is_showing_fps_chart {
+        if is_showing_fps_chart {
             let padding = [16, 20, 16, 0]; // top, right, bottom, left
             rows = rows.push(
                 Container::new(
@@ -881,256 +1092,413 @@ impl runtime::Program for UiOverlay {
         .height(Length::Fill);
 
         let modal_content: Option<Element<_, _, _>> = self.is_showing_options_menu.then(|| {
-            let separator_line = Text::new("-------------")
-                .width(Length::Fill)
-                .horizontal_alignment(Horizontal::Center);
+            let big_text_size: u16 = 18;
+            let small_text_size: u16 = 14;
+            let checkbox_size: u16 = small_text_size * 4 / 3;
+            let slider_size: u16 = small_text_size * 4 / 3;
+
+            let collapse_title = |title, collapsed, on_press| {
+                let arrow = if collapsed { ">" } else { "v" };
+                button(
+                    text(format!("{arrow}  {title}"))
+                        .font(Font {
+                            family: Family::Name(LATO_FONT_NAME),
+                            weight: Weight::Bold,
+                            ..Font::DEFAULT
+                        })
+                        .size(big_text_size),
+                )
+                .style(iced::theme::Button::Custom(Box::new(
+                    CollapsibleButtonStyle,
+                )))
+                .on_press(on_press)
+            };
 
             let mut options = Column::new()
-                .spacing(16)
+                .spacing(4)
                 .padding([6, 48, 6, 6])
                 .width(Length::Fill);
 
-            // vsync
-            #[cfg(not(target_arch = "wasm32"))]
             {
-                options = options.push(
-                    checkbox("Enable VSync", self.enable_vsync).on_toggle(Message::VsyncChanged),
-                );
-            }
+                #[allow(unused_variables)]
+                let GeneralSettings {
+                    collapsed,
 
-            options = options.push(
-                checkbox("Enable Depth Pre-pass", self.enable_depth_prepass)
-                    .on_toggle(Message::ToggleDepthPrepass),
-            );
+                    enable_depth_prepass,
+                    enable_vsync,
+                } = self.general_settings;
 
-            options = options.push(Text::new("Bloom Type"));
-            for mode in BloomType::ALL {
-                options = options.push(radio(
-                    format!("{mode}"),
-                    mode,
-                    Some(self.bloom_type),
-                    Message::BloomTypeChanged,
+                options = options.push(collapse_title(
+                    "General:",
+                    collapsed,
+                    Message::ToggleGeneralSettingsCollapse,
                 ));
-            }
 
-            options = options.push(Text::new(format!(
-                "Vertical FOV: {:.4}",
-                self.fov_y.to_degrees()
-            )));
-            options = options
-                .push(slider(10.0..=90.0, self.fov_y.to_degrees(), Message::FovyChanged).step(0.1));
+                if !collapsed {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        options = options.push(
+                            checkbox("Enable VSync", enable_vsync)
+                                .size(checkbox_size)
+                                .text_size(small_text_size)
+                                .on_toggle(Message::VsyncChanged),
+                        );
+                    }
 
-            options = options.push(Text::new(format!(
-                "Near plane distance: {:.4}",
-                self.near_plane_distance
-            )));
-            options = options.push(
-                slider(
-                    0.0001..=1.0,
-                    self.near_plane_distance,
-                    Message::NearPlaneDistanceChanged,
-                )
-                .step(0.0001),
-            );
-
-            options = options.push(Text::new(format!(
-                "Far plane distance: {:.4}",
-                self.far_plane_distance
-            )));
-            options = options.push(
-                slider(
-                    100.0..=100000.0,
-                    self.far_plane_distance,
-                    Message::FarPlaneDistanceChanged,
-                )
-                .step(10.0),
-            );
-
-            options = options.push(Text::new(format!(
-                "New Bloom Radius: {:.4}",
-                self.new_bloom_radius
-            )));
-            options = options.push(
-                slider(
-                    0.0001..=0.025,
-                    self.new_bloom_radius,
-                    Message::NewBloomRadiusChanged,
-                )
-                .step(0.0001),
-            );
-
-            options = options.push(Text::new(format!(
-                "New Bloom Intensity: {:.4}",
-                self.new_bloom_intensity
-            )));
-            options = options.push(
-                slider(
-                    0.001..=0.25,
-                    self.new_bloom_intensity,
-                    Message::NewBloomIntensityChanged,
-                )
-                .step(0.001),
-            );
-
-            // camera debug
-            options = options.push(
-                checkbox("Show Camera Pose", self.is_showing_camera_pose)
-                    .on_toggle(Message::ToggleCameraPose),
-            );
-
-            // cursor marker debug
-            options = options.push(
-                checkbox("Show Cursor Marker", self.is_showing_cursor_marker)
-                    .on_toggle(Message::ToggleCursorMarker),
-            );
-
-            // audio stats debug
-            options = options.push(
-                checkbox("Show Audio Stats", self.is_showing_audio_stats)
-                    .on_toggle(Message::ToggleAudioStats),
-            );
-
-            // culling stats debug
-            options = options.push(
-                checkbox("Show Culling Stats", self.is_recording_culling_stats)
-                    .on_toggle(Message::ToggleCullingStats),
-            );
-
-            // fps overlay
-            options = options.push(
-                checkbox("Show FPS Chart", self.is_showing_fps_chart)
-                    .on_toggle(Message::ToggleFpsChart),
-            );
-
-            if self
-                .fps_chart
-                .recent_frame_times
-                .iter()
-                .any(|(_, _, gpu_duration)| gpu_duration.is_some())
-            {
-                options = options.push(
-                    checkbox("Show Detailed GPU Frametimes", self.is_showing_gpu_spans)
-                        .on_toggle(Message::ToggleGpuSpans),
-                );
-            }
-
-            // frustum culling debug
-            options = options.push(separator_line.clone());
-            options = options.push(
-                checkbox("Enable Frustum Culling Debug", self.draw_culling_frustum)
-                    .on_toggle(Message::ToggleDrawCullingFrustum),
-            );
-            if self.draw_culling_frustum {
-                options = options.push(Text::new("Lock Culling Frustum"));
-                for mode in CullingFrustumLockMode::ALL {
-                    options = options.push(radio(
-                        format!("{mode}"),
-                        mode,
-                        Some(self.culling_frustum_lock_mode),
-                        Message::CullingFrustumLockModeChanged,
-                    ));
+                    options = options.push(
+                        checkbox("Enable Depth Pre-pass", enable_depth_prepass)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleDepthPrepass),
+                    );
                 }
             }
 
-            // point light frusta debug
-            options = options.push(
-                checkbox(
-                    "Enable Point Light Frustum Culling Debug",
-                    self.draw_point_light_culling_frusta,
-                )
-                .on_toggle(Message::ToggleDrawPointLightCullingFrusta),
-            );
+            {
+                let CameraSettings {
+                    collapsed,
 
-            // directional light frusta debug
-            options = options.push(
-                checkbox(
-                    "Enable Directional Light Frustum Culling Debug",
-                    self.draw_directional_light_culling_frusta,
-                )
-                .on_toggle(Message::ToggleDrawDirectionalLightCullingFrusta),
-            );
-            // shadow debug
-            options = options.push(separator_line.clone());
-            options = options.push(
-                checkbox("Enable Shadow Debug", self.enable_shadow_debug)
-                    .on_toggle(Message::ToggleShadowDebug),
-            );
-            options = options.push(
-                checkbox("Enable Cascade Debug", self.enable_cascade_debug)
-                    .on_toggle(Message::ToggleCascadeDebug),
-            );
-            options = options.push(
-                checkbox("Enable Soft Shadows", self.enable_soft_shadows)
-                    .on_toggle(Message::ToggleSoftShadows),
-            );
-            options = options.push(Text::new(format!(
-                "Skybox weight: {:.5}",
-                self.skybox_weight
-            )));
-            options = options.push(
-                slider(0.0..=1.0, self.skybox_weight, Message::SkyboxWeightChanged).step(0.01),
-            );
-            options = options.push(Text::new(format!("Shadow Bias: {:.5}", self.shadow_bias)));
-            options = options.push(
-                slider(
-                    MIN_SHADOW_MAP_BIAS..=0.005,
-                    self.shadow_bias,
-                    Message::ShadowBiasChanged,
-                )
-                .step(0.00001),
-            );
-            options = options.push(Text::new(format!(
-                "Soft Shadow Factor: {:.6}",
-                self.soft_shadow_factor
-            )));
-            options = options.push(
-                slider(
-                    0.000001..=0.00015,
-                    self.soft_shadow_factor,
-                    Message::SoftShadowFactorChanged,
-                )
-                .step(0.000001),
-            );
-            options = options.push(Text::new(format!(
-                "Soft Shadow Grid Dims: {:}",
-                self.soft_shadow_grid_dims
-            )));
-            options = options.push(
-                slider(
-                    0..=16u32,
-                    self.soft_shadow_grid_dims,
-                    Message::SoftShadowGridDimsChanged,
-                )
-                .step(1u32),
-            );
+                    fov_x,
+                    near_plane_distance,
+                    far_plane_distance,
+                } = self.camera_settings;
 
-            options = options.push(Text::new(format!(
-                "Shadow Small Object Culling Size Pixels: {:.4}",
-                self.shadow_small_object_culling_size_pixels
-            )));
-            options = options.push(
-                slider(
-                    0.001..=1.0,
-                    self.shadow_small_object_culling_size_pixels,
-                    Message::ShadowSmallObjectCullingSizeChanged,
-                )
-                .step(0.001),
-            );
+                options = options.push(collapse_title(
+                    "Camera:",
+                    collapsed,
+                    Message::ToggleCameraSettingsCollapse,
+                ));
 
-            options = options.push(Text::new(format!(
-                "Soft Shadows Max Distance: {:.4}",
-                self.soft_shadows_max_distance
-            )));
-            options = options.push(
-                slider(
-                    10.0..=500.0,
-                    self.soft_shadows_max_distance,
-                    Message::SoftShadowsMaxDistanceChanged,
-                )
-                .step(1.0),
-            );
+                if !collapsed {
+                    options = options.push(
+                        text(format!("Horizontal FOV: {:.4}", fov_x.to_degrees()))
+                            .size(small_text_size),
+                    );
+                    options = options.push(
+                        slider(10.0..=150.0, fov_x.to_degrees(), Message::FovxChanged)
+                            .height(slider_size)
+                            .step(0.1),
+                    );
 
-            // profile dump
+                    options = options.push(
+                        text(format!("Near plane distance: {:.4}", near_plane_distance))
+                            .size(small_text_size),
+                    );
+                    options = options.push(
+                        slider(
+                            0.0001..=1.0,
+                            near_plane_distance,
+                            Message::NearPlaneDistanceChanged,
+                        )
+                        .height(slider_size)
+                        .step(0.0001),
+                    );
+
+                    options = options.push(
+                        text(format!("Far plane distance: {:.4}", far_plane_distance))
+                            .size(small_text_size),
+                    );
+                    options = options.push(
+                        slider(
+                            100.0..=100000.0,
+                            far_plane_distance,
+                            Message::FarPlaneDistanceChanged,
+                        )
+                        .height(slider_size)
+                        .step(10.0),
+                    );
+                }
+            }
+
+            {
+                let PostEffectSettings {
+                    collapsed,
+
+                    bloom_type,
+                    new_bloom_radius,
+                    new_bloom_intensity,
+                    skybox_weight,
+                    ..
+                } = self.post_effect_settings;
+
+                options = options.push(collapse_title(
+                    "Post effects:",
+                    collapsed,
+                    Message::TogglePostEffectSettingsCollapse,
+                ));
+
+                if !collapsed {
+                    options = options.push(text("Bloom Type").size(small_text_size));
+                    for mode in BloomType::ALL {
+                        options = options.push(
+                            radio(
+                                format!("{mode}"),
+                                mode,
+                                Some(bloom_type),
+                                Message::BloomTypeChanged,
+                            )
+                            .size(checkbox_size)
+                            .text_size(small_text_size),
+                        );
+                    }
+
+                    options = options.push(
+                        text(format!("New Bloom Radius: {:.4}", new_bloom_radius))
+                            .size(small_text_size),
+                    );
+                    options = options.push(
+                        slider(
+                            0.0001..=0.025,
+                            new_bloom_radius,
+                            Message::NewBloomRadiusChanged,
+                        )
+                        .step(0.0001),
+                    );
+
+                    options = options.push(
+                        text(format!("New Bloom Intensity: {:.4}", new_bloom_intensity))
+                            .size(small_text_size),
+                    );
+                    options = options.push(
+                        slider(
+                            0.001..=0.25,
+                            new_bloom_intensity,
+                            Message::NewBloomIntensityChanged,
+                        )
+                        .step(0.001),
+                    );
+
+                    options = options.push(
+                        text(format!("Skybox weight: {:.5}", skybox_weight)).size(small_text_size),
+                    );
+                    options = options.push(
+                        slider(0.0..=1.0, skybox_weight, Message::SkyboxWeightChanged).step(0.01),
+                    );
+                }
+            }
+
+            {
+                let ShadowSettings {
+                    collapsed,
+
+                    enable_soft_shadows,
+                    shadow_bias,
+                    soft_shadow_factor,
+                    soft_shadows_max_distance,
+                    soft_shadow_grid_dims,
+                    shadow_small_object_culling_size_pixels,
+                } = self.shadow_settings;
+
+                options = options.push(collapse_title(
+                    "Shadows:",
+                    collapsed,
+                    Message::ToggleShadowSettingsCollapse,
+                ));
+
+                if !collapsed {
+                    options = options.push(
+                        checkbox("Enable Soft Shadows", enable_soft_shadows)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleSoftShadows),
+                    );
+                    options = options.push(
+                        text(format!("Soft Shadow Factor: {:.6}", soft_shadow_factor))
+                            .size(small_text_size),
+                    );
+                    options = options.push(
+                        slider(
+                            0.000001..=0.00015,
+                            soft_shadow_factor,
+                            Message::SoftShadowFactorChanged,
+                        )
+                        .step(0.000001),
+                    );
+                    options = options.push(
+                        text(format!("Soft Shadow Grid Dims: {:}", soft_shadow_grid_dims))
+                            .size(small_text_size),
+                    );
+                    options = options.push(
+                        slider(
+                            0..=16u32,
+                            soft_shadow_grid_dims,
+                            Message::SoftShadowGridDimsChanged,
+                        )
+                        .step(1u32),
+                    );
+
+                    options = options.push(
+                        text(format!(
+                            "Small Object Culling Size (Pixels): {:.4}",
+                            shadow_small_object_culling_size_pixels
+                        ))
+                        .size(small_text_size),
+                    );
+                    options = options.push(
+                        slider(
+                            0.1..=50.0,
+                            shadow_small_object_culling_size_pixels,
+                            Message::ShadowSmallObjectCullingSizeChanged,
+                        )
+                        .step(0.1),
+                    );
+
+                    options = options.push(
+                        text(format!(
+                            "Soft Shadows Max Distance: {:.4}",
+                            soft_shadows_max_distance
+                        ))
+                        .size(small_text_size),
+                    );
+                    options = options.push(
+                        slider(
+                            10.0..=500.0,
+                            soft_shadows_max_distance,
+                            Message::SoftShadowsMaxDistanceChanged,
+                        )
+                        .step(1.0),
+                    );
+
+                    options = options
+                        .push(text(format!("Bias: {:.5}", shadow_bias)).size(small_text_size));
+                    options = options.push(
+                        slider(
+                            MIN_SHADOW_MAP_BIAS..=0.005,
+                            shadow_bias,
+                            Message::ShadowBiasChanged,
+                        )
+                        .step(0.00001),
+                    );
+                }
+            }
+
+            {
+                let DebugSettings {
+                    collapsed,
+
+                    draw_culling_frustum,
+                    draw_point_light_culling_frusta,
+                    draw_directional_light_culling_frusta,
+                    enable_shadow_debug,
+                    enable_cascade_debug,
+                    record_culling_stats,
+                    culling_frustum_lock_mode,
+                    ..
+                } = self.debug_settings;
+
+                options = options.push(collapse_title(
+                    "Debug:",
+                    collapsed,
+                    Message::ToggleDebugSettingsCollapse,
+                ));
+
+                if !collapsed {
+                    options = options.push(
+                        checkbox("Camera Pose", is_showing_camera_pose)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleCameraPose),
+                    );
+
+                    options = options.push(
+                        checkbox("Cursor Marker", is_showing_cursor_marker)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleCursorMarker),
+                    );
+
+                    options = options.push(
+                        checkbox("Audio Stats", is_showing_audio_stats)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleAudioStats),
+                    );
+
+                    options = options.push(
+                        checkbox("Culling Stats", record_culling_stats)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleCullingStats),
+                    );
+
+                    options = options.push(
+                        checkbox("FPS Chart", is_showing_fps_chart)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleFpsChart),
+                    );
+
+                    if self
+                        .fps_chart
+                        .recent_frame_times
+                        .iter()
+                        .any(|(_, _, gpu_duration)| gpu_duration.is_some())
+                    {
+                        options = options.push(
+                            checkbox("Detailed GPU Frametimes", is_showing_gpu_spans)
+                                .size(checkbox_size)
+                                .text_size(small_text_size)
+                                .on_toggle(Message::ToggleGpuSpans),
+                        );
+                    }
+
+                    options = options.push(
+                        checkbox("Frustum Culling Overlay", draw_culling_frustum)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleDrawCullingFrustum),
+                    );
+                    if draw_culling_frustum {
+                        options = options.push(text("Lock Culling Frustum").size(small_text_size));
+                        for mode in CullingFrustumLockMode::ALL {
+                            options = options.push(
+                                radio(
+                                    format!("{mode}"),
+                                    mode,
+                                    Some(culling_frustum_lock_mode),
+                                    Message::CullingFrustumLockModeChanged,
+                                )
+                                .size(checkbox_size)
+                                .text_size(small_text_size),
+                            );
+                        }
+                    }
+
+                    options = options.push(
+                        checkbox(
+                            "Point Light Frustum Culling Overlay",
+                            draw_point_light_culling_frusta,
+                        )
+                        .size(checkbox_size)
+                        .text_size(small_text_size)
+                        .on_toggle(Message::ToggleDrawPointLightCullingFrusta),
+                    );
+                    options = options.push(
+                        checkbox(
+                            "Directional Light Frustum Culling Overlay",
+                            draw_directional_light_culling_frusta,
+                        )
+                        .size(checkbox_size)
+                        .text_size(small_text_size)
+                        .on_toggle(Message::ToggleDrawDirectionalLightCullingFrusta),
+                    );
+                    options = options.push(
+                        checkbox("Shadow Debug", enable_shadow_debug)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleShadowDebug),
+                    );
+                    options = options.push(
+                        checkbox("Cascade Debug", enable_cascade_debug)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleCascadeDebug),
+                    );
+                }
+            }
+
+            let mut bottom_buttons = Column::new().spacing(8).padding([8, 0, 0, 0]);
+
             if can_generate_profile_dump() {
                 if let Some(pending_perf_dump) = &self.pending_perf_dump {
                     let (message, color) = if self.perf_dump_completion_time.is_some() {
@@ -1160,11 +1528,12 @@ impl runtime::Program for UiOverlay {
                             iced::Color::from_rgb(1.0, 0.7, 0.1),
                         )
                     };
-                    options = options.push(Text::new(message).style(color));
+                    bottom_buttons = bottom_buttons.push(text(message).style(color));
                 } else {
-                    options = options.push(
-                        Button::new(
-                            Text::new("Generate Profile Dump")
+                    bottom_buttons = bottom_buttons.push(
+                        button(
+                            text("Generate Profile Dump")
+                                .size(small_text_size)
                                 .horizontal_alignment(Horizontal::Center),
                         )
                         .width(Length::Shrink)
@@ -1173,15 +1542,30 @@ impl runtime::Program for UiOverlay {
                 }
             }
 
-            // exit button
-            options = options.push(
-                Button::new(Text::new("Exit Game").horizontal_alignment(Horizontal::Center))
-                    .width(Length::Shrink)
-                    .on_press(Message::ExitButtonPressed),
+            bottom_buttons = bottom_buttons.push(
+                button(
+                    text("Reset Defaults")
+                        .size(small_text_size)
+                        .horizontal_alignment(Horizontal::Center),
+                )
+                .width(Length::Shrink)
+                .on_press(Message::DefaultSettingsButtonPressed),
             );
 
+            bottom_buttons = bottom_buttons.push(
+                button(
+                    text("Exit Game")
+                        .size(small_text_size)
+                        .horizontal_alignment(Horizontal::Center),
+                )
+                .width(Length::Shrink)
+                .on_press(Message::ExitButtonPressed),
+            );
+
+            options = options.push(bottom_buttons);
+
             iced_aw::Card::new(
-                Text::new("Options").font(Font::with_name(KOOKY_FONT_NAME)),
+                text("Options").font(Font::with_name(PACIFICO_FONT_NAME)),
                 scrollable(options)
                     .height(Length::Fixed(self.viewport_dims.1 as f32 * 0.75 - 50.0)),
             )
@@ -1190,7 +1574,7 @@ impl runtime::Program for UiOverlay {
             .into()
         });
 
-        if self.is_showing_cursor_marker {
+        let modal_background: Element<_> = if is_showing_cursor_marker {
             let overlay = {
                 let canvas: canvas::Canvas<&Self, Message, iced::Theme, iced::Renderer> =
                     canvas(self as &Self)
@@ -1204,15 +1588,15 @@ impl runtime::Program for UiOverlay {
                         .padding(0),
                 )
             };
-
-            Modal::new(
-                floating_element(background_content, overlay)
-                    .anchor(floating_element::Anchor::NorthWest),
-                modal_content,
-            )
-            .into()
+            floating_element(background_content, overlay)
+                .anchor(floating_element::Anchor::NorthWest)
+                .into()
         } else {
-            Modal::new(background_content, modal_content).into()
-        }
+            background_content.into()
+        };
+
+        Modal::new(modal_background, modal_content)
+            .style(modal::ModalStyles::Custom(Rc::new(ModalStyle)))
+            .into()
     }
 }

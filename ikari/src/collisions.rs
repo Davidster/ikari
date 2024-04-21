@@ -37,7 +37,7 @@ pub struct CameraFrustumDescriptor {
     pub aspect_ratio: f32,
     pub near_plane_distance: f32,
     pub far_plane_distance: f32,
-    pub fov_y: f32,
+    pub fov_x: f32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -74,11 +74,7 @@ impl Default for Aabb {
 impl Aabb {
     // None if the iterator had less than two points
     pub fn make_from_points(mut points: impl Iterator<Item = Vec3>) -> Option<Self> {
-        let first_point = points.next();
-
-        first_point?;
-
-        let first_point = first_point.unwrap();
+        let first_point = points.next()?;
         let mut min = first_point;
         let mut max = first_point;
 
@@ -341,7 +337,8 @@ impl From<CameraFrustumDescriptor> for Frustum {
 
         // see https://learnopengl.com/Guest-Articles/2021/Scene/Frustum-Culling
         let up = right.cross(forward).normalize();
-        let half_v_side = desc.far_plane_distance * (desc.fov_y * 0.5).tan();
+        let fov_y = desc.fov_x / desc.aspect_ratio;
+        let half_v_side = desc.far_plane_distance * (fov_y * 0.5).tan();
         let half_h_side = half_v_side * desc.aspect_ratio;
         let front_mult_far = desc.far_plane_distance * forward;
 
@@ -391,7 +388,7 @@ impl CameraFrustumDescriptor {
             .build()
             .shape()
             .as_convex_polyhedron()
-            .unwrap()
+            .expect("Convex hull should give us a convex polyhedron")
             .clone()
     }
 
@@ -408,10 +405,11 @@ impl CameraFrustumDescriptor {
             .cross(Vec3::new(0.0, 1.0, 0.0))
             .normalize();
         let up = right.cross(self.forward_vector);
-        let tan_half_fovy = (self.fov_y / 2.0).tan();
+        let fov_y = self.fov_x / self.aspect_ratio;
+        let tan_half_fov_y = (fov_y / 2.0).tan();
 
-        let d_x = tan_half_fovy * right * self.aspect_ratio;
-        let d_y = tan_half_fovy * up;
+        let d_x = tan_half_fov_y * right * self.aspect_ratio;
+        let d_y = tan_half_fov_y * up;
 
         let d_x_far = self.far_plane_distance * d_x;
         let d_y_far = self.far_plane_distance * d_y;
@@ -422,7 +420,7 @@ impl CameraFrustumDescriptor {
                 .iter()
                 .map(|vertex| vertex.position.into()),
         )
-        .unwrap()
+        .expect("to_basic_mesh vertices should be non-empty")
         .center();
 
         let far_plane_side_length_x = 2.0 * d_x_far.length();
@@ -431,7 +429,7 @@ impl CameraFrustumDescriptor {
         let diagonal_length = ((self.far_plane_distance - self.near_plane_distance)
             / self.far_plane_distance)
             * self.far_plane_distance
-            / (self.fov_y / 2.0).cos();
+            / (fov_y / 2.0).cos();
         let longest_side_length = [
             far_plane_side_length_x,
             far_plane_side_length_y,
@@ -441,7 +439,7 @@ impl CameraFrustumDescriptor {
         .iter()
         .copied()
         .max_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
-        .unwrap();
+        .expect("Source iterator should not be empty");
 
         let radius = longest_side_length / 2.0;
 
@@ -454,10 +452,11 @@ impl CameraFrustumDescriptor {
             .cross(Vec3::new(0.0, 1.0, 0.0))
             .normalize();
         let up = right.cross(self.forward_vector);
-        let tan_half_fovy = (self.fov_y / 2.0).tan();
+        let fov_y = self.fov_x / self.aspect_ratio;
+        let tan_half_fov_y = (fov_y / 2.0).tan();
 
-        let d_x = tan_half_fovy * right * self.aspect_ratio;
-        let d_y = tan_half_fovy * up;
+        let d_x = tan_half_fov_y * right * self.aspect_ratio;
+        let d_y = tan_half_fov_y * up;
 
         let d_x_near = self.near_plane_distance * d_x;
         let d_y_near = self.near_plane_distance * d_y;

@@ -46,13 +46,13 @@ impl ShaderCameraData {
         aspect_ratio: f32,
         near_plane_distance: f32,
         far_plane_distance: f32,
-        fov_y: f32,
+        fov_x: f32,
         reverse_z: bool,
     ) -> Self {
         let proj = make_perspective_proj_matrix(
             near_plane_distance,
             far_plane_distance,
-            fov_y,
+            fov_x,
             aspect_ratio,
             reverse_z,
         );
@@ -205,7 +205,7 @@ pub fn build_cubemap_face_frusta(
             aspect_ratio: 1.0,
             near_plane_distance,
             far_plane_distance,
-            fov_y: 90.0_f32.to_radians(),
+            fov_x: 90.0_f32.to_radians(),
         }
     })
 }

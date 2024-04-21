@@ -70,7 +70,11 @@ impl Revolver {
     }
 
     pub fn update(&mut self, player_view_direction: ControlledViewDirection, scene: &mut Scene) {
-        let camera_transform = scene.get_node(self.camera_node_id).unwrap().transform;
+        let Some(camera_node) = scene.get_node(self.camera_node_id) else {
+            log::error!("Can't update the revolver without a camera transform");
+            return;
+        };
+        let camera_transform = camera_node.transform;
 
         // update
         let new_hand_transform = match self.current_hand_transform {

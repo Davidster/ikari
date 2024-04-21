@@ -8,9 +8,10 @@ use crate::ui_overlay::AudioSoundStats;
 use crate::ui_overlay::FrameStats;
 use crate::ui_overlay::Message;
 use crate::ui_overlay::UiOverlay;
-use crate::ui_overlay::DEFAULT_FONT_BYTES;
-use crate::ui_overlay::DEFAULT_FONT_NAME;
-use crate::ui_overlay::KOOKY_FONT_BYTES;
+use crate::ui_overlay::LATO_BOLD_FONT_BYTES;
+use crate::ui_overlay::LATO_FONT_BYTES;
+use crate::ui_overlay::LATO_FONT_NAME;
+use crate::ui_overlay::PACIFICO_FONT_BYTES;
 
 use std::{collections::hash_map::Entry, sync::Arc};
 
@@ -60,17 +61,18 @@ use winit::keyboard::Key;
 use winit::keyboard::NamedKey;
 
 // graphics settings
+// TODO: replace the ones that are using the defaults with a call to ::default
 pub const INITIAL_ENABLE_VSYNC: bool = true;
 pub const INITIAL_NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const INITIAL_FAR_PLANE_DISTANCE: f32 = 100000.0;
-pub const INITIAL_FOV_Y: f32 = 45.0 * std::f32::consts::PI / 180.0;
+pub const INITIAL_FOV_X: f32 = 103.0 * std::f32::consts::PI / 180.0;
 pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
 pub const INITIAL_ENABLE_SHADOWS: bool = true;
 pub const INITIAL_RENDER_SCALE: f32 = 1.0;
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
-pub const INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS: f32 = 0.075;
-pub const INITIAL_BLOOM_THRESHOLD: f32 = 0.8;
-pub const INITIAL_BLOOM_RAMP_SIZE: f32 = 0.2;
+pub const INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS: f32 = 16.0;
+pub const INITIAL_OLD_BLOOM_THRESHOLD: f32 = 0.8;
+pub const INITIAL_OLD_BLOOM_RAMP_SIZE: f32 = 0.2;
 pub const INITIAL_NEW_BLOOM_RADIUS: f32 = 0.005;
 pub const INITIAL_NEW_BLOOM_INTENSITY: f32 = 0.04;
 pub const INITIAL_BLOOM_TYPE: BloomType = BloomType::New;
@@ -96,6 +98,7 @@ pub const PLAYER_MOVEMENT_SPEED: f32 = 6.0;
 
 pub const CREATE_POINT_SHADOW_MAP_DEBUG_OBJECTS: bool = false;
 pub const REMOVE_LARGE_OBJECTS_FROM_FOREST: bool = false;
+pub const ARROW_KEYS_ADJUST_WEAPON_POSITION: bool = false;
 
 // linear colors, not srgb
 pub const _DIRECTIONAL_LIGHT_COLOR_A: Vec3 = Vec3::new(0.84922975, 0.81581426, 0.8832506);
@@ -281,12 +284,17 @@ pub async fn init_game_state(
 
     {
         let mut renderer_data_guard = renderer.data.lock();
-        renderer_data_guard.enable_shadows = INITIAL_ENABLE_SHADOWS;
-        renderer_data_guard.bloom_type = INITIAL_BLOOM_TYPE;
-        renderer_data_guard.bloom_threshold = INITIAL_BLOOM_THRESHOLD;
-        renderer_data_guard.bloom_ramp_size = INITIAL_BLOOM_RAMP_SIZE;
-        renderer_data_guard.tone_mapping_exposure = INITIAL_TONE_MAPPING_EXPOSURE;
-        renderer_data_guard.render_scale = INITIAL_RENDER_SCALE;
+        renderer_data_guard.general_settings.render_scale = INITIAL_RENDER_SCALE;
+
+        renderer_data_guard
+            .post_effect_settings
+            .tone_mapping_exposure = INITIAL_TONE_MAPPING_EXPOSURE;
+
+        renderer_data_guard.post_effect_settings.bloom_type = INITIAL_BLOOM_TYPE;
+        renderer_data_guard.post_effect_settings.old_bloom_threshold = INITIAL_OLD_BLOOM_THRESHOLD;
+        renderer_data_guard.post_effect_settings.old_bloom_ramp_size = INITIAL_OLD_BLOOM_RAMP_SIZE;
+
+        renderer_data_guard.shadow_settings.enable_shadows = INITIAL_ENABLE_SHADOWS;
     }
 
     let unscaled_framebuffer_size = winit::dpi::PhysicalSize::new(
@@ -318,6 +326,7 @@ pub async fn init_game_state(
             // player's revolver
             // https://done3d.com/colt-python-8-inch/
             asset_ids.gun = load_gltf("src/models/gltf/ColtPython/colt_python.glb").into();
+            // asset_ids.gun = load_gltf("src/models/gltf/Revolver/revolver_low_poly.gltf").into();
 
             // forest
             // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
@@ -1123,10 +1132,11 @@ pub async fn init_game_state(
             &renderer.base.queue,
             surface_format,
             UiOverlay::new(window),
-            Some(DEFAULT_FONT_NAME),
+            Some(LATO_FONT_NAME),
             vec![
-                DEFAULT_FONT_BYTES,
-                KOOKY_FONT_BYTES,
+                LATO_FONT_BYTES,
+                LATO_BOLD_FONT_BYTES,
+                PACIFICO_FONT_BYTES,
                 iced_aw::graphics::icons::BOOTSTRAP_FONT_BYTES,
             ],
             crate::ui_overlay::THEME,
@@ -1222,21 +1232,23 @@ pub fn process_window_input(
                             increment_exposure(&mut render_data_guard, true);
                         }
                         "y" => {
-                            increment_bloom_threshold(&mut render_data_guard, false);
+                            increment_old_bloom_threshold(&mut render_data_guard, false);
                         }
                         "u" => {
-                            increment_bloom_threshold(&mut render_data_guard, true);
+                            increment_old_bloom_threshold(&mut render_data_guard, true);
                         }
                         "p" => {
                             game_state.is_playing_animations = !game_state.is_playing_animations;
                         }
                         "m" => {
-                            render_data_guard.enable_shadows = !render_data_guard.enable_shadows;
+                            render_data_guard.shadow_settings.enable_shadows =
+                                !render_data_guard.shadow_settings.enable_shadows;
                         }
                         "b" => {
                             game_state
                                 .ui_overlay
                                 .queue_message(Message::BloomTypeChanged(match render_data_guard
+                                    .post_effect_settings
                                     .bloom_type
                                 {
                                     BloomType::Disabled => BloomType::Old,
@@ -1245,12 +1257,12 @@ pub fn process_window_input(
                                 }));
                         }
                         "f" => {
-                            render_data_guard.enable_wireframe_mode =
-                                !render_data_guard.enable_wireframe_mode;
+                            render_data_guard.debug_settings.enable_wireframe_mode =
+                                !render_data_guard.debug_settings.enable_wireframe_mode;
                         }
                         "j" => {
-                            render_data_guard.draw_node_bounding_spheres =
-                                !render_data_guard.draw_node_bounding_spheres;
+                            render_data_guard.debug_settings.draw_node_bounding_spheres =
+                                !render_data_guard.debug_settings.draw_node_bounding_spheres;
                         }
                         "c" => {
                             if let Some(character) = game_state.character.as_mut() {
@@ -1263,6 +1275,44 @@ pub fn process_window_input(
                         elwt.exit();
                     }
                     _ => {}
+                };
+
+                if ARROW_KEYS_ADJUST_WEAPON_POSITION {
+                    if let Some(revolver) = game_state.revolver.as_mut() {
+                        if let Some(node) = engine_state.scene.get_node_mut(revolver.node_id) {
+                            match key {
+                                Key::Named(NamedKey::ArrowUp) => {
+                                    node.transform.set_position(dbg!(Vec3::new(
+                                        node.transform.position().x,
+                                        node.transform.position().y,
+                                        node.transform.position().z - 0.01,
+                                    )));
+                                }
+                                Key::Named(NamedKey::ArrowDown) => {
+                                    node.transform.set_position(dbg!(Vec3::new(
+                                        node.transform.position().x,
+                                        node.transform.position().y,
+                                        node.transform.position().z + 0.01,
+                                    )));
+                                }
+                                Key::Named(NamedKey::ArrowRight) => {
+                                    node.transform.set_position(dbg!(Vec3::new(
+                                        node.transform.position().x + 0.01,
+                                        node.transform.position().y,
+                                        node.transform.position().z,
+                                    )));
+                                }
+                                Key::Named(NamedKey::ArrowLeft) => {
+                                    node.transform.set_position(dbg!(Vec3::new(
+                                        node.transform.position().x - 0.01,
+                                        node.transform.position().y,
+                                        node.transform.position().z,
+                                    )));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1313,15 +1363,13 @@ pub fn increment_render_scale(
     {
         let mut renderer_data_guard = renderer.data.lock();
 
-        renderer_data_guard.render_scale =
-            (renderer_data_guard.render_scale + change).clamp(0.1, 4.0);
+        let render_scale = &mut renderer_data_guard.general_settings.render_scale;
+        *render_scale = (*render_scale + change).clamp(0.1, 4.0);
         log::info!(
             "Render scale: {:?} ({:?}x{:?})",
-            renderer_data_guard.render_scale,
-            (surface_data.surface_config.width as f32 * renderer_data_guard.render_scale.sqrt())
-                .round() as u32,
-            (surface_data.surface_config.height as f32 * renderer_data_guard.render_scale.sqrt())
-                .round() as u32,
+            render_scale,
+            (surface_data.surface_config.width as f32 * render_scale.sqrt()).round() as u32,
+            (surface_data.surface_config.height as f32 * render_scale.sqrt()).round() as u32,
         );
     }
 
@@ -1337,16 +1385,17 @@ pub fn increment_render_scale(
 pub fn increment_exposure(renderer_data: &mut RendererData, increase: bool) {
     let delta = 0.05;
     let change = if increase { delta } else { -delta };
-    renderer_data.tone_mapping_exposure =
-        (renderer_data.tone_mapping_exposure + change).clamp(0.0, 20.0);
-    log::info!("Exposure: {:?}", renderer_data.tone_mapping_exposure);
+    let tone_mapping_exposure = &mut renderer_data.post_effect_settings.tone_mapping_exposure;
+    *tone_mapping_exposure = (*tone_mapping_exposure + change).clamp(0.0, 20.0);
+    log::info!("Exposure: {:?}", tone_mapping_exposure);
 }
 
-pub fn increment_bloom_threshold(renderer_data: &mut RendererData, increase: bool) {
+pub fn increment_old_bloom_threshold(renderer_data: &mut RendererData, increase: bool) {
     let delta = 0.05;
     let change = if increase { delta } else { -delta };
-    renderer_data.bloom_threshold = (renderer_data.bloom_threshold + change).clamp(0.0, 20.0);
-    log::info!("Bloom Threshold: {:?}", renderer_data.bloom_threshold);
+    let old_bloom_threshold = &mut renderer_data.post_effect_settings.old_bloom_threshold;
+    *old_bloom_threshold = (*old_bloom_threshold + change).clamp(0.0, 20.0);
+    log::info!("Old Bloom Threshold: {:?}", old_bloom_threshold);
 }
 
 #[profiling::function]
@@ -1389,13 +1438,20 @@ pub fn update_game_state(
             if let Some(asset_id) = asset_ids_guard.gun {
                 if let Entry::Occupied(entry) = loaded_assets_guard.entry(asset_id) {
                     let (_, other_loaded_scene) = entry.remove_entry();
+                    let revolver_scene_node_count = other_loaded_scene.scene.node_count();
+
                     engine_state
                         .scene
                         .merge_scene(&mut renderer_data_guard, other_loaded_scene);
 
-                    let node_id = engine_state.scene.nodes().last().unwrap().id();
+                    let merged_scene_node_count = engine_state.scene.node_count();
+                    let node_id = engine_state
+                        .scene
+                        .nodes()
+                        .nth(merged_scene_node_count - revolver_scene_node_count)
+                        .expect("Node id should still be valid at this point")
+                        .id();
                     let animation_index = engine_state.scene.animations.len() - 1;
-                    // revolver_indices = Some((revolver_model_node_id, animation_index));
                     game_state.revolver = Some(Revolver::new(
                         &mut engine_state.scene,
                         camera_node_id,
@@ -1403,16 +1459,18 @@ pub fn update_game_state(
                         animation_index,
                         // revolver model
                         // TransformBuilder::new()
-                        //     .position(Vec3::new(0.21, -0.09, -1.0))
-                        //     .rotation(Quat::from_axis_angle(
-                        //         Vec3::new(0.0, 1.0, 0.0),
-                        //         deg_to_rad(180.0).into(),
-                        //     ))
+                        //     .position(Vec3::new(0.23, -0.09, -0.81))
+                        //     .rotation(
+                        //         Quat::from_axis_angle(
+                        //             Vec3::new(0.0, 1.0, 0.0),
+                        //             180.0_f32.to_radians(),
+                        //         ) * Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.1),
+                        //     )
                         //     .scale(0.17f32 * Vec3::new(1.0, 1.0, 1.0))
                         //     .build(),
                         // colt python model
                         TransformBuilder::new()
-                            .position(Vec3::new(0.21, -0.13, -1.0))
+                            .position(Vec3::new(0.19, -0.13, -0.75))
                             .rotation(
                                 Quat::from_axis_angle(
                                     Vec3::new(0.0, 1.0, 0.0),
@@ -1497,18 +1555,19 @@ pub fn update_game_state(
                     .map(|node| node.id())
                     .collect();
                 for node_id in test_level_node_ids {
-                    if let Some(_mesh) = engine_state
-                        .scene
-                        .get_node_mut(node_id)
-                        .unwrap()
-                        .visual
-                        .as_mut()
                     {
-                        // mesh.wireframe = true;
+                        let node = engine_state
+                            .scene
+                            .get_node_mut(node_id)
+                            .expect("Node id should still be valid at this point");
+
+                        if let Some(_mesh) = node.visual.as_mut() {
+                            // mesh.wireframe = true;
+                        }
+                        node.transform
+                            .set_position(node.transform.position() + Vec3::new(0.0, 25.0, 0.0));
                     }
-                    let transform =
-                        &mut engine_state.scene.get_node_mut(node_id).unwrap().transform;
-                    transform.set_position(transform.position() + Vec3::new(0.0, 25.0, 0.0));
+
                     add_static_box(
                         &mut engine_state.physics_state,
                         &engine_state.scene,
@@ -1573,7 +1632,7 @@ pub fn update_game_state(
             engine_state
                 .scene
                 .get_node_mut(legendary_robot_root_node_id)
-                .unwrap()
+                .expect("Node id should still be valid at this point")
                 .transform
                 .set_position(Vec3::new(2.0, 0.0, 0.0));
 
@@ -1901,8 +1960,7 @@ pub fn update_game_state(
                     .physics_state
                     .collider_set
                     .get(collider_handle)
-                    .unwrap()
-                    .parent()
+                    .and_then(|collider| collider.parent())
                 {
                     if let Some((ball_index, ball)) = game_state
                         .physics_balls
@@ -1953,16 +2011,16 @@ pub fn update_game_state(
             for sound_index in audio_manager_guard.sound_indices() {
                 let file_path = audio_manager_guard
                     .get_sound_file_path(sound_index)
-                    .unwrap();
+                    .expect("Sound index should still be valid at this point");
                 let length_seconds = audio_manager_guard
                     .get_sound_length_seconds(sound_index)
-                    .unwrap();
+                    .expect("Sound index should still be valid at this point");
                 let pos_seconds = audio_manager_guard
                     .get_sound_pos_seconds(sound_index)
-                    .unwrap();
+                    .expect("Sound index should still be valid at this point");
                 let buffered_to_pos_seconds = audio_manager_guard
                     .get_sound_buffered_to_pos_seconds(sound_index)
-                    .unwrap();
+                    .expect("Sound index should still be valid at this point");
 
                 game_state
                     .ui_overlay
@@ -1994,37 +2052,68 @@ pub fn update_game_state(
             elwt.exit();
         }
 
-        renderer_data_guard.fov_y = ui_state.fov_y;
-        renderer_data_guard.near_plane_distance = ui_state.near_plane_distance;
-        renderer_data_guard.far_plane_distance = ui_state.far_plane_distance;
-        renderer_data_guard.bloom_type = ui_state.bloom_type;
-        renderer_data_guard.new_bloom_radius = ui_state.new_bloom_radius;
-        renderer_data_guard.new_bloom_intensity = ui_state.new_bloom_intensity;
-        renderer_data_guard.enable_depth_prepass = ui_state.enable_depth_prepass;
-        renderer_data_guard.record_culling_stats = ui_state.is_recording_culling_stats;
-        renderer_data_guard.enable_soft_shadows = ui_state.enable_soft_shadows;
-        renderer_data_guard.shadow_small_object_culling_size_pixels =
-            ui_state.shadow_small_object_culling_size_pixels;
-        renderer_data_guard.soft_shadow_factor = ui_state.soft_shadow_factor;
-        renderer_data_guard.soft_shadows_max_distance = ui_state.soft_shadows_max_distance;
-        renderer_data_guard.shadow_bias = ui_state.shadow_bias;
-        renderer_data_guard.enable_shadow_debug = ui_state.enable_shadow_debug;
-        renderer_data_guard.enable_cascade_debug = ui_state.enable_cascade_debug;
-        renderer_data_guard.soft_shadow_grid_dims = ui_state.soft_shadow_grid_dims;
-        renderer_data_guard.draw_culling_frustum = ui_state.draw_culling_frustum;
-        renderer_data_guard.draw_point_light_culling_frusta =
-            ui_state.draw_point_light_culling_frusta;
-        renderer_data_guard.draw_directional_light_culling_frusta =
-            ui_state.draw_directional_light_culling_frusta;
-        renderer.set_skybox_weights([1.0 - ui_state.skybox_weight, ui_state.skybox_weight]);
-        renderer.set_vsync(ui_state.enable_vsync, surface_data);
+        renderer_data_guard.general_settings.enable_depth_prepass =
+            ui_state.general_settings.enable_depth_prepass;
+
+        renderer_data_guard.camera_settings.fov_x = ui_state.camera_settings.fov_x;
+        renderer_data_guard.camera_settings.near_plane_distance =
+            ui_state.camera_settings.near_plane_distance;
+        renderer_data_guard.camera_settings.far_plane_distance =
+            ui_state.camera_settings.far_plane_distance;
+
+        renderer_data_guard.post_effect_settings.bloom_type =
+            ui_state.post_effect_settings.bloom_type;
+        renderer_data_guard.post_effect_settings.new_bloom_radius =
+            ui_state.post_effect_settings.new_bloom_radius;
+        renderer_data_guard.post_effect_settings.new_bloom_intensity =
+            ui_state.post_effect_settings.new_bloom_intensity;
+
+        renderer_data_guard.shadow_settings.enable_soft_shadows =
+            ui_state.shadow_settings.enable_soft_shadows;
+        renderer_data_guard
+            .shadow_settings
+            .shadow_small_object_culling_size_pixels = ui_state
+            .shadow_settings
+            .shadow_small_object_culling_size_pixels;
+        renderer_data_guard.shadow_settings.soft_shadow_factor =
+            ui_state.shadow_settings.soft_shadow_factor;
+        renderer_data_guard
+            .shadow_settings
+            .soft_shadows_max_distance = ui_state.shadow_settings.soft_shadows_max_distance;
+        renderer_data_guard.shadow_settings.shadow_bias = ui_state.shadow_settings.shadow_bias;
+        renderer_data_guard.shadow_settings.soft_shadow_grid_dims =
+            ui_state.shadow_settings.soft_shadow_grid_dims;
+
+        renderer_data_guard.debug_settings.record_culling_stats =
+            ui_state.debug_settings.record_culling_stats;
+        renderer_data_guard.debug_settings.enable_shadow_debug =
+            ui_state.debug_settings.enable_shadow_debug;
+        renderer_data_guard.debug_settings.enable_cascade_debug =
+            ui_state.debug_settings.enable_cascade_debug;
+        renderer_data_guard.debug_settings.draw_culling_frustum =
+            ui_state.debug_settings.draw_culling_frustum;
+        renderer_data_guard
+            .debug_settings
+            .draw_point_light_culling_frusta =
+            ui_state.debug_settings.draw_point_light_culling_frusta;
+        renderer_data_guard
+            .debug_settings
+            .draw_directional_light_culling_frusta = ui_state
+            .debug_settings
+            .draw_directional_light_culling_frusta;
+
+        renderer.set_skybox_weights([
+            1.0 - ui_state.post_effect_settings.skybox_weight,
+            ui_state.post_effect_settings.skybox_weight,
+        ]);
+        renderer.set_vsync(ui_state.general_settings.enable_vsync, surface_data);
 
         drop(renderer_data_guard);
 
         renderer.set_culling_frustum_lock(
             engine_state,
             &surface_data.surface_config,
-            ui_state.culling_frustum_lock_mode,
+            ui_state.debug_settings.culling_frustum_lock_mode,
         );
     }
 
@@ -2049,7 +2138,11 @@ pub fn update_game_state(
     }
 
     let is_showing_options_menu = game_state.ui_overlay.get_state().is_showing_options_menu;
-    let is_showing_cursor_marker = game_state.ui_overlay.get_state().is_showing_cursor_marker;
+    let is_showing_cursor_marker = game_state
+        .ui_overlay
+        .get_state()
+        .debug_settings
+        .is_showing_cursor_marker;
     game_state.player_controller.update_cursor_grab(
         !is_showing_options_menu && !is_showing_cursor_marker,
         window,

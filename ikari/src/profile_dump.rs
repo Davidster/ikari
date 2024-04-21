@@ -61,17 +61,15 @@ fn generate_profile_dump_internal() -> anyhow::Result<String> {
         .stderr(Stdio::piped())
         .spawn()?;
 
-    let std_out_lines = {
-        let mut lines: Vec<String> = vec![];
-        let stdout = child_process.stdout.as_mut().unwrap();
+    let mut std_out_lines = vec![];
 
+    if let Some(stdout) = child_process.stdout.as_mut() {
         // why does this block?? the lines don't come in one at a time, they come all at once
         for line_result in BufReader::new(stdout).lines() {
-            lines.push(line_result?);
+            std_out_lines.push(line_result?);
         }
-
-        lines
     };
+
     let exit_status = child_process.wait()?;
 
     let std_out_lines = std_out_lines.join("\n");
