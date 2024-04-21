@@ -61,9 +61,7 @@ impl FromIterator<RawImage> for RawImage {
     fn from_iter<T: IntoIterator<Item = RawImage>>(raw_images: T) -> Self {
         let mut raw_images = raw_images.into_iter();
 
-        let first_img = raw_images.next();
-
-        if first_img.is_none() {
+        let Some(first_img) = raw_images.next() else {
             return Self {
                 width: 0,
                 height: 0,
@@ -72,9 +70,9 @@ impl FromIterator<RawImage> for RawImage {
                 format: wgpu::TextureFormat::Rgba8UnormSrgb,
                 bytes: vec![],
             };
-        }
+        };
 
-        let mut joiner = RawImageDepthJoiner::new(first_img.unwrap());
+        let mut joiner = RawImageDepthJoiner::new(first_img);
 
         for image in raw_images {
             joiner.append_image(image);

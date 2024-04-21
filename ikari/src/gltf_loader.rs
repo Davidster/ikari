@@ -454,7 +454,12 @@ impl<'a> GltfUri<'a> {
                 .decode(base64)
                 .map_err(|err| anyhow::anyhow!("{err}",)),
             GltfUri::Relative(_) => {
-                FileManager::read(&self.resolve_relative_path(base_path).unwrap()).await
+                FileManager::read(
+                    &self
+                        .resolve_relative_path(base_path)
+                        .expect("Gltf file should've had a parent folder"),
+                )
+                .await
             }
             GltfUri::Unsupported(uri) => Err(anyhow::anyhow!("Unsupported gltf uri: {:?}", uri)),
         }
@@ -514,8 +519,10 @@ async fn load_raw_textures(
 
         let is_normal_map = !is_srgb
             && materials.iter().any(|material| {
-                material.normal_texture().is_some()
-                    && material.normal_texture().unwrap().texture().index() == texture.index()
+                let Some(normal_texture) = material.normal_texture() else {
+                    return false;
+                };
+                normal_texture.texture().index() == texture.index()
             });
 
         let raw_image =
@@ -588,11 +595,16 @@ pub fn get_animations(
                 .channels()
                 .map(|channel| get_keyframe_times(&channel.sampler(), buffers))
                 .collect::<Result<Vec<_>, _>>()?;
-            let length_seconds = *channel_timings
+            let length_seconds = channel_timings
                 .iter()
-                .map(|keyframe_times| keyframe_times.last().unwrap())
+                .flat_map(|keyframe_times| keyframe_times.last())
+                .copied()
                 .max_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
-                .unwrap();
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Failed to calculate animation length because no keyframes had "
+                    )
+                })?;
             let channels: Vec<_> = animation
                 .channels()
                 .enumerate()
@@ -825,7 +837,9 @@ pub fn get_buffer_slice_from_accessor<'a>(
     accessor: gltf::Accessor<'a>,
     buffers: &'a [gltf::buffer::Data],
 ) -> &'a [u8] {
-    let buffer_view = accessor.view().unwrap();
+    let buffer_view = accessor
+        .view()
+        .expect("Gltf sparse accessors are not yet supported");
     let buffer = &buffers[buffer_view.buffer().index()];
     let first_byte_offset = buffer_view.offset() + accessor.offset();
     let last_byte_offset = first_byte_offset + accessor.count() * accessor.size();
@@ -1141,7 +1155,7 @@ fn get_vertex_normals(
         .transpose()?
         .unwrap_or_else(|| {
             // compute normals
-            // key is flattened vertex position, value is accumulated normal and count
+            // key is vertex index, value is accumulated normal and count
             let mut vertex_normal_accumulators: HashMap<usize, (Vec3, usize)> = HashMap::new();
             triangles.iter().for_each(|indexed_triangle| {
                 let a = vertex_positions[indexed_triangle[0]];
@@ -1160,8 +1174,9 @@ fn get_vertex_normals(
             });
             (0..vertex_positions.len())
                 .map(|vertex_index| {
-                    let (accumulated_normal, count) =
-                        vertex_normal_accumulators.get(&vertex_index).unwrap();
+                    let (accumulated_normal, count) = vertex_normal_accumulators
+                        .get(&vertex_index)
+                        .expect("Should've calculated a normal for each vertex");
                     (*accumulated_normal / (*count as f32)).into()
                 })
                 .collect()

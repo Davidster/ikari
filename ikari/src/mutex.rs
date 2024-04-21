@@ -12,7 +12,9 @@ mod std {
         }
 
         pub fn lock(&self) -> StdMutexGuard<T> {
-            self.0.lock().unwrap()
+            self.0
+                .lock()
+                .expect("Mutex poisoning is a fatal error in ikari")
         }
 
         pub fn try_lock(&self) -> Option<StdMutexGuard<T>> {

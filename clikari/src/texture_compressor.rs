@@ -145,8 +145,10 @@ fn find_gltf_texture_paths(search_folder: &Path) -> anyhow::Result<Vec<(PathBuf,
             });
             let is_normal_map = !is_srgb
                 && gltf.materials().any(|material| {
-                    material.normal_texture().is_some()
-                        && material.normal_texture().unwrap().texture().index() == texture.index()
+                    let Some(normal_texture) = material.normal_texture() else {
+                        return false;
+                    };
+                    normal_texture.texture().index() == texture.index()
                 });
 
             match texture.source().source() {
