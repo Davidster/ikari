@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::engine_state::EngineState;
 use crate::renderer::{Renderer, SurfaceData};
 use crate::time::Instant;
-use crate::ui::IkariUiContainer;
+use crate::ui::{IkariUiContainer, UiProgramEvents};
 use crate::web_canvas_manager::WebCanvasManager;
 
 use winit::event_loop::EventLoopWindowTarget;
@@ -15,7 +15,7 @@ use winit::{
 
 pub trait GameState<UiOverlay>
 where
-    UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + 'static,
+    UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + UiProgramEvents + 'static,
 {
     fn get_ui_container(&mut self) -> &mut IkariUiContainer<UiOverlay>;
 }
@@ -34,7 +34,7 @@ pub fn run<
     OnUpdateFunction,
     OnWindowEventFunction,
     OnDeviceEventFunction,
-    OnWindowResizeFunction,
+    OnSurfaceResizeFunction,
     GameStateType,
     UiOverlay,
 >(
@@ -47,21 +47,33 @@ pub fn run<
     mut on_update: OnUpdateFunction,
     mut on_window_event: OnWindowEventFunction,
     mut on_device_event: OnDeviceEventFunction,
-    mut on_window_resize: OnWindowResizeFunction,
+    mut on_surface_resize: OnSurfaceResizeFunction,
     application_start_time: Instant,
 ) -> anyhow::Result<()>
 where
     OnUpdateFunction: FnMut(GameContext<GameStateType>) + 'static,
     OnWindowEventFunction: FnMut(GameContext<GameStateType>, &winit::event::WindowEvent) + 'static,
     OnDeviceEventFunction: FnMut(GameContext<GameStateType>, &winit::event::DeviceEvent) + 'static,
-    OnWindowResizeFunction:
+    OnSurfaceResizeFunction:
         FnMut(GameContext<GameStateType>, winit::dpi::PhysicalSize<u32>) + 'static,
-    UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + 'static,
+    UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + UiProgramEvents + 'static,
     GameStateType: GameState<UiOverlay> + 'static,
 {
     let mut logged_start_time = false;
-    let _last_frame_start_time: Option<Instant> = None;
     let web_canvas_manager = WebCanvasManager::new(window.clone());
+
+    engine_state.framerate_limiter.set_monitor_refresh_rate(
+        window
+            .current_monitor()
+            .and_then(|window| window.refresh_rate_millihertz())
+            .map(|millihertz| millihertz as f32 / 1000.0),
+    );
+
+    let mut pending_resize_event: Option<winit::dpi::PhysicalSize<u32>> = None;
+
+    engine_state.time_tracker.on_frame_started();
+
+    let mut force_reconfigure_surface = false;
 
     let handler = move |event: Event<()>, elwt: &EventLoopWindowTarget<()>| {
         web_canvas_manager.on_update(&event);
@@ -71,22 +83,18 @@ where
                 event: WindowEvent::RedrawRequested,
                 ..
             } => {
-                engine_state.time_tracker.on_frame_started();
-                profiling::finish_frame!();
-
-                if !logged_start_time && engine_state.time_tracker.last_frame_times().is_some() {
-                    log::debug!(
-                        "Took {:?} from process startup till first frame",
-                        application_start_time.elapsed()
-                    );
-                    logged_start_time = true;
+                // TODO: instead of spinning, do a real sleep (spin-sleep crate) and when it's finally done,
+                // call request redraw and return once to allow inputs to be processed once quickly before we
+                // start rendering. Would that even work?
+                let sleeping = engine_state
+                    .framerate_limiter
+                    .update(&engine_state.time_tracker);
+                if sleeping {
+                    window.request_redraw();
+                    return;
                 }
 
-                engine_state.asset_binder.update(
-                    renderer.base.clone(),
-                    renderer.constant_data.clone(),
-                    engine_state.asset_loader.clone(),
-                );
+                engine_state.time_tracker.on_sleep_and_inputs_completed();
 
                 on_update(GameContext {
                     game_state: &mut game_state,
@@ -99,35 +107,77 @@ where
 
                 engine_state.time_tracker.on_update_completed();
 
-                if let Err(err) = renderer.render(
-                    &mut engine_state,
-                    &surface_data,
-                    game_state.get_ui_container(),
-                ) {
-                    match err.downcast_ref::<wgpu::SurfaceError>() {
-                        // Reconfigure the surface if lost
-                        Some(wgpu::SurfaceError::Lost) => {
-                            let size = window.inner_size();
+                engine_state.asset_binder.update(
+                    renderer.base.clone(),
+                    renderer.constant_data.clone(),
+                    engine_state.asset_loader.clone(),
+                );
 
-                            renderer.resize_surface(&mut surface_data, size);
-                            on_window_resize(
-                                GameContext {
-                                    game_state: &mut game_state,
-                                    engine_state: &mut engine_state,
-                                    renderer: &mut renderer,
-                                    surface_data: &mut surface_data,
-                                    window: &mut window,
-                                    elwt,
-                                },
-                                size,
-                            );
-                        }
-                        Some(wgpu::SurfaceError::OutOfMemory) => elwt.exit(),
-                        _ => log::error!("{err:?}"),
-                    }
+                let resized = renderer
+                    .reconfigure_surface_if_needed(&mut surface_data, force_reconfigure_surface);
+                if resized {
+                    pending_resize_event = Some(winit::dpi::PhysicalSize::new(
+                        surface_data.surface_config.width,
+                        surface_data.surface_config.height,
+                    ));
                 }
 
+                let surface_texture_result = surface_data.surface.get_current_texture();
+
+                engine_state.time_tracker.on_get_surface_completed();
+
+                if let Some(new_size) = pending_resize_event.take() {
+                    on_surface_resize(
+                        GameContext {
+                            game_state: &mut game_state,
+                            engine_state: &mut engine_state,
+                            renderer: &mut renderer,
+                            surface_data: &mut surface_data,
+                            window: &mut window,
+                            elwt,
+                        },
+                        new_size,
+                    );
+                }
+
+                force_reconfigure_surface = false;
+                match surface_texture_result {
+                    Ok(surface_texture) => {
+                        if let Err(err) = renderer.render(
+                            &mut engine_state,
+                            &surface_data,
+                            surface_texture,
+                            game_state.get_ui_container(),
+                        ) {
+                            log::error!("{err:?}");
+                        }
+                    }
+                    Err(err) => match err {
+                        wgpu::SurfaceError::OutOfMemory => {
+                            log::error!("Received surface error: {err:?}. Application will exit");
+                            elwt.exit();
+                        }
+                        wgpu::SurfaceError::Timeout => {
+                            log::warn!("Received surface error: {err:?}. Frame will be skipped");
+                        }
+                        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => {
+                            force_reconfigure_surface = true;
+                            log::warn!("Received surface error: {err:?}");
+                        }
+                    },
+                };
+
                 engine_state.time_tracker.on_render_completed();
+
+                // start the frame right away so that input processing gets tracked by the time tracker
+                engine_state.time_tracker.on_frame_started();
+                if !logged_start_time {
+                    log::debug!(
+                        "Took {:?} from process startup till first frame",
+                        application_start_time.elapsed()
+                    );
+                    logged_start_time = true;
+                }
             }
             Event::AboutToWait => {
                 window.request_redraw();
@@ -153,39 +203,22 @@ where
             } if window_id == window.id() => {
                 match &event {
                     WindowEvent::Resized(size) => {
-                        if size.width > 0 && size.height > 0 {
-                            renderer.resize_surface(&mut surface_data, *size);
-                            on_window_resize(
-                                GameContext {
-                                    game_state: &mut game_state,
-                                    engine_state: &mut engine_state,
-                                    renderer: &mut renderer,
-                                    surface_data: &mut surface_data,
-                                    window: &mut window,
-                                    elwt,
-                                },
-                                *size,
-                            );
-                        }
+                        renderer.resize_surface(&surface_data, *size);
                     }
                     WindowEvent::ScaleFactorChanged { .. } => {
-                        let new_inner_size = window.inner_size();
-                        if new_inner_size.width > 0 && new_inner_size.height > 0 {
-                            renderer.resize_surface(&mut surface_data, new_inner_size);
-                            on_window_resize(
-                                GameContext {
-                                    game_state: &mut game_state,
-                                    engine_state: &mut engine_state,
-                                    renderer: &mut renderer,
-                                    surface_data: &mut surface_data,
-                                    window: &mut window,
-                                    elwt,
-                                },
-                                new_inner_size,
-                            );
-                        }
+                        renderer.resize_surface(&surface_data, window.inner_size());
                     }
-                    WindowEvent::CloseRequested => elwt.exit(),
+                    WindowEvent::CloseRequested => {
+                        elwt.exit();
+                    }
+                    WindowEvent::Moved(_) => {
+                        engine_state.framerate_limiter.set_monitor_refresh_rate(
+                            window
+                                .current_monitor()
+                                .and_then(|window| window.refresh_rate_millihertz())
+                                .map(|millihertz| millihertz as f32 / 1000.0),
+                        );
+                    }
                     _ => {}
                 };
 

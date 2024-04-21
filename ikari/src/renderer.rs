@@ -19,7 +19,7 @@ use crate::skinning::{get_all_bone_data, AllBoneTransforms};
 use crate::texture::Texture;
 use crate::time::Duration;
 use crate::transform::{look_in_dir, Transform, TransformBuilder};
-use crate::ui::IkariUiContainer;
+use crate::ui::{IkariUiContainer, UiProgramEvents};
 use crate::wasm_not_sync::WasmNotArc;
 
 use std::cmp::Ordering;
@@ -58,7 +58,6 @@ pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE: f32 = 0.1;
 pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE: f32 = 1000.0;
 pub const POINT_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 1024;
 pub const DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 2048;
-// pub const DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 512;
 pub const POINT_LIGHT_SHOW_MAP_COUNT: u32 = 2;
 pub const DIRECTIONAL_LIGHT_SHOW_MAP_COUNT: u32 = 2;
 pub const DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH: f32 = 50.0;
@@ -628,8 +627,11 @@ impl BaseRenderer {
         surface_config.usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
         // surface_config.format = wgpu::TextureFormat::Bgra8UnormSrgb;
         surface_config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
-        surface_config.present_mode = wgpu::PresentMode::AutoNoVsync;
+        surface_config.present_mode = wgpu::PresentMode::AutoVsync;
         surface_config.view_formats = vec![surface_config.format.add_srgb_suffix()];
+        // this caused problems on Windows on dx12 and vulkan..
+        // TODO: see if those problems still persist with profiling disabled
+        // surface_config.desired_maximum_frame_latency = 1;
         surface.configure(&base.device, &surface_config);
 
         let capabilities = surface.get_capabilities(&base.adapter);
@@ -800,6 +802,9 @@ pub struct RendererPrivateData {
     skybox_weights: [f32; 2],
     old_bloom_threshold_cleared: bool,
     new_bloom_cleared: bool,
+
+    new_pending_surface_config: Option<wgpu::SurfaceConfiguration>,
+    current_render_scale: f32,
 
     // gpu
     camera_lights_and_pbr_shader_options_bind_group_layout: wgpu::BindGroupLayout,
@@ -3047,6 +3052,9 @@ impl Renderer {
                 old_bloom_threshold_cleared: true,
                 new_bloom_cleared: true,
 
+                new_pending_surface_config: None,
+                current_render_scale: general_settings.render_scale,
+
                 camera_lights_and_pbr_shader_options_bind_group_layout,
 
                 camera_lights_and_pbr_shader_options_bind_groups: vec![],
@@ -3364,63 +3372,103 @@ impl Renderer {
         index_buffer
     }
 
-    pub fn set_vsync(&self, vsync: bool, surface_data: &mut SurfaceData) {
-        let new_present_mode = if vsync {
-            wgpu::PresentMode::AutoVsync
-        } else {
-            wgpu::PresentMode::AutoNoVsync
-        };
-
-        if surface_data.surface_config.present_mode == new_present_mode {
-            return;
-        }
-
-        surface_data.surface_config.present_mode = new_present_mode;
-
-        surface_data
-            .surface
-            .configure(&self.base.device, &surface_data.surface_config);
+    pub fn set_present_mode(&self, surface_data: &SurfaceData, present_mode: wgpu::PresentMode) {
+        self.private_data
+            .lock()
+            .new_pending_surface_config
+            .get_or_insert_with(|| surface_data.surface_config.clone())
+            .present_mode = present_mode
     }
 
     pub fn resize_surface(
         &mut self,
-        surface_data: &mut SurfaceData,
+        surface_data: &SurfaceData,
         new_unscaled_framebuffer_size: winit::dpi::PhysicalSize<u32>,
     ) {
-        let new_unscaled_framebuffer_size = (
-            new_unscaled_framebuffer_size.width,
-            new_unscaled_framebuffer_size.height,
-        );
-        let (new_width, new_height) = new_unscaled_framebuffer_size;
+        if new_unscaled_framebuffer_size.width == 0 || new_unscaled_framebuffer_size.height == 0 {
+            log::warn!("Tried resizing the surface to an invalid resolution: {new_unscaled_framebuffer_size:?}. This request will be ignored");
+            return;
+        }
 
-        surface_data.surface_config.width = new_width;
-        surface_data.surface_config.height = new_height;
+        let mut private_data = self.private_data.lock();
+        let new_pending_surface_config = private_data
+            .new_pending_surface_config
+            .get_or_insert_with(|| surface_data.surface_config.clone());
+
+        new_pending_surface_config.width = new_unscaled_framebuffer_size.width;
+        new_pending_surface_config.height = new_unscaled_framebuffer_size.height;
+    }
+
+    pub fn reconfigure_surface_if_needed(
+        &self,
+        surface_data: &mut SurfaceData,
+        force_reconfigure: bool,
+    ) -> bool {
+        let mut private_data_guard = self.private_data.lock();
+
+        let new_surface_config = private_data_guard
+            .new_pending_surface_config
+            .take()
+            .unwrap_or_else(|| surface_data.surface_config.clone());
+
+        if new_surface_config.width == 0 || new_surface_config.height == 0 {
+            return false;
+        }
+
+        let surface_config_changed = surface_data.surface_config != new_surface_config;
+
+        let surface_resized = (
+            surface_data.surface_config.width,
+            surface_data.surface_config.height,
+        ) != (new_surface_config.width, new_surface_config.height);
+
+        if surface_resized {
+            log::debug!(
+                "Resizing surface to {:?}",
+                (new_surface_config.width, new_surface_config.height)
+            );
+        }
+
+        let data_guard = self.data.lock();
+
+        let new_render_scale = data_guard.general_settings.render_scale;
+        let current_render_scale = private_data_guard.current_render_scale;
+        let render_scale_changed = current_render_scale != new_render_scale;
+
+        if !surface_config_changed && !render_scale_changed && !force_reconfigure {
+            return false;
+        }
+
+        let new_unscaled_framebuffer_size = (new_surface_config.width, new_surface_config.height);
+
+        surface_data.surface_config = new_surface_config;
+        private_data_guard.current_render_scale = new_render_scale;
 
         surface_data
             .surface
             .configure(&self.base.device, &surface_data.surface_config);
 
-        let data_guard = self.data.lock();
-        let mut private_data_guard = self.private_data.lock();
-        let render_scale = data_guard.general_settings.render_scale;
+        if !surface_resized && !render_scale_changed {
+            return false;
+        }
 
         private_data_guard.shading_texture = Texture::create_scaled_surface_texture(
             &self.base,
             new_unscaled_framebuffer_size,
-            render_scale,
+            new_render_scale,
             "shading_texture",
         );
         private_data_guard.old_bloom_pingpong_textures = [
             Texture::create_scaled_surface_texture(
                 &self.base,
                 new_unscaled_framebuffer_size,
-                render_scale,
+                new_render_scale,
                 "bloom_texture_1",
             ),
             Texture::create_scaled_surface_texture(
                 &self.base,
                 new_unscaled_framebuffer_size,
-                render_scale,
+                new_render_scale,
                 "bloom_texture_2",
             ),
         ];
@@ -3458,13 +3506,13 @@ impl Renderer {
         private_data_guard.tone_mapping_texture = Texture::create_scaled_surface_texture(
             &self.base,
             new_unscaled_framebuffer_size,
-            render_scale,
+            new_render_scale,
             "tone_mapping_texture",
         );
         private_data_guard.depth_texture = Texture::create_depth_texture(
             &self.base,
             new_unscaled_framebuffer_size,
-            render_scale,
+            new_render_scale,
             "depth_texture",
         );
 
@@ -3686,6 +3734,8 @@ impl Renderer {
                     })
             })
             .collect::<Vec<_>>();
+
+        surface_resized
     }
 
     #[profiling::function]
@@ -4053,21 +4103,19 @@ impl Renderer {
         &mut self,
         engine_state: &mut EngineState,
         surface_data: &SurfaceData,
+        surface_texture: wgpu::SurfaceTexture,
         ui_overlay: &mut IkariUiContainer<UiOverlay>,
     ) -> anyhow::Result<()>
     where
-        UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + 'static,
+        UiOverlay:
+            iced_winit::runtime::Program<Renderer = iced::Renderer> + UiProgramEvents + 'static,
     {
         if surface_data.surface_config.width == 0 || surface_data.surface_config.height == 0 {
             return Ok(());
         }
 
         self.update_internal(engine_state, &surface_data.surface_config);
-        self.render_internal(
-            engine_state,
-            surface_data.surface.get_current_texture()?,
-            ui_overlay,
-        )
+        self.render_internal(engine_state, surface_texture, ui_overlay)
     }
 
     fn get_node_cam_intersection_result(
@@ -5157,7 +5205,8 @@ impl Renderer {
         ui_overlay: &mut IkariUiContainer<UiOverlay>,
     ) -> anyhow::Result<()>
     where
-        UiOverlay: iced_winit::runtime::Program<Renderer = iced::Renderer> + 'static,
+        UiOverlay:
+            iced_winit::runtime::Program<Renderer = iced::Renderer> + UiProgramEvents + 'static,
     {
         let mut data_guard = self.data.lock();
         let data: &mut RendererData = &mut data_guard;
@@ -6319,8 +6368,6 @@ impl Renderer {
         }
 
         if record_culling_stats {
-            stats.time_to_cull = start.elapsed();
-
             stats.main_camera_culled_count = culled_object_counts_per_camera[0];
 
             let mut directional_light_index_acc = 1;
@@ -6348,6 +6395,8 @@ impl Renderer {
 
                 stats.point_light_culled_counts.push(frusta_counts);
             }
+
+            stats.time_to_cull = start.elapsed();
 
             data.last_frame_culling_stats = Some(stats);
         } else {

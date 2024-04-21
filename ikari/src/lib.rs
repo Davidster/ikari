@@ -11,6 +11,7 @@ pub mod camera;
 pub mod collisions;
 pub mod engine_state;
 pub mod file_manager;
+pub mod framerate_limiter;
 pub mod gameloop;
 pub mod gltf_loader;
 pub mod math;

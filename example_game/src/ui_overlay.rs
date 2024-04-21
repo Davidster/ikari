@@ -22,6 +22,9 @@ use iced_aw::style::modal;
 use iced_aw::{floating_element, Modal};
 use iced_winit::runtime;
 use ikari::file_manager::GameFilePath;
+use ikari::framerate_limiter::FramerateLimit;
+use ikari::framerate_limiter::FramerateLimitType;
+use ikari::framerate_limiter::FramerateLimiter;
 use ikari::player_controller::ControlledViewDirection;
 use ikari::profile_dump::can_generate_profile_dump;
 use ikari::profile_dump::generate_profile_dump;
@@ -30,9 +33,11 @@ use ikari::renderer::BloomType;
 use ikari::renderer::CullingFrustumLockMode;
 use ikari::renderer::CullingStats;
 use ikari::renderer::MIN_SHADOW_MAP_BIAS;
+use ikari::texture::apply_render_scale;
 use ikari::time::Instant;
 use ikari::time_tracker::FrameDurations;
 use ikari::time_tracker::FrameInstants;
+use ikari::ui::UiProgramEvents;
 use plotters::prelude::*;
 use plotters_iced::{Chart, ChartWidget, DrawingBackend};
 
@@ -49,11 +54,13 @@ use crate::game::INITIAL_ENABLE_SOFT_SHADOWS;
 use crate::game::INITIAL_ENABLE_VSYNC;
 use crate::game::INITIAL_FAR_PLANE_DISTANCE;
 use crate::game::INITIAL_FOV_X;
+use crate::game::INITIAL_FRAMERATE_LIMIT;
 use crate::game::INITIAL_IS_SHOWING_CAMERA_POSE;
 use crate::game::INITIAL_IS_SHOWING_CURSOR_MARKER;
 use crate::game::INITIAL_NEAR_PLANE_DISTANCE;
 use crate::game::INITIAL_NEW_BLOOM_INTENSITY;
 use crate::game::INITIAL_NEW_BLOOM_RADIUS;
+use crate::game::INITIAL_RENDER_SCALE;
 use crate::game::INITIAL_SHADOW_BIAS;
 use crate::game::INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS;
 use crate::game::INITIAL_SKYBOX_WEIGHT;
@@ -98,12 +105,16 @@ pub struct FrameStats {
 #[derive(Debug, Clone)]
 pub enum Message {
     ViewportDimsChanged((u32, u32)),
+    MonitorRefreshRateChanged(Option<f32>),
     CursorPosChanged(winit::dpi::PhysicalPosition<f64>),
     FrameCompleted(FrameStats),
     CameraPoseChanged((Vec3, ControlledViewDirection)),
     AudioSoundStatsChanged((GameFilePath, AudioSoundStats)),
     #[allow(dead_code)]
     VsyncChanged(bool),
+    FramerateLimitTypeChanged(FramerateLimitType),
+    CustomFramerateLimitChanged(f32),
+    RenderScaleChanged(f32),
     FovxChanged(f32),
     NearPlaneDistanceChanged(f32),
     FarPlaneDistanceChanged(f32),
@@ -115,6 +126,7 @@ pub enum Message {
     ToggleDepthPrepass(bool),
     ToggleCameraPose(bool),
     ToggleCursorMarker(bool),
+    ToggleFps(bool),
     ToggleFpsChart(bool),
     ToggleGpuSpans(bool),
     ToggleSoftShadows(bool),
@@ -148,6 +160,9 @@ pub struct GeneralSettings {
 
     pub enable_depth_prepass: bool,
     pub enable_vsync: bool,
+    pub framerate_limit_type: FramerateLimitType,
+    pub custom_framerate_limit: f32,
+    pub render_scale: f32,
 }
 
 impl Default for GeneralSettings {
@@ -156,6 +171,13 @@ impl Default for GeneralSettings {
             collapsed: true,
             enable_vsync: INITIAL_ENABLE_VSYNC,
             enable_depth_prepass: INITIAL_ENABLE_DEPTH_PREPASS,
+            framerate_limit_type: INITIAL_FRAMERATE_LIMIT.into(),
+            custom_framerate_limit: match INITIAL_FRAMERATE_LIMIT {
+                FramerateLimit::None => 60.0,
+                FramerateLimit::Monitor => 60.0,
+                FramerateLimit::Custom(val) => val,
+            },
+            render_scale: INITIAL_RENDER_SCALE,
         }
     }
 }
@@ -248,6 +270,7 @@ pub struct DebugSettings {
     pub record_culling_stats: bool,
     pub culling_frustum_lock_mode: CullingFrustumLockMode,
 
+    is_showing_fps: bool,
     is_showing_fps_chart: bool,
     is_showing_gpu_spans: bool,
     is_showing_audio_stats: bool,
@@ -269,6 +292,7 @@ impl Default for DebugSettings {
             record_culling_stats: false,
             culling_frustum_lock_mode: CullingFrustumLockMode::default(),
 
+            is_showing_fps: true,
             is_showing_camera_pose: INITIAL_IS_SHOWING_CAMERA_POSE,
             is_showing_cursor_marker: INITIAL_IS_SHOWING_CURSOR_MARKER,
             is_showing_fps_chart: false,
@@ -282,6 +306,7 @@ impl Default for DebugSettings {
 pub struct UiOverlay {
     clock: canvas::Cache,
     viewport_dims: (u32, u32),
+    monitor_refresh_rate: Option<f32>,
     cursor_position: winit::dpi::PhysicalPosition<f64>,
     fps_chart: FpsChart,
     camera_pose: Option<(Vec3, ControlledViewDirection)>, // position, direction
@@ -289,6 +314,7 @@ pub struct UiOverlay {
     pending_perf_dump: Option<PendingPerfDump>,
     perf_dump_completion_time: Option<Instant>,
     culling_stats: Option<CullingStats>,
+    frame_counter: usize,
 
     pub is_showing_options_menu: bool,
     pub was_exit_button_pressed: bool,
@@ -382,6 +408,8 @@ impl modal::StyleSheet for ModalStyle {
 struct FpsChart {
     recent_frame_times: Vec<(Instant, FrameDurations, Option<Duration>)>,
     avg_total_frame_time_millis: Option<f64>,
+    avg_sleep_and_inputs_time_ms: Option<f64>,
+    avg_get_surface_time_ms: Option<f64>,
     avg_update_time_ms: Option<f64>,
     avg_render_time_ms: Option<f64>,
     avg_gpu_frame_time_ms: Option<f64>,
@@ -568,6 +596,12 @@ impl FpsChart {
 
         self.avg_total_frame_time_millis =
             compute_new_avg_frametime(self.avg_total_frame_time_millis, Some(new_durations.total));
+        self.avg_sleep_and_inputs_time_ms = compute_new_avg_frametime(
+            self.avg_sleep_and_inputs_time_ms,
+            new_durations.sleep_and_inputs,
+        );
+        self.avg_get_surface_time_ms =
+            compute_new_avg_frametime(self.avg_get_surface_time_ms, new_durations.get_surface);
         self.avg_update_time_ms =
             compute_new_avg_frametime(self.avg_update_time_ms, new_durations.update);
         self.avg_render_time_ms =
@@ -634,6 +668,10 @@ impl UiOverlay {
         Self {
             clock: Default::default(),
             viewport_dims: (window.inner_size().width, window.inner_size().height),
+            monitor_refresh_rate: window
+                .current_monitor()
+                .and_then(|monitor| monitor.refresh_rate_millihertz())
+                .map(|millihertz| millihertz as f32 / 1000.0),
             cursor_position,
             fps_chart: FpsChart::default(),
             camera_pose: None,
@@ -641,6 +679,8 @@ impl UiOverlay {
             pending_perf_dump: None,
             perf_dump_completion_time: None,
             culling_stats: None,
+
+            frame_counter: 0,
 
             is_showing_options_menu: false,
             was_exit_button_pressed: false,
@@ -689,16 +729,49 @@ impl<Message> canvas::Program<Message, iced::Theme, iced::Renderer> for UiOverla
     ) -> Vec<canvas::Geometry> {
         self.clock.clear();
         let clock = self.clock.draw(renderer, bounds.size(), |frame| {
+            let colors = [
+                iced::Color::from_rgba8(255, 0, 0, 0.5),
+                iced::Color::from_rgba8(0, 255, 0, 0.5),
+                iced::Color::from_rgba8(0, 0, 255, 0.5),
+            ];
+            let color = colors[self.frame_counter % 3];
+
             let center = iced::Point::new(
                 frame.width() * self.cursor_position.x as f32,
                 frame.height() * self.cursor_position.y as f32,
             );
             let radius = 24.0;
             let background = canvas::Path::circle(center, radius);
-            frame.fill(&background, iced::Color::from_rgba8(0x12, 0x93, 0xD8, 0.5));
+            frame.fill(&background, color);
         });
 
         vec![clock]
+    }
+}
+
+impl UiProgramEvents for UiOverlay {
+    fn handle_window_event(
+        &self,
+        window: &winit::window::Window,
+        event: &winit::event::WindowEvent,
+    ) -> Vec<Self::Message> {
+        match event {
+            winit::event::WindowEvent::CursorMoved { position, .. } => {
+                vec![Message::CursorPosChanged(
+                    winit::dpi::PhysicalPosition::new(
+                        position.x / window.inner_size().width as f64,
+                        position.y / window.inner_size().height as f64,
+                    ),
+                )]
+            }
+            winit::event::WindowEvent::Resized(size) => {
+                vec![Message::ViewportDimsChanged((
+                    (size.width as f64 / window.scale_factor()) as u32,
+                    (size.height as f64 / window.scale_factor()) as u32,
+                ))]
+            }
+            _ => vec![],
+        }
     }
 }
 
@@ -713,6 +786,9 @@ impl runtime::Program for UiOverlay {
             Message::ViewportDimsChanged(new_state) => {
                 self.viewport_dims = new_state;
             }
+            Message::MonitorRefreshRateChanged(new_state) => {
+                self.monitor_refresh_rate = new_state;
+            }
             Message::CursorPosChanged(new_state) => {
                 self.cursor_position = new_state;
             }
@@ -723,6 +799,7 @@ impl runtime::Program for UiOverlay {
                     frame_stats.gpu_timer_query_results,
                 );
                 self.culling_stats = frame_stats.culling_stats;
+                self.frame_counter += 1;
                 self.poll_perf_dump_state();
             }
             Message::AudioSoundStatsChanged((track_path, stats)) => {
@@ -770,6 +847,15 @@ impl runtime::Program for UiOverlay {
             }
             Message::VsyncChanged(new_state) => {
                 self.general_settings.enable_vsync = new_state;
+            }
+            Message::FramerateLimitTypeChanged(new_state) => {
+                self.general_settings.framerate_limit_type = new_state;
+            }
+            Message::CustomFramerateLimitChanged(new_state) => {
+                self.general_settings.custom_framerate_limit = new_state;
+            }
+            Message::RenderScaleChanged(new_state) => {
+                self.general_settings.render_scale = new_state;
             }
             Message::ToggleDepthPrepass(new_state) => {
                 self.general_settings.enable_depth_prepass = new_state;
@@ -859,6 +945,9 @@ impl runtime::Program for UiOverlay {
             Message::ToggleCursorMarker(new_state) => {
                 self.debug_settings.is_showing_cursor_marker = new_state;
             }
+            Message::ToggleFps(new_state) => {
+                self.debug_settings.is_showing_fps = new_state;
+            }
             Message::ToggleFpsChart(new_state) => {
                 self.debug_settings.is_showing_fps_chart = new_state;
             }
@@ -880,11 +969,6 @@ impl runtime::Program for UiOverlay {
 
         let container_style = Box::new(ContainerStyle {});
 
-        let mut rows = Column::new()
-            .width(Length::Shrink)
-            .height(Length::Shrink)
-            .spacing(4);
-
         let get_chart_line_color = |i: usize| {
             iced::Color::from_rgba8(
                 FPS_CHART_LINE_COLORS[i].0,
@@ -895,6 +979,7 @@ impl runtime::Program for UiOverlay {
         };
 
         let DebugSettings {
+            is_showing_fps,
             is_showing_fps_chart,
             is_showing_gpu_spans,
             is_showing_audio_stats,
@@ -903,66 +988,91 @@ impl runtime::Program for UiOverlay {
             ..
         } = self.debug_settings;
 
-        if let Some(avg_frame_time_millis) = self.fps_chart.avg_total_frame_time_millis {
-            let mut text = text(format!(
-                "Frametime: {:.2}ms ({:.2}fps)",
-                avg_frame_time_millis,
-                1_000.0 / avg_frame_time_millis,
-            ));
+        let mut rows: Vec<Element<_>> = vec![];
 
-            if is_showing_fps_chart {
-                text = text.style(get_chart_line_color(0))
-            }
-            rows = rows.push(text);
-        }
+        if is_showing_fps {
+            if let Some(avg_frame_time_millis) = self.fps_chart.avg_total_frame_time_millis {
+                let mut text = text(format!(
+                    "Frametime: {:.2}ms ({:.2}fps)",
+                    avg_frame_time_millis,
+                    1_000.0 / avg_frame_time_millis,
+                ));
 
-        if let Some(millis) = self.fps_chart.avg_update_time_ms {
-            let mut text = text(&format!("Update: {:.2}ms", millis));
-            if is_showing_fps_chart {
-                text = text.style(get_chart_line_color(1))
+                if is_showing_fps_chart {
+                    text = text.style(get_chart_line_color(0))
+                }
+                rows.push(text.into());
             }
-            rows = rows.push(text);
-        }
 
-        if let Some(millis) = self.fps_chart.avg_render_time_ms {
-            let mut text = text(&format!("Render: {:.2}ms", millis));
-            if is_showing_fps_chart {
-                text = text.style(get_chart_line_color(2))
-            }
-            rows = rows.push(text);
-        }
+            if self.general_settings.framerate_limit_type != FramerateLimitType::None {
+                if let Some(millis) = self.fps_chart.avg_sleep_and_inputs_time_ms {
+                    let text = text(&format!("Sleep and inputs: {:.2}ms", millis));
+                    rows.push(text.into());
+                }
 
-        if let Some(millis) = self.fps_chart.avg_gpu_frame_time_ms {
-            let mut text = text(&format!("GPU: {:.2}ms", millis));
-            if is_showing_fps_chart {
-                text = text.style(get_chart_line_color(3))
+                if let Some(millis) = self.fps_chart.avg_get_surface_time_ms {
+                    let text = text(&format!("Get surface: {:.2}ms", millis));
+                    rows.push(text.into());
+                }
             }
-            rows = rows.push(text);
+
+            if let Some(millis) = self.fps_chart.avg_update_time_ms {
+                let mut text = text(&format!("Update: {:.2}ms", millis));
+                if is_showing_fps_chart {
+                    text = text.style(get_chart_line_color(1))
+                }
+                rows.push(text.into());
+            }
+
+            if let Some(millis) = self.fps_chart.avg_render_time_ms {
+                let mut text = text(&format!("Render: {:.2}ms", millis));
+                if is_showing_fps_chart {
+                    text = text.style(get_chart_line_color(2))
+                }
+                rows.push(text.into());
+            }
+
+            if let Some(millis) = self.fps_chart.avg_gpu_frame_time_ms {
+                let mut text = text(&format!("GPU: {:.2}ms", millis));
+                if is_showing_fps_chart {
+                    text = text.style(get_chart_line_color(3))
+                }
+                rows.push(text.into());
+            }
         }
 
         if SHOW_BLOOM_TYPE {
-            rows = rows.push(text(&format!(
-                "Bloom type: {}",
-                self.post_effect_settings.bloom_type
-            )));
+            rows.push(
+                text(&format!(
+                    "Bloom type: {}",
+                    self.post_effect_settings.bloom_type
+                ))
+                .into(),
+            );
         }
 
         if is_showing_camera_pose {
             if let Some((camera_position, camera_direction)) = self.camera_pose {
-                rows = rows.push(text(&format!(
-                    "Camera position:  x={:.2}, y={:.2}, z={:.2}",
-                    camera_position.x, camera_position.y, camera_position.z
-                )));
+                rows.push(
+                    text(&format!(
+                        "Camera position:  x={:.2}, y={:.2}, z={:.2}",
+                        camera_position.x, camera_position.y, camera_position.z
+                    ))
+                    .into(),
+                );
                 let two_pi = 2.0 * std::f32::consts::PI;
                 let camera_horizontal = (camera_direction.horizontal + two_pi) % two_pi;
                 let camera_vertical = camera_direction.vertical;
-                rows = rows.push(text(&format!(
-                    "Camera direction: h={:.2} ({:.2} deg), v={:.2} ({:.2} deg)",
-                    camera_horizontal,
-                    camera_horizontal.to_degrees(),
-                    camera_vertical,
-                    camera_vertical.to_degrees(),
-                )));
+                rows.push(
+                    text(&format!(
+                        "Camera direction: h={:.2} ({:.2} deg), v={:.2} ({:.2} deg)",
+                        camera_horizontal,
+                        camera_horizontal.to_degrees(),
+                        camera_vertical,
+                        camera_vertical.to_degrees(),
+                    ))
+                    .into(),
+                );
             }
         }
 
@@ -978,38 +1088,49 @@ impl runtime::Program for UiOverlay {
                     })
                     .unwrap_or_default();
                 let buffered_pos = format_timestamp(stats.buffered_to_pos_seconds);
-                rows = rows.push(text(&format!(
-                    "{file_path}: {pos}{length}, buffer to {buffered_pos}"
-                )));
+                rows.push(
+                    text(&format!(
+                        "{file_path}: {pos}{length}, buffer to {buffered_pos}"
+                    ))
+                    .into(),
+                );
             }
         }
 
         if let Some(culling_stats) = &self.culling_stats {
             let text_size = 14;
-            rows = rows.push(text("Culling stats:").size(text_size));
+            rows.push(text("Culling stats:").size(text_size).into());
 
-            rows = rows.push(
-                text(&format!("  Time to cull: {:?}", culling_stats.time_to_cull)).size(text_size),
+            rows.push(
+                text(&format!("  Time to cull: {:?}", culling_stats.time_to_cull))
+                    .size(text_size)
+                    .into(),
             );
 
             let total_count = culling_stats.total_count;
 
-            rows = rows.push(text(&format!("  Total objects: {}", total_count)).size(text_size));
-            rows = rows.push(
+            rows.push(
+                text(&format!("  Total objects: {}", total_count))
+                    .size(text_size)
+                    .into(),
+            );
+            rows.push(
                 text(&format!(
                     "  Completely culled: {} ({:.2}%)",
                     culling_stats.completely_culled_count,
                     100.0 * culling_stats.completely_culled_count as f32 / total_count as f32
                 ))
-                .size(text_size),
+                .size(text_size)
+                .into(),
             );
-            rows = rows.push(
+            rows.push(
                 text(&format!(
                     "  Main camera: {} ({:.2}%)",
                     culling_stats.main_camera_culled_count,
                     100.0 * culling_stats.main_camera_culled_count as f32 / total_count as f32
                 ))
-                .size(text_size),
+                .size(text_size)
+                .into(),
             );
 
             for (light_index, cascades) in culling_stats
@@ -1017,34 +1138,43 @@ impl runtime::Program for UiOverlay {
                 .iter()
                 .enumerate()
             {
-                rows = rows
-                    .push(text(&format!("  Directional light: {}", light_index)).size(text_size));
+                rows.push(
+                    text(&format!("  Directional light: {}", light_index))
+                        .size(text_size)
+                        .into(),
+                );
 
                 for (cascade_index, cascade_count) in cascades.iter().enumerate() {
-                    rows = rows.push(
+                    rows.push(
                         text(&format!(
                             "    Cascade {}: {} ({:.2}%)",
                             cascade_index,
                             cascade_count,
                             100.0 * (*cascade_count as f32) / total_count as f32
                         ))
-                        .size(text_size),
+                        .size(text_size)
+                        .into(),
                     );
                 }
             }
             for (light_index, frusta) in culling_stats.point_light_culled_counts.iter().enumerate()
             {
-                rows = rows.push(text(&format!("  Point light: {}", light_index)).size(text_size));
+                rows.push(
+                    text(&format!("  Point light: {}", light_index))
+                        .size(text_size)
+                        .into(),
+                );
 
                 for (frustum_index, frustum_count) in frusta.iter().enumerate() {
-                    rows = rows.push(
+                    rows.push(
                         text(&format!(
                             "    Frustum {}: {} ({:.2}%)",
                             frustum_index,
                             frustum_count,
                             100.0 * (*frustum_count as f32) / total_count as f32
                         ))
-                        .size(text_size),
+                        .size(text_size)
+                        .into(),
                     );
                 }
             }
@@ -1061,31 +1191,38 @@ impl runtime::Program for UiOverlay {
             avg_span_times_vec.reverse();
             for (span, span_frame_time) in avg_span_times_vec {
                 let msg = &format!("{span:}: {span_frame_time:.2}ms");
-                rows = rows.push(text(msg).size(14));
+                rows.push(text(msg).size(14).into());
             }
         }
 
         if is_showing_fps_chart {
             let padding = [16, 20, 16, 0]; // top, right, bottom, left
-            rows = rows.push(
+            rows.push(
                 Container::new(
                     ChartWidget::new(&self.fps_chart)
                         .width(Length::Fixed(400.0))
                         .height(Length::Fixed(300.0)),
                 )
-                .padding(padding),
+                .padding(padding)
+                .into(),
             );
         }
 
+        let padding = if rows.is_empty() { 0 } else { 8 };
         let background_content = Container::new(
             Row::new()
                 .width(Length::Shrink)
                 .height(Length::Shrink)
-                .padding(8)
+                .padding(padding)
                 .push(
-                    Container::new(rows)
-                        .padding(8)
-                        .style(iced::theme::Container::Custom(container_style)),
+                    Container::new(
+                        Column::with_children(rows)
+                            .width(Length::Shrink)
+                            .height(Length::Shrink)
+                            .spacing(4),
+                    )
+                    .padding(padding)
+                    .style(iced::theme::Container::Custom(container_style)),
                 ),
         )
         .width(Length::Fill)
@@ -1126,6 +1263,9 @@ impl runtime::Program for UiOverlay {
 
                     enable_depth_prepass,
                     enable_vsync,
+                    framerate_limit_type,
+                    custom_framerate_limit,
+                    render_scale,
                 } = self.general_settings;
 
                 options = options.push(collapse_title(
@@ -1138,7 +1278,7 @@ impl runtime::Program for UiOverlay {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         options = options.push(
-                            checkbox("Enable VSync", enable_vsync)
+                            checkbox("VSync", enable_vsync)
                                 .size(checkbox_size)
                                 .text_size(small_text_size)
                                 .on_toggle(Message::VsyncChanged),
@@ -1146,7 +1286,72 @@ impl runtime::Program for UiOverlay {
                     }
 
                     options = options.push(
-                        checkbox("Enable Depth Pre-pass", enable_depth_prepass)
+                        text(format!(
+                            "Render scale ({render_scale:.1}, {}x{})",
+                            apply_render_scale(self.viewport_dims.0, render_scale),
+                            apply_render_scale(self.viewport_dims.1, render_scale)
+                        ))
+                        .size(small_text_size),
+                    );
+                    options = options.push(
+                        slider(0.1..=4.0, render_scale, Message::RenderScaleChanged)
+                            .height(slider_size)
+                            .step(0.1),
+                    );
+
+                    if FramerateLimiter::is_supported() {
+                        options = options.push(text("Framerate limit").size(small_text_size));
+
+                        let mut framerate_limit_options = vec![];
+                        for limit_type in FramerateLimitType::ALL {
+                            if limit_type == FramerateLimitType::Monitor
+                                && self.monitor_refresh_rate.is_none()
+                            {
+                                continue;
+                            }
+
+                            let value = match limit_type {
+                                FramerateLimitType::None => None,
+                                FramerateLimitType::Monitor => self.monitor_refresh_rate,
+                                FramerateLimitType::Custom => Some(custom_framerate_limit),
+                            };
+                            let value_text = value
+                                .map(|value| format!(" ({value:.2})"))
+                                .unwrap_or_default();
+
+                            framerate_limit_options.push(
+                                radio(
+                                    format!("{limit_type}{value_text}"),
+                                    limit_type,
+                                    Some(framerate_limit_type),
+                                    Message::FramerateLimitTypeChanged,
+                                )
+                                .size(checkbox_size)
+                                .text_size(small_text_size)
+                                .into(),
+                            );
+                        }
+
+                        options = options.push(
+                            container(Column::with_children(framerate_limit_options).spacing(4))
+                                .padding([0, 0, 8, 0]),
+                        );
+
+                        if framerate_limit_type == FramerateLimitType::Custom {
+                            options = options.push(
+                                slider(
+                                    1.0..=300.0,
+                                    custom_framerate_limit,
+                                    Message::CustomFramerateLimitChanged,
+                                )
+                                .height(slider_size)
+                                .step(1.0),
+                            );
+                        }
+                    }
+
+                    options = options.push(
+                        checkbox("Depth Pre-pass", enable_depth_prepass)
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleDepthPrepass),
@@ -1229,8 +1434,10 @@ impl runtime::Program for UiOverlay {
 
                 if !collapsed {
                     options = options.push(text("Bloom Type").size(small_text_size));
+
+                    let mut bloom_options = vec![];
                     for mode in BloomType::ALL {
-                        options = options.push(
+                        bloom_options.push(
                             radio(
                                 format!("{mode}"),
                                 mode,
@@ -1238,9 +1445,15 @@ impl runtime::Program for UiOverlay {
                                 Message::BloomTypeChanged,
                             )
                             .size(checkbox_size)
-                            .text_size(small_text_size),
+                            .text_size(small_text_size)
+                            .into(),
                         );
                     }
+
+                    options = options.push(
+                        container(Column::with_children(bloom_options).spacing(4))
+                            .padding([0, 0, 8, 0]),
+                    );
 
                     options = options.push(
                         text(format!("New Bloom Radius: {:.4}", new_bloom_radius))
@@ -1394,31 +1607,10 @@ impl runtime::Program for UiOverlay {
 
                 if !collapsed {
                     options = options.push(
-                        checkbox("Camera Pose", is_showing_camera_pose)
+                        checkbox("FPS", is_showing_fps)
                             .size(checkbox_size)
                             .text_size(small_text_size)
-                            .on_toggle(Message::ToggleCameraPose),
-                    );
-
-                    options = options.push(
-                        checkbox("Cursor Marker", is_showing_cursor_marker)
-                            .size(checkbox_size)
-                            .text_size(small_text_size)
-                            .on_toggle(Message::ToggleCursorMarker),
-                    );
-
-                    options = options.push(
-                        checkbox("Audio Stats", is_showing_audio_stats)
-                            .size(checkbox_size)
-                            .text_size(small_text_size)
-                            .on_toggle(Message::ToggleAudioStats),
-                    );
-
-                    options = options.push(
-                        checkbox("Culling Stats", record_culling_stats)
-                            .size(checkbox_size)
-                            .text_size(small_text_size)
-                            .on_toggle(Message::ToggleCullingStats),
+                            .on_toggle(Message::ToggleFps),
                     );
 
                     options = options.push(
@@ -1426,6 +1618,13 @@ impl runtime::Program for UiOverlay {
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleFpsChart),
+                    );
+
+                    options = options.push(
+                        checkbox("Culling Stats", record_culling_stats)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleCullingStats),
                     );
 
                     if self
@@ -1443,6 +1642,27 @@ impl runtime::Program for UiOverlay {
                     }
 
                     options = options.push(
+                        checkbox("Camera Pose", is_showing_camera_pose)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleCameraPose),
+                    );
+
+                    options = options.push(
+                        checkbox("Cascade Debug", enable_cascade_debug)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleCascadeDebug),
+                    );
+
+                    options = options.push(
+                        checkbox("Shadow Debug", enable_shadow_debug)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleShadowDebug),
+                    );
+
+                    options = options.push(
                         checkbox("Frustum Culling Overlay", draw_culling_frustum)
                             .size(checkbox_size)
                             .text_size(small_text_size)
@@ -1450,8 +1670,10 @@ impl runtime::Program for UiOverlay {
                     );
                     if draw_culling_frustum {
                         options = options.push(text("Lock Culling Frustum").size(small_text_size));
+
+                        let mut culling_lock_options = vec![];
                         for mode in CullingFrustumLockMode::ALL {
-                            options = options.push(
+                            culling_lock_options.push(
                                 radio(
                                     format!("{mode}"),
                                     mode,
@@ -1459,9 +1681,15 @@ impl runtime::Program for UiOverlay {
                                     Message::CullingFrustumLockModeChanged,
                                 )
                                 .size(checkbox_size)
-                                .text_size(small_text_size),
+                                .text_size(small_text_size)
+                                .into(),
                             );
                         }
+
+                        options = options.push(
+                            container(Column::with_children(culling_lock_options).spacing(4))
+                                .padding([0, 0, 8, 0]),
+                        );
                     }
 
                     options = options.push(
@@ -1482,17 +1710,19 @@ impl runtime::Program for UiOverlay {
                         .text_size(small_text_size)
                         .on_toggle(Message::ToggleDrawDirectionalLightCullingFrusta),
                     );
+
                     options = options.push(
-                        checkbox("Shadow Debug", enable_shadow_debug)
+                        checkbox("Audio Stats", is_showing_audio_stats)
                             .size(checkbox_size)
                             .text_size(small_text_size)
-                            .on_toggle(Message::ToggleShadowDebug),
+                            .on_toggle(Message::ToggleAudioStats),
                     );
+
                     options = options.push(
-                        checkbox("Cascade Debug", enable_cascade_debug)
+                        checkbox("Cursor Marker", is_showing_cursor_marker)
                             .size(checkbox_size)
                             .text_size(small_text_size)
-                            .on_toggle(Message::ToggleCascadeDebug),
+                            .on_toggle(Message::ToggleCursorMarker),
                     );
                 }
             }
