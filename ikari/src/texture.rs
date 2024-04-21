@@ -29,7 +29,9 @@ impl Texture {
 
     pub fn unpadded_bytes_per_row(&self, mip_level: Option<u32>) -> u32 {
         (self.size.width >> mip_level.unwrap_or(0))
-            * self.texture.format().block_copy_size(None).unwrap()
+            * self.texture.format().block_copy_size(None).expect(
+                "This function was not meant to be called with a Depth/Stencil/Planar texture format",
+            )
     }
 
     pub fn padded_bytes_per_row(&self, mip_level: Option<u32>) -> u32 {
@@ -88,7 +90,9 @@ impl Texture {
                 wgpu::ImageDataLayout {
                     offset: 0,
                     // queue.write_texture is exempt from COPY_BYTES_PER_ROW_ALIGNMENT requirement
-                    bytes_per_row: Some(format.block_copy_size(None).unwrap() * raw_image.width),
+                    bytes_per_row: Some(format.block_copy_size(None).expect(
+                        "This function was not meant to be called with a Depth/Stencil/Planar texture format",
+                    ) * raw_image.width),
                     rows_per_image: Some(raw_image.height),
                 },
                 size,

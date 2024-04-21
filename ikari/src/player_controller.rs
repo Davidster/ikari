@@ -126,10 +126,10 @@ impl PlayerController {
     }
 
     pub fn set_is_gravity_enabled(&self, physics_state: &mut PhysicsState, is_enabled: bool) {
-        let rigid_body = physics_state
-            .rigid_body_set
-            .get_mut(self.rigid_body_handle)
-            .unwrap();
+        let Some(rigid_body) = physics_state.rigid_body_set.get_mut(self.rigid_body_handle) else {
+            log::error!("Tried setting player gravity but rigid body was removed");
+            return;
+        };
         rigid_body.set_gravity_scale(if is_enabled { 1.0 } else { 0.0 }, true);
     }
 
@@ -281,10 +281,10 @@ impl PlayerController {
         let up_direction = Vec3::new(0.0, 1.0, 0.0);
         let right_direction = forward_direction.cross(up_direction);
 
-        let rigid_body = physics_state
-            .rigid_body_set
-            .get_mut(self.rigid_body_handle)
-            .unwrap();
+        let Some(rigid_body) = physics_state.rigid_body_set.get_mut(self.rigid_body_handle) else {
+            log::error!("Tried setting player gravity but rigid body was removed");
+            return;
+        };
 
         let gravity_is_enabled = rigid_body.gravity_scale() * physics_state.gravity.norm() > 0.001;
 
@@ -364,11 +364,12 @@ impl PlayerController {
     }
 
     pub fn position(&self, physics_state: &PhysicsState) -> Vec3 {
-        let position = physics_state
-            .rigid_body_set
-            .get(self.rigid_body_handle)
-            .unwrap()
-            .translation();
+        let Some(rigid_body) = physics_state.rigid_body_set.get(self.rigid_body_handle) else {
+            log::error!("Tried getting player position but rigid body was removed");
+            return Vec3::ZERO;
+        };
+
+        let position = rigid_body.translation();
         Vec3::new(position.x as f32, position.y as f32, position.z as f32)
     }
 

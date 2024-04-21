@@ -10,6 +10,7 @@ name = "build_web"
 path = "src/main.rs"
 
 [dependencies]
+anyhow.workspace = true
 arboard = "3.2.1"
 pico-args.workspace = true
 wasm-bindgen-cli-support = "0.2.87"

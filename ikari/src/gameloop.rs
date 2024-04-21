@@ -49,7 +49,8 @@ pub fn run<
     mut on_device_event: OnDeviceEventFunction,
     mut on_surface_resize: OnSurfaceResizeFunction,
     application_start_time: Instant,
-) where
+) -> anyhow::Result<()>
+where
     OnUpdateFunction: FnMut(GameContext<GameStateType>) + 'static,
     OnWindowEventFunction: FnMut(GameContext<GameStateType>, &winit::event::WindowEvent) + 'static,
     OnDeviceEventFunction: FnMut(GameContext<GameStateType>, &winit::event::DeviceEvent) + 'static,
@@ -259,11 +260,15 @@ pub fn run<
             _ => {}
         };
     };
+
     #[cfg(target_arch = "wasm32")]
     {
         use winit::platform::web::EventLoopExtWebSys;
         event_loop.spawn(handler);
     }
+
     #[cfg(not(target_arch = "wasm32"))]
-    event_loop.run(handler).unwrap();
+    event_loop.run(handler)?;
+
+    Ok(())
 }

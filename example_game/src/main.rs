@@ -25,7 +25,7 @@ const DXC_PATH: &str = "dxc/";
 // TODO: clean up this file
 
 async fn start() {
-    let run_result = async {
+    let run_result: anyhow::Result<()> = async {
         let application_start_time = ikari::time::Instant::now();
 
         let event_loop = winit::event_loop::EventLoop::new()?;
@@ -54,22 +54,28 @@ async fn start() {
         {
             use winit::platform::web::WindowExtWebSys;
 
-            let dom_window = web_sys::window().unwrap();
-            let document = dom_window.document().unwrap();
+            let dom_window = web_sys::window().expect("Ikari web can't run without a window");
+            let document = dom_window
+                .document()
+                .expect("Ikari web can't run without a document");
 
             let canvas_container = document
                 .get_element_by_id("canvas_container")
-                .unwrap()
+                .expect("Ikari web can't run without an element with id='canvas_container'")
                 .dyn_into::<web_sys::HtmlElement>()
-                .unwrap();
+                .expect("canvas_container should have been an html element");
             let _resized_immediately = window.request_inner_size(winit::dpi::LogicalSize::new(
                 (canvas_container.offset_width() as f64 * window.scale_factor()) as u32,
                 (canvas_container.offset_height() as f64 * window.scale_factor()) as u32,
             ));
 
             canvas_container
-                .append_child(&window.canvas().unwrap())
-                .unwrap();
+                .append_child(
+                    &window
+                        .canvas()
+                        .expect("Should have been called from inside the window"),
+                )
+                .expect("Couldn't canvas to canvas_container.");
         }
 
         log::debug!("window: {:?}", application_start_time.elapsed());
@@ -118,9 +124,9 @@ async fn start() {
             process_device_input,
             handle_surface_resize,
             application_start_time,
-        );
+        )?;
 
-        anyhow::Ok(())
+        Ok(())
     }
     .await;
 
@@ -187,7 +193,7 @@ pub fn show_error_div(error_message: &str) {
         div.set_text_content(Some(&format!("Fatal error occured: {}", error_message)));
         document
             .body()
-            .unwrap()
+            .expect("Ikari web can't run without a document body")
             .append_child(&div)
             .expect("Couldn't append error message to document body.");
     }

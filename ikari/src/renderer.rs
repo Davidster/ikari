@@ -22,6 +22,7 @@ use crate::transform::{look_in_dir, Transform, TransformBuilder};
 use crate::ui::{IkariUiContainer, UiProgramEvents};
 use crate::wasm_not_sync::WasmNotArc;
 
+use std::cmp::Ordering;
 use std::collections::{hash_map::Entry, HashMap};
 use std::num::NonZeroU64;
 use std::ops::Deref;
@@ -615,7 +616,7 @@ impl BaseRenderer {
         let window_size = window.inner_size();
 
         let instance = Self::make_instance(backends, dxc_path);
-        let surface = instance.create_surface(window).unwrap();
+        let surface = instance.create_surface(window)?;
 
         let base = Self::new(instance, Some(&surface)).await?;
 
@@ -2058,7 +2059,7 @@ impl Renderer {
         equirectangular_to_cubemap_hdr_pipeline_descriptor
             .fragment
             .as_mut()
-            .unwrap()
+            .expect("Expected non-hdr counterpart to have a fragmet stage")
             .targets = &[Some(wgpu::ColorTargetState {
             format: wgpu::TextureFormat::Rgba16Float,
             blend: Some(wgpu::BlendState::REPLACE),
@@ -2872,7 +2873,7 @@ impl Renderer {
                         resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                             buffer: bones_buffer.src(),
                             offset: 0,
-                            size: NonZeroU64::new(bones_buffer.length_bytes().try_into().unwrap()),
+                            size: NonZeroU64::new(bones_buffer.length_bytes() as u64),
                         }),
                     },
                     wgpu::BindGroupEntry {
@@ -2880,9 +2881,7 @@ impl Renderer {
                         resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                             buffer: pbr_instances_buffer.src(),
                             offset: 0,
-                            size: NonZeroU64::new(
-                                pbr_instances_buffer.length_bytes().try_into().unwrap(),
-                            ),
+                            size: NonZeroU64::new(pbr_instances_buffer.length_bytes() as u64),
                         }),
                     },
                 ],
@@ -2898,7 +2897,7 @@ impl Renderer {
                         resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                             buffer: bones_buffer.src(),
                             offset: 0,
-                            size: NonZeroU64::new(bones_buffer.length_bytes().try_into().unwrap()),
+                            size: NonZeroU64::new(bones_buffer.length_bytes() as u64),
                         }),
                     },
                     wgpu::BindGroupEntry {
@@ -2906,9 +2905,7 @@ impl Renderer {
                         resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                             buffer: unlit_instances_buffer.src(),
                             offset: 0,
-                            size: NonZeroU64::new(
-                                unlit_instances_buffer.length_bytes().try_into().unwrap(),
-                            ),
+                            size: NonZeroU64::new(unlit_instances_buffer.length_bytes() as u64),
                         }),
                     },
                 ],
@@ -2924,7 +2921,7 @@ impl Renderer {
                         resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                             buffer: bones_buffer.src(),
                             offset: 0,
-                            size: NonZeroU64::new(bones_buffer.length_bytes().try_into().unwrap()),
+                            size: NonZeroU64::new(bones_buffer.length_bytes() as u64),
                         }),
                     },
                     wgpu::BindGroupEntry {
@@ -2933,10 +2930,7 @@ impl Renderer {
                             buffer: transparent_instances_buffer.src(),
                             offset: 0,
                             size: NonZeroU64::new(
-                                transparent_instances_buffer
-                                    .length_bytes()
-                                    .try_into()
-                                    .unwrap(),
+                                transparent_instances_buffer.length_bytes() as u64
                             ),
                         }),
                     },
@@ -2953,7 +2947,7 @@ impl Renderer {
                         resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                             buffer: bones_buffer.src(),
                             offset: 0,
-                            size: NonZeroU64::new(bones_buffer.length_bytes().try_into().unwrap()),
+                            size: NonZeroU64::new(bones_buffer.length_bytes() as u64),
                         }),
                     },
                     wgpu::BindGroupEntry {
@@ -2961,12 +2955,7 @@ impl Renderer {
                         resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                             buffer: wireframe_instances_buffer.src(),
                             offset: 0,
-                            size: NonZeroU64::new(
-                                wireframe_instances_buffer
-                                    .length_bytes()
-                                    .try_into()
-                                    .unwrap(),
-                            ),
+                            size: NonZeroU64::new(wireframe_instances_buffer.length_bytes() as u64),
                         }),
                     },
                 ],
@@ -3275,15 +3264,16 @@ impl Renderer {
 
     pub fn unbind_mesh(data: &RendererData, mesh_index: usize) {
         let geometry_buffers = &data.binded_meshes[mesh_index];
-        let wireframe_mesh = data
+        geometry_buffers.vertex_buffer.destroy();
+        geometry_buffers.index_buffer.buffer.destroy();
+
+        if let Some(wireframe_mesh) = data
             .binded_wireframe_meshes
             .iter()
             .find(|wireframe_mesh| wireframe_mesh.source_mesh_index == mesh_index)
-            .unwrap();
-
-        geometry_buffers.vertex_buffer.destroy();
-        geometry_buffers.index_buffer.buffer.destroy();
-        wireframe_mesh.index_buffer.buffer.destroy();
+        {
+            wireframe_mesh.index_buffer.buffer.destroy();
+        }
     }
 
     // returns index of mesh in the RenderScene::binded_pbr_meshes list
@@ -3796,7 +3786,9 @@ impl Renderer {
                 if let Some(bounding_sphere) = scene.get_node_bounding_sphere(node_id, data) {
                     let culling_frustum_intersection_result =
                         Self::get_node_cam_intersection_result(
-                            scene.get_node(node_id).unwrap(),
+                            scene
+                                .get_node(node_id)
+                                .expect("Node id should still be valid at this point"),
                             bounding_sphere,
                             data,
                             scene,
@@ -3929,7 +3921,7 @@ impl Renderer {
                         culling_frustum_collider.isometry(),
                         culling_frustum_collider.collider(),
                     )
-                    .unwrap()
+                    .expect("Frustum-Frustum query should be supported")
                     {
                         Vec4::new(0.0, 1.0, 0.0, 0.1)
                     } else {
@@ -4076,17 +4068,14 @@ impl Renderer {
             return;
         }
 
-        let camera_transform = data_guard
+        let Some(camera_transform) = data_guard
             .camera_node_id
             .and_then(|camera_node_id| engine_state.scene.get_node(camera_node_id))
-            .map(|camera_node| camera_node.transform);
-
-        if camera_transform.is_none() {
+            .map(|camera_node| camera_node.transform)
+        else {
             log::error!("Couldn't set the frustum culling lock as there is currently no camera");
             return;
-        }
-
-        let camera_transform = camera_transform.unwrap();
+        };
 
         let position = match private_data_guard.frustum_culling_lock {
             CullingFrustumLock::Full(desc) => desc.focal_point,
@@ -4140,10 +4129,10 @@ impl Renderer {
         _scene: &Scene,
         camera_culling_frustum: &Frustum,
     ) -> Option<IntersectionResult> {
-        node.visual.as_ref()?;
+        let visual = node.visual.as_ref()?;
 
         /* bounding boxes will be wrong for skinned meshes so we currently can't cull them */
-        if node.skin_index.is_some() || !node.visual.as_ref().unwrap().cullable {
+        if node.skin_index.is_some() || !visual.cullable {
             return None;
         }
 
@@ -4168,14 +4157,14 @@ impl Renderer {
     ) {
         culling_mask.set_elements(0);
 
-        if node.visual.is_none() {
+        let Some(visual) = node.visual.as_ref() else {
             return;
-        }
+        };
 
         // bounding boxes will be wrong for skinned meshes so we currently can't cull them
         if DISABLE_EXPENSIVE_CULLING
             || USE_ORTHOGRAPHIC_CAMERA
-            || !node.visual.as_ref().unwrap().cullable
+            || !visual.cullable
             || node.skin_index.is_some()
         {
             if data.shadow_settings.enable_shadows {
@@ -4684,7 +4673,7 @@ impl Renderer {
                                             &desc.get_isometry(),
                                             get_point_light_frustum_collider(),
                                         )
-                                        .unwrap()
+                                        .expect("Frustum-Frustum query should be supported")
                                     } else {
                                         false
                                     };
@@ -4724,13 +4713,13 @@ impl Renderer {
         //     });
         // }
 
-        // pbr_mesh_instances.sort_by(
-        //     |(_, (_, _, dist_sq_from_player_a)), (_, (_, _, dist_sq_from_player_b))| {
-        //         dist_sq_from_player_a
-        //             .partial_cmp(dist_sq_from_player_b)
-        //             .unwrap()
-        //     },
-        // );
+        pbr_mesh_instances.sort_by(
+            |(_, (_, _, dist_sq_from_player_a)), (_, (_, _, dist_sq_from_player_b))| {
+                dist_sq_from_player_a
+                    .partial_cmp(dist_sq_from_player_b)
+                    .unwrap_or(Ordering::Equal)
+            },
+        );
 
         private_data.all_pbr_instances_culling_masks = pbr_mesh_instances
             .iter()
@@ -4807,7 +4796,7 @@ impl Renderer {
             |(_, _, dist_sq_from_player_a), (_, _, dist_sq_from_player_b)| {
                 dist_sq_from_player_b
                     .partial_cmp(dist_sq_from_player_a)
-                    .unwrap()
+                    .unwrap_or(Ordering::Equal)
             },
         );
 
@@ -4873,7 +4862,7 @@ impl Renderer {
                                 buffer: private_data.bones_buffer.src(),
                                 offset: 0,
                                 size: NonZeroU64::new(
-                                    private_data.bones_buffer.length_bytes().try_into().unwrap(),
+                                    private_data.bones_buffer.length_bytes() as u64
                                 ),
                             }),
                         },
@@ -4885,8 +4874,7 @@ impl Renderer {
                                 size: NonZeroU64::new(
                                     (private_data.all_pbr_instances.biggest_chunk_length()
                                         * private_data.pbr_instances_buffer.stride())
-                                    .try_into()
-                                    .unwrap(),
+                                        as u64,
                                 ),
                             }),
                         },
@@ -4904,7 +4892,7 @@ impl Renderer {
                                 buffer: private_data.bones_buffer.src(),
                                 offset: 0,
                                 size: NonZeroU64::new(
-                                    private_data.bones_buffer.length_bytes().try_into().unwrap(),
+                                    private_data.bones_buffer.length_bytes() as u64
                                 ),
                             }),
                         },
@@ -4916,8 +4904,7 @@ impl Renderer {
                                 size: NonZeroU64::new(
                                     (private_data.all_unlit_instances.biggest_chunk_length()
                                         * private_data.unlit_instances_buffer.stride())
-                                    .try_into()
-                                    .unwrap(),
+                                        as u64,
                                 ),
                             }),
                         },
@@ -4935,7 +4922,7 @@ impl Renderer {
                                 buffer: private_data.bones_buffer.src(),
                                 offset: 0,
                                 size: NonZeroU64::new(
-                                    private_data.bones_buffer.length_bytes().try_into().unwrap(),
+                                    private_data.bones_buffer.length_bytes() as u64
                                 ),
                             }),
                         },
@@ -4949,8 +4936,7 @@ impl Renderer {
                                         .all_transparent_instances
                                         .biggest_chunk_length()
                                         * private_data.transparent_instances_buffer.stride())
-                                    .try_into()
-                                    .unwrap(),
+                                        as u64,
                                 ),
                             }),
                         },
@@ -4968,7 +4954,7 @@ impl Renderer {
                                 buffer: private_data.bones_buffer.src(),
                                 offset: 0,
                                 size: NonZeroU64::new(
-                                    private_data.bones_buffer.length_bytes().try_into().unwrap(),
+                                    private_data.bones_buffer.length_bytes() as u64
                                 ),
                             }),
                         },
@@ -4980,8 +4966,7 @@ impl Renderer {
                                 size: NonZeroU64::new(
                                     (private_data.all_wireframe_instances.biggest_chunk_length()
                                         * private_data.wireframe_instances_buffer.stride())
-                                    .try_into()
-                                    .unwrap(),
+                                        as u64,
                                 ),
                             }),
                         },
@@ -5108,7 +5093,7 @@ impl Renderer {
         }
 
         let fmt_bytes = |bytes: usize| {
-            byte_unit::Byte::from_bytes(bytes.try_into().unwrap())
+            byte_unit::Byte::from_bytes(bytes as u128)
                 .get_appropriate_unit(false)
                 .to_string()
         };
