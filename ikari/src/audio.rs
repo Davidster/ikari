@@ -272,13 +272,11 @@ impl AudioFileStreamer {
             .map(|chunk| [chunk[0], chunk[1]])
             .collect();
 
-        if Some(self.device_sample_rate) != self.track_sample_rate {
-            // resample the sound to the device sample rate using linear interpolation
-            samples = resample_linear(
-                &samples,
-                self.track_sample_rate.unwrap(),
-                self.device_sample_rate,
-            );
+        if let Some(track_sample_rate) = self.track_sample_rate {
+            if self.device_sample_rate != track_sample_rate {
+                // resample the sound to the device sample rate using linear interpolation
+                samples = resample_linear(&samples, track_sample_rate, self.device_sample_rate);
+            }
         }
 
         Ok((SoundData(samples), reached_end_of_stream))

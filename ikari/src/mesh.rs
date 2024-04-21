@@ -281,7 +281,7 @@ impl BasicMesh {
                         bail!("BasicMesh requires that all polygons have at least 3 vertices");
                     }
 
-                    let last_elem = points.last().unwrap();
+                    let last_elem = points.last().expect("Should have checked that the list was not empty");
 
                     triangles.extend(
                         points[..points.len() - 1]

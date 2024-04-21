@@ -32,7 +32,7 @@ use std::cmp::Ordering;
 use std::collections::{hash_map::Entry, HashMap};
 use std::path::PathBuf;
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use base64::prelude::*;
 use glam::f32::{Mat4, Vec3, Vec4};
 use glam::Vec4Swizzles;
@@ -89,11 +89,10 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
     // mesh index -> node indices
     let mut mesh_node_map: HashMap<usize, Vec<usize>> = HashMap::new();
     for node in &scene_nodes {
-        if node.mesh().is_none() {
+        let Some(mesh) = node.mesh() else {
             continue;
-        }
-        let mesh_index = node.mesh().unwrap().index();
-        match mesh_node_map.entry(mesh_index) {
+        };
+        match mesh_node_map.entry(mesh.index()) {
             Entry::Occupied(mut entry) => {
                 entry.get_mut().push(node.index());
             }
@@ -122,10 +121,23 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
             }
 
             if primitive.material().alpha_mode() == gltf::material::AlphaMode::Blend {
+                let material_name = primitive
+                    .material()
+                    .name()
+                    .map(String::from)
+                    .unwrap_or_else(|| {
+                        format!(
+                            "{}",
+                            primitive
+                                .material()
+                                .index()
+                                .map(|index| format!("{index}"))
+                                .unwrap_or_else(|| "Default".into())
+                        )
+                    });
                 log::warn!(
-                    "{:?}: Loading gltf materials in alpha blending mode is not current supported. Material {:?} will be rendered as opaque.",
+                    "{:?}: Loading gltf materials in alpha blending mode is not current supported. Material {material_name:?} will be rendered as opaque.",
                     params.path.relative_path,
-                    primitive.material().name().unwrap_or(&format!("{}", primitive.material().index().unwrap()))
                 );
             }
 
@@ -261,11 +273,11 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
                 let skeleton_skin_node = nodes
                     .iter()
                     .find(|node| node.skin_index == Some(skin_index))
-                    .unwrap();
+                    .ok_or_else(|| anyhow!("Skin index should have been valid"))?;
                 let skeleton_mesh_index = skeleton_skin_node
                     .visual
                     .as_ref()
-                    .expect("Skeleton skin node should have a mesh")
+                    .ok_or_else(|| anyhow!("Skeleton skin node should have had a mesh"))?
                     .mesh_index;
                 let skeleton_mesh_vertices = &bindable_meshes[skeleton_mesh_index].vertices;
 
@@ -454,8 +466,8 @@ enum GltfUri<'a> {
 }
 
 impl<'a> GltfUri<'a> {
-    fn parse(uri: &str) -> GltfUri<'_> {
-        if uri.contains(':') {
+    fn parse(uri: &str) -> Result<GltfUri<'_>> {
+        Ok(if uri.contains(':') {
             if let Some(rest) = uri.strip_prefix("data:") {
                 let mut it = rest.split(";base64,");
 
@@ -468,8 +480,8 @@ impl<'a> GltfUri<'a> {
                 GltfUri::Unsupported(uri)
             }
         } else {
-            GltfUri::Relative(urlencoding::decode(uri).unwrap())
-        }
+            GltfUri::Relative(urlencoding::decode(uri)?)
+        })
     }
 
     fn resolve_relative_path(&self, base_path: &GameFilePath) -> Option<GameFilePath> {
@@ -477,8 +489,7 @@ impl<'a> GltfUri<'a> {
             let mut resolved_path = base_path.clone();
             resolved_path.relative_path = base_path
                 .relative_path
-                .parent()
-                .unwrap()
+                .parent()?
                 .join(PathBuf::from(relative_path.clone().into_owned()));
             Some(resolved_path)
         } else {
@@ -492,7 +503,12 @@ impl<'a> GltfUri<'a> {
                 .decode(base64)
                 .map_err(|err| anyhow::anyhow!("{err}",)),
             GltfUri::Relative(_) => {
-                FileManager::read(&self.resolve_relative_path(base_path).unwrap()).await
+                FileManager::read(
+                    &self
+                        .resolve_relative_path(base_path)
+                        .expect("Gltf file should've had a parent folder"),
+                )
+                .await
             }
             GltfUri::Unsupported(uri) => Err(anyhow::anyhow!("Unsupported gltf uri: {:?}", uri)),
         }
@@ -509,7 +525,7 @@ async fn load_buffers(
 
     for buffer in document.buffers() {
         let mut data = match buffer.source() {
-            gltf::buffer::Source::Uri(uri) => GltfUri::parse(uri).read(gltf_path).await,
+            gltf::buffer::Source::Uri(uri) => GltfUri::parse(uri)?.read(gltf_path).await,
             gltf::buffer::Source::Bin => blob.take().ok_or(anyhow::anyhow!("Missing blob")),
         }?;
 
@@ -552,8 +568,10 @@ async fn load_raw_textures(
 
         let is_normal_map = !is_srgb
             && materials.iter().any(|material| {
-                material.normal_texture().is_some()
-                    && material.normal_texture().unwrap().texture().index() == texture.index()
+                let Some(normal_texture) = material.normal_texture() else {
+                    return false;
+                };
+                normal_texture.texture().index() == texture.index()
             });
 
         let raw_image =
@@ -626,11 +644,16 @@ pub fn get_animations(
                 .channels()
                 .map(|channel| get_keyframe_times(&channel.sampler(), buffers))
                 .collect::<Result<Vec<_>, _>>()?;
-            let length_seconds = *channel_timings
+            let length_seconds = channel_timings
                 .iter()
-                .map(|keyframe_times| keyframe_times.last().unwrap())
+                .flat_map(|keyframe_times| keyframe_times.last())
+                .copied()
                 .max_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
-                .unwrap();
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Failed to calculate animation length because no keyframes had "
+                    )
+                })?;
             let channels: Vec<_> = animation
                 .channels()
                 .enumerate()
@@ -739,9 +762,10 @@ async fn try_load_raw_gltf_image_compressed(
 
     match texture.source().source() {
         gltf::image::Source::Uri { uri, .. } => {
-            let parsed_uri = GltfUri::parse(uri);
-
-            if let Some(path) = parsed_uri.resolve_relative_path(gltf_path) {
+            if let Some(path) = GltfUri::parse(uri)
+                .ok()
+                .and_then(|parsed_uri| parsed_uri.resolve_relative_path(gltf_path))
+            {
                 let compressed_texture_path = texture_path_to_compressed_path(&path);
 
                 Some(FileManager::read(&compressed_texture_path).await.and_then(
@@ -770,7 +794,7 @@ async fn load_raw_gltf_image_uncompressed(
 ) -> Result<RawImage> {
     match texture.source().source() {
         gltf::image::Source::Uri { uri, .. } => {
-            let parsed_uri = GltfUri::parse(uri);
+            let parsed_uri = GltfUri::parse(uri)?;
             Ok(RawImage::from_dynamic_image(
                 image::load_from_memory(&parsed_uri.read(gltf_path).await?)?,
                 is_srgb,
@@ -909,7 +933,9 @@ pub fn get_buffer_slice_from_accessor<'a>(
     accessor: gltf::Accessor<'a>,
     buffers: &'a [gltf::buffer::Data],
 ) -> &'a [u8] {
-    let buffer_view = accessor.view().unwrap();
+    let buffer_view = accessor
+        .view()
+        .expect("Gltf sparse accessors are not yet supported");
     let buffer = &buffers[buffer_view.buffer().index()];
     let first_byte_offset = buffer_view.offset() + accessor.offset();
     let last_byte_offset = first_byte_offset + accessor.count() * accessor.size();
@@ -925,7 +951,7 @@ pub fn load_geometry(
     let vertex_position_count = vertex_positions.len();
     let bounding_box =
         crate::collisions::Aabb::make_from_points(vertex_positions.iter().copied().map(Vec3::from))
-            .expect("Expected model to have at least two vertex positions");
+            .ok_or_else(|| anyhow!("Expected model to have at least two vertex positions"))?;
 
     let indices = get_indices(primitive_group, buffers, vertex_position_count)?;
 
@@ -1225,7 +1251,7 @@ fn get_vertex_normals(
         .transpose()?
         .unwrap_or_else(|| {
             // compute normals
-            // key is flattened vertex position, value is accumulated normal and count
+            // key is vertex index, value is accumulated normal and count
             let mut vertex_normal_accumulators: HashMap<usize, (Vec3, usize)> = HashMap::new();
             triangles.iter().for_each(|indexed_triangle| {
                 let a = vertex_positions[indexed_triangle[0]];
@@ -1244,8 +1270,9 @@ fn get_vertex_normals(
             });
             (0..vertex_positions.len())
                 .map(|vertex_index| {
-                    let (accumulated_normal, count) =
-                        vertex_normal_accumulators.get(&vertex_index).unwrap();
+                    let (accumulated_normal, count) = vertex_normal_accumulators
+                        .get(&vertex_index)
+                        .expect("Should've calculated a normal for each vertex");
                     (*accumulated_normal / (*count as f32)).into()
                 })
                 .collect()

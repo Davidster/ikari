@@ -41,7 +41,7 @@ pub fn texture_path_to_compressed_path(path: &GameFilePath) -> GameFilePath {
         new_path
             .relative_path
             .file_stem()
-            .unwrap()
+            .expect("File path should have a file name")
             .to_string_lossy()
     ));
 
@@ -216,7 +216,11 @@ mod native {
                 ..
             } = basisu_transcoder
                 .image_level_description(&miniz_decoded_data, 0, 0)
-                .unwrap();
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Failed to extract the image dimensions from a basis_universal compressed image"
+                    )
+                })?;
 
             let gpu_texture_format = if is_normal_map {
                 basis_universal::transcoding::TranscoderTextureFormat::BC5_RG

@@ -74,11 +74,7 @@ impl Default for Aabb {
 impl Aabb {
     // None if the iterator had less than two points
     pub fn make_from_points(mut points: impl Iterator<Item = Vec3>) -> Option<Self> {
-        let first_point = points.next();
-
-        first_point?;
-
-        let first_point = first_point.unwrap();
+        let first_point = points.next()?;
         let mut min = first_point;
         let mut max = first_point;
 
@@ -392,7 +388,7 @@ impl CameraFrustumDescriptor {
             .build()
             .shape()
             .as_convex_polyhedron()
-            .unwrap()
+            .expect("Convex hull should give us a convex polyhedron")
             .clone()
     }
 
@@ -424,7 +420,7 @@ impl CameraFrustumDescriptor {
                 .iter()
                 .map(|vertex| vertex.position.into()),
         )
-        .unwrap()
+        .expect("to_basic_mesh vertices should be non-empty")
         .center();
 
         let far_plane_side_length_x = 2.0 * d_x_far.length();
@@ -443,7 +439,7 @@ impl CameraFrustumDescriptor {
         .iter()
         .copied()
         .max_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal))
-        .unwrap();
+        .expect("Source iterator should not be empty");
 
         let radius = longest_side_length / 2.0;
 

@@ -1467,7 +1467,7 @@ pub fn update_game_state(
                         .scene
                         .nodes()
                         .nth(merged_scene_node_count - revolver_scene_node_count)
-                        .unwrap()
+                        .expect("Node id should still be valid at this point")
                         .id();
                     let animation_index = engine_state.scene.animations.len() - 1;
                     game_state.revolver = Some(Revolver::new(
@@ -1573,18 +1573,19 @@ pub fn update_game_state(
                     .map(|node| node.id())
                     .collect();
                 for node_id in test_level_node_ids {
-                    if let Some(_mesh) = engine_state
-                        .scene
-                        .get_node_mut(node_id)
-                        .unwrap()
-                        .visual
-                        .as_mut()
                     {
-                        // mesh.wireframe = true;
+                        let node = engine_state
+                            .scene
+                            .get_node_mut(node_id)
+                            .expect("Node id should still be valid at this point");
+
+                        if let Some(_mesh) = node.visual.as_mut() {
+                            // mesh.wireframe = true;
+                        }
+                        node.transform
+                            .set_position(node.transform.position() + Vec3::new(0.0, 25.0, 0.0));
                     }
-                    let transform =
-                        &mut engine_state.scene.get_node_mut(node_id).unwrap().transform;
-                    transform.set_position(transform.position() + Vec3::new(0.0, 25.0, 0.0));
+
                     add_static_box(
                         &mut engine_state.physics_state,
                         &engine_state.scene,
@@ -1732,7 +1733,7 @@ pub fn update_game_state(
             engine_state
                 .scene
                 .get_node_mut(legendary_robot_root_node_id)
-                .unwrap()
+                .expect("Node id should still be valid at this point")
                 .transform
                 .set_position(Vec3::new(2.0, 0.0, 0.0));
 
@@ -2060,8 +2061,7 @@ pub fn update_game_state(
                     .physics_state
                     .collider_set
                     .get(collider_handle)
-                    .unwrap()
-                    .parent()
+                    .and_then(|collider| collider.parent())
                 {
                     if let Some((ball_index, ball)) = game_state
                         .physics_balls
@@ -2112,16 +2112,16 @@ pub fn update_game_state(
             for sound_index in audio_manager_guard.sound_indices() {
                 let file_path = audio_manager_guard
                     .get_sound_file_path(sound_index)
-                    .unwrap();
+                    .expect("Sound index should still be valid at this point");
                 let length_seconds = audio_manager_guard
                     .get_sound_length_seconds(sound_index)
-                    .unwrap();
+                    .expect("Sound index should still be valid at this point");
                 let pos_seconds = audio_manager_guard
                     .get_sound_pos_seconds(sound_index)
-                    .unwrap();
+                    .expect("Sound index should still be valid at this point");
                 let buffered_to_pos_seconds = audio_manager_guard
                     .get_sound_buffered_to_pos_seconds(sound_index)
-                    .unwrap();
+                    .expect("Sound index should still be valid at this point");
 
                 game_state
                     .ui_overlay
