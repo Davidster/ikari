@@ -36,55 +36,59 @@ pub fn get_all_bone_data(
     let mut skin_index_to_slice_map: HashMap<usize, (usize, usize)> = HashMap::new();
 
     for skin in &scene.skins {
-        if let Some(visual) = &scene
-            .get_node(skin.node_id)
-            .and_then(|skin_node| skin_node.visual.as_ref())
-        {
-            let skin_index = scene.get_node(skin.node_id).unwrap().skin_index.unwrap();
+        let Some(skin_node) = scene.get_node(skin.node_id) else {
+            continue;
+        };
+        let Some(visual) = skin_node.visual.as_ref() else {
+            continue;
+        };
+        let Some(skin_index) = skin_node.skin_index else {
+            log::error!("Skin pointed to a node with no skin index");
+            continue;
+        };
 
-            match skin_index_to_slice_map.entry(skin_index) {
-                Entry::Occupied(entry) => {
-                    let (start_index, end_index) = *entry.get();
-                    animated_bone_transforms.push(AllBoneTransformsSlice {
-                        mesh_index: visual.mesh_index,
-                        start_index,
-                        end_index,
-                    });
-                }
-                Entry::Vacant(entry) => {
-                    let skin = &scene.skins[skin_index];
-                    let bone_transforms: Vec<_> = skin
-                        .bone_node_ids
-                        .iter()
-                        .enumerate()
-                        .map(|(bone_index, bone_node_id)| {
-                            get_bone_skeleton_space_transform(
-                                scene,
-                                skin,
-                                skin.node_id,
-                                bone_index,
-                                *bone_node_id,
-                            )
-                        })
-                        .collect();
+        match skin_index_to_slice_map.entry(skin_index) {
+            Entry::Occupied(entry) => {
+                let (start_index, end_index) = *entry.get();
+                animated_bone_transforms.push(AllBoneTransformsSlice {
+                    mesh_index: visual.mesh_index,
+                    start_index,
+                    end_index,
+                });
+            }
+            Entry::Vacant(entry) => {
+                let skin = &scene.skins[skin_index];
+                let bone_transforms: Vec<_> = skin
+                    .bone_node_ids
+                    .iter()
+                    .enumerate()
+                    .map(|(bone_index, bone_node_id)| {
+                        get_bone_skeleton_space_transform(
+                            scene,
+                            skin,
+                            skin.node_id,
+                            bone_index,
+                            *bone_node_id,
+                        )
+                    })
+                    .collect();
 
-                    let start_index = buffer.len();
-                    let end_index = start_index + bone_transforms.len() * matrix_size_bytes;
-                    buffer.append(&mut bytemuck::cast_slice(&bone_transforms).to_vec());
+                let start_index = buffer.len();
+                let end_index = start_index + bone_transforms.len() * matrix_size_bytes;
+                buffer.append(&mut bytemuck::cast_slice(&bone_transforms).to_vec());
 
-                    // add padding
-                    let needed_padding = min_storage_buffer_offset_alignment as usize
-                        - (buffer.len() % min_storage_buffer_offset_alignment as usize);
-                    let mut padding: Vec<_> = (0..needed_padding).map(|_| 0u8).collect();
-                    buffer.append(&mut padding);
+                // add padding
+                let needed_padding = min_storage_buffer_offset_alignment as usize
+                    - (buffer.len() % min_storage_buffer_offset_alignment as usize);
+                let mut padding: Vec<_> = (0..needed_padding).map(|_| 0u8).collect();
+                buffer.append(&mut padding);
 
-                    animated_bone_transforms.push(AllBoneTransformsSlice {
-                        mesh_index: visual.mesh_index,
-                        start_index,
-                        end_index,
-                    });
-                    entry.insert((start_index, end_index));
-                }
+                animated_bone_transforms.push(AllBoneTransformsSlice {
+                    mesh_index: visual.mesh_index,
+                    start_index,
+                    end_index,
+                });
+                entry.insert((start_index, end_index));
             }
         }
     }

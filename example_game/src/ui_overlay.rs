@@ -392,9 +392,12 @@ impl Chart<Message> for FpsChart {
     type State = ();
 
     fn build_chart<DB: DrawingBackend>(&self, _state: &Self::State, mut builder: ChartBuilder<DB>) {
+        if self.recent_frame_times.is_empty() {
+            return;
+        }
+
         let result: Result<(), String> = (|| {
-            let most_recent_start_time =
-                self.recent_frame_times[self.recent_frame_times.len() - 1].0;
+            let most_recent_start_time = self.recent_frame_times.last().unwrap().0;
 
             let oldest_ft_age_secs =
                 (most_recent_start_time - self.recent_frame_times[0].0).as_secs_f32();

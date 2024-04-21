@@ -178,7 +178,7 @@ impl Scene {
                 visual: mesh,
                 name,
                 parent_id: parent_index
-                    .map(|parent_index| GameNodeId((parent_index).try_into().unwrap(), 0)),
+                    .map(|parent_index| GameNodeId(parent_index.try_into().unwrap(), 0)),
             });
         });
 
@@ -437,7 +437,9 @@ impl Scene {
             let (node, _) = &self.nodes[node_index as usize];
             node.as_ref().unwrap().transform
         });
-        let mut acc: crate::transform::Transform = ancestry_transforms.next().unwrap();
+        let mut acc: crate::transform::Transform = ancestry_transforms
+            .next()
+            .expect("Node ancestry list should include itself and never be empty");
         for ancestry_transform in ancestry_transforms {
             acc = acc * ancestry_transform
         }
@@ -481,12 +483,15 @@ impl Scene {
                 let new_node =
                     make_new_node(GameNodeId(empty_node_index.try_into().unwrap(), new_gen));
                 self.nodes[empty_node_index] = (Some(new_node), new_gen);
-                self.nodes[empty_node_index].0.as_ref().unwrap()
+                self.nodes[empty_node_index]
+                    .0
+                    .as_ref()
+                    .expect("All empty node indices should be valid")
             }
             None => {
                 let new_node = make_new_node(GameNodeId(self.nodes.len().try_into().unwrap(), 0));
                 self.nodes.push((Some(new_node), 0));
-                self.nodes[self.nodes.len() - 1].0.as_ref().unwrap()
+                self.nodes.last().unwrap().0.as_ref().unwrap()
             }
         }
     }
@@ -501,6 +506,7 @@ impl Scene {
         }
     }
 
+    /// ignores the generation test
     pub fn get_node_unchecked(&self, node_id: GameNodeId) -> &GameNode {
         let GameNodeId(node_index, _) = node_id;
         let (actual_node, _) = &self.nodes[node_index as usize];
