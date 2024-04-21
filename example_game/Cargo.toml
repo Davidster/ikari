@@ -12,7 +12,7 @@ path = "src/main.rs"
 [features]
 default = ["cpu-profiling", "gpu-profiling"]
 cpu-profiling = [
-  "ikari/tracy-profile-dumps",
+  "ikari/tracy-profiling",
   "profiling/profile-with-tracy",
   "dep:tracing-tracy",
 ]
@@ -35,7 +35,7 @@ image.workspace = true
 iced.workspace = true
 iced_wgpu.workspace = true
 iced_winit.workspace = true
-tracing-tracy = { version = "0.10.3", features = ["ondemand"], optional = true }
+tracing-tracy = { version = "0.10.3", optional = true }
 
 plotters-iced = "0.10.0"
 plotters = { version = "0.3.5", default-features = false, features = [
@@ -47,6 +47,9 @@ iced_aw = { git = "https://github.com/iced-rs/iced_aw.git", rev = "ed594559ac8f5
   "card",
   "floating_element",
 ] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+wgpu-profiler = { workspace = true, features = ["tracy"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys.workspace = true

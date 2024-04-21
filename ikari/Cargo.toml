@@ -15,7 +15,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-tracy-profile-dumps = ["profiling/profile-with-tracy"]
+tracy-profiling = ["profiling/profile-with-tracy"]
 gpu-profiling = []
 
 [dependencies]

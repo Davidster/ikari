@@ -3017,12 +3017,30 @@ impl Renderer {
         let plane_mesh = BasicMesh::new(include_bytes!("models/plane.obj"))?;
         constant_data.plane_mesh_index = Self::bind_basic_mesh(&base, &mut data, &plane_mesh, true);
 
-        let profiler = wgpu_profiler::GpuProfiler::new(wgpu_profiler::GpuProfilerSettings {
+        let wgpu_profiler_settings = wgpu_profiler::GpuProfilerSettings {
             enable_timer_queries: !cfg!(target_arch = "wasm32") && cfg!(feature = "gpu-profiling"),
             enable_debug_groups: true,
             // buffer up to 4 frames
             max_num_pending_frames: 4,
-        })?;
+        };
+        #[cfg(all(
+            feature = "gpu-profiling",
+            feature = "tracy-profiling",
+            not(target_arch = "wasm32")
+        ))]
+        let profiler = wgpu_profiler::GpuProfiler::new_with_tracy_client(
+            wgpu_profiler_settings,
+            base.adapter.get_info().backend,
+            &base.device,
+            &base.queue,
+        )?;
+
+        #[cfg(not(all(
+            feature = "gpu-profiling",
+            feature = "tracy-profiling",
+            not(target_arch = "wasm32")
+        )))]
+        let profiler = wgpu_profiler::GpuProfiler::new(wgpu_profiler_settings)?;
 
         let renderer = Self {
             base: WasmNotArc::new(base),

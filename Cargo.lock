@@ -5524,9 +5524,9 @@ checksum = "53a85b86a771b1c87058196170769dd264f66c0782acf1ae6cc51bfd64b39082"
 
 [[package]]
 name = "wgpu"
-version = "0.19.1"
+version = "0.19.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bfe9a310dcf2e6b85f00c46059aaeaf4184caa8e29a1ecd4b7a704c3482332d"
+checksum = "a4b1213b52478a7631d6e387543ed8f642bc02c578ef4e3b49aca2a29a7df0cb"
 dependencies = [
  "arrayvec",
  "cfg-if",
@@ -5622,13 +5622,13 @@ dependencies = [
 
 [[package]]
 name = "wgpu-profiler"
-version = "0.16.1"
+version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d5026bcb9625f0ad9bc0570811b40b4bc5249548a992feb695542d15faeadac"
+checksum = "198b96a1940b527c6e21ab829b3630eb4e8ffb602fd12839d8c5e088c8e06192"
 dependencies = [
  "parking_lot 0.12.1",
  "thiserror",
- "web-sys",
+ "tracy-client",
  "wgpu",
 ]
 
