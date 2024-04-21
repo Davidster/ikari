@@ -22,8 +22,8 @@ mod web {
     use winit::window::Window;
 
     pub struct WebCanvasManager {
-        pub window: Arc<Window>,
-        pub canvas_container: web_sys::HtmlElement,
+        window: Arc<Window>,
+        canvas_container: web_sys::HtmlElement,
     }
 
     impl WebCanvasManager {

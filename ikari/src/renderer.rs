@@ -58,7 +58,6 @@ pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE: f32 = 0.1;
 pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE: f32 = 1000.0;
 pub const POINT_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 1024;
 pub const DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 2048;
-// pub const DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 512;
 pub const POINT_LIGHT_SHOW_MAP_COUNT: u32 = 2;
 pub const DIRECTIONAL_LIGHT_SHOW_MAP_COUNT: u32 = 2;
 pub const DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH: f32 = 50.0;
@@ -631,6 +630,7 @@ impl BaseRenderer {
         surface_config.present_mode = wgpu::PresentMode::AutoVsync;
         surface_config.view_formats = vec![surface_config.format.add_srgb_suffix()];
         // this caused problems on Windows on dx12 and vulkan..
+        // TODO: see if those problems still persist with profiling disabled
         // surface_config.desired_maximum_frame_latency = 1;
         surface.configure(&base.device, &surface_config);
 
@@ -3412,7 +3412,6 @@ impl Renderer {
             .unwrap_or_else(|| surface_data.surface_config.clone());
 
         if new_surface_config.width == 0 || new_surface_config.height == 0 {
-            // log::info!("1");
             return false;
         }
 
@@ -3437,7 +3436,6 @@ impl Renderer {
         let render_scale_changed = current_render_scale != new_render_scale;
 
         if !surface_config_changed && !render_scale_changed && !force_reconfigure {
-            // log::info!("2");
             return false;
         }
 
@@ -3451,7 +3449,6 @@ impl Renderer {
             .configure(&self.base.device, &surface_data.surface_config);
 
         if !surface_resized && !render_scale_changed {
-            // log::info!("3");
             return false;
         }
 
@@ -3738,7 +3735,6 @@ impl Renderer {
             })
             .collect::<Vec<_>>();
 
-        // log::info!("4");
         surface_resized
     }
 

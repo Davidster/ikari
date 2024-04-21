@@ -83,6 +83,9 @@ where
                 event: WindowEvent::RedrawRequested,
                 ..
             } => {
+                // TODO: instead of spinning, do a real sleep (spin-sleep crate) and when it's finally done,
+                // call request redraw and return once to allow inputs to be processed once quickly before we
+                // start rendering. Would that even work?
                 let sleeping = engine_state
                     .framerate_limiter
                     .update(&engine_state.time_tracker);
@@ -140,7 +143,6 @@ where
                 force_reconfigure_surface = false;
                 match surface_texture_result {
                     Ok(surface_texture) => {
-                        // log::info!("{:?}", &surface_texture);
                         if let Err(err) = renderer.render(
                             &mut engine_state,
                             &surface_data,
