@@ -23,6 +23,7 @@ pub struct EngineState {
 }
 
 impl EngineState {
+    #[profiling::function]
     pub fn new() -> anyhow::Result<Self> {
         let (audio_manager, audio_streams) = AudioManager::new()?;
         let audio_manager = Arc::new(Mutex::new(audio_manager));

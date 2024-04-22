@@ -34,11 +34,12 @@ Usage: clikari compress_textures --search_folder /path/to/folder [OPTIONS]
 
 Options:
   --search_folder FOLDER      Required  The folder to search in to find textures to compress
-  --threads_per_texture VAL   Optional  The number of threads that will be used per texture.
-                                        Textures will also be processed in parallel if possible,
-                                        according to the formula: (cpu_count / threads_per_texture).ceil().
-                                        This is done because individual texture processing is not fully parallel
-                                        Defaults to 4 threads per texture
+  --max_thread_count VAL      Optional  The maximum number of threads used to process the data in parallel.
+                                        Worker threads are spawned in parallel, each of which gets single texture 
+                                        and spawns additional threads to process it in parallel accordingl to the formula:
+                                            threads_per_worker = (max_thread_count / texture_count).floor()
+                                            worker_threads     = (max_thread_count / threads_per_worker).floor()
+                                        Defaults to the number of CPUs on the system.
   --force                     Optional  Force re-compress all textures regardless of whether their
                                         _compressed.bin counterpart already exists
   --help                      Optional  Display this help message
@@ -107,8 +108,8 @@ impl Command {
                     search_folder: args
                         .value_from_str("--search_folder")
                         .map_err(error_mapper)?,
-                    threads_per_texture: args
-                        .opt_value_from_str("--threads_per_texture")
+                    max_thread_count: args
+                        .opt_value_from_str("--max_thread_count")
                         .map_err(error_mapper)?,
                     force: args.contains("--force"),
                 }));
