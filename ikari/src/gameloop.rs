@@ -83,13 +83,13 @@ where
                 event: WindowEvent::RedrawRequested,
                 ..
             } => {
-                // TODO: instead of spinning, do a real sleep (spin-sleep crate) and when it's finally done,
-                // call request redraw and return once to allow inputs to be processed once quickly before we
-                // start rendering. Would that even work?
-                let sleeping = engine_state
+                let slept = engine_state
                     .framerate_limiter
-                    .update(&engine_state.time_tracker);
-                if sleeping {
+                    .update_and_sleep(&engine_state.time_tracker);
+                if slept {
+                    // pump the event loop once more to process the inputs. on the next RedrawRequested
+                    // slept will be false since we already 'consumed' all the sleep time
+                    // TODO: check that this actually lets us process inputs one last time.
                     window.request_redraw();
                     return;
                 }

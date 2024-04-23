@@ -25,7 +25,7 @@ where
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn sleep(dur: Duration) {
-    std::thread::sleep(dur);
+    spin_sleep::sleep(dur);
 }
 
 pub async fn sleep_async(dur: Duration) {

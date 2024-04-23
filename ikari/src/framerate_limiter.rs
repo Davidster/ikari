@@ -72,7 +72,7 @@ impl FramerateLimiter {
     }
 
     /// updates the internal state of the limiter and returns true if we're sleeping
-    pub(crate) fn update(&mut self, time_tracker: &TimeTracker) -> bool {
+    pub(crate) fn update_and_sleep(&mut self, time_tracker: &TimeTracker) -> bool {
         if !Self::is_supported() {
             return false;
         }
@@ -100,9 +100,13 @@ impl FramerateLimiter {
             .current_sleep_start
             .get_or_insert_with(crate::time::Instant::now);
 
-        let remaining_sleep_time = sleep_period_secs - current_sleep_start.elapsed().as_secs_f64();
+        let remaining_sleep_time_secs =
+            sleep_period_secs - current_sleep_start.elapsed().as_secs_f64();
 
-        if remaining_sleep_time > 0.0 {
+        if remaining_sleep_time_secs > 0.0 {
+            crate::thread::sleep(crate::time::Duration::from_secs_f64(
+                remaining_sleep_time_secs,
+            ));
             true
         } else {
             self.current_sleep_start = None;
