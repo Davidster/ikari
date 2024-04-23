@@ -2356,6 +2356,7 @@ dependencies = [
  "size",
  "smallvec",
  "spin",
+ "spin_sleep",
  "symphonia",
  "twox-hash",
  "urlencoding",
@@ -4303,6 +4304,15 @@ name = "spin"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
+
+[[package]]
+name = "spin_sleep"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "368a978649eaf70006b082e79c832bd72556ac1393eaf564d686e919dca2347f"
+dependencies = [
+ "windows-sys 0.52.0",
+]
 
 [[package]]
 name = "spirv"
