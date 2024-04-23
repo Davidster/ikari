@@ -36,10 +36,10 @@ Options:
   --search_folder FOLDER      Required  The folder to search in to find textures to compress
   --max_thread_count VAL      Optional  The maximum number of threads used to process the data in parallel.
                                         Worker threads are spawned in parallel, each of which gets single texture 
-                                        and spawns additional threads to process it in parallel accordingl to the formula:
-                                            threads_per_worker = (max_thread_count / texture_count).floor()
+                                        and spawns additional threads to process it in parallel according to the formula:
+                                            threads_per_worker = (max_thread_count / texture_count).floor().max(1)
                                             worker_threads     = (max_thread_count / threads_per_worker).floor()
-                                        Defaults to the number of CPUs on the system.
+                                        Defaults to the number of logical CPUs on the system.
   --force                     Optional  Force re-compress all textures regardless of whether their
                                         _compressed.bin counterpart already exists
   --help                      Optional  Display this help message
