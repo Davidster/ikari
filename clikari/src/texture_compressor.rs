@@ -16,11 +16,9 @@ use ikari::{
 
 use crate::PATH_MAKER;
 
-const DEFAULT_THREADS_PER_TEXTURE: u32 = 4;
-
 pub struct TextureCompressorArgs {
     pub search_folder: PathBuf,
-    pub threads_per_texture: Option<u32>, // TODO: change this api so that we have a way to NOT use all cores of the machine :)
+    pub max_thread_count: Option<usize>,
     pub force: bool,
 }
 
@@ -37,13 +35,6 @@ async fn run_internal(args: TextureCompressorArgs) -> anyhow::Result<()> {
             args.search_folder
         );
     }
-
-    let threads_per_texture = args
-        .threads_per_texture
-        .unwrap_or(DEFAULT_THREADS_PER_TEXTURE);
-
-    let worker_count = (num_cpus::get() as f32 / threads_per_texture as f32).ceil() as usize;
-    log::info!("worker_count={worker_count}");
 
     let texture_paths = {
         let mut texture_paths = find_gltf_texture_paths(&args.search_folder)?;
@@ -83,6 +74,19 @@ async fn run_internal(args: TextureCompressorArgs) -> anyhow::Result<()> {
 
     let texture_count = texture_paths.len();
 
+    if texture_count == 0 {
+        log::warn!("No work to do. Aborting");
+        return Ok(());
+    }
+
+    let max_thread_count = args.max_thread_count.unwrap_or(num_cpus::get());
+    dbg!(max_thread_count);
+    let threads_per_texture = (max_thread_count / texture_count).max(1);
+    dbg!(threads_per_texture);
+    let worker_count = max_thread_count / threads_per_texture;
+    dbg!(worker_count);
+    log::info!("max_thread_count={max_thread_count}, threads_per_texture={threads_per_texture}, worker_count={worker_count}");
+
     let pool = ThreadPool::new(worker_count);
 
     let (tx, rx) = channel();
@@ -97,7 +101,7 @@ async fn run_internal(args: TextureCompressorArgs) -> anyhow::Result<()> {
                     path.as_path(),
                     *is_srgb,
                     *is_normal_map,
-                    threads_per_texture,
+                    threads_per_texture as u32,
                 )
                 .await
                 {

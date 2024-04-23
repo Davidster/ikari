@@ -602,11 +602,13 @@ pub struct SurfaceData {
 }
 
 impl BaseRenderer {
+    #[profiling::function]
     pub async fn offscreen(backends: wgpu::Backends, dxc_path: Option<PathBuf>) -> Result<Self> {
         let instance = Self::make_instance(backends, dxc_path);
         Self::new(instance, None).await
     }
 
+    #[profiling::function]
     pub async fn with_window(
         backends: wgpu::Backends,
         dxc_path: Option<PathBuf>,
@@ -652,6 +654,7 @@ impl BaseRenderer {
         Ok((base, surface_data))
     }
 
+    #[profiling::function]
     fn make_instance(backends: wgpu::Backends, dxc_path: Option<PathBuf>) -> wgpu::Instance {
         wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends,
@@ -668,6 +671,7 @@ impl BaseRenderer {
         })
     }
 
+    #[profiling::function]
     async fn new(instance: wgpu::Instance, surface: Option<&wgpu::Surface<'_>>) -> Result<Self> {
         let request_adapter_options = wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -1154,6 +1158,7 @@ pub struct Renderer {
 type PointLightFrustaWithCullingInfo = Vec<Option<(Vec<(Frustum, bool)>, bool)>>;
 
 impl Renderer {
+    #[profiling::function]
     pub async fn new(
         base: BaseRenderer,
         framebuffer_format: wgpu::TextureFormat,

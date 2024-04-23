@@ -261,6 +261,7 @@ async fn get_rainbow_img_raw() -> Result<RawImage> {
     ))
 }
 
+#[profiling::function]
 pub async fn init_game_state(
     engine_state: &mut EngineState,
     renderer: &mut Renderer,
