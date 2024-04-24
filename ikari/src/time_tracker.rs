@@ -41,6 +41,8 @@ impl FrameInstants {
 
 impl TimeTracker {
     pub(crate) fn on_frame_started(&mut self) {
+        log::debug!("\nStarted frame {}", self.current_frame_index);
+
         self.first_frame_start = Some(self.first_frame_start.unwrap_or_else(Instant::now));
 
         if let Some(current_frame) = self.current_frame {
@@ -53,24 +55,32 @@ impl TimeTracker {
     }
 
     pub(crate) fn on_sleep_and_inputs_completed(&mut self) {
+        log::debug!("Done sleeping / processing inputs");
+
         if let Some(current_frame) = self.current_frame.as_mut() {
             current_frame.sleep_and_inputs = Some(Instant::now());
         }
     }
 
     pub(crate) fn on_update_completed(&mut self) {
+        log::debug!("Done game update");
+
         if let Some(current_frame) = self.current_frame.as_mut() {
             current_frame.update_done = Some(Instant::now());
         }
     }
 
     pub(crate) fn on_render_completed(&mut self) {
+        log::debug!("Done render");
+
         if let Some(current_frame) = self.current_frame.as_mut() {
             current_frame.render_done = Some(Instant::now());
         }
     }
 
     pub(crate) fn on_get_surface_completed(&mut self) {
+        log::debug!("Done getting surface texture");
+
         if let Some(current_frame) = self.current_frame.as_mut() {
             current_frame.get_surface_done = Some(Instant::now());
         }

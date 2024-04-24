@@ -6,6 +6,7 @@ use crate::time::Instant;
 use crate::ui::{IkariUiContainer, UiProgramEvents};
 use crate::web_canvas_manager::WebCanvasManager;
 
+use wgpu::PresentMode;
 use winit::event_loop::EventLoopWindowTarget;
 use winit::{
     event::{Event, WindowEvent},
@@ -75,18 +76,34 @@ where
 
     let mut force_reconfigure_surface = false;
 
+    let mut last_sleep_end_time: Option<crate::time::Instant> = None;
+
     let handler = move |event: Event<()>, elwt: &EventLoopWindowTarget<()>| {
         web_canvas_manager.on_update(&event);
+
+        log::info!("Event loop pump");
+
+        if last_sleep_end_time.is_some() {
+            log::info!(
+                "Delayed inputs overhead: {:?}",
+                last_sleep_end_time.unwrap().elapsed()
+            );
+        }
 
         match event {
             Event::WindowEvent {
                 event: WindowEvent::RedrawRequested,
                 ..
             } => {
-                let slept = engine_state
+                let is_vsync_is_on = !matches!(
+                    surface_data.surface_config.present_mode,
+                    PresentMode::Immediate | PresentMode::AutoNoVsync
+                );
+                let should_spin_sleep = engine_state
                     .framerate_limiter
-                    .update_and_sleep(&engine_state.time_tracker);
-                if slept {
+                    .update_and_sleep(&engine_state.time_tracker, is_vsync_is_on);
+                if should_spin_sleep {
+                    last_sleep_end_time = Some(crate::time::Instant::now());
                     // pump the event loop once more to process the inputs. on the next RedrawRequested
                     // slept will be false since we already 'consumed' all the sleep time
                     // TODO: check that this actually lets us process inputs one last time.
@@ -186,6 +203,7 @@ where
                 engine_state.asset_loader.exit();
             }
             Event::DeviceEvent { event, .. } => {
+                log::info!("Event loop DeviceEvent");
                 on_device_event(
                     GameContext {
                         game_state: &mut game_state,
@@ -201,6 +219,7 @@ where
             Event::WindowEvent {
                 event, window_id, ..
             } if window_id == window.id() => {
+                log::info!("Event loop WindowEvent");
                 match &event {
                     WindowEvent::Resized(size) => {
                         renderer.resize_surface(&surface_data, *size);

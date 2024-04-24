@@ -143,10 +143,13 @@ impl PlayerController {
         self.speed = (self.speed + (direction * amount)).clamp(0.5, 300.0);
     }
 
-    pub fn process_device_event(&mut self, event: &DeviceEvent) {
+    pub fn handle_device_event(&mut self, event: &DeviceEvent) {
         if !self.is_controlling_game() {
             return;
         }
+
+        // log::info!("Process mouse input");
+
         match event {
             DeviceEvent::MouseMotion { delta: (d_x, d_y) } if self.window_focused => {
                 self.unprocessed_delta = match self.unprocessed_delta {

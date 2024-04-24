@@ -1178,7 +1178,7 @@ pub async fn init_game_state(
     })
 }
 
-pub fn process_window_input(
+pub fn handle_window_event(
     GameContext {
         game_state,
         engine_state,
@@ -1304,11 +1304,11 @@ pub fn process_window_input(
     game_state.ui_overlay.handle_window_event(window, event);
 }
 
-pub fn process_device_input(
+pub fn handle_device_event(
     GameContext { game_state, .. }: GameContext<GameState>,
     event: &winit::event::DeviceEvent,
 ) {
-    game_state.player_controller.process_device_event(event);
+    game_state.player_controller.handle_device_event(event);
 }
 
 pub fn handle_surface_resize(
