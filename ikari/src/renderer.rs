@@ -3069,7 +3069,8 @@ impl Renderer {
                 culling_frustum_collider: None,
                 frustum_culling_lock: CullingFrustumLock::None,
                 skybox_weights,
-                // TODO: instead of clearing the texture when bloom is disabled, just don't read from it in the tone mapping shader
+                // TODO: when bloom is not enabled, we should really free up the graphics memory used for it.
+                //       same goes for shadow maps
                 old_bloom_threshold_cleared: true,
                 new_bloom_cleared: true,
 
