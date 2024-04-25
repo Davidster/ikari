@@ -16,6 +16,8 @@ pub struct SoundParams {
 
 pub const AUDIO_STREAM_BUFFER_LENGTH_SECONDS: f32 = 2.5;
 
+pub trait AudioStreams {}
+
 mod ikari_audio {
     use crate::file_manager::GameFilePath;
     use crate::time::Instant;
@@ -31,10 +33,12 @@ mod ikari_audio {
         audio::SampleBuffer, codecs::CODEC_TYPE_NULL, io::MediaSourceStream, probe::Hint,
     };
 
-    pub struct AudioStreams {
+    pub struct IkariAudioStreams {
         _spatial_scene_output_stream: cpal::Stream,
         _mixer_output_stream: cpal::Stream,
     }
+
+    impl AudioStreams for IkariAudioStreams {}
 
     pub struct AudioManager {
         master_volume: f32,
@@ -50,6 +54,12 @@ mod ikari_audio {
     #[derive(Debug, Clone, Default)]
     pub struct SoundData(Vec<[f32; CHANNEL_COUNT]>);
 
+    impl SoundData {
+        pub fn sample_count(&self) -> usize {
+            self.0.len()
+        }
+    }
+
     pub struct Sound {
         volume: f32,
         is_playing: bool,
@@ -63,9 +73,19 @@ mod ikari_audio {
         buffered_to_pos_seconds: f32,
     }
 
-    pub enum SoundSignal {
+    pub struct SoundSignal {
+        inner: SoundSignalInner,
+    }
+
+    pub enum SoundSignalInner {
         Mono { signal: FramesSignal<f32> },
         Stereo { signal: FramesSignal<[f32; 2]> },
+    }
+
+    impl From<SoundSignalInner> for SoundSignal {
+        fn from(inner: SoundSignalInner) -> Self {
+            Self { inner }
+        }
     }
 
     enum SoundSignalHandle {
@@ -125,7 +145,7 @@ mod ikari_audio {
     #[cfg(target_arch = "wasm32")]
     use web::get_media_source;
 
-    use super::{SoundParams, SpacialParams, AUDIO_STREAM_BUFFER_LENGTH_SECONDS};
+    use super::{AudioStreams, SoundParams, SpacialParams, AUDIO_STREAM_BUFFER_LENGTH_SECONDS};
 
     pub struct AudioFileStreamer {
         device_sample_rate: u32,
@@ -303,7 +323,7 @@ mod ikari_audio {
 
     impl AudioManager {
         /// streams are returned separately since they aren't Send/Sync
-        pub fn new() -> Result<(AudioManager, AudioStreams)> {
+        pub fn new() -> Result<(AudioManager, Box<dyn AudioStreams>)> {
             let host = cpal::default_host();
             let device = host
                 .default_output_device()
@@ -353,10 +373,10 @@ mod ikari_audio {
                     mixer_handle,
                     sounds: vec![],
                 },
-                AudioStreams {
+                Box::new(IkariAudioStreams {
                     _spatial_scene_output_stream: spatial_scene_output_stream,
                     _mixer_output_stream: mixer_output_stream,
-                },
+                }),
             ))
         }
 
@@ -386,7 +406,7 @@ mod ikari_audio {
                         samples.iter().map(|sample| sample[0]).collect::<Vec<_>>(),
                     ));
 
-                    SoundSignal::Mono { signal }
+                    SoundSignalInner::Mono { signal }.into()
                 }
                 None => {
                     let signal = FramesSignal::from(oddio::Frames::from_iter(
@@ -395,7 +415,7 @@ mod ikari_audio {
                             [sample[0], if channels > 1 { sample[1] } else { sample[0] }]
                         }),
                     ));
-                    SoundSignal::Stereo { signal }
+                    SoundSignalInner::Stereo { signal }.into()
                 }
             })
         }
@@ -551,7 +571,9 @@ mod ikari_audio {
                         initial_position,
                         initial_velocity,
                     }),
-                    Some(SoundSignal::Mono { signal }),
+                    Some(SoundSignal {
+                        inner: SoundSignalInner::Mono { signal },
+                    }),
                     false,
                 ) => {
                     let signal = Gain::new(signal);
@@ -583,7 +605,13 @@ mod ikari_audio {
 
                     SoundSignalHandle::Spacial { signal_handle }
                 }
-                (None, Some(SoundSignal::Stereo { signal }), false) => {
+                (
+                    None,
+                    Some(SoundSignal {
+                        inner: SoundSignalInner::Stereo { signal },
+                    }),
+                    false,
+                ) => {
                     if fixed_volume {
                         let volume_amplitude_ratio =
                             (audio_manager.master_volume * initial_volume).powf(2.0);
@@ -735,9 +763,11 @@ mod null_audio {
     use crate::file_manager::GameFilePath;
     use anyhow::Result;
 
-    use super::SoundParams;
+    use super::{AudioStreams, SoundParams};
 
-    pub struct AudioStreams {}
+    pub struct NullAudioStreams {}
+
+    impl AudioStreams for NullAudioStreams {}
 
     pub struct AudioManager {}
 
@@ -750,7 +780,7 @@ mod null_audio {
         file_path: GameFilePath,
     }
 
-    pub enum SoundSignal {}
+    pub struct SoundSignal {}
 
     impl SoundData {
         pub fn sample_count(&self) -> usize {
@@ -780,8 +810,8 @@ mod null_audio {
     }
 
     impl AudioManager {
-        pub fn new() -> Result<(AudioManager, AudioStreams)> {
-            Ok((AudioManager {}, AudioStreams {}))
+        pub fn new() -> Result<(AudioManager, NullAudioStreams)> {
+            Ok((AudioManager {}, NullAudioStreams {}))
         }
 
         pub fn get_signal(

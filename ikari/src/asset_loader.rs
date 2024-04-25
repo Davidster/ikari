@@ -238,6 +238,7 @@ impl AssetLoader {
                             } else {
                                 Default::default()
                             };
+
                             let signal = AudioManager::get_signal(
                                 &sound_data,
                                 next_audio_params.sound_params.clone(),
