@@ -16,6 +16,8 @@ pub struct EngineState {
     pub time_tracker: TimeTracker,
     pub framerate_limiter: FramerateLimiter,
     pub physics_state: PhysicsState,
+    // TODO: maybe instead of box dyn trait, it could be good to just have the real audio manager have a 'disable' flag, which could allow it to respond to
+    //       audio devices being disconnected later on.
     _audio_streams: Box<dyn AudioStreams>,
     pub audio_manager: Arc<Mutex<AudioManager>>,
     pub asset_loader: Arc<AssetLoader>,
