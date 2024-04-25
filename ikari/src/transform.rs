@@ -106,7 +106,6 @@ impl Transform {
         )
     }
 
-    // TODO: remove this, just use to_scale_rotation_translation()
     pub fn decompose(&self) -> SimpleTransform {
         let (scale, rotation, position) = self.to_scale_rotation_translation();
 

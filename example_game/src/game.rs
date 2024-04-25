@@ -2121,26 +2121,26 @@ fn add_static_box(
             .as_ref()
             .zip(scene.get_global_transform_for_node(node_id))
         {
-            let transform_decomposed = transform.decompose();
+            let (node_scale, node_rotation, node_position) =
+                transform.to_scale_rotation_translation();
             let bounding_box = renderer_data.binded_meshes[visual.mesh_index].bounding_box;
             let base_scale = (bounding_box.max - bounding_box.min) / 2.0;
             let base_position = (bounding_box.max + bounding_box.min) / 2.0;
             let scale = Vec3::new(
-                base_scale.x * transform_decomposed.scale.x,
-                base_scale.y * transform_decomposed.scale.y,
-                base_scale.z * transform_decomposed.scale.z,
+                base_scale.x * node_scale.x,
+                base_scale.y * node_scale.y,
+                base_scale.z * node_scale.z,
             );
             let position_rotated = {
-                let rotated = Mat4::from_quat(transform_decomposed.rotation)
+                let rotated = Mat4::from_quat(node_rotation)
                     * Vec4::new(base_position.x, base_position.y, base_position.z, 1.0);
                 Vec3::new(rotated.x, rotated.y, rotated.z)
             };
             let position = Vec3::new(
-                position_rotated.x + transform_decomposed.position.x,
-                position_rotated.y + transform_decomposed.position.y,
-                position_rotated.z + transform_decomposed.position.z,
+                position_rotated.x + node_position.x,
+                position_rotated.y + node_position.y,
+                position_rotated.z + node_position.z,
             );
-            let rotation = transform_decomposed.rotation;
             let mut collider =
                 ColliderBuilder::cuboid(scale.x as f64, scale.y as f64, scale.z as f64)
                     .collision_groups(
@@ -2157,10 +2157,10 @@ fn add_static_box(
                     position.z as f64,
                 ),
                 nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
-                    rotation.w as f64,
-                    rotation.x as f64,
-                    rotation.y as f64,
-                    rotation.z as f64,
+                    node_rotation.w as f64,
+                    node_rotation.x as f64,
+                    node_rotation.y as f64,
+                    node_rotation.z as f64,
                 )),
             ));
             collider_handles.push(physics_state.collider_set.insert(collider));

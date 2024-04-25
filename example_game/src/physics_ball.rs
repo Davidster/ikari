@@ -83,7 +83,7 @@ impl PhysicsBall {
         if let Some(node) = scene.get_node_mut(self.node_id) {
             let rigid_body = &mut physics_state.rigid_body_set[self.rigid_body_handle];
             node.transform.apply_isometry(*rigid_body.position());
-            if node.transform.decompose().position.y < -1.0 {
+            if node.transform.position().y < -1.0 {
                 self.destroy(scene, physics_state);
             }
         }

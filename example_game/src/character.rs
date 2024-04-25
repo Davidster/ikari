@@ -76,22 +76,18 @@ impl Character {
                         * skeleton_space_transform
                         * bone_bounding_box_transform
                 };
-                let transform_decomposed = transform.decompose();
+                let (scale, _rotation, _position) = transform.to_scale_rotation_translation();
 
                 if should_fill_collision_boxes {
                     self.collision_box_nodes
                         .push(scene.add_node(Default::default()).id());
-                    let box_scale = transform_decomposed.scale;
-                    let the_box = ColliderBuilder::cuboid(
-                        box_scale.x as f64,
-                        box_scale.y as f64,
-                        box_scale.z as f64,
-                    )
-                    .collision_groups(
-                        InteractionGroups::all()
-                            .with_memberships(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
-                    )
-                    .build();
+                    let the_box =
+                        ColliderBuilder::cuboid(scale.x as f64, scale.y as f64, scale.z as f64)
+                            .collision_groups(
+                                InteractionGroups::all()
+                                    .with_memberships(!COLLISION_GROUP_PLAYER_UNSHOOTABLE),
+                            )
+                            .build();
                     self.collision_box_colliders
                         .push(physics_state.collider_set.insert(the_box));
                 }
@@ -103,19 +99,7 @@ impl Character {
                     .collider_set
                     .get_mut(self.collision_box_colliders[bone_index])
                 {
-                    collider.set_position(Isometry::from_parts(
-                        nalgebra::Translation3::new(
-                            transform_decomposed.position.x as f64,
-                            transform_decomposed.position.y as f64,
-                            transform_decomposed.position.z as f64,
-                        ),
-                        nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(
-                            transform_decomposed.rotation.w as f64,
-                            transform_decomposed.rotation.x as f64,
-                            transform_decomposed.rotation.y as f64,
-                            transform_decomposed.rotation.z as f64,
-                        )),
-                    ))
+                    collider.set_position(transform.as_isometry())
                 }
             }
         }
