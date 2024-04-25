@@ -25,12 +25,15 @@ impl FramerateLimiter {
     }
 
     /// updates the internal state of the limiter and if a sleep is needed it will sleep.
-    /// near the end of the sleep period (if applicable) it continuously returns true
-    /// to allow the gameloop some time to process inputs at the last possible moment
+    ///
+    /// yield_near_end_of_sleep:
+    ///   near the end of the sleep period (if applicable), it continuously returns true
+    ///   to allow the gameloop some time to process inputs at the last possible moment
     pub(crate) fn update_and_sleep(
         &mut self,
         time_tracker: &TimeTracker,
         is_vsync_on: bool,
+        yield_near_end_of_sleep: bool,
     ) -> bool {
         if !Self::is_supported() {
             return false;
@@ -77,15 +80,16 @@ impl FramerateLimiter {
             sleep_period_secs - current_sleep_start.elapsed().as_secs_f64();
 
         if remaining_sleep_time_secs > 0.0 {
-            // delegate the last 1ms of sleep time to the gameloop during which we can process
-            // player inputs and reduce input latency
-            let remaining_sleep_time_excl_input_spin = remaining_sleep_time_secs - 0.001;
+            // yield the last 1ms of sleep time to the gameloop during which it can process
+            // player inputs to help reduce input latency
+            let yield_period = if yield_near_end_of_sleep { 0.001 } else { 0.0 };
 
-            if remaining_sleep_time_excl_input_spin > 0.0 {
-                log::info!("Sleeping for {remaining_sleep_time_excl_input_spin:.6} seconds");
+            let remaining_sleep_time_excl_yield = remaining_sleep_time_secs - yield_period;
 
+            if remaining_sleep_time_excl_yield > 0.0 {
+                #[cfg(not(target_arch = "wasm32"))]
                 crate::thread::sleep(crate::time::Duration::from_secs_f64(
-                    remaining_sleep_time_excl_input_spin,
+                    remaining_sleep_time_excl_yield,
                 ));
             }
 
