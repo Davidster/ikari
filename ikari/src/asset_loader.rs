@@ -323,7 +323,7 @@ impl AssetLoader {
                         (device_sample_rate as f32 * requested_chunk_size_seconds) as usize,
                     ) {
                         Ok((sound_data, reached_end_of_stream)) => {
-                            let sample_count = sound_data.0.len();
+                            let sample_count = sound_data.sample_count();
 
                             let added_buffer_seconds =
                                 sample_count as f32 / device_sample_rate as f32;
