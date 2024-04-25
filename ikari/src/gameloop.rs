@@ -203,7 +203,6 @@ where
             Event::WindowEvent {
                 event, window_id, ..
             } if window_id == window.id() => {
-                log::info!("Event loop WindowEvent");
                 match &event {
                     WindowEvent::Resized(size) => {
                         renderer.resize_surface(&surface_data, *size);
