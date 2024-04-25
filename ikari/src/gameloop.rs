@@ -6,6 +6,7 @@ use crate::time::Instant;
 use crate::ui::{IkariUiContainer, UiProgramEvents};
 use crate::web_canvas_manager::WebCanvasManager;
 
+use wgpu::PresentMode;
 use winit::event_loop::EventLoopWindowTarget;
 use winit::{
     event::{Event, WindowEvent},
@@ -83,14 +84,18 @@ where
                 event: WindowEvent::RedrawRequested,
                 ..
             } => {
-                // TODO: instead of spinning, do a real sleep (spin-sleep crate) and when it's finally done,
-                // call request redraw and return once to allow inputs to be processed once quickly before we
-                // start rendering. Would that even work?
-                let sleeping = engine_state
-                    .framerate_limiter
-                    .update(&engine_state.time_tracker);
-                if sleeping {
-                    window.request_redraw();
+                window.request_redraw();
+
+                let is_vsync_is_on = !matches!(
+                    surface_data.surface_config.present_mode,
+                    PresentMode::Immediate | PresentMode::AutoNoVsync
+                );
+                let should_sleep = engine_state.framerate_limiter.update_and_sleep(
+                    &engine_state.time_tracker,
+                    is_vsync_is_on,
+                    true,
+                );
+                if should_sleep {
                     return;
                 }
 
@@ -178,9 +183,6 @@ where
                     );
                     logged_start_time = true;
                 }
-            }
-            Event::AboutToWait => {
-                window.request_redraw();
             }
             Event::LoopExiting => {
                 engine_state.asset_loader.exit();

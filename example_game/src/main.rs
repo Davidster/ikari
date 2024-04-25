@@ -8,10 +8,10 @@ mod ui_overlay;
 
 use std::sync::Arc;
 
+use crate::game::handle_device_event;
 use crate::game::handle_surface_resize;
+use crate::game::handle_window_event;
 use crate::game::init_game_state;
-use crate::game::process_device_input;
-use crate::game::process_window_input;
 use crate::game::update_game_state;
 
 use ikari::engine_state::EngineState;
@@ -120,8 +120,8 @@ async fn start() {
             renderer,
             surface_data,
             update_game_state,
-            process_window_input,
-            process_device_input,
+            handle_window_event,
+            handle_device_event,
             handle_surface_resize,
             application_start_time,
         )?;
