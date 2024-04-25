@@ -1009,11 +1009,11 @@ impl runtime::Program for UiOverlay {
                     let text = text(&format!("Sleep and inputs: {:.2}ms", millis));
                     rows.push(text.into());
                 }
+            }
 
-                if let Some(millis) = self.fps_chart.avg_get_surface_time_ms {
-                    let text = text(&format!("Get surface: {:.2}ms", millis));
-                    rows.push(text.into());
-                }
+            if let Some(millis) = self.fps_chart.avg_get_surface_time_ms {
+                let text = text(&format!("Get surface: {:.2}ms", millis));
+                rows.push(text.into());
             }
 
             if let Some(millis) = self.fps_chart.avg_update_time_ms {

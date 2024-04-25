@@ -631,9 +631,7 @@ impl BaseRenderer {
         surface_config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
         surface_config.present_mode = wgpu::PresentMode::AutoVsync;
         surface_config.view_formats = vec![surface_config.format.add_srgb_suffix()];
-        // this caused problems on Windows on dx12 and vulkan..
-        // TODO: see if those problems still persist with profiling disabled
-        // surface_config.desired_maximum_frame_latency = 1;
+        surface_config.desired_maximum_frame_latency = 2;
         surface.configure(&base.device, &surface_config);
 
         let capabilities = surface.get_capabilities(&base.adapter);

@@ -70,19 +70,19 @@ impl TimeTracker {
         }
     }
 
-    pub(crate) fn on_render_completed(&mut self) {
-        log::debug!("Done render");
-
-        if let Some(current_frame) = self.current_frame.as_mut() {
-            current_frame.render_done = Some(Instant::now());
-        }
-    }
-
     pub(crate) fn on_get_surface_completed(&mut self) {
         log::debug!("Done getting surface texture");
 
         if let Some(current_frame) = self.current_frame.as_mut() {
             current_frame.get_surface_done = Some(Instant::now());
+        }
+    }
+
+    pub(crate) fn on_render_completed(&mut self) {
+        log::debug!("Done render");
+
+        if let Some(current_frame) = self.current_frame.as_mut() {
+            current_frame.render_done = Some(Instant::now());
         }
     }
 
@@ -105,11 +105,11 @@ impl TimeTracker {
                         Some(last_frame.start),
                     ),
                     update: option_subtract(last_frame.update_done, last_frame.sleep_and_inputs),
-                    render: option_subtract(last_frame.render_done, last_frame.update_done),
                     get_surface: option_subtract(
                         last_frame.get_surface_done,
-                        last_frame.render_done,
+                        last_frame.update_done,
                     ),
+                    render: option_subtract(last_frame.render_done, last_frame.get_surface_done),
                 },
             )),
             _ => None,
