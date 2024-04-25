@@ -4224,20 +4224,13 @@ impl Renderer {
         for (light_index, _) in engine_state.scene.directional_lights.iter().enumerate() {
             let light_cascades = &resolved_directional_light_cascades[light_index];
 
-            // let mut fully_contained_cascades = 0;
-
             for (cascade_index, resolved_cascade) in light_cascades.iter().enumerate() {
                 let projection_volume = resolved_cascade.projection_volume;
 
                 // Cull objects that cover less than one pixel in the shadow map
-                //
-                // If the object is fully inside both of the previous cascades then it can
-                // also be culled. This should work well when combined with LOD
                 if projection_volume.pixel_size
                     * data.shadow_settings.shadow_small_object_culling_size_pixels
                     > node_bounding_sphere.radius * 2.0
-                // TODO: this doesn't seem to work for objects that remain close to the player. is it fundamentally wrong?
-                // || fully_contained_cascades >= 2
                 {
                     mask_pos += light_cascades.len() - cascade_index;
                     break;

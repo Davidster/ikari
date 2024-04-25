@@ -1034,8 +1034,9 @@ impl Texture {
                     label: USE_LABELS.then_some("spec_env_map_gen_roughness_bind_group"),
                 });
 
-        // TODO: level 0 doesn't really need to be done since roughness = 0 basically copies the skybox plainly
-        //       but we'll need to write the contents of skybox_rad_texture to the first mip level of the cubemap above
+        // level 0 doesn't really need to be done since roughness = 0 basically copies the skybox plainly
+        // but we'll need to write the contents of skybox_rad_texture to the first mip level of the cubemap above
+        // this isn't really work the effort. users should be baking their skyboxes offline
         (0..mip_level_count)
             .map(|i| (i, i as f32 * (1.0 / (mip_level_count - 1) as f32)))
             .for_each(|(mip_level, roughness_level)| {
