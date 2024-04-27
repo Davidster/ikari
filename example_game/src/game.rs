@@ -1130,7 +1130,10 @@ pub async fn init_game_state(
             &renderer.base.queue,
             surface_format,
             UiOverlay::new(window),
-            Some(LATO_FONT_NAME),
+            Some(iced::font::Font {
+                family: iced::font::Family::Name(LATO_FONT_NAME),
+                ..iced::font::Font::DEFAULT
+            }),
             vec![
                 LATO_FONT_BYTES,
                 LATO_BOLD_FONT_BYTES,

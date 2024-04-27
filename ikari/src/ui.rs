@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 
-use iced::font::Family;
 use iced::widget::Row;
 use iced::{window, Command, Element, Font, Size};
 
@@ -52,9 +51,7 @@ where
         queue: &wgpu::Queue,
         surface_format: wgpu::TextureFormat,
         state: UiOverlay,
-        // TODO: this only works if the font matches the weight, stretch, style and monospacedness
-        // of iced_core::Font::DEFAULT
-        default_font_name: Option<&'static str>,
+        default_font: Option<Font>,
         load_fonts: Vec<&'static [u8]>,
         theme: UiOverlay::Theme,
     ) -> Self {
@@ -66,12 +63,7 @@ where
         let cursor_position = winit::dpi::PhysicalPosition::new(-1.0, -1.0);
 
         let settings = iced_wgpu::Settings {
-            default_font: Font {
-                family: default_font_name
-                    .map(Family::Name)
-                    .unwrap_or(Font::DEFAULT.family),
-                ..Default::default()
-            },
+            default_font: default_font.unwrap_or(Font::DEFAULT),
             ..Default::default()
         };
 

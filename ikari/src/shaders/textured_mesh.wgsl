@@ -787,8 +787,6 @@ fn do_fragment_shade(
         if n_dot_l > 0.0 && light_index < POINT_LIGHT_SHOW_MAP_COUNT {
             if get_soft_shadows_are_enabled() && to_viewer_vec_length < soft_shadows_max_distance {
                 // soft shadows code path
-                // TODO: dedupe with directional lights
-
                 var early_test_coords = array<vec2<u32>, 4>(
                     vec2<u32>(0u, 3u),
                     vec2<u32>(1u, 3u),
