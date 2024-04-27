@@ -16,11 +16,20 @@ pub struct SoundParams {
 
 pub const AUDIO_STREAM_BUFFER_LENGTH_SECONDS: f32 = 2.5;
 
-pub trait AudioStreams {}
+const CHANNEL_COUNT: usize = 2;
+
+#[derive(Debug, Clone, Default)]
+pub struct SoundData(Vec<[f32; CHANNEL_COUNT]>);
+
+impl SoundData {
+    pub fn sample_count(&self) -> usize {
+        self.0.len()
+    }
+}
 
 mod ikari_audio {
-    use crate::file_manager::GameFilePath;
     use crate::time::Instant;
+    use crate::{audio::CHANNEL_COUNT, file_manager::GameFilePath};
 
     use anyhow::Result;
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -38,26 +47,13 @@ mod ikari_audio {
         _mixer_output_stream: cpal::Stream,
     }
 
-    impl AudioStreams for IkariAudioStreams {}
-
-    pub struct AudioManager {
+    pub struct IkariAudioManager {
         master_volume: f32,
         device_sample_rate: u32,
 
         spatial_scene_handle: Handle<SpatialScene>,
         mixer_handle: Handle<Mixer<[f32; 2]>>,
         sounds: Vec<Option<Sound>>,
-    }
-
-    const CHANNEL_COUNT: usize = 2;
-
-    #[derive(Debug, Clone, Default)]
-    pub struct SoundData(Vec<[f32; CHANNEL_COUNT]>);
-
-    impl SoundData {
-        pub fn sample_count(&self) -> usize {
-            self.0.len()
-        }
     }
 
     pub struct Sound {
@@ -145,7 +141,7 @@ mod ikari_audio {
     #[cfg(target_arch = "wasm32")]
     use web::get_media_source;
 
-    use super::{AudioStreams, SoundParams, SpacialParams, AUDIO_STREAM_BUFFER_LENGTH_SECONDS};
+    use super::{SoundData, SoundParams, SpacialParams, AUDIO_STREAM_BUFFER_LENGTH_SECONDS};
 
     pub struct AudioFileStreamer {
         device_sample_rate: u32,
@@ -321,9 +317,9 @@ mod ikari_audio {
         }
     }
 
-    impl AudioManager {
+    impl IkariAudioManager {
         /// streams are returned separately since they aren't Send/Sync
-        pub fn new() -> Result<(AudioManager, Box<dyn AudioStreams>)> {
+        pub fn new() -> Result<(IkariAudioManager, IkariAudioStreams)> {
             let host = cpal::default_host();
             let device = host
                 .default_output_device()
@@ -365,7 +361,7 @@ mod ikari_audio {
             mixer_output_stream.play()?;
 
             Ok((
-                AudioManager {
+                IkariAudioManager {
                     master_volume: 1.0,
                     device_sample_rate,
 
@@ -373,10 +369,10 @@ mod ikari_audio {
                     mixer_handle,
                     sounds: vec![],
                 },
-                Box::new(IkariAudioStreams {
+                IkariAudioStreams {
                     _spatial_scene_output_stream: spatial_scene_output_stream,
                     _mixer_output_stream: mixer_output_stream,
-                }),
+                },
             ))
         }
 
@@ -490,7 +486,7 @@ mod ikari_audio {
                 .map(|sound| &sound.file_path)
         }
 
-        pub fn _set_sound_volume(&mut self, sound_index: usize, volume: f32) {
+        pub fn set_sound_volume(&mut self, sound_index: usize, volume: f32) {
             if let Some(sound) = self.sounds[sound_index].as_mut() {
                 sound.set_volume(self.master_volume, volume)
             }
@@ -546,7 +542,7 @@ mod ikari_audio {
 
     impl Sound {
         fn new(
-            audio_manager: &mut AudioManager,
+            audio_manager: &mut IkariAudioManager,
             file_path: GameFilePath,
             sound_data: SoundData,
             length_seconds: Option<f32>,
@@ -759,62 +755,97 @@ mod ikari_audio {
     }
 }
 
+pub trait AudioManager {
+    type SoundSignal;
+
+    fn get_signal(
+        _sound_data: &SoundData,
+        _params: SoundParams,
+        _device_sample_rate: u32,
+    ) -> Option<Self::SoundSignal>;
+
+    fn add_sound(
+        &mut self,
+        _file_path: GameFilePath,
+        _sound_data: SoundData,
+        _length_seconds: Option<f32>,
+        _params: SoundParams,
+        _signal: Option<Self::SoundSignal>,
+    ) -> usize;
+
+    fn write_stream_data(&mut self, sound_index: usize, sound_data: SoundData);
+
+    fn play_sound(&mut self, sound_index: usize);
+
+    fn reload_sound(&mut self, _sound_index: usize, _params: SoundParams);
+
+    fn sound_is_playing(&self, sound_index: usize) -> bool;
+
+    fn get_sound_length_seconds(&self, sound_index: usize) -> Option<Option<f32>>;
+    fn get_sound_pos_seconds(&self, sound_index: usize) -> Option<f32>;
+
+    fn get_sound_buffered_to_pos_seconds(&self, sound_index: usize) -> Option<f32>;
+
+    fn get_sound_file_path(&self, sound_index: usize) -> Option<&GameFilePath>;
+
+    fn set_sound_volume(&mut self, sound_index: usize, volume: f32);
+
+    fn device_sample_rate(&self) -> u32;
+
+    fn sound_indices(&self) -> impl Iterator<Item = usize> + '_;
+}
+
+pub trait AudioFileStreamer {
+    fn read_chunk(&mut self, _max_chunk_size: usize) -> anyhow::Result<(SoundData, bool)>;
+
+    fn track_length_seconds(&self) -> Option<f32>;
+
+    fn file_path(&self) -> &GameFilePath;
+}
+
 mod null_audio {
     use crate::file_manager::GameFilePath;
     use anyhow::Result;
 
-    use super::{AudioStreams, SoundParams};
+    use super::{AudioFileStreamer, AudioManager, SoundData, SoundParams};
 
-    pub struct NullAudioStreams {}
+    pub struct AudioStreams {}
 
-    impl AudioStreams for NullAudioStreams {}
+    pub struct NullAudioManager {}
 
-    pub struct AudioManager {}
-
-    #[derive(Debug, Clone, Default)]
-    pub struct SoundData();
-
-    pub struct Sound {}
-
-    pub struct AudioFileStreamer {
+    pub struct NullAudioFileStreamer {
         file_path: GameFilePath,
     }
 
     pub struct SoundSignal {}
 
-    impl SoundData {
-        pub fn sample_count(&self) -> usize {
-            0
+    impl AudioFileStreamer for NullAudioFileStreamer {
+        fn read_chunk(&mut self, _max_chunk_size: usize) -> anyhow::Result<(SoundData, bool)> {
+            Ok((SoundData(vec![]), true))
+        }
+
+        fn track_length_seconds(&self) -> Option<f32> {
+            None
+        }
+
+        fn file_path(&self) -> &GameFilePath {
+            &self.file_path
         }
     }
 
-    impl AudioFileStreamer {
+    impl NullAudioFileStreamer {
         pub async fn new(
             _device_sample_rate: u32,
             file_path: GameFilePath,
         ) -> anyhow::Result<Self> {
             Ok(Self { file_path })
         }
-
-        pub fn read_chunk(&mut self, _max_chunk_size: usize) -> anyhow::Result<(SoundData, bool)> {
-            Ok((SoundData(), true))
-        }
-
-        pub fn track_length_seconds(&self) -> Option<f32> {
-            None
-        }
-
-        pub fn file_path(&self) -> &GameFilePath {
-            &self.file_path
-        }
     }
 
-    impl AudioManager {
-        pub fn new() -> Result<(AudioManager, NullAudioStreams)> {
-            Ok((AudioManager {}, NullAudioStreams {}))
-        }
+    impl AudioManager for NullAudioManager {
+        type SoundSignal = SoundSignal;
 
-        pub fn get_signal(
+        fn get_signal(
             _sound_data: &SoundData,
             _params: SoundParams,
             _device_sample_rate: u32,
@@ -822,7 +853,7 @@ mod null_audio {
             None
         }
 
-        pub fn add_sound(
+        fn add_sound(
             &mut self,
             _file_path: GameFilePath,
             _sound_data: SoundData,
@@ -833,40 +864,46 @@ mod null_audio {
             0
         }
 
-        pub fn write_stream_data(&mut self, sound_index: usize, sound_data: SoundData) {}
+        fn write_stream_data(&mut self, sound_index: usize, sound_data: SoundData) {}
 
-        pub fn play_sound(&mut self, sound_index: usize) {}
+        fn play_sound(&mut self, sound_index: usize) {}
 
-        pub fn reload_sound(&mut self, _sound_index: usize, _params: SoundParams) {}
+        fn reload_sound(&mut self, _sound_index: usize, _params: SoundParams) {}
 
-        pub fn sound_is_playing(&self, sound_index: usize) -> bool {
+        fn sound_is_playing(&self, sound_index: usize) -> bool {
             false
         }
 
-        pub fn get_sound_length_seconds(&self, sound_index: usize) -> Option<Option<f32>> {
+        fn get_sound_length_seconds(&self, sound_index: usize) -> Option<Option<f32>> {
             None
         }
 
-        pub fn get_sound_pos_seconds(&self, sound_index: usize) -> Option<f32> {
+        fn get_sound_pos_seconds(&self, sound_index: usize) -> Option<f32> {
             None
         }
 
-        pub fn get_sound_buffered_to_pos_seconds(&self, sound_index: usize) -> Option<f32> {
+        fn get_sound_buffered_to_pos_seconds(&self, sound_index: usize) -> Option<f32> {
             None
         }
 
-        pub fn get_sound_file_path(&self, sound_index: usize) -> Option<&GameFilePath> {
+        fn get_sound_file_path(&self, sound_index: usize) -> Option<&GameFilePath> {
             None
         }
 
-        pub fn _set_sound_volume(&mut self, sound_index: usize, volume: f32) {}
+        fn set_sound_volume(&mut self, sound_index: usize, volume: f32) {}
 
-        pub fn device_sample_rate(&self) -> u32 {
+        fn device_sample_rate(&self) -> u32 {
             1
         }
 
-        pub fn sound_indices(&self) -> impl Iterator<Item = usize> + '_ {
+        fn sound_indices(&self) -> impl Iterator<Item = usize> + '_ {
             std::iter::empty()
+        }
+    }
+
+    impl NullAudioManager {
+        pub fn new() -> Result<(NullAudioManager, AudioStreams)> {
+            Ok((NullAudioManager {}, AudioStreams {}))
         }
     }
 }
@@ -876,3 +913,5 @@ pub use ikari_audio::*;
 
 #[cfg(not(feature = "audio"))]
 pub use null_audio::*;
+
+use crate::file_manager::GameFilePath;

@@ -5,7 +5,7 @@ members = ["ikari", "build_web", "example_game", "clikari"]
 [workspace.package]
 version = "0.0.1"
 edition = "2021"
-rust-version = "1.66"
+rust-version = "1.75"
 description = "3D Game Engine"
 keywords = ["renderer", "3D", "rust", "wgpu", "game"]
 license = "MIT"

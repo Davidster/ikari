@@ -10,8 +10,7 @@ name = "example_game"
 path = "src/main.rs"
 
 [features]
-default = ["cpu-profiling", "gpu-profiling"]
-# default = ["cpu-profiling", "gpu-profiling", "audio"]
+default = ["cpu-profiling", "gpu-profiling", "audio"]
 cpu-profiling = [
   "ikari/tracy-profiling",
   "profiling/profile-with-tracy",

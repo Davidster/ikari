@@ -1,5 +1,5 @@
 use crate::audio::AudioFileStreamer;
-use crate::audio::AudioManager;
+use crate::audio::IkariAudioManager;
 use crate::audio::SoundParams;
 use crate::audio::AUDIO_STREAM_BUFFER_LENGTH_SECONDS;
 use crate::buffer::GpuBuffer;
@@ -77,7 +77,7 @@ pub struct AssetLoader {
     pending_audio: Arc<Mutex<Vec<(AssetId, AudioAssetLoadParams)>>>,
     pub loaded_audio: Arc<Mutex<HashMap<AssetId, usize>>>,
 
-    audio_manager: Arc<Mutex<AudioManager>>,
+    audio_manager: Arc<Mutex<IkariAudioManager>>,
     pending_scenes: Arc<Mutex<Vec<(AssetId, SceneAssetLoadParams)>>>,
     bindable_scenes: Arc<Mutex<HashMap<AssetId, BindableScene>>>,
 
@@ -129,7 +129,7 @@ struct TimeSlicedSkyboxBinder {
 }
 
 impl AssetLoader {
-    pub fn new(audio_manager: Arc<Mutex<AudioManager>>) -> Self {
+    pub fn new(audio_manager: Arc<Mutex<IkariAudioManager>>) -> Self {
         Self {
             is_exiting: Arc::new(AtomicBool::new(false)),
 
@@ -239,7 +239,7 @@ impl AssetLoader {
                                 Default::default()
                             };
 
-                            let signal = AudioManager::get_signal(
+                            let signal = IkariAudioManager::get_signal(
                                 &sound_data,
                                 next_audio_params.sound_params.clone(),
                                 device_sample_rate,
@@ -287,7 +287,7 @@ impl AssetLoader {
 
     fn spawn_audio_streaming_thread(
         is_exiting: Arc<AtomicBool>,
-        audio_manager: Arc<Mutex<AudioManager>>,
+        audio_manager: Arc<Mutex<IkariAudioManager>>,
         sound_index: usize,
         mut audio_file_streamer: AudioFileStreamer,
     ) {

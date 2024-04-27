@@ -15,8 +15,7 @@ path = "src/lib.rs"
 
 [features]
 # TODO: exclude all audio-related deps when audio feature is not set!
-default = []
-# default = ["audio"]
+default = ["audio"]
 tracy-profiling = ["profiling/profile-with-tracy"]
 gpu-profiling = []
 audio = []
