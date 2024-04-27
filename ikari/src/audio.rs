@@ -603,15 +603,14 @@ mod ikari_audio {
 
     #[profiling::function]
     fn resample_linear(
-        samples: &Vec<[f32; CHANNEL_COUNT]>,
+        samples: &[[f32; CHANNEL_COUNT]],
         from_hz: u32,
         to_hz: u32,
     ) -> Vec<[f32; CHANNEL_COUNT]> {
         let old_sample_count = samples.len();
         let length_seconds = old_sample_count as f32 / from_hz as f32;
         let new_sample_count = (length_seconds * to_hz as f32).ceil() as usize;
-        let mut result: Vec<[f32; CHANNEL_COUNT]> = Vec::new();
-        result.reserve(new_sample_count);
+        let mut result: Vec<[f32; CHANNEL_COUNT]> = Vec::with_capacity(new_sample_count);
         for new_sample_number in 1..(new_sample_count + 1) {
             let old_sample_number = new_sample_number as f32 * (from_hz as f32 / to_hz as f32);
 

@@ -125,14 +125,11 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
                     .name()
                     .map(String::from)
                     .unwrap_or_else(|| {
-                        format!(
-                            "{}",
-                            primitive
-                                .material()
-                                .index()
-                                .map(|index| format!("{index}"))
-                                .unwrap_or_else(|| "Default".into())
-                        )
+                        primitive
+                            .material()
+                            .index()
+                            .map(|index| format!("{index}"))
+                            .unwrap_or_else(|| "Default".into())
                     });
                 log::warn!(
                     "{:?}: Loading gltf materials in alpha blending mode is not current supported. Material {material_name:?} will be rendered as opaque.",
@@ -160,7 +157,7 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
     {
         profiling::scope!("meshes");
 
-        for (_gltf_mesh_index, (mesh, primitives)) in supported_meshes.iter().enumerate() {
+        for (mesh, primitives) in supported_meshes.iter() {
             for primitive in primitives.iter() {
                 let (geometry, wireframe_indices) = load_geometry(primitive, &buffers)?;
                 bindable_meshes.push(geometry);
@@ -181,8 +178,7 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
 
                 if let Some(gltf_node_indices) = mesh_node_map.get(&mesh.index()) {
                     for gltf_node_index in gltf_node_indices {
-                        let node_visuals =
-                            node_visual_map.entry(*gltf_node_index).or_insert(vec![]);
+                        let node_visuals = node_visual_map.entry(*gltf_node_index).or_default();
                         node_visuals.push((mesh_index, pbr_material_index));
                     }
                 }

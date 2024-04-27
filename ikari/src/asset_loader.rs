@@ -906,8 +906,6 @@ impl BindScene for TimeSlicedSceneBinder {
         let scene_ids: Vec<_> = bindable_scenes_guard.keys().cloned().collect();
         for scene_id in scene_ids {
             while start_time.elapsed().as_secs_f32() < SLICE_BUDGET_SECONDS {
-                let scene_id = scene_id;
-
                 let bindable_scene = bindable_scenes_guard
                     .remove(&scene_id)
                     .expect("Scene id should still be valid at this point");
