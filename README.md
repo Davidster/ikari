@@ -161,5 +161,5 @@ make -I/opt/homebrew/Cellar/capstone/4.0.2/include/capstone -j12
 ```sh
 # this will run clippy on the example game as well as ikari by dependency
 # we need to pass --no-default-features now that tracy is enabled by default
-RUSTFLAGS=--cfg=web_sys_unstable_apis cargo clippy --package example_game --target wasm32-unknown-unknown --no-default-features
+RUSTFLAGS=--cfg=web_sys_unstable_apis cargo clippy --package example_game --target wasm32-unknown-unknown --no-default-features --features="audio"
 ```
