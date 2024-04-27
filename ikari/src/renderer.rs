@@ -2834,8 +2834,6 @@ impl Renderer {
                 culling_frustum_collider: None,
                 frustum_culling_lock: CullingFrustumLock::None,
                 skybox_weights,
-                // TODO: when bloom is not enabled, we should really free up the graphics memory used for it.
-                //       same goes for shadow maps
                 bloom_cleared: true,
 
                 new_pending_surface_config: None,

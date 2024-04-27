@@ -22,8 +22,6 @@ pub struct Texture {
     pub size: wgpu::Extent3d,
 }
 
-// TODO: maybe implement some functions on the BaseRendererState so we have the device and queue for free?
-//       or maybe store an Arc<Device> and Arc<Queue>
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 

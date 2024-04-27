@@ -226,8 +226,6 @@ impl Scene {
         }
     }
 
-    // TODO: compute this for the required nodes in the ancestry tree whenever a node's position is updated?
-    //       but expose API for updating node transform cheaply and then calling this function at the end.
     #[profiling::function]
     pub fn recompute_global_node_transforms(&mut self, renderer_data: &mut RendererData) {
         if self.nodes.len() <= self.global_node_transforms.len() {
@@ -532,13 +530,11 @@ impl Scene {
     }
 
     pub fn remove_node(&mut self, node_id: GameNodeId) {
-        // make sure it still exists
         if let Some(node) = self.get_node(node_id) {
             let GameNodeId(node_index, _) = node.id;
             self.nodes[node_index as usize].0.take();
             self.empty_node_indices.push(node_index as usize);
 
-            // TODO: this is slow, is it needed?
             if REBUILD_SKELETON_PARENT_MAP_ON_REMOVE {
                 self.rebuild_skeleton_parent_index_maps();
             }
