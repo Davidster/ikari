@@ -29,7 +29,6 @@ use ikari::player_controller::ControlledViewDirection;
 use ikari::profile_dump::can_generate_profile_dump;
 use ikari::profile_dump::generate_profile_dump;
 use ikari::profile_dump::PendingPerfDump;
-use ikari::renderer::BloomType;
 use ikari::renderer::CullingFrustumLockMode;
 use ikari::renderer::CullingStats;
 use ikari::renderer::MIN_SHADOW_MAP_BIAS;
@@ -43,7 +42,9 @@ use plotters_iced::{Chart, ChartWidget, DrawingBackend};
 
 use ikari::time::Duration;
 
-use crate::game::INITIAL_BLOOM_TYPE;
+use crate::game::INITIAL_BLOOM_INTENSITY;
+use crate::game::INITIAL_BLOOM_RADIUS;
+use crate::game::INITIAL_ENABLE_BLOOM;
 use crate::game::INITIAL_ENABLE_CASCADE_DEBUG;
 use crate::game::INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG;
 use crate::game::INITIAL_ENABLE_DEPTH_PREPASS;
@@ -58,8 +59,6 @@ use crate::game::INITIAL_FRAMERATE_LIMIT;
 use crate::game::INITIAL_IS_SHOWING_CAMERA_POSE;
 use crate::game::INITIAL_IS_SHOWING_CURSOR_MARKER;
 use crate::game::INITIAL_NEAR_PLANE_DISTANCE;
-use crate::game::INITIAL_NEW_BLOOM_INTENSITY;
-use crate::game::INITIAL_NEW_BLOOM_RADIUS;
 use crate::game::INITIAL_RENDER_SCALE;
 use crate::game::INITIAL_SHADOW_BIAS;
 use crate::game::INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS;
@@ -84,7 +83,6 @@ const FPS_CHART_LINE_COLORS: [RGBAColor; 4] = [
     RGBAColor(159, 127, 242, 0.8), // render
     RGBAColor(253, 183, 23, 0.8),  // gpu
 ];
-const SHOW_BLOOM_TYPE: bool = false;
 pub(crate) const THEME: iced::Theme = iced::Theme::TokyoNight;
 
 #[derive(Debug, Clone)]
@@ -118,9 +116,9 @@ pub enum Message {
     FovxChanged(f32),
     NearPlaneDistanceChanged(f32),
     FarPlaneDistanceChanged(f32),
-    BloomTypeChanged(BloomType),
-    NewBloomRadiusChanged(f32),
-    NewBloomIntensityChanged(f32),
+    ToggleBloom(bool),
+    BloomRadiusChanged(f32),
+    BloomIntensityChanged(f32),
     ShadowSmallObjectCullingSizeChanged(f32),
     SoftShadowsMaxDistanceChanged(f32),
     ToggleDepthPrepass(bool),
@@ -207,10 +205,9 @@ impl Default for CameraSettings {
 pub struct PostEffectSettings {
     collapsed: bool,
 
-    pub bloom_type: BloomType,
-
-    pub new_bloom_radius: f32,
-    pub new_bloom_intensity: f32,
+    pub enable_bloom: bool,
+    pub bloom_radius: f32,
+    pub bloom_intensity: f32,
 
     pub skybox_weight: f32,
 }
@@ -220,10 +217,10 @@ impl Default for PostEffectSettings {
         Self {
             collapsed: true,
 
-            bloom_type: INITIAL_BLOOM_TYPE,
+            enable_bloom: INITIAL_ENABLE_BLOOM,
 
-            new_bloom_radius: INITIAL_NEW_BLOOM_RADIUS,
-            new_bloom_intensity: INITIAL_NEW_BLOOM_INTENSITY,
+            bloom_radius: INITIAL_BLOOM_RADIUS,
+            bloom_intensity: INITIAL_BLOOM_INTENSITY,
 
             skybox_weight: INITIAL_SKYBOX_WEIGHT,
         }
@@ -877,14 +874,14 @@ impl runtime::Program for UiOverlay {
             Message::TogglePostEffectSettingsCollapse => {
                 self.post_effect_settings.collapsed = !self.post_effect_settings.collapsed;
             }
-            Message::BloomTypeChanged(new_state) => {
-                self.post_effect_settings.bloom_type = new_state;
+            Message::ToggleBloom(new_state) => {
+                self.post_effect_settings.enable_bloom = new_state;
             }
-            Message::NewBloomRadiusChanged(new_state) => {
-                self.post_effect_settings.new_bloom_radius = new_state;
+            Message::BloomRadiusChanged(new_state) => {
+                self.post_effect_settings.bloom_radius = new_state;
             }
-            Message::NewBloomIntensityChanged(new_state) => {
-                self.post_effect_settings.new_bloom_intensity = new_state;
+            Message::BloomIntensityChanged(new_state) => {
+                self.post_effect_settings.bloom_intensity = new_state;
             }
             Message::SkyboxWeightChanged(new_state) => {
                 self.post_effect_settings.skybox_weight = new_state;
@@ -1039,16 +1036,6 @@ impl runtime::Program for UiOverlay {
                 }
                 rows.push(text.into());
             }
-        }
-
-        if SHOW_BLOOM_TYPE {
-            rows.push(
-                text(&format!(
-                    "Bloom type: {}",
-                    self.post_effect_settings.bloom_type
-                ))
-                .into(),
-            );
         }
 
         if is_showing_camera_pose {
@@ -1419,9 +1406,10 @@ impl runtime::Program for UiOverlay {
                 let PostEffectSettings {
                     collapsed,
 
-                    bloom_type,
-                    new_bloom_radius,
-                    new_bloom_intensity,
+                    enable_bloom,
+                    bloom_radius,
+                    bloom_intensity,
+
                     skybox_weight,
                     ..
                 } = self.post_effect_settings;
@@ -1433,50 +1421,30 @@ impl runtime::Program for UiOverlay {
                 ));
 
                 if !collapsed {
-                    options = options.push(text("Bloom Type").size(small_text_size));
-
-                    let mut bloom_options = vec![];
-                    for mode in BloomType::ALL {
-                        bloom_options.push(
-                            radio(
-                                format!("{mode}"),
-                                mode,
-                                Some(bloom_type),
-                                Message::BloomTypeChanged,
-                            )
+                    options = options.push(
+                        checkbox("Enable Bloom", enable_bloom)
                             .size(checkbox_size)
                             .text_size(small_text_size)
-                            .into(),
-                        );
-                    }
-
-                    options = options.push(
-                        container(Column::with_children(bloom_options).spacing(4))
-                            .padding([0, 0, 8, 0]),
+                            .on_toggle(Message::ToggleBloom),
                     );
 
                     options = options.push(
-                        text(format!("New Bloom Radius: {:.4}", new_bloom_radius))
-                            .size(small_text_size),
+                        text(format!("Bloom Radius: {:.4}", bloom_radius)).size(small_text_size),
                     );
                     options = options.push(
-                        slider(
-                            0.0001..=0.025,
-                            new_bloom_radius,
-                            Message::NewBloomRadiusChanged,
-                        )
-                        .step(0.0001),
+                        slider(0.0001..=0.025, bloom_radius, Message::BloomRadiusChanged)
+                            .step(0.0001),
                     );
 
                     options = options.push(
-                        text(format!("New Bloom Intensity: {:.4}", new_bloom_intensity))
+                        text(format!("Bloom Intensity: {:.4}", bloom_intensity))
                             .size(small_text_size),
                     );
                     options = options.push(
                         slider(
                             0.001..=0.25,
-                            new_bloom_intensity,
-                            Message::NewBloomIntensityChanged,
+                            bloom_intensity,
+                            Message::BloomIntensityChanged,
                         )
                         .step(0.001),
                     );

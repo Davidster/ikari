@@ -334,7 +334,7 @@ impl Texture {
         }
     }
 
-    pub fn create_new_bloom_texture(
+    pub fn create_bloom_texture(
         base_renderer: &BaseRenderer,
         scaled_framebuffer_size: wgpu::Extent3d,
         format: wgpu::TextureFormat,
