@@ -62,7 +62,7 @@ pub const POINT_LIGHT_SHOW_MAP_COUNT: u32 = 2;
 pub const DIRECTIONAL_LIGHT_SHOW_MAP_COUNT: u32 = 2;
 pub const DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH: f32 = 50.0;
 pub const MIN_SHADOW_MAP_BIAS: f32 = 0.00005;
-pub const NEW_BLOOM_TARGET_MIP_COUNT: u32 = 5;
+pub const BLOOM_TARGET_MIP_COUNT: u32 = 5;
 
 // see last comment here for why we don't have 'Hash': https://internals.rust-lang.org/t/f32-f64-should-implement-hash/5436/33
 #[repr(C)]
@@ -800,10 +800,9 @@ pub struct RendererPrivateData {
     debug_culling_frustum_mesh_index: Option<usize>,
 
     culling_frustum_collider: Option<CachedCameraFrustumCollider>,
-    frustum_culling_lock: CullingFrustumLock, // for debug
+    frustum_culling_lock: CullingFrustumLock,
     skybox_weights: [f32; 2],
-    old_bloom_threshold_cleared: bool,
-    new_bloom_cleared: bool,
+    bloom_cleared: bool,
 
     new_pending_surface_config: Option<wgpu::SurfaceConfiguration>,
     current_render_scale: f32,
@@ -816,26 +815,22 @@ pub struct RendererPrivateData {
     bones_and_unlit_instances_bind_group: wgpu::BindGroup,
     bones_and_transparent_instances_bind_group: wgpu::BindGroup,
     bones_and_wireframe_instances_bind_group: wgpu::BindGroup,
-    old_bloom_config_bind_groups: [wgpu::BindGroup; 2],
-    new_bloom_downscale_config_bind_groups: Vec<wgpu::BindGroup>,
-    new_bloom_upscale_config_bind_group: wgpu::BindGroup,
+    bloom_downscale_config_bind_groups: Vec<wgpu::BindGroup>,
+    bloom_upscale_config_bind_group: wgpu::BindGroup,
     tone_mapping_config_bind_group: wgpu::BindGroup,
     environment_textures_bind_group: wgpu::BindGroup,
-    shading_and_old_bloom_textures_bind_group: wgpu::BindGroup,
-    shading_and_new_bloom_texture_bind_group: wgpu::BindGroup,
+    shading_and_bloom_texture_bind_group: wgpu::BindGroup,
     tone_mapping_texture_bind_group: wgpu::BindGroup,
     shading_texture_bind_group: wgpu::BindGroup,
-    old_bloom_pingpong_texture_bind_groups: [wgpu::BindGroup; 2],
-    new_bloom_texture_bind_group: wgpu::BindGroup,
-    new_bloom_texture_mip_bind_groups: Vec<wgpu::BindGroup>,
+    bloom_texture_bind_group: wgpu::BindGroup,
+    bloom_texture_mip_bind_groups: Vec<wgpu::BindGroup>,
 
     camera_buffers: Vec<wgpu::Buffer>,
     point_lights_buffer: wgpu::Buffer,
     directional_lights_buffer: wgpu::Buffer,
     pbr_shader_options_buffer: wgpu::Buffer,
-    old_bloom_config_buffers: [wgpu::Buffer; 2],
-    new_bloom_downscale_config_buffers: Vec<wgpu::Buffer>,
-    new_bloom_upscale_config_buffer: wgpu::Buffer,
+    bloom_downscale_config_buffers: Vec<wgpu::Buffer>,
+    bloom_upscale_config_buffer: wgpu::Buffer,
     tone_mapping_config_buffer: wgpu::Buffer,
     bones_buffer: GpuBuffer,
     pbr_instances_buffer: GpuBuffer,
@@ -852,12 +847,11 @@ pub struct RendererPrivateData {
     shading_texture: Texture,
     tone_mapping_texture: Texture,
     depth_texture: Texture,
-    old_bloom_pingpong_textures: [Texture; 2],
-    new_bloom_texture: Texture,
-    new_bloom_texture_mip_views: Vec<wgpu::TextureView>,
+    bloom_texture: Texture,
+    bloom_texture_mip_views: Vec<wgpu::TextureView>,
     brdf_lut: Texture,
 
-    new_bloom_mip_count: u32,
+    bloom_mip_count: u32,
 }
 
 #[derive(Debug)]
@@ -970,31 +964,6 @@ impl SkyboxSlot {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum BloomType {
-    Disabled,
-    Old,
-    New,
-}
-
-impl BloomType {
-    pub const ALL: [BloomType; 3] = [BloomType::Disabled, BloomType::Old, BloomType::New];
-}
-
-impl std::fmt::Display for BloomType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                BloomType::New => "New",
-                BloomType::Old => "Old",
-                BloomType::Disabled => "Disabled",
-            }
-        )
-    }
-}
-
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct GeneralSettings {
     pub render_scale: f32,
@@ -1031,26 +1000,19 @@ impl Default for CameraSettings {
 pub struct PostEffectSettings {
     pub tone_mapping_exposure: f32,
 
-    pub bloom_type: BloomType,
-
-    pub old_bloom_threshold: f32,
-    pub old_bloom_ramp_size: f32,
-
-    pub new_bloom_radius: f32,
-    pub new_bloom_intensity: f32,
+    pub enable_bloom: bool,
+    pub bloom_radius: f32,
+    pub bloom_intensity: f32,
 }
 
 impl Default for PostEffectSettings {
     fn default() -> Self {
         Self {
             tone_mapping_exposure: 1.0,
-            bloom_type: BloomType::New,
 
-            old_bloom_threshold: 0.8,
-            old_bloom_ramp_size: 0.2,
-
-            new_bloom_radius: 0.005,
-            new_bloom_intensity: 0.04,
+            enable_bloom: true,
+            bloom_radius: 0.005,
+            bloom_intensity: 0.04,
         }
     }
 }
@@ -1131,10 +1093,8 @@ pub struct RendererConstantData {
     pub surface_blit_pipeline: wgpu::RenderPipeline,
     pub point_shadow_map_pipeline: wgpu::RenderPipeline,
     pub directional_shadow_map_pipeline: wgpu::RenderPipeline,
-    pub old_bloom_threshold_pipeline: wgpu::RenderPipeline,
-    pub old_bloom_blur_pipeline: wgpu::RenderPipeline,
-    pub new_bloom_downscale_pipeline: wgpu::RenderPipeline,
-    pub new_bloom_upscale_pipeline: wgpu::RenderPipeline,
+    pub bloom_downscale_pipeline: wgpu::RenderPipeline,
+    pub bloom_upscale_pipeline: wgpu::RenderPipeline,
     pub equirectangular_to_cubemap_pipeline: wgpu::RenderPipeline,
     pub equirectangular_to_cubemap_hdr_pipeline: wgpu::RenderPipeline,
     pub diffuse_env_map_gen_pipeline: wgpu::RenderPipeline,
@@ -1755,67 +1715,7 @@ impl Renderer {
             .device
             .create_render_pipeline(&wireframe_pipeline_descriptor);
 
-        let old_bloom_pipeline_layout =
-            base.device
-                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: None,
-                    bind_group_layouts: &[
-                        &single_texture_bind_group_layout,
-                        &single_uniform_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
-                });
-        let old_bloom_threshold_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: USE_LABELS.then_some("Old Bloom Threshold Pipeline"),
-            layout: Some(&old_bloom_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &blit_shader,
-                entry_point: "vs_main",
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &blit_shader,
-                entry_point: "bloom_threshold_fs_main",
-                targets: fragment_shader_color_targets,
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        };
-        let old_bloom_threshold_pipeline = base
-            .device
-            .create_render_pipeline(&old_bloom_threshold_pipeline_descriptor);
-
-        let old_bloom_blur_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: USE_LABELS.then_some("Old Bloom Blur Pipeline"),
-            layout: Some(&old_bloom_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &blit_shader,
-                entry_point: "vs_main",
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &blit_shader,
-                entry_point: "bloom_blur_fs_main",
-                targets: fragment_shader_color_targets,
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        };
-        let old_bloom_blur_pipeline = base
-            .device
-            .create_render_pipeline(&old_bloom_blur_pipeline_descriptor);
-
-        let new_bloom_texture_format = if base
+        let bloom_texture_format = if base
             .device
             .features()
             .contains(wgpu::Features::RG11B10UFLOAT_RENDERABLE)
@@ -1823,14 +1723,14 @@ impl Renderer {
             wgpu::TextureFormat::Rg11b10Float
         } else {
             log::warn!(
-                "{:?} is missing. new bloom quality will be slightly lower",
+                "{:?} is missing. bloom quality will be slightly lower",
                 wgpu::Features::RG11B10UFLOAT_RENDERABLE
             );
             wgpu::TextureFormat::Rgba16Float
         };
 
-        let new_bloom_color_targets = &[Some(wgpu::ColorTargetState {
-            format: new_bloom_texture_format,
+        let bloom_color_targets = &[Some(wgpu::ColorTargetState {
+            format: bloom_texture_format,
             blend: Some(wgpu::BlendState {
                 color: wgpu::BlendComponent {
                     src_factor: wgpu::BlendFactor::One,
@@ -1841,7 +1741,7 @@ impl Renderer {
             }),
             write_mask: wgpu::ColorWrites::COLOR,
         })];
-        let new_bloom_downscale_pipeline_layout =
+        let bloom_downscale_pipeline_layout =
             base.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: None,
@@ -1851,9 +1751,9 @@ impl Renderer {
                     ],
                     push_constant_ranges: &[],
                 });
-        let new_bloom_downscale_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
-            label: USE_LABELS.then_some("New Bloom Downscale Pipeline"),
-            layout: Some(&new_bloom_downscale_pipeline_layout),
+        let bloom_downscale_pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+            label: USE_LABELS.then_some("Bloom Downscale Pipeline"),
+            layout: Some(&bloom_downscale_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &blit_shader,
                 entry_point: "vs_main",
@@ -1861,8 +1761,8 @@ impl Renderer {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &blit_shader,
-                entry_point: "new_bloom_downscale_fs_main",
-                targets: new_bloom_color_targets,
+                entry_point: "bloom_downscale_fs_main",
+                targets: bloom_color_targets,
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -1872,20 +1772,19 @@ impl Renderer {
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
         };
-        let new_bloom_downscale_pipeline = base
+        let bloom_downscale_pipeline = base
             .device
-            .create_render_pipeline(&new_bloom_downscale_pipeline_descriptor);
+            .create_render_pipeline(&bloom_downscale_pipeline_descriptor);
 
-        let mut new_bloom_upscale_pipeline_descriptor =
-            new_bloom_downscale_pipeline_descriptor.clone();
-        new_bloom_upscale_pipeline_descriptor.fragment = Some(wgpu::FragmentState {
+        let mut bloom_upscale_pipeline_descriptor = bloom_downscale_pipeline_descriptor.clone();
+        bloom_upscale_pipeline_descriptor.fragment = Some(wgpu::FragmentState {
             module: &blit_shader,
-            entry_point: "new_bloom_upscale_fs_main",
-            targets: new_bloom_color_targets,
+            entry_point: "bloom_upscale_fs_main",
+            targets: bloom_color_targets,
         });
-        let new_bloom_upscale_pipeline = base
+        let bloom_upscale_pipeline = base
             .device
-            .create_render_pipeline(&new_bloom_upscale_pipeline_descriptor);
+            .create_render_pipeline(&bloom_upscale_pipeline_descriptor);
 
         let surface_blit_color_targets = &[Some(wgpu::ColorTargetState {
             format: framebuffer_format.add_srgb_suffix(),
@@ -2306,10 +2205,8 @@ impl Renderer {
             surface_blit_pipeline,
             point_shadow_map_pipeline,
             directional_shadow_map_pipeline,
-            old_bloom_threshold_pipeline,
-            old_bloom_blur_pipeline,
-            new_bloom_downscale_pipeline,
-            new_bloom_upscale_pipeline,
+            bloom_downscale_pipeline,
+            bloom_upscale_pipeline,
             equirectangular_to_cubemap_pipeline,
             equirectangular_to_cubemap_hdr_pipeline,
             diffuse_env_map_gen_pipeline,
@@ -2326,40 +2223,24 @@ impl Renderer {
             general_settings.render_scale,
             "shading_texture",
         );
-        let old_bloom_pingpong_textures = [
-            Texture::create_scaled_surface_texture(
-                &base,
-                framebuffer_size,
-                general_settings.render_scale,
-                "bloom_texture_1",
-            ),
-            Texture::create_scaled_surface_texture(
-                &base,
-                framebuffer_size,
-                general_settings.render_scale,
-                "bloom_texture_2",
-            ),
-        ];
 
-        let new_bloom_texture = Texture::create_new_bloom_texture(
+        let bloom_texture = Texture::create_bloom_texture(
             &base,
             shading_texture.size,
-            new_bloom_texture_format,
-            NEW_BLOOM_TARGET_MIP_COUNT,
-            "new_bloom_texture",
+            bloom_texture_format,
+            BLOOM_TARGET_MIP_COUNT,
+            "bloom_texture",
         );
 
-        let new_bloom_mip_count = new_bloom_texture.texture.mip_level_count();
+        let bloom_mip_count = bloom_texture.texture.mip_level_count();
 
-        let new_bloom_texture_mip_views = (0..new_bloom_mip_count)
+        let bloom_texture_mip_views = (0..bloom_mip_count)
             .map(|mip_index| {
-                new_bloom_texture
+                bloom_texture
                     .texture
                     .create_view(&wgpu::TextureViewDescriptor {
-                        label: USE_LABELS.then_some(&format!(
-                            "New Bloom Downscale Texture Mip View {}",
-                            mip_index
-                        )),
+                        label: USE_LABELS
+                            .then_some(&format!("Bloom Downscale Texture Mip View {}", mip_index)),
                         base_mip_level: mip_index,
                         mip_level_count: Some(1),
                         ..Default::default()
@@ -2376,11 +2257,9 @@ impl Renderer {
 
         let shading_texture_bind_group;
         let tone_mapping_texture_bind_group;
-        let shading_and_old_bloom_textures_bind_group;
-        let old_bloom_pingpong_texture_bind_groups;
-        let shading_and_new_bloom_texture_bind_group;
-        let new_bloom_texture_bind_group;
-        let new_bloom_texture_mip_bind_groups;
+        let shading_and_bloom_texture_bind_group;
+        let bloom_texture_bind_group;
+        let bloom_texture_mip_bind_groups;
         {
             let sampler_cache_guard = base.sampler_cache.lock();
 
@@ -2422,7 +2301,7 @@ impl Renderer {
                     ],
                     label: USE_LABELS.then_some("tone_mapping_texture_bind_group"),
                 });
-            shading_and_old_bloom_textures_bind_group =
+            shading_and_bloom_texture_bind_group =
                 base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: &constant_data.two_texture_bind_group_layout,
                     entries: &[
@@ -2439,115 +2318,37 @@ impl Renderer {
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::TextureView(
-                                &old_bloom_pingpong_textures[0].view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard.get_sampler_by_index(
-                                    old_bloom_pingpong_textures[0].sampler_index,
-                                ),
-                            ),
-                        },
-                    ],
-                    label: USE_LABELS.then_some("shading_and_bloom_textures_bind_group"),
-                });
-
-            old_bloom_pingpong_texture_bind_groups = [
-                base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &constant_data.single_texture_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(
-                                &old_bloom_pingpong_textures[0].view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard.get_sampler_by_index(
-                                    old_bloom_pingpong_textures[0].sampler_index,
-                                ),
-                            ),
-                        },
-                    ],
-                    label: USE_LABELS.then_some("bloom_texture_bind_group_1"),
-                }),
-                base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &constant_data.single_texture_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(
-                                &old_bloom_pingpong_textures[1].view,
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard.get_sampler_by_index(
-                                    old_bloom_pingpong_textures[1].sampler_index,
-                                ),
-                            ),
-                        },
-                    ],
-                    label: USE_LABELS.then_some("bloom_texture_bind_group_2"),
-                }),
-            ];
-
-            shading_and_new_bloom_texture_bind_group =
-                base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &constant_data.two_texture_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(&shading_texture.view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard
-                                    .get_sampler_by_index(shading_texture.sampler_index),
-                            ),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::TextureView(&new_bloom_texture.view),
+                            resource: wgpu::BindingResource::TextureView(&bloom_texture.view),
                         },
                         wgpu::BindGroupEntry {
                             binding: 3,
                             resource: wgpu::BindingResource::Sampler(
                                 sampler_cache_guard
-                                    .get_sampler_by_index(new_bloom_texture.sampler_index),
+                                    .get_sampler_by_index(bloom_texture.sampler_index),
                             ),
                         },
                     ],
-                    label: USE_LABELS.then_some("shading_and_new_bloom_texture_bind_group"),
+                    label: USE_LABELS.then_some("shading_and_bloom_texture_bind_group"),
                 });
 
-            new_bloom_texture_bind_group =
-                base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &constant_data.single_texture_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(&new_bloom_texture.view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::Sampler(
-                                sampler_cache_guard
-                                    .get_sampler_by_index(new_bloom_texture.sampler_index),
-                            ),
-                        },
-                    ],
-                    label: USE_LABELS.then_some("new_bloom_texture_bind_group"),
-                });
+            bloom_texture_bind_group = base.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &constant_data.single_texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&bloom_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(
+                            sampler_cache_guard.get_sampler_by_index(bloom_texture.sampler_index),
+                        ),
+                    },
+                ],
+                label: USE_LABELS.then_some("bloom_texture_bind_group"),
+            });
 
-            new_bloom_texture_mip_bind_groups = (0..new_bloom_mip_count)
+            bloom_texture_mip_bind_groups = (0..bloom_mip_count)
                 .map(|mip_index| {
                     base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         layout: &constant_data.single_texture_bind_group_layout,
@@ -2555,102 +2356,66 @@ impl Renderer {
                             wgpu::BindGroupEntry {
                                 binding: 0,
                                 resource: wgpu::BindingResource::TextureView(
-                                    &new_bloom_texture_mip_views[mip_index as usize],
+                                    &bloom_texture_mip_views[mip_index as usize],
                                 ),
                             },
                             wgpu::BindGroupEntry {
                                 binding: 1,
                                 resource: wgpu::BindingResource::Sampler(
                                     sampler_cache_guard
-                                        .get_sampler_by_index(new_bloom_texture.sampler_index),
+                                        .get_sampler_by_index(bloom_texture.sampler_index),
                                 ),
                             },
                         ],
                         label: USE_LABELS
-                            .then_some(&format!("new_bloom_texture_mip_bind_group {}", mip_index)),
+                            .then_some(&format!("bloom_texture_mip_bind_group {}", mip_index)),
                     })
                 })
                 .collect::<Vec<_>>();
         }
 
-        let old_bloom_config_buffers = [
-            base.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: USE_LABELS.then_some("Bloom Config Buffer 0"),
-                    contents: bytemuck::cast_slice(&[0f32, 0f32, 0f32, 0.0f32]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                }),
-            base.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: USE_LABELS.then_some("Bloom Config Buffer 1"),
-                    contents: bytemuck::cast_slice(&[0f32, 0f32, 0f32, 0.0f32]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                }),
-        ];
-
-        let new_bloom_downscale_config_buffers = (0..NEW_BLOOM_TARGET_MIP_COUNT)
+        let bloom_downscale_config_buffers = (0..BLOOM_TARGET_MIP_COUNT)
             .map(|mip_index| {
                 base.device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: USE_LABELS
-                            .then_some(&format!("New Bloom Downscale Config Buffer {}", mip_index)),
+                            .then_some(&format!("Bloom Downscale Config Buffer {}", mip_index)),
                         contents: bytemuck::cast_slice(&[0f32, 0f32, 0f32, 0.0f32]),
                         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                     })
             })
             .collect::<Vec<_>>();
 
-        let new_bloom_upscale_config_buffer =
+        let bloom_upscale_config_buffer =
             base.device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: USE_LABELS.then_some("New Bloom Upscale Config Buffer"),
+                    label: USE_LABELS.then_some("Bloom Upscale Config Buffer"),
                     contents: bytemuck::cast_slice(&[0f32, 0f32, 0f32, 0.0f32]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
-        let bloom_config_bind_groups = [
-            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &constant_data.single_uniform_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: old_bloom_config_buffers[0].as_entire_binding(),
-                }],
-                label: USE_LABELS.then_some("bloom_config_bind_group_0"),
-            }),
-            base.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &constant_data.single_uniform_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: old_bloom_config_buffers[1].as_entire_binding(),
-                }],
-                label: USE_LABELS.then_some("bloom_config_bind_group_1"),
-            }),
-        ];
-
-        let new_bloom_downscale_config_bind_groups = (0..new_bloom_downscale_config_buffers.len())
+        let bloom_downscale_config_bind_groups = (0..bloom_downscale_config_buffers.len())
             .map(|mip_index| {
                 base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: &constant_data.single_uniform_bind_group_layout,
                     entries: &[wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: new_bloom_downscale_config_buffers[mip_index].as_entire_binding(),
+                        resource: bloom_downscale_config_buffers[mip_index].as_entire_binding(),
                     }],
-                    label: USE_LABELS.then_some(&format!(
-                        "new_bloom_downscale_config_bind_groups {}",
-                        mip_index,
-                    )),
+                    label: USE_LABELS
+                        .then_some(&format!("bloom_downscale_config_bind_groups {}", mip_index,)),
                 })
             })
             .collect::<Vec<_>>();
 
-        let new_bloom_upscale_config_bind_group =
+        let bloom_upscale_config_bind_group =
             base.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &constant_data.single_uniform_bind_group_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: new_bloom_upscale_config_buffer.as_entire_binding(),
+                    resource: bloom_upscale_config_buffer.as_entire_binding(),
                 }],
-                label: USE_LABELS.then_some("new_bloom_upscale_config_bind_group"),
+                label: USE_LABELS.then_some("bloom_upscale_config_bind_group"),
             });
 
         let tone_mapping_config_buffer =
@@ -3071,8 +2836,7 @@ impl Renderer {
                 skybox_weights,
                 // TODO: when bloom is not enabled, we should really free up the graphics memory used for it.
                 //       same goes for shadow maps
-                old_bloom_threshold_cleared: true,
-                new_bloom_cleared: true,
+                bloom_cleared: true,
 
                 new_pending_surface_config: None,
                 current_render_scale: general_settings.render_scale,
@@ -3084,25 +2848,21 @@ impl Renderer {
                 bones_and_unlit_instances_bind_group,
                 bones_and_transparent_instances_bind_group,
                 bones_and_wireframe_instances_bind_group,
-                old_bloom_config_bind_groups: bloom_config_bind_groups,
-                new_bloom_downscale_config_bind_groups,
-                new_bloom_upscale_config_bind_group,
+                bloom_downscale_config_bind_groups,
+                bloom_upscale_config_bind_group,
                 tone_mapping_config_bind_group,
                 environment_textures_bind_group,
-                shading_and_old_bloom_textures_bind_group,
-                shading_and_new_bloom_texture_bind_group,
+                shading_and_bloom_texture_bind_group,
                 tone_mapping_texture_bind_group,
                 shading_texture_bind_group,
-                old_bloom_pingpong_texture_bind_groups,
-                new_bloom_texture_bind_group,
-                new_bloom_texture_mip_bind_groups,
+                bloom_texture_bind_group,
+                bloom_texture_mip_bind_groups,
 
                 camera_buffers: vec![],
                 point_lights_buffer,
                 directional_lights_buffer,
-                old_bloom_config_buffers,
-                new_bloom_downscale_config_buffers,
-                new_bloom_upscale_config_buffer,
+                bloom_downscale_config_buffers,
+                bloom_upscale_config_buffer,
                 tone_mapping_config_buffer,
                 pbr_shader_options_buffer,
                 bones_buffer,
@@ -3120,12 +2880,11 @@ impl Renderer {
                 shading_texture,
                 tone_mapping_texture,
                 depth_texture,
-                old_bloom_pingpong_textures,
-                new_bloom_texture,
-                new_bloom_texture_mip_views,
+                bloom_texture,
+                bloom_texture_mip_views,
                 brdf_lut,
 
-                new_bloom_mip_count,
+                bloom_mip_count,
             }),
 
             profiler: Mutex::new(profiler),
@@ -3480,48 +3239,30 @@ impl Renderer {
             new_render_scale,
             "shading_texture",
         );
-        private_data_guard.old_bloom_pingpong_textures = [
-            Texture::create_scaled_surface_texture(
-                &self.base,
-                new_unscaled_framebuffer_size,
-                new_render_scale,
-                "bloom_texture_1",
-            ),
-            Texture::create_scaled_surface_texture(
-                &self.base,
-                new_unscaled_framebuffer_size,
-                new_render_scale,
-                "bloom_texture_2",
-            ),
-        ];
 
-        private_data_guard.new_bloom_texture = Texture::create_new_bloom_texture(
+        private_data_guard.bloom_texture = Texture::create_bloom_texture(
             &self.base,
             private_data_guard.shading_texture.size,
-            private_data_guard.new_bloom_texture.texture.format(),
-            NEW_BLOOM_TARGET_MIP_COUNT,
-            "new_bloom_texture",
+            private_data_guard.bloom_texture.texture.format(),
+            BLOOM_TARGET_MIP_COUNT,
+            "bloom_texture",
         );
 
-        private_data_guard.new_bloom_mip_count = private_data_guard
-            .new_bloom_texture
-            .texture
-            .mip_level_count();
+        private_data_guard.bloom_mip_count =
+            private_data_guard.bloom_texture.texture.mip_level_count();
 
-        private_data_guard.new_bloom_texture_mip_views = (0..private_data_guard
-            .new_bloom_mip_count)
+        private_data_guard.bloom_texture_mip_views = (0..private_data_guard.bloom_mip_count)
             .map(|mip_index| {
-                private_data_guard.new_bloom_texture.texture.create_view(
-                    &wgpu::TextureViewDescriptor {
-                        label: USE_LABELS.then_some(&format!(
-                            "New Bloom Downscale Texture Mip View {}",
-                            mip_index
-                        )),
+                private_data_guard
+                    .bloom_texture
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor {
+                        label: USE_LABELS
+                            .then_some(&format!("Bloom Downscale Texture Mip View {}", mip_index)),
                         base_mip_level: mip_index,
                         mip_level_count: Some(1),
                         ..Default::default()
-                    },
-                )
+                    })
             })
             .collect::<Vec<_>>();
 
@@ -3540,7 +3281,6 @@ impl Renderer {
 
         let device = &self.base.device;
         let single_texture_bind_group_layout = &self.constant_data.single_texture_bind_group_layout;
-        let two_texture_bind_group_layout = &self.constant_data.two_texture_bind_group_layout;
 
         let sampler_cache_guard = self.base.sampler_cache.lock();
 
@@ -3587,85 +3327,8 @@ impl Renderer {
                 ],
                 label: USE_LABELS.then_some("tone_mapping_texture_bind_group"),
             });
-        private_data_guard.shading_and_old_bloom_textures_bind_group =
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: two_texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(
-                            &private_data_guard.shading_texture.view,
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(
-                            sampler_cache_guard.get_sampler_by_index(
-                                private_data_guard.shading_texture.sampler_index,
-                            ),
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(
-                            &private_data_guard.old_bloom_pingpong_textures[0].view,
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Sampler(
-                            sampler_cache_guard.get_sampler_by_index(
-                                private_data_guard.old_bloom_pingpong_textures[0].sampler_index,
-                            ),
-                        ),
-                    },
-                ],
-                label: USE_LABELS.then_some("shading_and_bloom_textures_bind_group"),
-            });
-        private_data_guard.old_bloom_pingpong_texture_bind_groups = [
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: single_texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(
-                            &private_data_guard.old_bloom_pingpong_textures[0].view,
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(
-                            sampler_cache_guard.get_sampler_by_index(
-                                private_data_guard.old_bloom_pingpong_textures[0].sampler_index,
-                            ),
-                        ),
-                    },
-                ],
-                label: USE_LABELS.then_some("bloom_texture_bind_group_1"),
-            }),
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: single_texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(
-                            &private_data_guard.old_bloom_pingpong_textures[1].view,
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(
-                            sampler_cache_guard.get_sampler_by_index(
-                                private_data_guard.old_bloom_pingpong_textures[1].sampler_index,
-                            ),
-                        ),
-                    },
-                ],
-                label: USE_LABELS.then_some("bloom_texture_bind_group_2"),
-            }),
-        ];
 
-        private_data_guard.shading_and_new_bloom_texture_bind_group = self
+        private_data_guard.shading_and_bloom_texture_bind_group = self
             .base
             .device
             .create_bind_group(&wgpu::BindGroupDescriptor {
@@ -3688,22 +3351,22 @@ impl Renderer {
                     wgpu::BindGroupEntry {
                         binding: 2,
                         resource: wgpu::BindingResource::TextureView(
-                            &private_data_guard.new_bloom_texture.view,
+                            &private_data_guard.bloom_texture.view,
                         ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: wgpu::BindingResource::Sampler(
                             sampler_cache_guard.get_sampler_by_index(
-                                private_data_guard.new_bloom_texture.sampler_index,
+                                private_data_guard.bloom_texture.sampler_index,
                             ),
                         ),
                     },
                 ],
-                label: USE_LABELS.then_some("shading_and_new_bloom_texture_bind_group"),
+                label: USE_LABELS.then_some("shading_and_bloom_texture_bind_group"),
             });
 
-        private_data_guard.new_bloom_texture_bind_group =
+        private_data_guard.bloom_texture_bind_group =
             self.base
                 .device
                 .create_bind_group(&wgpu::BindGroupDescriptor {
@@ -3712,23 +3375,22 @@ impl Renderer {
                         wgpu::BindGroupEntry {
                             binding: 0,
                             resource: wgpu::BindingResource::TextureView(
-                                &private_data_guard.new_bloom_texture.view,
+                                &private_data_guard.bloom_texture.view,
                             ),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
                             resource: wgpu::BindingResource::Sampler(
                                 sampler_cache_guard.get_sampler_by_index(
-                                    private_data_guard.new_bloom_texture.sampler_index,
+                                    private_data_guard.bloom_texture.sampler_index,
                                 ),
                             ),
                         },
                     ],
-                    label: USE_LABELS.then_some("new_bloom_texture_bind_group"),
+                    label: USE_LABELS.then_some("bloom_texture_bind_group"),
                 });
 
-        private_data_guard.new_bloom_texture_mip_bind_groups = (0..private_data_guard
-            .new_bloom_mip_count)
+        private_data_guard.bloom_texture_mip_bind_groups = (0..private_data_guard.bloom_mip_count)
             .map(|mip_index| {
                 self.base
                     .device
@@ -3738,21 +3400,20 @@ impl Renderer {
                             wgpu::BindGroupEntry {
                                 binding: 0,
                                 resource: wgpu::BindingResource::TextureView(
-                                    &private_data_guard.new_bloom_texture_mip_views
-                                        [mip_index as usize],
+                                    &private_data_guard.bloom_texture_mip_views[mip_index as usize],
                                 ),
                             },
                             wgpu::BindGroupEntry {
                                 binding: 1,
                                 resource: wgpu::BindingResource::Sampler(
                                     sampler_cache_guard.get_sampler_by_index(
-                                        private_data_guard.new_bloom_texture.sampler_index,
+                                        private_data_guard.bloom_texture.sampler_index,
                                     ),
                                 ),
                             },
                         ],
                         label: USE_LABELS
-                            .then_some(&format!("new_bloom_texture_mip_bind_group {}", mip_index)),
+                            .then_some(&format!("bloom_texture_mip_bind_group {}", mip_index)),
                     })
             })
             .collect::<Vec<_>>();
@@ -4424,11 +4085,10 @@ impl Renderer {
 
         let PostEffectSettings {
             tone_mapping_exposure,
-            bloom_type,
-            old_bloom_threshold,
-            old_bloom_ramp_size,
-            new_bloom_radius,
-            new_bloom_intensity,
+
+            enable_bloom,
+            bloom_radius,
+            bloom_intensity,
         } = data.post_effect_settings;
 
         let camera_transform = data
@@ -5155,8 +4815,8 @@ impl Renderer {
             0,
             bytemuck::cast_slice(&[
                 tone_mapping_exposure,
-                if bloom_type == BloomType::New {
-                    new_bloom_intensity
+                if enable_bloom {
+                    bloom_intensity
                 } else {
                     -1.0f32
                 },
@@ -5164,32 +4824,22 @@ impl Renderer {
                 0f32,
             ]),
         );
-        queue.write_buffer(
-            &private_data.old_bloom_config_buffers[0],
-            0,
-            bytemuck::cast_slice(&[0.0f32, old_bloom_threshold, old_bloom_ramp_size, 0.0f32]),
-        );
-        queue.write_buffer(
-            &private_data.old_bloom_config_buffers[1],
-            0,
-            bytemuck::cast_slice(&[1.0f32, old_bloom_threshold, old_bloom_ramp_size, 0.0f32]),
-        );
-        for mip_index in 0..private_data.new_bloom_mip_count {
+        for mip_index in 0..private_data.bloom_mip_count {
             queue.write_buffer(
-                &private_data.new_bloom_downscale_config_buffers[mip_index as usize],
+                &private_data.bloom_downscale_config_buffers[mip_index as usize],
                 0,
                 bytemuck::cast_slice(&[
-                    (private_data.new_bloom_texture.size.width / 2u32.pow(mip_index)) as f32,
-                    (private_data.new_bloom_texture.size.height / 2u32.pow(mip_index)) as f32,
+                    (private_data.bloom_texture.size.width / 2u32.pow(mip_index)) as f32,
+                    (private_data.bloom_texture.size.height / 2u32.pow(mip_index)) as f32,
                     0.0f32,
                     0.0f32,
                 ]),
             );
         }
         queue.write_buffer(
-            &private_data.new_bloom_upscale_config_buffer,
+            &private_data.bloom_upscale_config_buffer,
             0,
-            bytemuck::cast_slice(&[new_bloom_radius, 0.0f32, 0.0f32, 0.0f32]),
+            bytemuck::cast_slice(&[bloom_radius, 0.0f32, 0.0f32, 0.0f32]),
         );
         queue.write_buffer(
             &private_data.pbr_shader_options_buffer,
@@ -5237,7 +4887,7 @@ impl Renderer {
             ..
         } = data.general_settings;
 
-        let PostEffectSettings { bloom_type, .. } = data.post_effect_settings;
+        let PostEffectSettings { enable_bloom, .. } = data.post_effect_settings;
 
         let ShadowSettings { enable_shadows, .. } = data.shadow_settings;
 
@@ -5598,185 +5248,87 @@ impl Renderer {
             }
         }
 
-        match bloom_type {
-            BloomType::Old => {
-                private_data.old_bloom_threshold_cleared = false;
+        if enable_bloom {
+            private_data.bloom_cleared = false;
 
-                {
-                    let pass_label = "Bloom threshold";
+            for mip_index in 0..private_data.bloom_mip_count as usize {
+                let pass_label = "Bloom Downscale";
 
-                    let mut profiler_scope =
-                        profiler.scope(pass_label, &mut encoder, &self.base.device);
+                let mut profiler_scope =
+                    profiler.scope(pass_label, &mut encoder, &self.base.device);
 
-                    let mut render_pass = profiler_scope.scoped_render_pass(
-                        pass_label,
-                        &self.base.device,
-                        wgpu::RenderPassDescriptor {
-                            label: USE_LABELS.then_some(pass_label),
-                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view: &private_data.old_bloom_pingpong_textures[0].view,
-                                resolve_target: None,
-                                ops: wgpu::Operations {
-                                    load: wgpu::LoadOp::Clear(black),
-                                    store: wgpu::StoreOp::Store,
-                                },
-                            })],
-                            depth_stencil_attachment: None,
-                            occlusion_query_set: None,
-                            timestamp_writes: None, // overwritten by wgpu_profiler
-                        },
-                    );
+                let src_texture_bind_group = if mip_index == 0 {
+                    &private_data.shading_texture_bind_group
+                } else {
+                    &private_data.bloom_texture_mip_bind_groups[mip_index - 1]
+                };
+                let dst_texture_view = &private_data.bloom_texture_mip_views[mip_index];
 
-                    render_pass.set_pipeline(&self.constant_data.old_bloom_threshold_pipeline);
-                    render_pass.set_bind_group(0, &private_data.shading_texture_bind_group, &[]);
-                    render_pass.set_bind_group(
-                        1,
-                        &private_data.old_bloom_config_bind_groups[0],
-                        &[],
-                    );
-                    render_pass.draw(0..3, 0..1);
-                }
-
-                let mut do_bloom_blur_pass =
-                    |src_texture: &wgpu::BindGroup,
-                     dst_texture: &wgpu::TextureView,
-                     horizontal: bool| {
-                        let pass_label = "Bloom blur";
-
-                        let mut profiler_scope =
-                            profiler.scope(pass_label, &mut encoder, &self.base.device);
-
-                        let mut render_pass = profiler_scope.scoped_render_pass(
-                            pass_label,
-                            &self.base.device,
-                            wgpu::RenderPassDescriptor {
-                                label: USE_LABELS.then_some(pass_label),
-                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                    view: dst_texture,
-                                    resolve_target: None,
-                                    ops: wgpu::Operations {
-                                        load: wgpu::LoadOp::Clear(black),
-                                        store: wgpu::StoreOp::Store,
-                                    },
-                                })],
-                                depth_stencil_attachment: None,
-                                occlusion_query_set: None,
-                                timestamp_writes: None, // overwritten by wgpu_profiler
+                let mut render_pass = profiler_scope.scoped_render_pass(
+                    pass_label,
+                    &self.base.device,
+                    wgpu::RenderPassDescriptor {
+                        label: USE_LABELS.then_some(pass_label),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: dst_texture_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(black),
+                                store: wgpu::StoreOp::Store,
                             },
-                        );
+                        })],
+                        depth_stencil_attachment: None,
+                        occlusion_query_set: None,
+                        timestamp_writes: None, // overwritten by wgpu_profiler
+                    },
+                );
 
-                        render_pass.set_pipeline(&self.constant_data.old_bloom_blur_pipeline);
-                        render_pass.set_bind_group(0, src_texture, &[]);
-                        render_pass.set_bind_group(
-                            1,
-                            &private_data.old_bloom_config_bind_groups
-                                [if horizontal { 0 } else { 1 }],
-                            &[],
-                        );
-                        render_pass.draw(0..3, 0..1);
-                    };
-
-                // do 10 gaussian blur passes, switching between horizontal and vertical and ping ponging between
-                // the two textures, effectively doing 5 full blurs
-                let blur_passes = 10;
-                (0..blur_passes).for_each(|i| {
-                    do_bloom_blur_pass(
-                        &private_data.old_bloom_pingpong_texture_bind_groups[i % 2],
-                        &private_data.old_bloom_pingpong_textures[(i + 1) % 2].view,
-                        i % 2 == 0,
-                    );
-                });
+                render_pass.set_pipeline(&self.constant_data.bloom_downscale_pipeline);
+                render_pass.set_bind_group(0, src_texture_bind_group, &[]);
+                render_pass.set_bind_group(
+                    1,
+                    &private_data.bloom_downscale_config_bind_groups[mip_index],
+                    &[],
+                );
+                render_pass.draw(0..3, 0..1);
             }
-            BloomType::New => {
-                private_data.new_bloom_cleared = false;
 
-                for mip_index in 0..private_data.new_bloom_mip_count as usize {
-                    let pass_label = "New Bloom Downscale";
+            for mip_index in (1..private_data.bloom_mip_count as usize).rev() {
+                let pass_label = "Bloom Upscale";
 
-                    let mut profiler_scope =
-                        profiler.scope(pass_label, &mut encoder, &self.base.device);
+                let mut profiler_scope =
+                    profiler.scope(pass_label, &mut encoder, &self.base.device);
 
-                    let src_texture_bind_group = if mip_index == 0 {
-                        &private_data.shading_texture_bind_group
-                    } else {
-                        &private_data.new_bloom_texture_mip_bind_groups[mip_index - 1]
-                    };
-                    let dst_texture_view = &private_data.new_bloom_texture_mip_views[mip_index];
+                let src_texture_bind_group = &private_data.bloom_texture_mip_bind_groups[mip_index];
+                let dst_texture_view = &private_data.bloom_texture_mip_views[mip_index - 1];
 
-                    let mut render_pass = profiler_scope.scoped_render_pass(
-                        pass_label,
-                        &self.base.device,
-                        wgpu::RenderPassDescriptor {
-                            label: USE_LABELS.then_some(pass_label),
-                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view: dst_texture_view,
-                                resolve_target: None,
-                                ops: wgpu::Operations {
-                                    load: wgpu::LoadOp::Clear(black),
-                                    store: wgpu::StoreOp::Store,
-                                },
-                            })],
-                            depth_stencil_attachment: None,
-                            occlusion_query_set: None,
-                            timestamp_writes: None, // overwritten by wgpu_profiler
-                        },
-                    );
+                let mut render_pass = profiler_scope.scoped_render_pass(
+                    pass_label,
+                    &self.base.device,
+                    wgpu::RenderPassDescriptor {
+                        label: USE_LABELS.then_some(pass_label),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: dst_texture_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        occlusion_query_set: None,
+                        timestamp_writes: None, // overwritten by wgpu_profiler
+                    },
+                );
 
-                    render_pass.set_pipeline(&self.constant_data.new_bloom_downscale_pipeline);
-                    render_pass.set_bind_group(0, src_texture_bind_group, &[]);
-                    render_pass.set_bind_group(
-                        1,
-                        &private_data.new_bloom_downscale_config_bind_groups[mip_index],
-                        &[],
-                    );
-                    render_pass.draw(0..3, 0..1);
-                }
-
-                for mip_index in (1..private_data.new_bloom_mip_count as usize).rev() {
-                    let pass_label = "New Bloom Upscale";
-
-                    let mut profiler_scope =
-                        profiler.scope(pass_label, &mut encoder, &self.base.device);
-
-                    let src_texture_bind_group =
-                        &private_data.new_bloom_texture_mip_bind_groups[mip_index];
-                    let dst_texture_view = &private_data.new_bloom_texture_mip_views[mip_index - 1];
-
-                    let mut render_pass = profiler_scope.scoped_render_pass(
-                        pass_label,
-                        &self.base.device,
-                        wgpu::RenderPassDescriptor {
-                            label: USE_LABELS.then_some(pass_label),
-                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view: dst_texture_view,
-                                resolve_target: None,
-                                ops: wgpu::Operations {
-                                    load: wgpu::LoadOp::Load,
-                                    store: wgpu::StoreOp::Store,
-                                },
-                            })],
-                            depth_stencil_attachment: None,
-                            occlusion_query_set: None,
-                            timestamp_writes: None, // overwritten by wgpu_profiler
-                        },
-                    );
-
-                    render_pass.set_pipeline(&self.constant_data.new_bloom_upscale_pipeline);
-                    render_pass.set_bind_group(0, src_texture_bind_group, &[]);
-                    render_pass.set_bind_group(
-                        1,
-                        &private_data.new_bloom_upscale_config_bind_group,
-                        &[],
-                    );
-                    render_pass.draw(0..3, 0..1);
-                }
+                render_pass.set_pipeline(&self.constant_data.bloom_upscale_pipeline);
+                render_pass.set_bind_group(0, src_texture_bind_group, &[]);
+                render_pass.set_bind_group(1, &private_data.bloom_upscale_config_bind_group, &[]);
+                render_pass.draw(0..3, 0..1);
             }
-            BloomType::Disabled => {}
-        };
+        }
 
-        if (bloom_type == BloomType::New || bloom_type == BloomType::Disabled)
-            && !private_data.old_bloom_threshold_cleared
-        {
+        if !enable_bloom && !private_data.bloom_cleared {
             let pass_label = "Bloom clear";
 
             let mut profiler_scope = profiler.scope(pass_label, &mut encoder, &self.base.device);
@@ -5787,7 +5339,7 @@ impl Renderer {
                 wgpu::RenderPassDescriptor {
                     label: USE_LABELS.then_some(pass_label),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &private_data.old_bloom_pingpong_textures[0].view,
+                        view: &private_data.bloom_texture_mip_views[0],
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(black),
@@ -5799,34 +5351,7 @@ impl Renderer {
                     timestamp_writes: None, // overwritten by wgpu_profiler
                 },
             );
-            private_data.old_bloom_threshold_cleared = true;
-        }
-        if (bloom_type == BloomType::Old || bloom_type == BloomType::Disabled)
-            && !private_data.new_bloom_cleared
-        {
-            let pass_label = "New Bloom clear";
-
-            let mut profiler_scope = profiler.scope(pass_label, &mut encoder, &self.base.device);
-
-            profiler_scope.scoped_render_pass(
-                pass_label,
-                &self.base.device,
-                wgpu::RenderPassDescriptor {
-                    label: USE_LABELS.then_some(pass_label),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &private_data.new_bloom_texture_mip_views[0],
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(black),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    occlusion_query_set: None,
-                    timestamp_writes: None, // overwritten by wgpu_profiler
-                },
-            );
-            private_data.new_bloom_cleared = true;
+            private_data.bloom_cleared = true;
         }
 
         {
@@ -5913,15 +5438,7 @@ impl Renderer {
                 },
             );
             render_pass.set_pipeline(&self.constant_data.tone_mapping_pipeline);
-            render_pass.set_bind_group(
-                0,
-                if bloom_type == BloomType::New {
-                    &private_data.shading_and_new_bloom_texture_bind_group
-                } else {
-                    &private_data.shading_and_old_bloom_textures_bind_group
-                },
-                &[],
-            );
+            render_pass.set_bind_group(0, &private_data.shading_and_bloom_texture_bind_group, &[]);
             render_pass.set_bind_group(1, &private_data.tone_mapping_config_bind_group, &[]);
             render_pass.draw(0..3, 0..1);
         }

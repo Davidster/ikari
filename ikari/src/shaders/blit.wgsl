@@ -1,15 +1,8 @@
-struct BloomConfig {
-    direction: f32, // 0,0 or 1.0
-    threshold: f32,
-    ramp_size: f32,
-    padding: f32,
-}
-
-struct NewBloomDownscaleConfig {
+struct BloomDownscaleConfig {
     src_texture_resolution: vec4<f32>,
 }
 
-struct NewBloomUpscaleConfig {
+struct BloomUpscaleConfig {
     filter_radius: vec4<f32>,
 }
 
@@ -18,13 +11,10 @@ struct ToneMappingConfigUniform {
 }
 
 @group(1) @binding(0)
-var<uniform> BLOOM_CONFIG: BloomConfig;
+var<uniform> BLOOM_DOWNSCALE_CONFIG: BloomDownscaleConfig;
 
 @group(1) @binding(0)
-var<uniform> NEW_BLOOM_DOWNSCALE_CONFIG: NewBloomDownscaleConfig;
-
-@group(1) @binding(0)
-var<uniform> NEW_BLOOM_UPSCALE_CONFIG: NewBloomUpscaleConfig;
+var<uniform> BLOOM_UPSCALE_CONFIG: BloomUpscaleConfig;
 
 @group(1) @binding(0)
 var<uniform> TONE_MAPPING_CONFIG: ToneMappingConfigUniform;
@@ -106,66 +96,10 @@ fn tone_mapping_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(1.0 - exp(-final_color_hdr * exposure), 1.0);
 }
 
-@fragment
-fn bloom_threshold_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let threshold = BLOOM_CONFIG.threshold;
-    let ramp_size = BLOOM_CONFIG.ramp_size;
-    let hdr_color = textureSample(texture_1, sampler_1, in.tex_coords);
-    let brightness = dot(hdr_color.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
-
-    let ramp_start = threshold - ramp_size;
-    let t = clamp((brightness - ramp_start) / ramp_size, 0.0, 1.0);
-
-    return vec4<f32>(t * hdr_color.rgb, 1.0);
-}
-
-@fragment
-fn bloom_blur_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    var gaussian_blur_weights: array<f32, 5>;
-    gaussian_blur_weights[0] = 0.227027;
-    gaussian_blur_weights[1] = 0.1945946;
-    gaussian_blur_weights[2] = 0.1216216;
-    gaussian_blur_weights[3] = 0.054054;
-    gaussian_blur_weights[4] = 0.016216;
-
-    let tex_dimensions = textureDimensions(texture_1);
-    let tex_dimension_f32 = vec2<f32>(f32(tex_dimensions.x), f32(tex_dimensions.y));
-    let tex_offset = 1.0 / tex_dimension_f32;
-    var result = textureSample(texture_1, sampler_1, in.tex_coords).rgb * gaussian_blur_weights[0];
-    if BLOOM_CONFIG.direction == 0.0 {
-        for (var i = 1; i < 5; i = i + 1) {
-            result = result + textureSample(
-                texture_1,
-                sampler_1,
-                in.tex_coords + vec2<f32>(tex_offset.x * f32(i), 0.0)
-            ).rgb * gaussian_blur_weights[i];
-            result = result + textureSample(
-                texture_1,
-                sampler_1,
-                in.tex_coords - vec2<f32>(tex_offset.x * f32(i), 0.0)
-            ).rgb * gaussian_blur_weights[i];
-        }
-    } else {
-        for (var i = 1; i < 5; i = i + 1) {
-            result = result + textureSample(
-                texture_1,
-                sampler_1,
-                in.tex_coords + vec2<f32>(0.0, tex_offset.y * f32(i))
-            ).rgb * gaussian_blur_weights[i];
-            result = result + textureSample(
-                texture_1,
-                sampler_1,
-                in.tex_coords - vec2<f32>(0.0, tex_offset.y * f32(i))
-            ).rgb * gaussian_blur_weights[i];
-        }
-    }
-    return vec4<f32>(result, 1.0);
-}
-
 // https://learnopengl.com/Guest-Articles/2022/Phys.-Based-Bloom
 @fragment 
-fn new_bloom_downscale_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let src_texel_size = 1.0 / NEW_BLOOM_DOWNSCALE_CONFIG.src_texture_resolution.xy;
+fn bloom_downscale_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let src_texel_size = 1.0 / BLOOM_DOWNSCALE_CONFIG.src_texture_resolution.xy;
     let x = src_texel_size.x;
     let y = src_texel_size.y;
 
@@ -212,11 +146,11 @@ fn new_bloom_downscale_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 // https://learnopengl.com/Guest-Articles/2022/Phys.-Based-Bloom
 @fragment 
-fn new_bloom_upscale_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+fn bloom_upscale_fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // The filter kernel is applied with a radius, specified in texture
     // coordinates, so that the radius will vary across mip resolutions.
-    let x = NEW_BLOOM_UPSCALE_CONFIG.filter_radius.x;
-    let y = NEW_BLOOM_UPSCALE_CONFIG.filter_radius.x;
+    let x = BLOOM_UPSCALE_CONFIG.filter_radius.x;
+    let y = BLOOM_UPSCALE_CONFIG.filter_radius.x;
 
     // Take 9 samples around current texel:
     // a - b - c

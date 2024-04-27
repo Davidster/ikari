@@ -39,7 +39,6 @@ use ikari::physics::PhysicsState;
 use ikari::player_controller::ControlledViewDirection;
 use ikari::player_controller::PlayerController;
 use ikari::raw_image::RawImage;
-use ikari::renderer::BloomType;
 use ikari::renderer::DirectionalLight;
 use ikari::renderer::DirectionalLightShadowMappingConfig;
 use ikari::renderer::PointLight;
@@ -75,11 +74,9 @@ pub const INITIAL_NEAR_PLANE_DISTANCE: f32 = 0.001;
 pub const INITIAL_FAR_PLANE_DISTANCE: f32 = 100000.0;
 
 pub const INITIAL_TONE_MAPPING_EXPOSURE: f32 = 1.0;
-pub const INITIAL_BLOOM_TYPE: BloomType = BloomType::New;
-pub const INITIAL_OLD_BLOOM_THRESHOLD: f32 = 0.8;
-pub const INITIAL_OLD_BLOOM_RAMP_SIZE: f32 = 0.2;
-pub const INITIAL_NEW_BLOOM_RADIUS: f32 = 0.005;
-pub const INITIAL_NEW_BLOOM_INTENSITY: f32 = 0.04;
+pub const INITIAL_ENABLE_BLOOM: bool = true;
+pub const INITIAL_BLOOM_RADIUS: f32 = 0.005;
+pub const INITIAL_BLOOM_INTENSITY: f32 = 0.04;
 pub const INITIAL_SKYBOX_WEIGHT: f32 = 1.0;
 
 pub const INITIAL_ENABLE_SHADOWS: bool = true;
@@ -276,7 +273,6 @@ pub async fn init_game_state(
         "Move Around:             WASD, E, Space Bar, LCtrl, Q",
         "Adjust Speed:            Scroll or Up/Down Arrow Keys",
         "Adjust Exposure:         R / T",
-        "Adjust Bloom Threshold:  Y / U",
         "Pause/Resume Animations: P",
         "Toggle Bloom Effect:     B",
         "Toggle Shadows:          M",
@@ -298,9 +294,9 @@ pub async fn init_game_state(
             .post_effect_settings
             .tone_mapping_exposure = INITIAL_TONE_MAPPING_EXPOSURE;
 
-        renderer_data_guard.post_effect_settings.bloom_type = INITIAL_BLOOM_TYPE;
-        renderer_data_guard.post_effect_settings.old_bloom_threshold = INITIAL_OLD_BLOOM_THRESHOLD;
-        renderer_data_guard.post_effect_settings.old_bloom_ramp_size = INITIAL_OLD_BLOOM_RAMP_SIZE;
+        renderer_data_guard.post_effect_settings.enable_bloom = INITIAL_ENABLE_BLOOM;
+        renderer_data_guard.post_effect_settings.bloom_radius = INITIAL_BLOOM_RADIUS;
+        renderer_data_guard.post_effect_settings.bloom_intensity = INITIAL_BLOOM_INTENSITY;
 
         renderer_data_guard.shadow_settings.enable_shadows = INITIAL_ENABLE_SHADOWS;
     }
@@ -1210,12 +1206,6 @@ pub fn handle_window_event(
                         "t" => {
                             increment_exposure(&mut render_data_guard, true);
                         }
-                        "y" => {
-                            increment_old_bloom_threshold(&mut render_data_guard, false);
-                        }
-                        "u" => {
-                            increment_old_bloom_threshold(&mut render_data_guard, true);
-                        }
                         "p" => {
                             game_state.is_playing_animations = !game_state.is_playing_animations;
                         }
@@ -1224,16 +1214,9 @@ pub fn handle_window_event(
                                 !render_data_guard.shadow_settings.enable_shadows;
                         }
                         "b" => {
-                            game_state
-                                .ui_overlay
-                                .queue_message(Message::BloomTypeChanged(match render_data_guard
-                                    .post_effect_settings
-                                    .bloom_type
-                                {
-                                    BloomType::Disabled => BloomType::Old,
-                                    BloomType::Old => BloomType::New,
-                                    BloomType::New => BloomType::Disabled,
-                                }));
+                            game_state.ui_overlay.queue_message(Message::ToggleBloom(
+                                !render_data_guard.post_effect_settings.enable_bloom,
+                            ));
                         }
                         "f" => {
                             render_data_guard.debug_settings.enable_wireframe_mode =
@@ -1335,14 +1318,6 @@ pub fn increment_exposure(renderer_data: &mut RendererData, increase: bool) {
     let tone_mapping_exposure = &mut renderer_data.post_effect_settings.tone_mapping_exposure;
     *tone_mapping_exposure = (*tone_mapping_exposure + change).clamp(0.0, 20.0);
     log::info!("Exposure: {:?}", tone_mapping_exposure);
-}
-
-pub fn increment_old_bloom_threshold(renderer_data: &mut RendererData, increase: bool) {
-    let delta = 0.05;
-    let change = if increase { delta } else { -delta };
-    let old_bloom_threshold = &mut renderer_data.post_effect_settings.old_bloom_threshold;
-    *old_bloom_threshold = (*old_bloom_threshold + change).clamp(0.0, 20.0);
-    log::info!("Old Bloom Threshold: {:?}", old_bloom_threshold);
 }
 
 #[profiling::function]
@@ -2019,12 +1994,12 @@ pub fn update_game_state(
         renderer_data_guard.camera_settings.far_plane_distance =
             ui_state.camera_settings.far_plane_distance;
 
-        renderer_data_guard.post_effect_settings.bloom_type =
-            ui_state.post_effect_settings.bloom_type;
-        renderer_data_guard.post_effect_settings.new_bloom_radius =
-            ui_state.post_effect_settings.new_bloom_radius;
-        renderer_data_guard.post_effect_settings.new_bloom_intensity =
-            ui_state.post_effect_settings.new_bloom_intensity;
+        renderer_data_guard.post_effect_settings.enable_bloom =
+            ui_state.post_effect_settings.enable_bloom;
+        renderer_data_guard.post_effect_settings.bloom_radius =
+            ui_state.post_effect_settings.bloom_radius;
+        renderer_data_guard.post_effect_settings.bloom_intensity =
+            ui_state.post_effect_settings.bloom_intensity;
 
         renderer_data_guard.shadow_settings.enable_soft_shadows =
             ui_state.shadow_settings.enable_soft_shadows;
