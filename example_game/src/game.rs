@@ -89,6 +89,8 @@ pub const INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS: f32 = 16.0;
 
 pub const INITIAL_IS_SHOWING_CAMERA_POSE: bool = false;
 pub const INITIAL_IS_SHOWING_CURSOR_MARKER: bool = false;
+pub const INITIAL_ENABLE_WIREFRAME: bool = false;
+pub const INITIAL_BOUNDING_SPHERES_DEBUG: bool = false;
 pub const INITIAL_ENABLE_SHADOW_DEBUG: bool = false;
 pub const INITIAL_ENABLE_CASCADE_DEBUG: bool = false;
 pub const INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG: bool = false;
@@ -272,7 +274,6 @@ pub async fn init_game_state(
         "Look Around:             Mouse",
         "Move Around:             WASD, E, Space Bar, LCtrl, Q",
         "Adjust Speed:            Scroll or Up/Down Arrow Keys",
-        "Adjust Exposure:         R / T",
         "Pause/Resume Animations: P",
         "Toggle Bloom Effect:     B",
         "Toggle Shadows:          M",
@@ -1197,21 +1198,16 @@ pub fn handle_window_event(
             }
 
             if event.state == ElementState::Released {
-                let mut render_data_guard = renderer.data.lock();
+                let render_data_guard = renderer.data.lock();
                 match key {
                     Key::Character(character) => match character.to_lowercase().as_str() {
-                        "r" => {
-                            increment_exposure(&mut render_data_guard, false);
-                        }
-                        "t" => {
-                            increment_exposure(&mut render_data_guard, true);
-                        }
                         "p" => {
                             game_state.is_playing_animations = !game_state.is_playing_animations;
                         }
                         "m" => {
-                            render_data_guard.shadow_settings.enable_shadows =
-                                !render_data_guard.shadow_settings.enable_shadows;
+                            game_state.ui_overlay.queue_message(Message::ToggleShadows(
+                                !render_data_guard.shadow_settings.enable_shadows,
+                            ));
                         }
                         "b" => {
                             game_state.ui_overlay.queue_message(Message::ToggleBloom(
@@ -1219,12 +1215,18 @@ pub fn handle_window_event(
                             ));
                         }
                         "f" => {
-                            render_data_guard.debug_settings.enable_wireframe_mode =
-                                !render_data_guard.debug_settings.enable_wireframe_mode;
+                            game_state
+                                .ui_overlay
+                                .queue_message(Message::ToggleWireframe(
+                                    !render_data_guard.debug_settings.enable_wireframe,
+                                ));
                         }
                         "j" => {
-                            render_data_guard.debug_settings.draw_node_bounding_spheres =
-                                !render_data_guard.debug_settings.draw_node_bounding_spheres;
+                            game_state.ui_overlay.queue_message(
+                                Message::ToggleBoundingSpheresDebug(
+                                    !render_data_guard.debug_settings.draw_node_bounding_spheres,
+                                ),
+                            );
                         }
                         "c" => {
                             if let Some(character) = game_state.character.as_mut() {
@@ -1310,14 +1312,6 @@ pub fn resize_ui_overlay(
     new_size: winit::dpi::PhysicalSize<u32>,
 ) {
     ui_overlay.resize(new_size, window.scale_factor());
-}
-
-pub fn increment_exposure(renderer_data: &mut RendererData, increase: bool) {
-    let delta = 0.05;
-    let change = if increase { delta } else { -delta };
-    let tone_mapping_exposure = &mut renderer_data.post_effect_settings.tone_mapping_exposure;
-    *tone_mapping_exposure = (*tone_mapping_exposure + change).clamp(0.0, 20.0);
-    log::info!("Exposure: {:?}", tone_mapping_exposure);
 }
 
 #[profiling::function]
@@ -1994,6 +1988,9 @@ pub fn update_game_state(
         renderer_data_guard.camera_settings.far_plane_distance =
             ui_state.camera_settings.far_plane_distance;
 
+        renderer_data_guard
+            .post_effect_settings
+            .tone_mapping_exposure = ui_state.post_effect_settings.exposure;
         renderer_data_guard.post_effect_settings.enable_bloom =
             ui_state.post_effect_settings.enable_bloom;
         renderer_data_guard.post_effect_settings.bloom_radius =
@@ -2001,6 +1998,8 @@ pub fn update_game_state(
         renderer_data_guard.post_effect_settings.bloom_intensity =
             ui_state.post_effect_settings.bloom_intensity;
 
+        renderer_data_guard.shadow_settings.enable_shadows =
+            ui_state.shadow_settings.enable_shadows;
         renderer_data_guard.shadow_settings.enable_soft_shadows =
             ui_state.shadow_settings.enable_soft_shadows;
         renderer_data_guard
@@ -2017,6 +2016,11 @@ pub fn update_game_state(
         renderer_data_guard.shadow_settings.soft_shadow_grid_dims =
             ui_state.shadow_settings.soft_shadow_grid_dims;
 
+        renderer_data_guard.debug_settings.enable_wireframe =
+            ui_state.debug_settings.enable_wireframe;
+        renderer_data_guard
+            .debug_settings
+            .draw_node_bounding_spheres = ui_state.debug_settings.bounding_spheres_debug;
         renderer_data_guard.debug_settings.record_culling_stats =
             ui_state.debug_settings.record_culling_stats;
         renderer_data_guard.debug_settings.enable_shadow_debug =
