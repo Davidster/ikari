@@ -18,7 +18,6 @@ pub struct GameState {
 
     pub bgm_sound_index: Option<usize>,
     pub gunshot_sound_index: Option<usize>,
-    // pub gunshot_sound_data: SoundData,
     pub point_light_node_ids: Vec<GameNodeId>,
 
     // store the previous state and next state and interpolate between them
@@ -26,7 +25,6 @@ pub struct GameState {
     pub prev_balls: Vec<BallComponent>,
     pub actual_balls: Vec<BallComponent>,
     pub ball_node_ids: Vec<GameNodeId>,
-    pub ball_pbr_mesh_index: usize,
 
     pub ball_spawner_acc: f64,
 

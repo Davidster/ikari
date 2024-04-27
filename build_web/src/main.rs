@@ -172,7 +172,6 @@ fn main() -> anyhow::Result<()> {
         // When this issue is resolved we might be able to remove this hack: https://github.com/rust-lang/cargo/issues/8716
         "--target-dir".as_ref(),
         target_target.as_os_str(),
-        "--no-default-features".as_ref(),
     ];
 
     if let Some(package) = args.package.as_ref() {
@@ -186,6 +185,18 @@ fn main() -> anyhow::Result<()> {
     }
     if let Some(profile) = &args.profile {
         cargo_args.extend([OsStr::new("--profile"), profile.as_ref()]);
+    }
+
+    // web doesn't support the default profiling features
+    if !args
+        .build_args
+        .contains(&String::from("--no-default-features"))
+    {
+        cargo_args.extend([
+            OsStr::new("--no-default-features"),
+            OsStr::new("--features"),
+            OsStr::new("audio"),
+        ]);
     }
 
     cargo_args.extend(args.build_args.iter().map(OsStr::new));

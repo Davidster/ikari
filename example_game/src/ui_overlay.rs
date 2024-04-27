@@ -1748,7 +1748,7 @@ impl runtime::Program for UiOverlay {
                     } else {
                         let time_secs = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or(Default::default())
+                            .unwrap_or_default()
                             .as_secs_f64();
                         let ellipsis_num = 2 + (time_secs * 4.0).sin().round() as i32;
                         let elipsis_str =

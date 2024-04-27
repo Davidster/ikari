@@ -5,7 +5,7 @@ members = ["ikari", "build_web", "example_game", "clikari"]
 [workspace.package]
 version = "0.0.1"
 edition = "2021"
-rust-version = "1.66"
+rust-version = "1.72.1"
 description = "3D Game Engine"
 keywords = ["renderer", "3D", "rust", "wgpu", "game"]
 license = "MIT"
@@ -18,7 +18,7 @@ authors = [
 
 [workspace.dependencies]
 winit = { version = "0.29", git = "https://github.com/iced-rs/winit.git", rev = "b91e39ece2c0d378c3b80da7f3ab50e17bb798a5" }
-ikari = { version = "0.0.1", path = "./ikari" }
+ikari = { version = "0.0.1", path = "./ikari", default-features = false }
 log = "0.4"
 wgpu = { version = "0.19", features = ["trace"] }
 wgpu-profiler = "0.16.1"
@@ -56,7 +56,7 @@ web-sys = { version = "0.3.64", features = [
   "HtmlCollection",
 ] }
 wasm-bindgen = { version = "0.2.87", features = ["serde-serialize"] }
-wasm-bindgen-futures = "0.4.37"
+wasm-bindgen-futures = "0.4.42"
 
 iced = { version = "0.12", features = ["canvas"] }
 iced_wgpu = "0.12"
@@ -67,6 +67,7 @@ winit = { version = "0.29", git = "https://github.com/iced-rs/winit.git", rev = 
 
 [profile.dev]
 opt-level = 1
+debug = true
 
 [profile.dev.package."*"]
 opt-level = 3

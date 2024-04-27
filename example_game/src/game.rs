@@ -63,6 +63,8 @@ use winit::keyboard::Key;
 use winit::keyboard::NamedKey;
 
 // engine settings
+pub const ENABLE_AUDIO: bool = true;
+
 pub const INITIAL_ENABLE_VSYNC: bool = true;
 pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
 pub const INITIAL_FRAMERATE_LIMIT: FramerateLimit = FramerateLimit::None;
@@ -1155,7 +1157,6 @@ pub async fn init_game_state(
         prev_balls: balls.clone(),
         actual_balls: balls,
         ball_node_ids,
-        ball_pbr_mesh_index: ball_pbr_material_index,
 
         ball_spawner_acc: 0.0,
 
@@ -1634,9 +1635,9 @@ pub fn update_game_state(
     // update ball positions
     while game_state.state_update_time_accumulator >= min_update_timestep_seconds {
         if game_state.state_update_time_accumulator < min_update_timestep_seconds * 2.0 {
-            game_state.prev_balls = game_state.next_balls.clone();
+            game_state.prev_balls.clone_from(&game_state.next_balls);
         }
-        game_state.prev_balls = game_state.next_balls.clone();
+        game_state.prev_balls.clone_from(&game_state.next_balls);
         game_state
             .next_balls
             .iter_mut()
@@ -1734,7 +1735,7 @@ pub fn update_game_state(
         engine_state
             .scene
             .directional_lights
-            .get(0)
+            .first()
             .map(|directional_light_0| {
                 let direction = directional_light_0.direction;
                 // transform.set_position(Vec3::new(
@@ -2110,10 +2111,7 @@ fn add_static_box(
     renderer_data: &RendererData,
     node_id: GameNodeId,
 ) {
-    let collider_handles = physics_state
-        .static_box_set
-        .entry(node_id)
-        .or_insert(vec![]);
+    let collider_handles = physics_state.static_box_set.entry(node_id).or_default();
 
     if let Some(node) = scene.get_node(node_id) {
         if let Some((visual, transform)) = node
