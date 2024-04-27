@@ -1,5 +1,65 @@
 use glam::Vec3;
 
+use crate::file_manager::GameFilePath;
+
+pub const AUDIO_STREAM_BUFFER_LENGTH_SECONDS: f32 = 2.5;
+
+const CHANNEL_COUNT: usize = 2;
+
+pub trait AudioManager: Send + Sync {
+    fn add_sound(
+        &mut self,
+        file_path: GameFilePath,
+        sound_data: SoundData,
+        length_seconds: Option<f32>,
+        params: SoundParams,
+    ) -> usize;
+
+    fn write_stream_data(&mut self, sound_index: usize, sound_data: SoundData);
+
+    fn play_sound(&mut self, sound_index: usize);
+
+    fn reload_sound(&mut self, sound_index: usize, params: SoundParams);
+
+    fn sound_is_playing(&self, sound_index: usize) -> bool;
+
+    fn get_sound_length_seconds(&self, sound_index: usize) -> Option<Option<f32>>;
+
+    fn get_sound_pos_seconds(&self, sound_index: usize) -> Option<f32>;
+
+    fn get_sound_buffered_to_pos_seconds(&self, sound_index: usize) -> Option<f32>;
+
+    fn get_sound_file_path(&self, sound_index: usize) -> Option<&GameFilePath>;
+
+    fn set_sound_volume(&mut self, sound_index: usize, volume: f32);
+
+    fn device_sample_rate(&self) -> u32;
+
+    fn sound_indices(&self) -> Vec<usize>;
+
+    fn is_audio_enabled(&self) -> bool;
+}
+
+pub trait StreamAudio: Send + Sync {
+    fn read_chunk(&mut self, _max_chunk_size: usize) -> anyhow::Result<(SoundData, bool)>;
+
+    fn track_length_seconds(&self) -> Option<f32>;
+
+    fn file_path(&self) -> &GameFilePath;
+}
+
+pub trait AudioOutputStreams {}
+
+#[derive(Debug, Clone, Default)]
+pub struct SoundData(Vec<[f32; CHANNEL_COUNT]>);
+
+impl SoundData {
+    pub fn sample_count(&self) -> usize {
+        self.0.len()
+    }
+}
+
+#[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
 pub struct SpacialParams {
     initial_position: Vec3,
@@ -14,20 +74,58 @@ pub struct SoundParams {
     pub stream: bool,
 }
 
-pub const AUDIO_STREAM_BUFFER_LENGTH_SECONDS: f32 = 2.5;
-
-const CHANNEL_COUNT: usize = 2;
-
-#[derive(Debug, Clone, Default)]
-pub struct SoundData(Vec<[f32; CHANNEL_COUNT]>);
-
-impl SoundData {
-    pub fn sample_count(&self) -> usize {
-        self.0.len()
+pub fn create_audio_manager(
+    enable_audio: bool,
+) -> (Box<dyn AudioManager>, Box<dyn AudioOutputStreams>) {
+    #[cfg(feature = "audio")]
+    if enable_audio {
+        match ikari_audio::create_audio_manager() {
+            Ok((audio_manager, audio_streams)) => {
+                return (Box::new(audio_manager), Box::new(audio_streams));
+            }
+            Err(err) => log::error!(
+                "Error initializing audio, falling back to null (silent) audio manager. {err:?}"
+            ),
+        }
     }
+
+    if enable_audio {
+        log::warn!("Tried to enable audio but ikari was compiled without support for it. Did you forget to enable the audio feature in cargo?");
+    }
+
+    let (audio_manager, audio_streams) = create_null_audio_manager();
+    (Box::new(audio_manager), Box::new(audio_streams))
 }
 
+#[allow(unused_variables)]
+pub async fn create_audio_stream_from_file(
+    is_audio_enabled: bool,
+    device_sample_rate: u32,
+    file_path: GameFilePath,
+) -> anyhow::Result<Box<dyn StreamAudio>> {
+    #[cfg(feature = "audio")]
+    if is_audio_enabled {
+        let audio_stream =
+            ikari_audio::IkariStreamedAudioFile::new(device_sample_rate, file_path).await?;
+        return Ok(Box::new(audio_stream));
+    }
+
+    Ok(Box::new(NullStreamedAudioFile { file_path }))
+}
+
+#[cfg(feature = "audio")]
 mod ikari_audio {
+    #[cfg(not(target_arch = "wasm32"))]
+    use native::get_media_source;
+
+    #[cfg(target_arch = "wasm32")]
+    use web::get_media_source;
+
+    use super::{
+        AudioManager, AudioOutputStreams, SoundData, SoundParams, SpacialParams, StreamAudio,
+        AUDIO_STREAM_BUFFER_LENGTH_SECONDS,
+    };
+
     use crate::time::Instant;
     use crate::{audio::CHANNEL_COUNT, file_manager::GameFilePath};
 
@@ -42,10 +140,12 @@ mod ikari_audio {
         audio::SampleBuffer, codecs::CODEC_TYPE_NULL, io::MediaSourceStream, probe::Hint,
     };
 
-    pub struct IkariAudioStreams {
+    pub struct IkariAudioOutputStreams {
         _spatial_scene_output_stream: cpal::Stream,
         _mixer_output_stream: cpal::Stream,
     }
+
+    impl AudioOutputStreams for IkariAudioOutputStreams {}
 
     pub struct IkariAudioManager {
         master_volume: f32,
@@ -135,15 +235,7 @@ mod ikari_audio {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    use native::get_media_source;
-
-    #[cfg(target_arch = "wasm32")]
-    use web::get_media_source;
-
-    use super::{SoundData, SoundParams, SpacialParams, AUDIO_STREAM_BUFFER_LENGTH_SECONDS};
-
-    pub struct AudioFileStreamer {
+    pub struct IkariStreamedAudioFile {
         device_sample_rate: u32,
         format_reader: Box<dyn symphonia::core::formats::FormatReader>,
         decoder: Box<dyn symphonia::core::codecs::Decoder>,
@@ -153,67 +245,71 @@ mod ikari_audio {
         file_path: GameFilePath,
     }
 
-    impl AudioFileStreamer {
-        pub async fn new(device_sample_rate: u32, file_path: GameFilePath) -> anyhow::Result<Self> {
-            let mss =
-                MediaSourceStream::new(get_media_source(&file_path).await?, Default::default());
+    /// streams are returned separately since they aren't Send/Sync
+    pub fn create_audio_manager() -> Result<(IkariAudioManager, IkariAudioOutputStreams)> {
+        let host = cpal::default_host();
+        let device = host
+            .default_output_device()
+            .ok_or_else(|| anyhow::anyhow!("No output device found"))?;
+        let device_sample_rate = device.default_output_config()?.sample_rate().0;
 
-            let mut hint = Hint::new();
-            if let Some(extension) = file_path
-                .relative_path
-                .extension()
-                .and_then(|extension| extension.to_str())
-            {
-                hint.with_extension(extension);
-            }
+        let (spatial_scene_handle, spatial_scene) = oddio::split(oddio::SpatialScene::new());
+        let (mixer_handle, mixer) = oddio::split(oddio::Mixer::new());
 
-            let probed = symphonia::default::get_probe().format(
-                &hint,
-                mss,
-                &Default::default(),
-                &Default::default(),
-            )?;
+        let config = cpal::StreamConfig {
+            channels: 2,
+            sample_rate: cpal::SampleRate(device_sample_rate),
+            buffer_size: cpal::BufferSize::Default,
+        };
 
-            let format_reader = probed.format;
+        let spatial_scene_output_stream = device.build_output_stream(
+            &config,
+            move |out_flat: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                let out_stereo = oddio::frame_stereo(out_flat);
+                oddio::run(&spatial_scene, device_sample_rate, out_stereo);
+            },
+            move |err| {
+                log::error!("cpal audio output stream error: {err}");
+            },
+            None,
+        )?;
+        let mixer_output_stream = device.build_output_stream(
+            &config,
+            move |out_flat: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                let out_stereo = oddio::frame_stereo(out_flat);
+                oddio::run(&mixer, device_sample_rate, out_stereo);
+            },
+            move |err| {
+                log::error!("cpal audio output stream error: {err}");
+            },
+            None,
+        )?;
+        spatial_scene_output_stream.play()?;
+        mixer_output_stream.play()?;
 
-            let track = format_reader
-                .tracks()
-                .iter()
-                .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-                .ok_or(anyhow::anyhow!("no supported audio tracks"))?;
-
-            let track_length_seconds =
-                match (track.codec_params.time_base, track.codec_params.n_frames) {
-                    (Some(time_base), Some(n_frames)) => {
-                        let time = time_base.calc_time(n_frames);
-                        Some(time.seconds as f32 + time.frac as f32)
-                    }
-                    _ => None,
-                };
-
-            let track_id = track.id;
-            let track_sample_rate = track.codec_params.sample_rate;
-
-            let decoder =
-                symphonia::default::get_codecs().make(&track.codec_params, &Default::default())?;
-
-            Ok(Self {
+        Ok((
+            IkariAudioManager {
+                master_volume: 1.0,
                 device_sample_rate,
-                format_reader,
-                decoder,
-                track_id,
-                track_length_seconds,
-                track_sample_rate,
-                file_path,
-            })
-        }
 
+                spatial_scene_handle,
+                mixer_handle,
+                sounds: vec![],
+            },
+            IkariAudioOutputStreams {
+                _spatial_scene_output_stream: spatial_scene_output_stream,
+                _mixer_output_stream: mixer_output_stream,
+            },
+        ))
+    }
+
+    impl StreamAudio for IkariStreamedAudioFile {
         /// max_chunk_size=0 to read the whole stream at once
         /// The actual chunk size we end up getting will be a little lower than this value since we read
         /// the audio file in small 'packets' which might not fit evenly into max_chunk_size
         /// so we make sure not to overshoot
         #[profiling::function]
-        pub fn read_chunk(&mut self, max_chunk_size: usize) -> anyhow::Result<(SoundData, bool)> {
+        fn read_chunk(&mut self, max_chunk_size: usize) -> anyhow::Result<(SoundData, bool)> {
             let mut samples_interleaved: Vec<f32> = vec![];
 
             let sample_rate_ratio = self.device_sample_rate as f32
@@ -308,142 +404,100 @@ mod ikari_audio {
             Ok((SoundData(samples), reached_end_of_stream))
         }
 
-        pub fn track_length_seconds(&self) -> Option<f32> {
+        fn track_length_seconds(&self) -> Option<f32> {
             self.track_length_seconds
         }
 
-        pub fn file_path(&self) -> &GameFilePath {
+        fn file_path(&self) -> &GameFilePath {
             &self.file_path
         }
     }
 
-    impl IkariAudioManager {
-        /// streams are returned separately since they aren't Send/Sync
-        pub fn new() -> Result<(IkariAudioManager, IkariAudioStreams)> {
-            let host = cpal::default_host();
-            let device = host
-                .default_output_device()
-                .ok_or_else(|| anyhow::anyhow!("No output device found"))?;
-            let device_sample_rate = device.default_output_config()?.sample_rate().0;
+    impl IkariStreamedAudioFile {
+        pub async fn new(device_sample_rate: u32, file_path: GameFilePath) -> anyhow::Result<Self> {
+            let mss =
+                MediaSourceStream::new(get_media_source(&file_path).await?, Default::default());
 
-            let (spatial_scene_handle, spatial_scene) = oddio::split(oddio::SpatialScene::new());
-            let (mixer_handle, mixer) = oddio::split(oddio::Mixer::new());
-
-            let config = cpal::StreamConfig {
-                channels: 2,
-                sample_rate: cpal::SampleRate(device_sample_rate),
-                buffer_size: cpal::BufferSize::Default,
-            };
-
-            let spatial_scene_output_stream = device.build_output_stream(
-                &config,
-                move |out_flat: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                    let out_stereo = oddio::frame_stereo(out_flat);
-                    oddio::run(&spatial_scene, device_sample_rate, out_stereo);
-                },
-                move |err| {
-                    log::error!("cpal audio output stream error: {err}");
-                },
-                None,
-            )?;
-            let mixer_output_stream = device.build_output_stream(
-                &config,
-                move |out_flat: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                    let out_stereo = oddio::frame_stereo(out_flat);
-                    oddio::run(&mixer, device_sample_rate, out_stereo);
-                },
-                move |err| {
-                    log::error!("cpal audio output stream error: {err}");
-                },
-                None,
-            )?;
-            spatial_scene_output_stream.play()?;
-            mixer_output_stream.play()?;
-
-            Ok((
-                IkariAudioManager {
-                    master_volume: 1.0,
-                    device_sample_rate,
-
-                    spatial_scene_handle,
-                    mixer_handle,
-                    sounds: vec![],
-                },
-                IkariAudioStreams {
-                    _spatial_scene_output_stream: spatial_scene_output_stream,
-                    _mixer_output_stream: mixer_output_stream,
-                },
-            ))
-        }
-
-        pub fn get_signal(
-            sound_data: &SoundData,
-            params: SoundParams,
-            device_sample_rate: u32,
-        ) -> Option<SoundSignal> {
-            let SoundParams {
-                spacial_params,
-                stream,
-                ..
-            } = params;
-
-            let SoundData(samples) = sound_data;
-
-            if stream {
-                return None;
+            let mut hint = Hint::new();
+            if let Some(extension) = file_path
+                .relative_path
+                .extension()
+                .and_then(|extension| extension.to_str())
+            {
+                hint.with_extension(extension);
             }
 
-            let channels = samples[0].len();
+            let probed = symphonia::default::get_probe().format(
+                &hint,
+                mss,
+                &Default::default(),
+                &Default::default(),
+            )?;
 
-            Some(match spacial_params {
-                Some(SpacialParams { .. }) => {
-                    let signal = FramesSignal::from(oddio::Frames::from_iter(
-                        device_sample_rate,
-                        samples.iter().map(|sample| sample[0]).collect::<Vec<_>>(),
-                    ));
+            let format_reader = probed.format;
 
-                    SoundSignalInner::Mono { signal }.into()
-                }
-                None => {
-                    let signal = FramesSignal::from(oddio::Frames::from_iter(
-                        device_sample_rate,
-                        samples.iter().map(|sample| {
-                            [sample[0], if channels > 1 { sample[1] } else { sample[0] }]
-                        }),
-                    ));
-                    SoundSignalInner::Stereo { signal }.into()
-                }
+            let track = format_reader
+                .tracks()
+                .iter()
+                .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+                .ok_or(anyhow::anyhow!("no supported audio tracks"))?;
+
+            let track_length_seconds =
+                match (track.codec_params.time_base, track.codec_params.n_frames) {
+                    (Some(time_base), Some(n_frames)) => {
+                        let time = time_base.calc_time(n_frames);
+                        Some(time.seconds as f32 + time.frac as f32)
+                    }
+                    _ => None,
+                };
+
+            let track_id = track.id;
+            let track_sample_rate = track.codec_params.sample_rate;
+
+            let decoder =
+                symphonia::default::get_codecs().make(&track.codec_params, &Default::default())?;
+
+            Ok(Self {
+                device_sample_rate,
+                format_reader,
+                decoder,
+                track_id,
+                track_length_seconds,
+                track_sample_rate,
+                file_path,
             })
         }
+    }
 
-        pub fn add_sound(
+    impl AudioManager for IkariAudioManager {
+        fn add_sound(
             &mut self,
             file_path: GameFilePath,
             sound_data: SoundData,
             length_seconds: Option<f32>,
             params: SoundParams,
-            signal: Option<SoundSignal>,
         ) -> usize {
+            let signal = self.make_signal(&sound_data, &params);
             let sound = Sound::new(self, file_path, sound_data, length_seconds, params, signal);
             self.sounds.push(Some(sound));
             self.sounds.len() - 1
         }
 
-        pub fn write_stream_data(&mut self, sound_index: usize, sound_data: SoundData) {
+        fn write_stream_data(&mut self, sound_index: usize, sound_data: SoundData) {
             if let Some(sound) = self.sounds[sound_index].as_mut() {
                 sound.write_stream_data(sound_data, self.device_sample_rate);
             }
         }
 
-        pub fn play_sound(&mut self, sound_index: usize) {
+        fn play_sound(&mut self, sound_index: usize) {
             if let Some(sound) = self.sounds[sound_index].as_mut() {
                 sound.resume();
             }
         }
 
-        pub fn reload_sound(&mut self, sound_index: usize, params: SoundParams) {
+        fn reload_sound(&mut self, sound_index: usize, params: SoundParams) {
             if let Some(sound) = self.sounds[sound_index].take() {
-                let signal = Self::get_signal(&sound.data, params.clone(), self.device_sample_rate);
+                let signal = self.make_signal(&sound.data, &params);
                 self.sounds[sound_index] = Some(Sound::new(
                     self,
                     sound.file_path,
@@ -455,52 +509,95 @@ mod ikari_audio {
             }
         }
 
-        pub fn sound_is_playing(&self, sound_index: usize) -> bool {
+        fn sound_is_playing(&self, sound_index: usize) -> bool {
             self.sounds[sound_index]
                 .as_ref()
                 .map(|sound| sound.is_playing)
                 .unwrap_or(false)
         }
 
-        pub fn get_sound_length_seconds(&self, sound_index: usize) -> Option<Option<f32>> {
+        fn get_sound_length_seconds(&self, sound_index: usize) -> Option<Option<f32>> {
             self.sounds[sound_index]
                 .as_ref()
                 .map(|sound| sound.length_seconds)
         }
 
-        pub fn get_sound_pos_seconds(&self, sound_index: usize) -> Option<f32> {
+        fn get_sound_pos_seconds(&self, sound_index: usize) -> Option<f32> {
             self.sounds[sound_index]
                 .as_ref()
                 .map(|sound| sound.pos_seconds())
         }
 
-        pub fn get_sound_buffered_to_pos_seconds(&self, sound_index: usize) -> Option<f32> {
+        fn get_sound_buffered_to_pos_seconds(&self, sound_index: usize) -> Option<f32> {
             self.sounds[sound_index]
                 .as_ref()
                 .map(|sound| sound.buffered_to_pos_seconds)
         }
 
-        pub fn get_sound_file_path(&self, sound_index: usize) -> Option<&GameFilePath> {
+        fn get_sound_file_path(&self, sound_index: usize) -> Option<&GameFilePath> {
             self.sounds[sound_index]
                 .as_ref()
                 .map(|sound| &sound.file_path)
         }
 
-        pub fn set_sound_volume(&mut self, sound_index: usize, volume: f32) {
+        fn set_sound_volume(&mut self, sound_index: usize, volume: f32) {
             if let Some(sound) = self.sounds[sound_index].as_mut() {
                 sound.set_volume(self.master_volume, volume)
             }
         }
 
-        pub fn device_sample_rate(&self) -> u32 {
+        fn device_sample_rate(&self) -> u32 {
             self.device_sample_rate
         }
 
-        pub fn sound_indices(&self) -> impl Iterator<Item = usize> + '_ {
+        fn sound_indices(&self) -> Vec<usize> {
             self.sounds
                 .iter()
                 .enumerate()
                 .filter_map(|(sound_index, sound)| sound.as_ref().map(|_| sound_index))
+                .collect()
+        }
+
+        fn is_audio_enabled(&self) -> bool {
+            true
+        }
+    }
+
+    impl IkariAudioManager {
+        fn make_signal(&self, sound_data: &SoundData, params: &SoundParams) -> Option<SoundSignal> {
+            let SoundParams {
+                spacial_params,
+                stream,
+                ..
+            } = params;
+
+            let SoundData(samples) = sound_data;
+
+            if *stream {
+                return None;
+            }
+
+            let channels = samples[0].len();
+
+            Some(match spacial_params {
+                Some(SpacialParams { .. }) => {
+                    let signal = FramesSignal::from(oddio::Frames::from_iter(
+                        self.device_sample_rate,
+                        samples.iter().map(|sample| sample[0]).collect::<Vec<_>>(),
+                    ));
+
+                    SoundSignalInner::Mono { signal }.into()
+                }
+                None => {
+                    let signal = FramesSignal::from(oddio::Frames::from_iter(
+                        self.device_sample_rate,
+                        samples.iter().map(|sample| {
+                            [sample[0], if channels > 1 { sample[1] } else { sample[0] }]
+                        }),
+                    ));
+                    SoundSignalInner::Stereo { signal }.into()
+                }
+            })
         }
     }
 
@@ -755,163 +852,83 @@ mod ikari_audio {
     }
 }
 
-pub trait AudioManager {
-    type SoundSignal;
+/// Used to disable audio in ikari. Acts like a real audio manager but does nothing under the hood
+pub struct NullAudioManager {}
 
-    fn get_signal(
-        _sound_data: &SoundData,
-        _params: SoundParams,
-        _device_sample_rate: u32,
-    ) -> Option<Self::SoundSignal>;
+pub struct NullAudioOutputStreams {}
 
+impl AudioOutputStreams for NullAudioOutputStreams {}
+
+pub struct NullStreamedAudioFile {
+    file_path: GameFilePath,
+}
+
+impl StreamAudio for NullStreamedAudioFile {
+    fn read_chunk(&mut self, _max_chunk_size: usize) -> anyhow::Result<(SoundData, bool)> {
+        Ok((SoundData(vec![]), true))
+    }
+
+    fn track_length_seconds(&self) -> Option<f32> {
+        None
+    }
+
+    fn file_path(&self) -> &GameFilePath {
+        &self.file_path
+    }
+}
+
+impl AudioManager for NullAudioManager {
     fn add_sound(
         &mut self,
         _file_path: GameFilePath,
         _sound_data: SoundData,
         _length_seconds: Option<f32>,
         _params: SoundParams,
-        _signal: Option<Self::SoundSignal>,
-    ) -> usize;
-
-    fn write_stream_data(&mut self, sound_index: usize, sound_data: SoundData);
-
-    fn play_sound(&mut self, sound_index: usize);
-
-    fn reload_sound(&mut self, _sound_index: usize, _params: SoundParams);
-
-    fn sound_is_playing(&self, sound_index: usize) -> bool;
-
-    fn get_sound_length_seconds(&self, sound_index: usize) -> Option<Option<f32>>;
-    fn get_sound_pos_seconds(&self, sound_index: usize) -> Option<f32>;
-
-    fn get_sound_buffered_to_pos_seconds(&self, sound_index: usize) -> Option<f32>;
-
-    fn get_sound_file_path(&self, sound_index: usize) -> Option<&GameFilePath>;
-
-    fn set_sound_volume(&mut self, sound_index: usize, volume: f32);
-
-    fn device_sample_rate(&self) -> u32;
-
-    fn sound_indices(&self) -> impl Iterator<Item = usize> + '_;
-}
-
-pub trait AudioFileStreamer {
-    fn read_chunk(&mut self, _max_chunk_size: usize) -> anyhow::Result<(SoundData, bool)>;
-
-    fn track_length_seconds(&self) -> Option<f32>;
-
-    fn file_path(&self) -> &GameFilePath;
-}
-
-mod null_audio {
-    use crate::file_manager::GameFilePath;
-    use anyhow::Result;
-
-    use super::{AudioFileStreamer, AudioManager, SoundData, SoundParams};
-
-    pub struct AudioStreams {}
-
-    pub struct NullAudioManager {}
-
-    pub struct NullAudioFileStreamer {
-        file_path: GameFilePath,
+    ) -> usize {
+        0
     }
 
-    pub struct SoundSignal {}
+    fn write_stream_data(&mut self, _sound_index: usize, _sound_data: SoundData) {}
 
-    impl AudioFileStreamer for NullAudioFileStreamer {
-        fn read_chunk(&mut self, _max_chunk_size: usize) -> anyhow::Result<(SoundData, bool)> {
-            Ok((SoundData(vec![]), true))
-        }
+    fn play_sound(&mut self, _sound_index: usize) {}
 
-        fn track_length_seconds(&self) -> Option<f32> {
-            None
-        }
+    fn reload_sound(&mut self, _sound_index: usize, _params: SoundParams) {}
 
-        fn file_path(&self) -> &GameFilePath {
-            &self.file_path
-        }
+    fn sound_is_playing(&self, _sound_index: usize) -> bool {
+        false
     }
 
-    impl NullAudioFileStreamer {
-        pub async fn new(
-            _device_sample_rate: u32,
-            file_path: GameFilePath,
-        ) -> anyhow::Result<Self> {
-            Ok(Self { file_path })
-        }
+    fn get_sound_length_seconds(&self, _sound_index: usize) -> Option<Option<f32>> {
+        None
     }
 
-    impl AudioManager for NullAudioManager {
-        type SoundSignal = SoundSignal;
-
-        fn get_signal(
-            _sound_data: &SoundData,
-            _params: SoundParams,
-            _device_sample_rate: u32,
-        ) -> Option<SoundSignal> {
-            None
-        }
-
-        fn add_sound(
-            &mut self,
-            _file_path: GameFilePath,
-            _sound_data: SoundData,
-            _length_seconds: Option<f32>,
-            _params: SoundParams,
-            _signal: Option<SoundSignal>,
-        ) -> usize {
-            0
-        }
-
-        fn write_stream_data(&mut self, sound_index: usize, sound_data: SoundData) {}
-
-        fn play_sound(&mut self, sound_index: usize) {}
-
-        fn reload_sound(&mut self, _sound_index: usize, _params: SoundParams) {}
-
-        fn sound_is_playing(&self, sound_index: usize) -> bool {
-            false
-        }
-
-        fn get_sound_length_seconds(&self, sound_index: usize) -> Option<Option<f32>> {
-            None
-        }
-
-        fn get_sound_pos_seconds(&self, sound_index: usize) -> Option<f32> {
-            None
-        }
-
-        fn get_sound_buffered_to_pos_seconds(&self, sound_index: usize) -> Option<f32> {
-            None
-        }
-
-        fn get_sound_file_path(&self, sound_index: usize) -> Option<&GameFilePath> {
-            None
-        }
-
-        fn set_sound_volume(&mut self, sound_index: usize, volume: f32) {}
-
-        fn device_sample_rate(&self) -> u32 {
-            1
-        }
-
-        fn sound_indices(&self) -> impl Iterator<Item = usize> + '_ {
-            std::iter::empty()
-        }
+    fn get_sound_pos_seconds(&self, _sound_index: usize) -> Option<f32> {
+        None
     }
 
-    impl NullAudioManager {
-        pub fn new() -> Result<(NullAudioManager, AudioStreams)> {
-            Ok((NullAudioManager {}, AudioStreams {}))
-        }
+    fn get_sound_buffered_to_pos_seconds(&self, _sound_index: usize) -> Option<f32> {
+        None
+    }
+
+    fn get_sound_file_path(&self, _sound_index: usize) -> Option<&GameFilePath> {
+        None
+    }
+
+    fn set_sound_volume(&mut self, _sound_index: usize, _volume: f32) {}
+
+    fn device_sample_rate(&self) -> u32 {
+        1
+    }
+
+    fn sound_indices(&self) -> Vec<usize> {
+        vec![]
+    }
+
+    fn is_audio_enabled(&self) -> bool {
+        false
     }
 }
 
-#[cfg(feature = "audio")]
-pub use ikari_audio::*;
-
-#[cfg(not(feature = "audio"))]
-pub use null_audio::*;
-
-use crate::file_manager::GameFilePath;
+pub fn create_null_audio_manager() -> (NullAudioManager, NullAudioOutputStreams) {
+    (NullAudioManager {}, NullAudioOutputStreams {})
+}

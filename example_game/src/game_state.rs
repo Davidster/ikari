@@ -25,7 +25,6 @@ pub struct GameState {
     pub prev_balls: Vec<BallComponent>,
     pub actual_balls: Vec<BallComponent>,
     pub ball_node_ids: Vec<GameNodeId>,
-    pub ball_pbr_mesh_index: usize,
 
     pub ball_spawner_acc: f64,
 

@@ -1,6 +1,7 @@
-use crate::audio::AudioFileStreamer;
-use crate::audio::IkariAudioManager;
+use crate::audio::create_audio_stream_from_file;
+use crate::audio::AudioManager;
 use crate::audio::SoundParams;
+use crate::audio::StreamAudio;
 use crate::audio::AUDIO_STREAM_BUFFER_LENGTH_SECONDS;
 use crate::buffer::GpuBuffer;
 use crate::file_manager::FileManager;
@@ -77,7 +78,7 @@ pub struct AssetLoader {
     pending_audio: Arc<Mutex<Vec<(AssetId, AudioAssetLoadParams)>>>,
     pub loaded_audio: Arc<Mutex<HashMap<AssetId, usize>>>,
 
-    audio_manager: Arc<Mutex<IkariAudioManager>>,
+    audio_manager: Arc<Mutex<Box<dyn AudioManager>>>,
     pending_scenes: Arc<Mutex<Vec<(AssetId, SceneAssetLoadParams)>>>,
     bindable_scenes: Arc<Mutex<HashMap<AssetId, BindableScene>>>,
 
@@ -129,7 +130,7 @@ struct TimeSlicedSkyboxBinder {
 }
 
 impl AssetLoader {
-    pub fn new(audio_manager: Arc<Mutex<IkariAudioManager>>) -> Self {
+    pub fn new(audio_manager: Arc<Mutex<Box<dyn AudioManager>>>) -> Self {
         Self {
             is_exiting: Arc::new(AtomicBool::new(false)),
 
@@ -227,8 +228,15 @@ impl AssetLoader {
                         let (next_audio_id, next_audio_params) = pending_audio.lock().remove(0);
 
                         let do_load = || async {
-                            let device_sample_rate = audio_manager.lock().device_sample_rate();
-                            let mut audio_file_streamer = AudioFileStreamer::new(
+                            let (is_audio_enabled, device_sample_rate) = {
+                                let audio_manager_guard = audio_manager.lock();
+                                (
+                                    audio_manager_guard.is_audio_enabled(),
+                                    audio_manager_guard.device_sample_rate(),
+                                )
+                            };
+                            let mut audio_file_streamer = create_audio_stream_from_file(
+                                is_audio_enabled,
                                 device_sample_rate,
                                 next_audio_params.path.clone(),
                             )
@@ -239,17 +247,11 @@ impl AssetLoader {
                                 Default::default()
                             };
 
-                            let signal = IkariAudioManager::get_signal(
-                                &sound_data,
-                                next_audio_params.sound_params.clone(),
-                                device_sample_rate,
-                            );
                             let sound_index = audio_manager.lock().add_sound(
                                 next_audio_params.path.clone(),
                                 sound_data,
                                 audio_file_streamer.track_length_seconds(),
                                 next_audio_params.sound_params.clone(),
-                                signal,
                             );
 
                             if next_audio_params.sound_params.stream {
@@ -287,9 +289,9 @@ impl AssetLoader {
 
     fn spawn_audio_streaming_thread(
         is_exiting: Arc<AtomicBool>,
-        audio_manager: Arc<Mutex<IkariAudioManager>>,
+        audio_manager: Arc<Mutex<Box<dyn AudioManager>>>,
         sound_index: usize,
-        mut audio_file_streamer: AudioFileStreamer,
+        mut audio_file_streamer: Box<dyn StreamAudio>,
     ) {
         let device_sample_rate = audio_manager.lock().device_sample_rate();
         let mut is_first_chunk = true;

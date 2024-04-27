@@ -63,6 +63,8 @@ use winit::keyboard::Key;
 use winit::keyboard::NamedKey;
 
 // engine settings
+pub const ENABLE_AUDIO: bool = true;
+
 pub const INITIAL_ENABLE_VSYNC: bool = true;
 pub const INITIAL_ENABLE_DEPTH_PREPASS: bool = false;
 pub const INITIAL_FRAMERATE_LIMIT: FramerateLimit = FramerateLimit::None;
@@ -1155,7 +1157,6 @@ pub async fn init_game_state(
         prev_balls: balls.clone(),
         actual_balls: balls,
         ball_node_ids,
-        ball_pbr_mesh_index: ball_pbr_material_index,
 
         ball_spawner_acc: 0.0,
 

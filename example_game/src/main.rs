@@ -13,6 +13,7 @@ use crate::game::handle_surface_resize;
 use crate::game::handle_window_event;
 use crate::game::init_game_state;
 use crate::game::update_game_state;
+use crate::game::ENABLE_AUDIO;
 
 use ikari::engine_state::EngineState;
 use ikari::renderer::BaseRenderer;
@@ -104,7 +105,7 @@ async fn start() {
 
         log::debug!("renderer: {:?}", application_start_time.elapsed());
 
-        let mut engine_state = EngineState::new()?;
+        let mut engine_state = EngineState::new(ENABLE_AUDIO)?;
 
         let game_state =
             init_game_state(&mut engine_state, &mut renderer, &mut surface_data, &window).await?;

@@ -405,6 +405,7 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
 }
 
 // adapted from https://github.com/gltf-rs/gltf/blob/d7750db79f029d91f57d26afd0d641f5ffdd1453/src/import.rs#L15
+#[allow(dead_code)]
 enum GltfUri<'a> {
     /// `data:[<media type>];base64,<data>`.
     Data(Option<&'a str>, &'a str),
