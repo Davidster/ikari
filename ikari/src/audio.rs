@@ -84,11 +84,12 @@ pub fn create_audio_manager(
                 return (Box::new(audio_manager), Box::new(audio_streams));
             }
             Err(err) => log::error!(
-                "Error initializing audio, falling back to null (silent) audio manager. {err:?}"
+                "Error initializing audio, falling back to null (silent) audio manager:\n{err:?}"
             ),
         }
     }
 
+    #[cfg(not(feature = "audio"))]
     if enable_audio {
         log::warn!("Tried to enable audio but ikari was compiled without support for it. Did you forget to enable the audio feature in cargo?");
     }
