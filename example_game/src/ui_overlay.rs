@@ -44,15 +44,18 @@ use ikari::time::Duration;
 
 use crate::game::INITIAL_BLOOM_INTENSITY;
 use crate::game::INITIAL_BLOOM_RADIUS;
+use crate::game::INITIAL_BOUNDING_SPHERES_DEBUG;
 use crate::game::INITIAL_ENABLE_BLOOM;
 use crate::game::INITIAL_ENABLE_CASCADE_DEBUG;
 use crate::game::INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG;
 use crate::game::INITIAL_ENABLE_DEPTH_PREPASS;
 use crate::game::INITIAL_ENABLE_DIRECTIONAL_LIGHT_CULLING_FRUSTUM_DEBUG;
 use crate::game::INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG;
+use crate::game::INITIAL_ENABLE_SHADOWS;
 use crate::game::INITIAL_ENABLE_SHADOW_DEBUG;
 use crate::game::INITIAL_ENABLE_SOFT_SHADOWS;
 use crate::game::INITIAL_ENABLE_VSYNC;
+use crate::game::INITIAL_ENABLE_WIREFRAME;
 use crate::game::INITIAL_FAR_PLANE_DISTANCE;
 use crate::game::INITIAL_FOV_X;
 use crate::game::INITIAL_FRAMERATE_LIMIT;
@@ -66,6 +69,7 @@ use crate::game::INITIAL_SKYBOX_WEIGHT;
 use crate::game::INITIAL_SOFT_SHADOWS_MAX_DISTANCE;
 use crate::game::INITIAL_SOFT_SHADOW_FACTOR;
 use crate::game::INITIAL_SOFT_SHADOW_GRID_DIMS;
+use crate::game::INITIAL_TONE_MAPPING_EXPOSURE;
 
 // Default
 pub const LATO_FONT_BYTES: &[u8] = include_bytes!("./fonts/Lato-Regular.ttf");
@@ -116,6 +120,7 @@ pub enum Message {
     FovxChanged(f32),
     NearPlaneDistanceChanged(f32),
     FarPlaneDistanceChanged(f32),
+    ExposureChanged(f32),
     ToggleBloom(bool),
     BloomRadiusChanged(f32),
     BloomIntensityChanged(f32),
@@ -127,10 +132,13 @@ pub enum Message {
     ToggleFps(bool),
     ToggleFpsChart(bool),
     ToggleGpuSpans(bool),
+    ToggleShadows(bool),
     ToggleSoftShadows(bool),
     ToggleDrawCullingFrustum(bool),
     ToggleDrawPointLightCullingFrusta(bool),
     ToggleDrawDirectionalLightCullingFrusta(bool),
+    ToggleWireframe(bool),
+    ToggleBoundingSpheresDebug(bool),
     ToggleShadowDebug(bool),
     ToggleCascadeDebug(bool),
     ToggleAudioStats(bool),
@@ -205,6 +213,8 @@ impl Default for CameraSettings {
 pub struct PostEffectSettings {
     collapsed: bool,
 
+    pub exposure: f32,
+
     pub enable_bloom: bool,
     pub bloom_radius: f32,
     pub bloom_intensity: f32,
@@ -217,8 +227,9 @@ impl Default for PostEffectSettings {
         Self {
             collapsed: true,
 
-            enable_bloom: INITIAL_ENABLE_BLOOM,
+            exposure: INITIAL_TONE_MAPPING_EXPOSURE,
 
+            enable_bloom: INITIAL_ENABLE_BLOOM,
             bloom_radius: INITIAL_BLOOM_RADIUS,
             bloom_intensity: INITIAL_BLOOM_INTENSITY,
 
@@ -231,6 +242,7 @@ impl Default for PostEffectSettings {
 pub struct ShadowSettings {
     collapsed: bool,
 
+    pub enable_shadows: bool,
     pub enable_soft_shadows: bool,
     pub shadow_bias: f32,
     pub soft_shadow_factor: f32,
@@ -244,6 +256,7 @@ impl Default for ShadowSettings {
         Self {
             collapsed: true,
 
+            enable_shadows: INITIAL_ENABLE_SHADOWS,
             enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
             shadow_bias: INITIAL_SHADOW_BIAS,
             soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
@@ -259,6 +272,8 @@ impl Default for ShadowSettings {
 pub struct DebugSettings {
     collapsed: bool,
 
+    pub enable_wireframe: bool,
+    pub bounding_spheres_debug: bool,
     pub draw_culling_frustum: bool,
     pub draw_point_light_culling_frusta: bool,
     pub draw_directional_light_culling_frusta: bool,
@@ -280,6 +295,8 @@ impl Default for DebugSettings {
         Self {
             collapsed: true,
 
+            enable_wireframe: INITIAL_ENABLE_WIREFRAME,
+            bounding_spheres_debug: INITIAL_BOUNDING_SPHERES_DEBUG,
             draw_culling_frustum: INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG,
             draw_point_light_culling_frusta: INITIAL_ENABLE_POINT_LIGHT_CULLING_FRUSTUM_DEBUG,
             draw_directional_light_culling_frusta:
@@ -874,6 +891,9 @@ impl runtime::Program for UiOverlay {
             Message::TogglePostEffectSettingsCollapse => {
                 self.post_effect_settings.collapsed = !self.post_effect_settings.collapsed;
             }
+            Message::ExposureChanged(new_state) => {
+                self.post_effect_settings.exposure = new_state;
+            }
             Message::ToggleBloom(new_state) => {
                 self.post_effect_settings.enable_bloom = new_state;
             }
@@ -895,6 +915,9 @@ impl runtime::Program for UiOverlay {
             }
             Message::SoftShadowsMaxDistanceChanged(new_state) => {
                 self.shadow_settings.soft_shadows_max_distance = new_state
+            }
+            Message::ToggleShadows(new_state) => {
+                self.shadow_settings.enable_shadows = new_state;
             }
             Message::ToggleSoftShadows(new_state) => {
                 self.shadow_settings.enable_soft_shadows = new_state;
@@ -923,6 +946,12 @@ impl runtime::Program for UiOverlay {
             }
             Message::ToggleDrawDirectionalLightCullingFrusta(new_state) => {
                 self.debug_settings.draw_directional_light_culling_frusta = new_state;
+            }
+            Message::ToggleWireframe(new_state) => {
+                self.debug_settings.enable_wireframe = new_state;
+            }
+            Message::ToggleBoundingSpheresDebug(new_state) => {
+                self.debug_settings.bounding_spheres_debug = new_state;
             }
             Message::ToggleShadowDebug(new_state) => {
                 self.debug_settings.enable_shadow_debug = new_state;
@@ -1406,6 +1435,8 @@ impl runtime::Program for UiOverlay {
                 let PostEffectSettings {
                     collapsed,
 
+                    exposure,
+
                     enable_bloom,
                     bloom_radius,
                     bloom_intensity,
@@ -1421,6 +1452,11 @@ impl runtime::Program for UiOverlay {
                 ));
 
                 if !collapsed {
+                    options = options
+                        .push(text(format!("Exposure: {:.4}", exposure)).size(small_text_size));
+                    options = options
+                        .push(slider(0.05..=10.0, exposure, Message::ExposureChanged).step(0.05));
+
                     options = options.push(
                         checkbox("Enable Bloom", enable_bloom)
                             .size(checkbox_size)
@@ -1462,6 +1498,7 @@ impl runtime::Program for UiOverlay {
                 let ShadowSettings {
                     collapsed,
 
+                    enable_shadows,
                     enable_soft_shadows,
                     shadow_bias,
                     soft_shadow_factor,
@@ -1477,6 +1514,12 @@ impl runtime::Program for UiOverlay {
                 ));
 
                 if !collapsed {
+                    options = options.push(
+                        checkbox("Enable Shadows", enable_shadows)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleShadows),
+                    );
                     options = options.push(
                         checkbox("Enable Soft Shadows", enable_soft_shadows)
                             .size(checkbox_size)
@@ -1557,6 +1600,8 @@ impl runtime::Program for UiOverlay {
                 let DebugSettings {
                     collapsed,
 
+                    enable_wireframe,
+                    bounding_spheres_debug,
                     draw_culling_frustum,
                     draw_point_light_culling_frusta,
                     draw_directional_light_culling_frusta,
@@ -1614,6 +1659,20 @@ impl runtime::Program for UiOverlay {
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleCameraPose),
+                    );
+
+                    options = options.push(
+                        checkbox("Wireframe", enable_wireframe)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleWireframe),
+                    );
+
+                    options = options.push(
+                        checkbox("Bounding Spheres", bounding_spheres_debug)
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleBoundingSpheresDebug),
                     );
 
                     options = options.push(

@@ -1044,7 +1044,7 @@ impl Default for ShadowSettings {
 
 #[derive(Debug, Copy, Clone, PartialEq, Default)]
 pub struct DebugSettings {
-    pub enable_wireframe_mode: bool,
+    pub enable_wireframe: bool,
     pub draw_node_bounding_spheres: bool,
     pub draw_culling_frustum: bool,
     pub draw_point_light_culling_frusta: bool,
@@ -5673,7 +5673,7 @@ impl Renderer {
         let mut culled_object_counts_per_camera: Vec<u64> = vec![0; camera_count];
 
         let DebugSettings {
-            enable_wireframe_mode,
+            enable_wireframe,
             record_culling_stats,
             ..
         } = data.debug_settings;
@@ -5698,7 +5698,7 @@ impl Renderer {
                     .distance_squared(camera_position)
                     - node_bounding_sphere.radius;
 
-                match (material, enable_wireframe_mode, wireframe) {
+                match (material, enable_wireframe, wireframe) {
                     (
                         Material::Pbr {
                             binded_material_index,
@@ -5771,7 +5771,7 @@ impl Renderer {
                             }
                         }
                     }
-                    (material, enable_wireframe_mode, is_node_wireframe) => {
+                    (material, enable_wireframe, is_node_wireframe) => {
                         let (color, is_transparent) = match material {
                             Material::Unlit { color } => ([color.x, color.y, color.z, 1.0], false),
                             Material::Transparent {
@@ -5837,7 +5837,7 @@ impl Renderer {
                             }
                         };
 
-                        if enable_wireframe_mode || is_node_wireframe {
+                        if enable_wireframe || is_node_wireframe {
                             let wireframe_mesh_index = data
                                 .binded_wireframe_meshes
                                 .iter()
