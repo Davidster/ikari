@@ -1031,7 +1031,7 @@ pub struct ShadowSettings {
 impl Default for ShadowSettings {
     fn default() -> Self {
         Self {
-            enable_shadows: true,
+            enable_shadows: false,
             enable_soft_shadows: true,
             shadow_bias: 0.001,
             soft_shadow_factor: 0.00003,
@@ -2730,8 +2730,11 @@ impl Renderer {
                 label: USE_LABELS.then_some("bones_and_wireframe_instances_bind_group"),
             });
 
+        // TODO: start with 1x1 rez, and provide and initial value to fill the texture with
+        // find usages of DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION and replace with 1 when shadows are disabled
         let point_shadow_map_textures = Texture::create_depth_texture_array(
             &base,
+            // (6, 1),
             (
                 6 * POINT_LIGHT_SHADOW_MAP_RESOLUTION,
                 POINT_LIGHT_SHADOW_MAP_RESOLUTION,
@@ -2742,6 +2745,7 @@ impl Renderer {
 
         let directional_shadow_map_textures = Texture::create_depth_texture_array(
             &base,
+            // (1, 1),
             (
                 DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION,
                 DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION,

@@ -79,7 +79,7 @@ pub const INITIAL_BLOOM_RADIUS: f32 = 0.005;
 pub const INITIAL_BLOOM_INTENSITY: f32 = 0.04;
 pub const INITIAL_SKYBOX_WEIGHT: f32 = 1.0;
 
-pub const INITIAL_ENABLE_SHADOWS: bool = true;
+pub const INITIAL_ENABLE_SHADOWS: bool = false;
 pub const INITIAL_ENABLE_SOFT_SHADOWS: bool = true;
 pub const INITIAL_SHADOW_BIAS: f32 = 0.001;
 pub const INITIAL_SOFT_SHADOW_FACTOR: f32 = 0.00003;
