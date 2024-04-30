@@ -156,6 +156,7 @@ fn main() {
         env_logger::init();
     } else {
         env_logger::builder()
+            .filter_level(log::LevelFilter::Error)
             .filter(Some(env!("CARGO_PKG_NAME")), log::LevelFilter::Info)
             .filter(Some(env!("CARGO_BIN_NAME")), log::LevelFilter::Info)
             .filter(Some("ikari"), log::LevelFilter::Info)
