@@ -492,6 +492,8 @@ impl Texture {
         size: (u32, u32),
         label: Option<&str>,
         length: u32,
+        // TODO: add this to other create_depth variants
+        fill_with_value: Option<u32>,
     ) -> Self {
         let size = wgpu::Extent3d {
             width: size.0,
