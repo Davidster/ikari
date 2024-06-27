@@ -321,6 +321,8 @@ pub async fn init_game_state(
 
             let mut asset_ids = asset_ids_clone.lock();
 
+            asset_ids.starship = load_gltf("src/models/gltf/starship/starship.glb").into();
+
             // player's revolver
             // https://done3d.com/colt-python-8-inch/
             asset_ids.gun = load_gltf("src/models/gltf/ColtPython/colt_python.glb").into();
@@ -328,14 +330,14 @@ pub async fn init_game_state(
 
             // forest
             // https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f
-            asset_ids.forest = load_gltf("src/models/gltf/free_low_poly_forest/scene.gltf").into();
+            // asset_ids.forest = load_gltf("src/models/gltf/free_low_poly_forest/scene.gltf").into();
 
             // legendary robot
             // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-            asset_ids.legendary_robot =
-                load_gltf("src/models/gltf/LegendaryRobot/Legendary_Robot.gltf").into();
+            // asset_ids.legendary_robot =
+            //     load_gltf("src/models/gltf/LegendaryRobot/Legendary_Robot.gltf").into();
 
-            asset_ids.test_level = load_gltf("src/models/gltf/TestLevel/test_level.gltf").into();
+            // asset_ids.test_level = load_gltf("src/models/gltf/TestLevel/test_level.gltf").into();
 
             for path in get_misc_gltf_paths() {
                 asset_ids.anonymous_scenes.push(load_gltf(path));
@@ -681,7 +683,7 @@ pub async fn init_game_state(
         ball_node_ids.push(node.id());
     }
 
-    let physics_ball_count = 500;
+    let physics_ball_count = 0;
     let physics_balls: Vec<_> = (0..physics_ball_count)
         .map(|_| {
             PhysicsBall::new_random(
@@ -918,10 +920,10 @@ pub async fn init_game_state(
         .build();
     let _floor_node = scene.add_node(
         GameNodeDescBuilder::new()
-            .visual(Some(GameNodeVisual::make_pbr(
-                renderer.constant_data.plane_mesh_index,
-                floor_material_index,
-            )))
+            // .visual(Some(GameNodeVisual::make_pbr(
+            //     renderer.constant_data.plane_mesh_index,
+            //     floor_material_index,
+            // )))
             .transform(floor_transform)
             .build(),
     );
@@ -1400,6 +1402,28 @@ pub fn update_game_state(
                             .build(),
                     ));
                 }
+            }
+        }
+
+        if let Some(asset_id) = asset_ids_guard.starship {
+            if let Entry::Occupied(entry) = loaded_assets_guard.entry(asset_id) {
+                let (_, mut other_loaded_scene) = entry.remove_entry();
+                // // hack to get the terrain to be at the same height as the ground.
+                // let node_has_parent: Vec<_> = other_loaded_scene
+                //     .scene
+                //     .nodes()
+                //     .map(|node| node.parent_id.is_some())
+                //     .collect();
+                // for (i, node) in other_loaded_scene.scene.nodes_mut().enumerate() {
+                //     if node_has_parent[i] {
+                //         continue;
+                //     }
+                //     node.transform
+                //         .set_position(node.transform.position() + Vec3::new(0.0, 29.0, 0.0));
+                // }
+                engine_state
+                    .scene
+                    .merge_scene(&mut renderer_data_guard, other_loaded_scene);
             }
         }
 

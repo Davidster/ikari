@@ -48,6 +48,7 @@ pub struct GameState {
 #[derive(Default)]
 pub struct AssetIds {
     pub gun: Option<AssetId>,
+    pub starship: Option<AssetId>,
     pub forest: Option<AssetId>,
     pub legendary_robot: Option<AssetId>,
     pub test_level: Option<AssetId>,
