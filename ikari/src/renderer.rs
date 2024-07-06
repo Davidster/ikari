@@ -56,8 +56,9 @@ pub const MAX_SHADOW_CASCADES: usize = 4;
 pub const DEFAULT_WIREFRAME_COLOR: [f32; 4] = [0.0, 1.0, 1.0, 1.0];
 pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE: f32 = 0.1;
 pub const POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE: f32 = 1000.0;
-pub const POINT_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 1024;
-pub const DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 2048;
+pub const DEFAULT_POINT_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 1024;
+pub const DEFAULT_DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 2048;
+pub const MAX_POINT_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 8192 / 6;
 pub const POINT_LIGHT_SHOW_MAP_COUNT: u32 = 2;
 pub const DIRECTIONAL_LIGHT_SHOW_MAP_COUNT: u32 = 2;
 pub const DIRECTIONAL_LIGHT_PROJ_BOX_LENGTH: f32 = 50.0;
@@ -803,6 +804,7 @@ pub struct RendererPrivateData {
     frustum_culling_lock: CullingFrustumLock,
     skybox_weights: [f32; 2],
     bloom_cleared: bool,
+    shadows_cleared: bool,
 
     new_pending_surface_config: Option<wgpu::SurfaceConfiguration>,
     current_render_scale: f32,
@@ -1021,6 +1023,10 @@ impl Default for PostEffectSettings {
 pub struct ShadowSettings {
     pub enable_shadows: bool,
     pub enable_soft_shadows: bool,
+    /// Each cubemap face will have this resolution
+    pub point_light_shadow_map_resolution: u32,
+    // Each cascade will have this resolution
+    pub directional_light_shadow_map_resolution: u32,
     pub shadow_bias: f32,
     pub soft_shadow_factor: f32,
     pub soft_shadows_max_distance: f32,
@@ -1033,11 +1039,33 @@ impl Default for ShadowSettings {
         Self {
             enable_shadows: false,
             enable_soft_shadows: true,
+            point_light_shadow_map_resolution: DEFAULT_POINT_LIGHT_SHADOW_MAP_RESOLUTION,
+            directional_light_shadow_map_resolution:
+                DEFAULT_DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION,
             shadow_bias: 0.001,
             soft_shadow_factor: 0.00003,
             soft_shadows_max_distance: 100.0,
             soft_shadow_grid_dims: 4,
             shadow_small_object_culling_size_pixels: 16.0,
+        }
+    }
+}
+
+impl ShadowSettings {
+    pub fn final_point_light_shadow_map_resolution(&self) -> u32 {
+        if self.enable_shadows {
+            self.point_light_shadow_map_resolution
+                .min(MAX_POINT_LIGHT_SHADOW_MAP_RESOLUTION)
+        } else {
+            1
+        }
+    }
+
+    pub fn final_directional_light_shadow_map_resolution(&self) -> u32 {
+        if self.enable_shadows {
+            self.directional_light_shadow_map_resolution
+        } else {
+            1
         }
     }
 }
@@ -2730,31 +2758,33 @@ impl Renderer {
                 label: USE_LABELS.then_some("bones_and_wireframe_instances_bind_group"),
             });
 
-        // TODO: start with 1x1 rez, and provide and initial value to fill the texture with
-        // find usages of DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION and replace with 1 when shadows are disabled
+        let point_light_shadow_map_resolution =
+            shadow_settings.final_point_light_shadow_map_resolution();
+
         let point_shadow_map_textures = Texture::create_depth_texture_array(
             &base,
-            // (6, 1),
             (
-                6 * POINT_LIGHT_SHADOW_MAP_RESOLUTION,
-                POINT_LIGHT_SHADOW_MAP_RESOLUTION,
+                6 * point_light_shadow_map_resolution,
+                point_light_shadow_map_resolution,
             ),
             Some("point_shadow_map_texture"),
             POINT_LIGHT_SHOW_MAP_COUNT,
         );
 
+        let directional_light_shadow_map_resolution =
+            shadow_settings.final_directional_light_shadow_map_resolution();
+
         let directional_shadow_map_textures = Texture::create_depth_texture_array(
             &base,
-            // (1, 1),
             (
-                DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION,
-                DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION,
+                directional_light_shadow_map_resolution,
+                directional_light_shadow_map_resolution,
             ),
             Some("directional_shadow_map_texture"),
             DIRECTIONAL_LIGHT_SHOW_MAP_COUNT * MAX_SHADOW_CASCADES as u32,
         );
 
-        let environment_textures_bind_group = Self::get_environment_textures_bind_group(
+        let environment_textures_bind_group = Self::create_environment_textures_bind_group(
             &base,
             &constant_data,
             &skyboxes,
@@ -2838,7 +2868,8 @@ impl Renderer {
                 culling_frustum_collider: None,
                 frustum_culling_lock: CullingFrustumLock::None,
                 skybox_weights,
-                bloom_cleared: true,
+                bloom_cleared: false,
+                shadows_cleared: false,
 
                 new_pending_surface_config: None,
                 current_render_scale: general_settings.render_scale,
@@ -3940,7 +3971,7 @@ impl Renderer {
         }
     }
 
-    fn get_environment_textures_bind_group(
+    fn create_environment_textures_bind_group(
         base: &BaseRenderer,
         constant_data: &RendererConstantData,
         skyboxes: &[BindedSkybox; 2],
@@ -4035,7 +4066,7 @@ impl Renderer {
         private_data_guard.skyboxes[slot.as_index()] = skybox;
 
         private_data_guard.environment_textures_bind_group =
-            Self::get_environment_textures_bind_group(
+            Self::create_environment_textures_bind_group(
                 &self.base,
                 &self.constant_data,
                 &private_data_guard.skyboxes,
@@ -4131,6 +4162,10 @@ impl Renderer {
 
         let culling_frustum = Frustum::from(culling_frustum_desc);
 
+        let directional_light_shadow_map_resolution = data
+            .shadow_settings
+            .final_directional_light_shadow_map_resolution();
+
         let mut resolved_directional_light_cascades = vec![];
         for directional_light in &engine_state.scene.directional_lights {
             let from_light_space =
@@ -4189,7 +4224,7 @@ impl Renderer {
                     light_space_frustum_slice.make_rotation_independent_bounding_sphere();
 
                 let pixel_size =
-                    2.0 * bounding_sphere.radius / DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION as f32;
+                    2.0 * bounding_sphere.radius / directional_light_shadow_map_resolution as f32;
 
                 let rounded_bounding_sphere_center = Vec3::new(
                     bounding_sphere.center.x - bounding_sphere.center.x % pixel_size,
@@ -4522,6 +4557,49 @@ impl Renderer {
             );
         }
 
+        let point_light_shadow_map_resolution = data
+            .shadow_settings
+            .final_point_light_shadow_map_resolution();
+
+        let point_light_shadow_map_res_changed =
+            private_data.point_shadow_map_textures.size.height != point_light_shadow_map_resolution;
+        if point_light_shadow_map_res_changed {
+            profiling::scope!("Recreate point light shadow map");
+
+            if data.shadow_settings.point_light_shadow_map_resolution
+                > MAX_POINT_LIGHT_SHADOW_MAP_RESOLUTION
+            {
+                log::error!("Point light shadow map resolution cannot be set above {MAX_POINT_LIGHT_SHADOW_MAP_RESOLUTION}, and thus will be clamped to that value. This is limited by the current implementation of point shadows in ikari, where the shadow maps' cube faces are packed into a single lopsided texture");
+            }
+
+            private_data.point_shadow_map_textures = Texture::create_depth_texture_array(
+                &self.base,
+                (
+                    6 * point_light_shadow_map_resolution,
+                    point_light_shadow_map_resolution,
+                ),
+                Some("point_shadow_map_texture"),
+                POINT_LIGHT_SHOW_MAP_COUNT,
+            );
+        }
+
+        let directional_light_shadow_map_res_changed =
+            private_data.directional_shadow_map_textures.size.width
+                != directional_light_shadow_map_resolution;
+        if directional_light_shadow_map_res_changed {
+            profiling::scope!("Recreate directional light shadow map");
+
+            private_data.directional_shadow_map_textures = Texture::create_depth_texture_array(
+                &self.base,
+                (
+                    directional_light_shadow_map_resolution,
+                    directional_light_shadow_map_resolution,
+                ),
+                Some("directional_shadow_map_texture"),
+                DIRECTIONAL_LIGHT_SHOW_MAP_COUNT * MAX_SHADOW_CASCADES as u32,
+            );
+        }
+
         {
             profiling::scope!("Recreate bind groups");
 
@@ -4646,6 +4724,19 @@ impl Renderer {
                     ],
                     label: USE_LABELS.then_some("bones_and_wireframe_instances_bind_group"),
                 });
+
+            if point_light_shadow_map_res_changed || directional_light_shadow_map_res_changed {
+                private_data.environment_textures_bind_group =
+                    Self::create_environment_textures_bind_group(
+                        &self.base,
+                        &self.constant_data,
+                        &private_data.skyboxes,
+                        &private_data.skybox_weights_buffer,
+                        &private_data.brdf_lut,
+                        &private_data.point_shadow_map_textures,
+                        &private_data.directional_shadow_map_textures,
+                    );
+            }
         }
 
         let mut all_camera_data: Vec<ShaderCameraData> = vec![];
@@ -4891,7 +4982,7 @@ impl Renderer {
 
         let PostEffectSettings { enable_bloom, .. } = data.post_effect_settings;
 
-        let ShadowSettings { enable_shadows, .. } = data.shadow_settings;
+        let shadow_settings = data.shadow_settings;
 
         let surface_texture_view =
             surface_texture
@@ -4906,8 +4997,18 @@ impl Renderer {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        if enable_shadows {
+        if shadow_settings.enable_shadows {
+            private_data.shadows_cleared = false;
+        }
+
+        let shadows_need_clearing =
+            !shadow_settings.enable_shadows && !private_data.shadows_cleared;
+
+        if shadow_settings.enable_shadows || shadows_need_clearing {
             let mut culling_mask_camera_index = 1; // start at one to skip main camera
+
+            let point_light_shadow_map_resolution =
+                private_data.point_shadow_map_textures.size.height;
 
             for (light_index, light) in engine_state.scene.directional_lights.iter().enumerate() {
                 if light_index >= DIRECTIONAL_LIGHT_SHOW_MAP_COUNT as usize {
@@ -4952,16 +5053,18 @@ impl Renderer {
                         shadow_render_pass_desc,
                     );
 
-                    Self::render_pbr_meshes(
-                        data,
-                        private_data,
-                        &mut render_pass,
-                        &self.constant_data.directional_shadow_map_pipeline,
-                        &private_data.camera_lights_and_pbr_shader_options_bind_groups
-                            [culling_mask_camera_index],
-                        true,
-                        culling_mask_camera_index,
-                    );
+                    if shadow_settings.enable_shadows {
+                        Self::render_pbr_meshes(
+                            data,
+                            private_data,
+                            &mut render_pass,
+                            &self.constant_data.directional_shadow_map_pipeline,
+                            &private_data.camera_lights_and_pbr_shader_options_bind_groups
+                                [culling_mask_camera_index],
+                            true,
+                            culling_mask_camera_index,
+                        );
+                    }
 
                     culling_mask_camera_index += 1;
                 }
@@ -5010,38 +5113,47 @@ impl Renderer {
                         shadow_render_pass_desc,
                     );
 
-                    build_cubemap_face_camera_views(
-                        light_node.transform.position(),
-                        POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
-                        POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
-                        false,
-                    )
-                    .enumerate()
-                    .for_each(|(face_index, _face_view_proj_matrices)| {
-                        render_pass.set_viewport(
-                            (face_index * POINT_LIGHT_SHADOW_MAP_RESOLUTION as usize) as f32,
-                            0.0,
-                            POINT_LIGHT_SHADOW_MAP_RESOLUTION as f32,
-                            POINT_LIGHT_SHADOW_MAP_RESOLUTION as f32,
-                            0.0,
-                            1.0,
-                        );
+                    if shadow_settings.enable_shadows {
+                        build_cubemap_face_camera_views(
+                            light_node.transform.position(),
+                            POINT_LIGHT_SHADOW_MAP_FRUSTUM_NEAR_PLANE,
+                            POINT_LIGHT_SHADOW_MAP_FRUSTUM_FAR_PLANE,
+                            false,
+                        )
+                        .enumerate()
+                        .for_each(
+                            |(face_index, _face_view_proj_matrices)| {
+                                render_pass.set_viewport(
+                                    (face_index * point_light_shadow_map_resolution as usize)
+                                        as f32,
+                                    0.0,
+                                    point_light_shadow_map_resolution as f32,
+                                    point_light_shadow_map_resolution as f32,
+                                    0.0,
+                                    1.0,
+                                );
 
-                        Self::render_pbr_meshes(
-                            data,
-                            private_data,
-                            &mut render_pass,
-                            &self.constant_data.point_shadow_map_pipeline,
-                            &private_data.camera_lights_and_pbr_shader_options_bind_groups
-                                [culling_mask_camera_index],
-                            true,
-                            culling_mask_camera_index,
-                        );
+                                Self::render_pbr_meshes(
+                                    data,
+                                    private_data,
+                                    &mut render_pass,
+                                    &self.constant_data.point_shadow_map_pipeline,
+                                    &private_data.camera_lights_and_pbr_shader_options_bind_groups
+                                        [culling_mask_camera_index],
+                                    true,
+                                    culling_mask_camera_index,
+                                );
 
-                        culling_mask_camera_index += 1;
-                    });
+                                culling_mask_camera_index += 1;
+                            },
+                        );
+                    }
                 }
             }
+        }
+
+        if shadows_need_clearing {
+            private_data.shadows_cleared = true;
         }
 
         let black = wgpu::Color {

@@ -81,6 +81,8 @@ pub const INITIAL_SKYBOX_WEIGHT: f32 = 1.0;
 
 pub const INITIAL_ENABLE_SHADOWS: bool = false;
 pub const INITIAL_ENABLE_SOFT_SHADOWS: bool = true;
+pub const INITIAL_POINT_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 1024;
+pub const INITIAL_DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION: u32 = 2048;
 pub const INITIAL_SHADOW_BIAS: f32 = 0.001;
 pub const INITIAL_SOFT_SHADOW_FACTOR: f32 = 0.00003;
 pub const INITIAL_SOFT_SHADOWS_MAX_DISTANCE: f32 = 100.0;
@@ -2005,6 +2007,15 @@ pub fn update_game_state(
             ui_state.shadow_settings.enable_shadows;
         renderer_data_guard.shadow_settings.enable_soft_shadows =
             ui_state.shadow_settings.enable_soft_shadows;
+        renderer_data_guard
+            .shadow_settings
+            .point_light_shadow_map_resolution =
+            ui_state.shadow_settings.point_light_shadow_map_resolution;
+        renderer_data_guard
+            .shadow_settings
+            .directional_light_shadow_map_resolution = ui_state
+            .shadow_settings
+            .directional_light_shadow_map_resolution;
         renderer_data_guard
             .shadow_settings
             .shadow_small_object_culling_size_pixels = ui_state
