@@ -1211,8 +1211,13 @@ fn get_vertex_colors(
         .map(|(_, accessor)| {
             let data_type = accessor.data_type();
             let dimensions = accessor.dimensions();
-            if dimensions != gltf::accessor::Dimensions::Vec4 {
-                bail!("Expected vec4 data but found: {:?}", dimensions);
+            if dimensions != gltf::accessor::Dimensions::Vec4
+                && dimensions != gltf::accessor::Dimensions::Vec3
+            {
+                bail!(
+                    "get_vertex_colors Expected vec3 or vec4 data but found: {:?}",
+                    dimensions
+                );
             }
             let buffer_slice = match data_type {
                 gltf::accessor::DataType::F32 => {
@@ -1241,6 +1246,18 @@ fn get_vertex_colors(
             .ok_or_else(|| {
                 anyhow::anyhow!("Expected f32, u8, or u16 data but found: {:?}", data_type)
             })?;
+
+            if dimensions == gltf::accessor::Dimensions::Vec3 {
+                let result_vec3: Vec<[f32; 3]> = bytemuck::cast_slice(buffer_slice).to_vec();
+
+                let result_vec4: Vec<[f32; 4]> = result_vec3
+                    .iter()
+                    .map(|color| [color[0], color[1], color[2], 1.0])
+                    .collect();
+
+                return Ok(result_vec4);
+            }
+
             Ok(bytemuck::cast_slice(buffer_slice).to_vec())
         })
         .transpose()?
