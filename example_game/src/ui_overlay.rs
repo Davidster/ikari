@@ -45,6 +45,7 @@ use ikari::time::Duration;
 use crate::game::INITIAL_BLOOM_INTENSITY;
 use crate::game::INITIAL_BLOOM_RADIUS;
 use crate::game::INITIAL_BOUNDING_SPHERES_DEBUG;
+use crate::game::INITIAL_DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION;
 use crate::game::INITIAL_ENABLE_BLOOM;
 use crate::game::INITIAL_ENABLE_CASCADE_DEBUG;
 use crate::game::INITIAL_ENABLE_CULLING_FRUSTUM_DEBUG;
@@ -62,6 +63,7 @@ use crate::game::INITIAL_FRAMERATE_LIMIT;
 use crate::game::INITIAL_IS_SHOWING_CAMERA_POSE;
 use crate::game::INITIAL_IS_SHOWING_CURSOR_MARKER;
 use crate::game::INITIAL_NEAR_PLANE_DISTANCE;
+use crate::game::INITIAL_POINT_LIGHT_SHADOW_MAP_RESOLUTION;
 use crate::game::INITIAL_RENDER_SCALE;
 use crate::game::INITIAL_SHADOW_BIAS;
 use crate::game::INITIAL_SHADOW_SMALL_OBJECT_CULLING_SIZE_PIXELS;
@@ -145,6 +147,8 @@ pub enum Message {
     ToggleCullingStats(bool),
     ShadowBiasChanged(f32),
     SkyboxWeightChanged(f32),
+    PointLightShadowMapResolutionChanged(u32),
+    DirectionalLightShadowMapResolutionChanged(u32),
     SoftShadowFactorChanged(f32),
     SoftShadowGridDimsChanged(u32),
     CullingFrustumLockModeChanged(CullingFrustumLockMode),
@@ -244,6 +248,8 @@ pub struct ShadowSettings {
 
     pub enable_shadows: bool,
     pub enable_soft_shadows: bool,
+    pub point_light_shadow_map_resolution: u32,
+    pub directional_light_shadow_map_resolution: u32,
     pub shadow_bias: f32,
     pub soft_shadow_factor: f32,
     pub soft_shadows_max_distance: f32,
@@ -258,6 +264,9 @@ impl Default for ShadowSettings {
 
             enable_shadows: INITIAL_ENABLE_SHADOWS,
             enable_soft_shadows: INITIAL_ENABLE_SOFT_SHADOWS,
+            point_light_shadow_map_resolution: INITIAL_POINT_LIGHT_SHADOW_MAP_RESOLUTION,
+            directional_light_shadow_map_resolution:
+                INITIAL_DIRECTIONAL_LIGHT_SHADOW_MAP_RESOLUTION,
             shadow_bias: INITIAL_SHADOW_BIAS,
             soft_shadow_factor: INITIAL_SOFT_SHADOW_FACTOR,
             soft_shadows_max_distance: INITIAL_SOFT_SHADOWS_MAX_DISTANCE,
@@ -928,6 +937,12 @@ impl runtime::Program for UiOverlay {
             Message::SoftShadowFactorChanged(new_state) => {
                 self.shadow_settings.soft_shadow_factor = new_state;
             }
+            Message::PointLightShadowMapResolutionChanged(new_state) => {
+                self.shadow_settings.point_light_shadow_map_resolution = new_state;
+            }
+            Message::DirectionalLightShadowMapResolutionChanged(new_state) => {
+                self.shadow_settings.directional_light_shadow_map_resolution = new_state;
+            }
             Message::SoftShadowGridDimsChanged(new_state) => {
                 self.shadow_settings.soft_shadow_grid_dims = new_state;
             }
@@ -1500,6 +1515,8 @@ impl runtime::Program for UiOverlay {
 
                     enable_shadows,
                     enable_soft_shadows,
+                    point_light_shadow_map_resolution,
+                    directional_light_shadow_map_resolution,
                     shadow_bias,
                     soft_shadow_factor,
                     soft_shadows_max_distance,
@@ -1525,6 +1542,36 @@ impl runtime::Program for UiOverlay {
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleSoftShadows),
+                    );
+                    options = options.push(
+                        text(format!(
+                            "Point Shadow Map Resolution: {:}",
+                            point_light_shadow_map_resolution
+                        ))
+                        .size(small_text_size),
+                    );
+                    options = options.push(
+                        slider(
+                            256..=1360,
+                            point_light_shadow_map_resolution,
+                            Message::PointLightShadowMapResolutionChanged,
+                        )
+                        .step(16u32),
+                    );
+                    options = options.push(
+                        text(format!(
+                            "Directional Shadow Map Resolution: {:}",
+                            directional_light_shadow_map_resolution
+                        ))
+                        .size(small_text_size),
+                    );
+                    options = options.push(
+                        slider(
+                            256..=4096,
+                            directional_light_shadow_map_resolution,
+                            Message::DirectionalLightShadowMapResolutionChanged,
+                        )
+                        .step(64u32),
                     );
                     options = options.push(
                         text(format!("Soft Shadow Factor: {:.6}", soft_shadow_factor))
