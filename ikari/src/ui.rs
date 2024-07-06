@@ -23,7 +23,7 @@ pub trait UiProgramEvents: runtime::Program {
 pub struct EmptyUiOverlay;
 
 // integrates iced into ikari
-// based off of https://github.com/iced-rs/iced/tree/master/examples/integration_wgpu
+// based off of https://github.com/iced-rs/iced/tree/04df889cacfc4dfe93c2640b75f65eaafa060dba/examples/integration
 pub struct IkariUiContainer<UiOverlay>
 where
     UiOverlay: runtime::Program + UiProgramEvents + 'static,
