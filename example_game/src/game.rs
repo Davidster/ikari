@@ -19,7 +19,6 @@ use anyhow::Result;
 use glam::f32::{Vec3, Vec4};
 use glam::Mat4;
 use glam::Quat;
-use ikari::animation::step_animations;
 use ikari::animation::LoopType;
 use ikari::asset_loader::AudioAssetLoadParams;
 use ikari::asset_loader::SceneAssetLoadParams;
@@ -221,6 +220,7 @@ fn get_misc_gltf_paths() -> &'static [&'static str] {
         // "src/models/gltf/EnvironmentTest/EnvironmentTest.gltf",
         // "src/models/gltf/Arrow/Arrow.gltf",
         "src/models/gltf/DamagedHelmet/DamagedHelmet.gltf",
+        "/Users/davidhuculak/Downloads/BrainStem.glb",
         // "src/models/gltf/VertexColorTest/VertexColorTest.gltf",
         // "src/models/gltf/Revolver/revolver_low_poly.gltf",
         // "src/models/gltf/NormalTangentMirrorTest/NormalTangentMirrorTest.gltf",
@@ -1451,7 +1451,7 @@ pub fn update_game_state(
                     .iter_mut()
                     .find(|animation| animation.name == Some(String::from("jump_up_root_motion")))
                 {
-                    jump_up_animation.speed = 0.25;
+                    jump_up_animation.state.speed = 0.25;
                     jump_up_animation.state.is_playing = true;
                     jump_up_animation.state.loop_type = LoopType::Wrap;
                 }
@@ -1904,7 +1904,7 @@ pub fn update_game_state(
     // step animatons
     let scene = &mut engine_state.scene;
     if game_state.is_playing_animations {
-        step_animations(scene, frame_time_seconds)
+        scene.step_animations(frame_time_seconds);
     }
 
     if let Some(character) = game_state.character.as_mut() {

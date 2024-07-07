@@ -1,29 +1,47 @@
-use std::ops::{Add, Mul};
+use std::{
+    cmp::Ordering,
+    ops::{Add, Mul},
+};
 
 use glam::f32::{Quat, Vec3};
 
 use crate::scene::{GameNodeId, Scene};
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Animation {
     pub name: Option<String>,
     pub length_seconds: f32,
-    pub speed: f32,
-    pub channels: Vec<Channel>,
+    pub channels: Vec<AnimationChannel>,
     pub state: AnimationState,
 }
 
-#[derive(Debug, Clone)]
-pub struct Channel {
+#[derive(Clone, Debug, PartialEq)]
+pub struct AnimationChannel {
     pub node_id: GameNodeId,
-    pub property: gltf::animation::Property,
-    pub interpolation_type: gltf::animation::Interpolation,
+    // pub property: gltf::animation::Property,
+    // pub interpolation_type: gltf::animation::Interpolation,
     pub keyframe_timings: Vec<f32>,
-    pub keyframe_values_u8: Vec<u8>,
+    // pub keyframe_values_u8: Vec<u8>,
+    // pub interpolation_type: AnimationInterpolation,
+    pub keyframes: AnimationKeyframes,
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
+pub enum AnimationKeyframes {
+    TranslationLinear(Vec<Vec3>),
+    TranslationStep(Vec<Vec3>),
+    TranslationCubic(Vec<[Vec3; 3]>),
+    ScaleLinear(Vec<Vec3>),
+    ScaleStep(Vec<Vec3>),
+    ScaleCubic(Vec<[Vec3; 3]>),
+    RotationLinear(Vec<Quat>),
+    RotationStep(Vec<Quat>),
+    RotationCubic(Vec<[Quat; 3]>),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct AnimationState {
+    pub speed: f32,
     pub current_time_seconds: f32,
     pub is_playing: bool,
     pub loop_type: LoopType,
@@ -42,6 +60,7 @@ pub enum LoopType {
 impl Default for AnimationState {
     fn default() -> Self {
         Self {
+            speed: 1.0,
             current_time_seconds: 0.0,
             is_playing: false,
             loop_type: LoopType::Once,
@@ -55,11 +74,11 @@ struct KeyframeTime {
     time: f32,
 }
 
-pub fn step_animations(scene: &mut Scene, delta_time_seconds: f64) {
-    pub enum Op {
-        Translation(Vec3),
-        Scale(Vec3),
-        Rotation(Quat),
+pub(crate) fn step_animations(scene: &mut Scene, delta_time_seconds: f64) {
+    enum Op {
+        SetTranslation(Vec3),
+        SetScale(Vec3),
+        SetRotation(Quat),
     }
 
     let mut ops: Vec<(GameNodeId, Op)> = Vec::new();
@@ -68,7 +87,7 @@ pub fn step_animations(scene: &mut Scene, delta_time_seconds: f64) {
         if !state.is_playing {
             continue;
         }
-        state.current_time_seconds += delta_time_seconds as f32 * animation.speed;
+        state.current_time_seconds += delta_time_seconds as f32 * state.speed;
         if state.loop_type == LoopType::Once
             && state.current_time_seconds > animation.length_seconds
         {
@@ -89,46 +108,113 @@ pub fn step_animations(scene: &mut Scene, delta_time_seconds: f64) {
         };
 
         for channel in animation.channels.iter() {
-            let (previous_key_frame, next_key_frame) =
+            let (previous_keyframe, next_keyframe) =
                 get_nearby_keyframes(&channel.keyframe_timings, animation_time_seconds);
-            if let Some(op) = match channel.property {
-                gltf::animation::Property::Translation => {
-                    Some(Op::Translation(get_vec3_at_moment(
-                        channel,
-                        animation_time_seconds,
-                        previous_key_frame,
-                        next_key_frame,
-                    )))
+
+            let op = match previous_keyframe {
+                Some(previous_keyframe) => {
+                    let (next_keyframe, interpolation_factor) = match next_keyframe {
+                        Some(next_keyframe) => (
+                            next_keyframe,
+                            (animation_time_seconds - previous_keyframe.time)
+                                / (next_keyframe.time - previous_keyframe.time),
+                        ),
+                        // no next keyframe means we snap to the last keyframe of the animation
+                        None => (previous_keyframe, 1.0),
+                    };
+
+                    match &channel.keyframes {
+                        AnimationKeyframes::TranslationLinear(keyframe_values) => {
+                            Op::SetTranslation(
+                                keyframe_values[previous_keyframe.index].lerp(
+                                    keyframe_values[next_keyframe.index],
+                                    interpolation_factor,
+                                ),
+                            )
+                        }
+                        AnimationKeyframes::TranslationStep(keyframe_values) => {
+                            Op::SetTranslation(keyframe_values[previous_keyframe.index])
+                        }
+                        AnimationKeyframes::TranslationCubic(keyframe_values) => {
+                            Op::SetTranslation(do_cubic_interpolation(
+                                keyframe_values[previous_keyframe.index],
+                                keyframe_values[next_keyframe.index],
+                                next_keyframe.time - previous_keyframe.time,
+                                interpolation_factor,
+                            ))
+                        }
+                        AnimationKeyframes::ScaleLinear(keyframe_values) => Op::SetScale(
+                            keyframe_values[previous_keyframe.index]
+                                .lerp(keyframe_values[next_keyframe.index], interpolation_factor),
+                        ),
+                        AnimationKeyframes::ScaleStep(keyframe_values) => {
+                            Op::SetScale(keyframe_values[previous_keyframe.index])
+                        }
+                        AnimationKeyframes::ScaleCubic(keyframe_values) => {
+                            Op::SetScale(do_cubic_interpolation(
+                                keyframe_values[previous_keyframe.index],
+                                keyframe_values[next_keyframe.index],
+                                next_keyframe.time - previous_keyframe.time,
+                                interpolation_factor,
+                            ))
+                        }
+                        AnimationKeyframes::RotationLinear(keyframe_values) => Op::SetRotation(
+                            keyframe_values[previous_keyframe.index]
+                                .slerp(keyframe_values[next_keyframe.index], interpolation_factor),
+                        ),
+                        AnimationKeyframes::RotationStep(keyframe_values) => {
+                            Op::SetRotation(keyframe_values[previous_keyframe.index])
+                        }
+                        AnimationKeyframes::RotationCubic(keyframe_values) => {
+                            Op::SetRotation(do_cubic_interpolation(
+                                keyframe_values[previous_keyframe.index],
+                                keyframe_values[next_keyframe.index],
+                                next_keyframe.time - previous_keyframe.time,
+                                interpolation_factor,
+                            ))
+                        }
+                    }
                 }
-                gltf::animation::Property::Scale => Some(Op::Scale(get_vec3_at_moment(
-                    channel,
-                    animation_time_seconds,
-                    previous_key_frame,
-                    next_key_frame,
-                ))),
-                gltf::animation::Property::Rotation => Some(Op::Rotation(get_quat_at_moment(
-                    channel,
-                    animation_time_seconds,
-                    previous_key_frame,
-                    next_key_frame,
-                ))),
-                _ => None,
-            } {
-                ops.push((channel.node_id, op));
-            }
+                // no previous keyframe means we snap to the first keyframe of the animation
+                None => match &channel.keyframes {
+                    AnimationKeyframes::TranslationLinear(keyframe_values)
+                    | AnimationKeyframes::TranslationStep(keyframe_values) => {
+                        Op::SetTranslation(keyframe_values[0])
+                    }
+                    AnimationKeyframes::TranslationCubic(keyframe_values) => {
+                        Op::SetTranslation(keyframe_values[0][1])
+                    }
+                    AnimationKeyframes::ScaleLinear(keyframe_values)
+                    | AnimationKeyframes::ScaleStep(keyframe_values) => {
+                        Op::SetScale(keyframe_values[0])
+                    }
+                    AnimationKeyframes::ScaleCubic(keyframe_values) => {
+                        Op::SetScale(keyframe_values[0][1])
+                    }
+                    AnimationKeyframes::RotationLinear(keyframe_values)
+                    | AnimationKeyframes::RotationStep(keyframe_values) => {
+                        Op::SetRotation(keyframe_values[0])
+                    }
+                    AnimationKeyframes::RotationCubic(keyframe_values) => {
+                        Op::SetRotation(keyframe_values[0][1])
+                    }
+                },
+            };
+
+            ops.push((channel.node_id, op));
         }
     }
     for (node_id, op) in ops {
         if let Some(node) = scene.get_node_mut(node_id) {
             let transform = &mut node.transform;
             match op {
-                Op::Translation(translation) => {
+                Op::SetTranslation(translation) => {
                     transform.set_position(translation);
                 }
-                Op::Scale(scale) => {
+                Op::SetScale(scale) => {
                     transform.set_scale(scale);
                 }
-                Op::Rotation(rotation) => {
+                Op::SetRotation(rotation) => {
                     transform.set_rotation(rotation);
                 }
             }
@@ -136,171 +222,43 @@ pub fn step_animations(scene: &mut Scene, delta_time_seconds: f64) {
     }
 }
 
-fn get_vec3_at_moment(
-    channel: &Channel,
-    animation_time_seconds: f32,
-    previous_keyframe: Option<KeyframeTime>,
-    next_keyframe: Option<KeyframeTime>,
-) -> Vec3 {
-    let get_basic_keyframe_values = || {
-        bytemuck::cast_slice::<_, [f32; 3]>(&channel.keyframe_values_u8)
-            .to_vec()
-            .iter()
-            .copied()
-            .map(Vec3::from)
-            .collect::<Vec<_>>()
-    };
-    let get_cubic_keyframe_values = || {
-        bytemuck::cast_slice::<_, [[f32; 3]; 3]>(&channel.keyframe_values_u8)
-            .to_vec()
-            .iter()
-            .copied()
-            .map(|kf| {
-                [
-                    Vec3::from(kf[0]), // in-tangent
-                    Vec3::from(kf[1]), // value
-                    Vec3::from(kf[2]), // out-tangent
-                ]
-            })
-            .collect::<Vec<_>>()
-    };
-
-    match previous_keyframe {
-        Some(previous_keyframe) => {
-            let (next_keyframe, interpolation_factor) = match next_keyframe {
-                Some(next_keyframe) => (
-                    next_keyframe,
-                    (animation_time_seconds - previous_keyframe.time)
-                        / (next_keyframe.time - previous_keyframe.time),
-                ),
-                None => (previous_keyframe, 1.0),
-            };
-
-            match channel.interpolation_type {
-                gltf::animation::Interpolation::Linear => {
-                    let keyframe_values = get_basic_keyframe_values();
-                    let previous_keyframe_value = keyframe_values[previous_keyframe.index];
-                    let next_keyframe_value = keyframe_values[next_keyframe.index];
-                    previous_keyframe_value.lerp(next_keyframe_value, interpolation_factor)
-                }
-                gltf::animation::Interpolation::Step => {
-                    let keyframe_values = get_basic_keyframe_values();
-                    keyframe_values[previous_keyframe.index]
-                }
-                gltf::animation::Interpolation::CubicSpline => {
-                    let keyframe_values = get_cubic_keyframe_values();
-                    let previous_keyframe_value = keyframe_values[previous_keyframe.index];
-                    let next_keyframe_value = keyframe_values[next_keyframe.index];
-                    let keyframe_length = next_keyframe.time - previous_keyframe.time;
-
-                    do_cubic_interpolation(
-                        previous_keyframe_value,
-                        next_keyframe_value,
-                        keyframe_length,
-                        interpolation_factor,
-                    )
-                }
-            }
-        }
-        None => match channel.interpolation_type {
-            gltf::animation::Interpolation::Linear => get_basic_keyframe_values()[0],
-            gltf::animation::Interpolation::Step => get_basic_keyframe_values()[0],
-            gltf::animation::Interpolation::CubicSpline => get_cubic_keyframe_values()[0][1],
-        },
-    }
-}
-
-fn get_quat_at_moment(
-    channel: &Channel,
-    animation_time_seconds: f32,
-    previous_keyframe: Option<KeyframeTime>,
-    next_keyframe: Option<KeyframeTime>,
-) -> Quat {
-    let get_basic_keyframe_values = || {
-        bytemuck::cast_slice::<_, [f32; 4]>(&channel.keyframe_values_u8)
-            .to_vec()
-            .iter()
-            .copied()
-            .map(Quat::from_array)
-            .collect::<Vec<_>>()
-    };
-    let get_cubic_keyframe_values = || {
-        bytemuck::cast_slice::<_, [[f32; 4]; 3]>(&channel.keyframe_values_u8)
-            .to_vec()
-            .iter()
-            .copied()
-            .map(|kf| {
-                [
-                    Quat::from_array(kf[0]), // in-tangent
-                    Quat::from_array(kf[1]), // value
-                    Quat::from_array(kf[2]), // out-tangent
-                ]
-            })
-            .collect::<Vec<_>>()
-    };
-
-    let t = animation_time_seconds;
-
-    match previous_keyframe {
-        Some(previous_keyframe) => {
-            let (next_keyframe, interpolation_factor) = match next_keyframe {
-                Some(next_keyframe) => (
-                    next_keyframe,
-                    (t - previous_keyframe.time) / (next_keyframe.time - previous_keyframe.time),
-                ),
-                None => (previous_keyframe, 1.0),
-            };
-            match channel.interpolation_type {
-                gltf::animation::Interpolation::Linear => {
-                    let keyframe_values = get_basic_keyframe_values();
-                    let previous_keyframe_value = keyframe_values[previous_keyframe.index];
-                    let next_keyframe_value = keyframe_values[next_keyframe.index];
-                    previous_keyframe_value.slerp(next_keyframe_value, interpolation_factor)
-                }
-                gltf::animation::Interpolation::Step => {
-                    let keyframe_values = get_basic_keyframe_values();
-                    keyframe_values[previous_keyframe.index]
-                }
-                gltf::animation::Interpolation::CubicSpline => {
-                    let keyframe_values = get_cubic_keyframe_values();
-                    let previous_keyframe_value = keyframe_values[previous_keyframe.index];
-                    let next_keyframe_value = keyframe_values[next_keyframe.index];
-                    let keyframe_length = next_keyframe.time - previous_keyframe.time;
-
-                    do_cubic_interpolation(
-                        previous_keyframe_value,
-                        next_keyframe_value,
-                        keyframe_length,
-                        interpolation_factor,
-                    )
-                    .normalize()
-                }
-            }
-        }
-        None => match channel.interpolation_type {
-            gltf::animation::Interpolation::Linear => get_basic_keyframe_values()[0],
-            gltf::animation::Interpolation::Step => get_basic_keyframe_values()[0],
-            gltf::animation::Interpolation::CubicSpline => get_cubic_keyframe_values()[0][1],
-        },
-    }
-}
-
 fn get_nearby_keyframes(
     keyframe_times: &[f32],
     animation_time_seconds: f32,
 ) -> (Option<KeyframeTime>, Option<KeyframeTime>) {
-    let previous_keyframe = keyframe_times
-        .iter()
-        .enumerate()
-        .filter(|(_, keyframe_time)| **keyframe_time <= animation_time_seconds)
-        .last()
-        .map(|(index, time)| KeyframeTime { index, time: *time });
-    let next_keyframe = keyframe_times
-        .iter()
-        .enumerate()
-        .find(|(_, keyframe_time)| **keyframe_time > animation_time_seconds)
-        .map(|(index, time)| KeyframeTime { index, time: *time });
-    (previous_keyframe, next_keyframe)
+    let (previous_keyframe_index, next_keyframe_index) =
+        match keyframe_times.binary_search_by(|val| {
+            val.partial_cmp(&animation_time_seconds)
+                .unwrap_or(Ordering::Equal)
+        }) {
+            Ok(index) => {
+                if index >= keyframe_times.len() - 1 {
+                    (Some(keyframe_times.len() - 1), None)
+                } else {
+                    (Some(index), Some(index + 1))
+                }
+            }
+            Err(index) => {
+                if index == 0 {
+                    (None, None)
+                } else if index == keyframe_times.len() {
+                    (Some(keyframe_times.len() - 1), None)
+                } else {
+                    (Some(index - 1), Some(index))
+                }
+            }
+        };
+
+    (
+        previous_keyframe_index.map(|previous_keyframe_index| KeyframeTime {
+            index: previous_keyframe_index,
+            time: keyframe_times[previous_keyframe_index],
+        }),
+        next_keyframe_index.map(|next_keyframe_index| KeyframeTime {
+            index: next_keyframe_index,
+            time: keyframe_times[next_keyframe_index],
+        }),
+    )
 }
 
 // see https://www.khronos.org/registry/glTF/specs/2.0/glTF-2.0.html#appendix-c-interpolation

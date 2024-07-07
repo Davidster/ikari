@@ -38,6 +38,7 @@ impl Character {
         res
     }
 
+    // TODO: can we move some of this into ikari?
     pub fn update(&mut self, scene: &mut Scene, physics_state: &mut PhysicsState) {
         let root_node_global_transform: Transform = scene
             .get_global_transform_for_node(self.root_node_id)

@@ -1,3 +1,4 @@
+use crate::animation::AnimationKeyframes;
 use crate::asset_loader::SceneAssetLoadParams;
 use crate::collisions::Aabb;
 use crate::file_manager::FileManager;
@@ -19,7 +20,7 @@ use crate::renderer::BindableWireframeMesh;
 use crate::sampler_cache::SamplerDescriptor;
 use crate::scene::GameNodeVisual;
 use crate::scene::IndexedAnimation;
-use crate::scene::IndexedChannel;
+use crate::scene::IndexedAnimationChannel;
 use crate::scene::IndexedGameNodeDesc;
 use crate::scene::IndexedSkin;
 use crate::scene::Material;
@@ -34,6 +35,7 @@ use std::path::PathBuf;
 use anyhow::{anyhow, bail, Result};
 use base64::prelude::*;
 use glam::f32::{Mat4, Vec3, Vec4};
+use glam::Quat;
 use glam::Vec4Swizzles;
 use gltf::Gltf;
 
@@ -602,23 +604,151 @@ pub fn get_animations(
                         "Failed to calculate animation length because no keyframes had "
                     )
                 })?;
-            let channels: Vec<_> = animation
-                .channels()
-                .enumerate()
-                .map(|(channel_index, channel)| {
-                    validate_channel_data_type(&channel)?;
-                    let sampler = channel.sampler();
-                    let accessor = sampler.output();
-                    anyhow::Ok(IndexedChannel {
-                        node_index: channel.target().node().index(),
-                        property: channel.target().property(),
-                        interpolation_type: sampler.interpolation(),
-                        keyframe_timings: channel_timings[channel_index].clone(),
-                        keyframe_values_u8: get_buffer_slice_from_accessor(accessor, buffers)
-                            .to_vec(),
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+
+            let get_animation_name = || {
+                animation
+                    .name()
+                    .map(String::from)
+                    .unwrap_or_else(|| format!("{}", animation.index()))
+            };
+
+            let mut channels: Vec<IndexedAnimationChannel> =
+                Vec::with_capacity(animation.channels().count());
+
+            for (channel_index, channel) in animation.channels().enumerate() {
+                if let Err(err) = validate_channel_data_type(&channel) {
+                    log::warn!(
+                        "Skipping channel {channel_index} of animation {}: {err}",
+                        get_animation_name()
+                    );
+                    continue;
+                }
+
+                let sampler = channel.sampler();
+                let accessor = sampler.output();
+
+                let raw_keyframe_values =
+                    get_buffer_slice_from_accessor(accessor, buffers).to_vec();
+                let keyframe_timings = channel_timings[channel_index].clone();
+
+                let property = channel.target().property();
+                let interpolation = sampler.interpolation();
+
+                // let keyframes = match property {
+                //     gltf::animation::Property::Translation => todo!(),
+                //     gltf::animation::Property::Rotation => todo!(),
+                //     gltf::animation::Property::Scale => todo!(),
+                //     gltf::animation::Property::MorphTargetWeights => {
+                //         unreachable!("Should have skipped MorphTargetWeights")
+                //     }
+                // }
+
+                let cast_to_vec3_list = || {
+                    bytemuck::cast_slice::<_, [f32; 3]>(&raw_keyframe_values)
+                        .to_vec()
+                        .iter()
+                        .copied()
+                        .map(Vec3::from)
+                        .collect::<Vec<_>>()
+                };
+
+                let cast_to_quat_list = || {
+                    bytemuck::cast_slice::<_, [f32; 4]>(&raw_keyframe_values)
+                        .to_vec()
+                        .iter()
+                        .copied()
+                        .map(Quat::from_array)
+                        .collect::<Vec<_>>()
+                };
+
+                let cast_to_3_vec3_list = || {
+                    bytemuck::cast_slice::<_, [[f32; 3]; 3]>(&raw_keyframe_values)
+                        .to_vec()
+                        .iter()
+                        .copied()
+                        .map(|kf| {
+                            [
+                                Vec3::from(kf[0]), // in-tangent
+                                Vec3::from(kf[1]), // value
+                                Vec3::from(kf[2]), // out-tangent
+                            ]
+                        })
+                        .collect::<Vec<_>>()
+                };
+
+                let cast_to_3_quat_list = || {
+                    bytemuck::cast_slice::<_, [[f32; 4]; 3]>(&raw_keyframe_values)
+                        .to_vec()
+                        .iter()
+                        .copied()
+                        .map(|kf| {
+                            [
+                                Quat::from_array(kf[0]), // in-tangent
+                                Quat::from_array(kf[1]), // value
+                                Quat::from_array(kf[2]), // out-tangent
+                            ]
+                        })
+                        .collect::<Vec<_>>()
+                };
+
+                let keyframes = match property {
+                    gltf::animation::Property::Translation => match interpolation {
+                        gltf::animation::Interpolation::Linear => {
+                            AnimationKeyframes::TranslationLinear(cast_to_vec3_list())
+                        }
+                        gltf::animation::Interpolation::Step => {
+                            AnimationKeyframes::TranslationStep(cast_to_vec3_list())
+                        }
+                        gltf::animation::Interpolation::CubicSpline => {
+                            AnimationKeyframes::TranslationCubic(cast_to_3_vec3_list())
+                        }
+                    },
+                    gltf::animation::Property::Rotation => match interpolation {
+                        gltf::animation::Interpolation::Linear => {
+                            AnimationKeyframes::RotationLinear(cast_to_quat_list())
+                        }
+                        gltf::animation::Interpolation::Step => {
+                            AnimationKeyframes::RotationStep(cast_to_quat_list())
+                        }
+                        gltf::animation::Interpolation::CubicSpline => {
+                            AnimationKeyframes::RotationCubic(cast_to_3_quat_list())
+                        }
+                    },
+                    gltf::animation::Property::Scale => match interpolation {
+                        gltf::animation::Interpolation::Linear => {
+                            AnimationKeyframes::ScaleLinear(cast_to_vec3_list())
+                        }
+                        gltf::animation::Interpolation::Step => {
+                            AnimationKeyframes::ScaleStep(cast_to_vec3_list())
+                        }
+                        gltf::animation::Interpolation::CubicSpline => {
+                            AnimationKeyframes::ScaleCubic(cast_to_3_vec3_list())
+                        }
+                    },
+                    gltf::animation::Property::MorphTargetWeights => {
+                        unreachable!("Should have skipped MorphTargetWeights")
+                    }
+                };
+
+                channels.push(IndexedAnimationChannel {
+                    node_index: channel.target().node().index(),
+                    keyframe_timings,
+                    keyframes,
+                    // property: channel.target().property(),
+                    // interpolation_type: sampler.interpolation(),
+                    // keyframe_timings: channel_timings[channel_index].clone(),
+                    // keyframe_values_u8: get_buffer_slice_from_accessor(accessor, buffers)
+                    //     .to_vec(),
+                });
+            }
+
+            if channels.is_empty() {
+                log::warn!(
+                    "Animation {} contained no valid channels",
+                    get_animation_name()
+                );
+            }
+
             anyhow::Ok(IndexedAnimation {
                 name: animation.name().map(String::from),
                 length_seconds,

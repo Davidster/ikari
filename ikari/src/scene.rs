@@ -1,5 +1,5 @@
 use crate::{
-    animation::{Animation, AnimationState, Channel},
+    animation::{self, Animation, AnimationChannel, AnimationKeyframes, AnimationState},
     collisions::Sphere,
     mesh::DynamicPbrParams,
     renderer::{BindedScene, DirectionalLight, PointLight, RendererData},
@@ -11,6 +11,8 @@ use glam::f32::{Mat4, Vec3, Vec4};
 use twox_hash::XxHash64;
 
 const REBUILD_SKELETON_PARENT_MAP_ON_REMOVE: bool = false;
+
+// TODO: abstract away the slotmap implementation from here?
 
 #[derive(Debug, Default, Clone)]
 pub struct Scene {
@@ -92,6 +94,7 @@ pub struct Skin {
     pub bone_bounding_box_transforms: Vec<crate::transform::Transform>,
 }
 
+// TODO: indexed-x should be pub(crate)?
 #[derive(Debug, Clone)]
 pub struct IndexedGameNodeDesc {
     pub transform: crate::transform::Transform,
@@ -108,20 +111,21 @@ pub struct IndexedSkin {
     pub bone_bounding_box_transforms: Vec<crate::transform::Transform>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct IndexedAnimation {
     pub name: Option<String>,
     pub length_seconds: f32,
-    pub channels: Vec<IndexedChannel>,
+    pub channels: Vec<IndexedAnimationChannel>,
 }
 
-#[derive(Debug)]
-pub struct IndexedChannel {
+#[derive(Clone, Debug, PartialEq)]
+pub struct IndexedAnimationChannel {
     pub node_index: usize,
-    pub property: gltf::animation::Property,
-    pub interpolation_type: gltf::animation::Interpolation,
+    // pub property: gltf::animation::Property,
+    // pub interpolation_type: gltf::animation::Interpolation,
     pub keyframe_timings: Vec<f32>,
-    pub keyframe_values_u8: Vec<u8>,
+    // pub keyframe_values_u8: Vec<u8>,
+    pub keyframes: AnimationKeyframes,
 }
 
 const MAX_NODE_HIERARCHY_LEVELS: usize = 32;
@@ -137,16 +141,16 @@ impl Scene {
             .map(|indexed_animation| Animation {
                 name: indexed_animation.name.clone(),
                 length_seconds: indexed_animation.length_seconds,
-                speed: 1.0,
                 channels: indexed_animation
                     .channels
                     .iter()
-                    .map(|indexed_channel| Channel {
+                    .map(|indexed_channel| AnimationChannel {
                         node_id: GameNodeId(indexed_channel.node_index.try_into().unwrap(), 0),
-                        property: indexed_channel.property,
-                        interpolation_type: indexed_channel.interpolation_type,
+                        // property: indexed_channel.property,
+                        // interpolation_type: indexed_channel.interpolation_type,
                         keyframe_timings: indexed_channel.keyframe_timings.clone(),
-                        keyframe_values_u8: indexed_channel.keyframe_values_u8.clone(),
+                        // keyframe_values_u8: indexed_channel.keyframe_values_u8.clone(),
+                        keyframes: indexed_channel.keyframes.clone(), // TODO: this could be a big clone. could we move instead?
                     })
                     .collect(),
                 state: AnimationState::default(),
@@ -551,6 +555,10 @@ impl Scene {
 
     pub fn nodes_mut(&mut self) -> impl Iterator<Item = &mut GameNode> {
         self.nodes.iter_mut().flat_map(|(node, _)| node)
+    }
+
+    pub fn step_animations(&mut self, delta_time_seconds: f64) {
+        animation::step_animations(self, delta_time_seconds);
     }
 }
 
