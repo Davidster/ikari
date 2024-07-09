@@ -23,7 +23,7 @@ log = "0.4"
 wgpu = { version = "0.19", features = ["trace"] }
 wgpu-profiler = "0.16.2"
 anyhow = { version = "1.0", features = ["backtrace"] }
-env_logger = { version = "0.10", default-features = false, features = [
+env_logger = { version = "0.11", default-features = false, features = [
   "auto-color",
   "humantime",
 ] }
@@ -36,7 +36,7 @@ image = { version = "0.24", default-features = false, features = [
 gltf = "1.4"
 pico-args = "0.5.0"
 lazy_static = "1.5"
-glam = { version = "0.24.2", features = ["approx", "bytemuck"] }
+glam = { version = "0.28", features = ["approx", "bytemuck"] }
 rand = { version = "0.8", features = ["small_rng"] }
 pollster = "0.3"
 

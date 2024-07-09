@@ -11,7 +11,7 @@ pub struct PhysicsState {
     pub integration_parameters: IntegrationParameters,
     pub physics_pipeline: PhysicsPipeline,
     pub island_manager: IslandManager,
-    pub broad_phase: BroadPhase,
+    pub broad_phase: DefaultBroadPhase,
     pub narrow_phase: NarrowPhase,
     pub rigid_body_set: RigidBodySet,
     pub collider_set: ColliderSet,
@@ -31,7 +31,7 @@ impl PhysicsState {
             integration_parameters: IntegrationParameters::default(),
             physics_pipeline: PhysicsPipeline::new(),
             island_manager: IslandManager::new(),
-            broad_phase: BroadPhase::new(),
+            broad_phase: DefaultBroadPhase::new(),
             narrow_phase: NarrowPhase::new(),
             rigid_body_set: RigidBodySet::new(),
             collider_set: ColliderSet::new(),
@@ -63,8 +63,7 @@ impl PhysicsState {
             &(),
         );
 
-        self.query_pipeline
-            .update(&self.rigid_body_set, &self.collider_set);
+        self.query_pipeline.update(&self.collider_set);
     }
 
     pub fn remove_rigid_body(&mut self, rigid_body_handle: RigidBodyHandle) {

@@ -4857,9 +4857,9 @@ impl Renderer {
         }
 
         let fmt_bytes = |bytes: usize| {
-            byte_unit::Byte::from_bytes(bytes as u128)
-                .get_appropriate_unit(false)
-                .to_string()
+            byte_unit::Byte::from_u128(bytes as u128)
+                .map(|byte| byte.get_appropriate_unit(byte_unit::UnitType::Decimal).to_string())
+                .unwrap_or_else(|| format!("{bytes} bytes"))
         };
         log::debug!(
             "Memory usage:\n  Instance buffers: {}\n  Index buffers: {}\n  Vertex buffers: {}",

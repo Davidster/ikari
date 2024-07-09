@@ -16,7 +16,4 @@ pico-args.workspace = true
 wasm-bindgen-cli-support = "0.2.92"
 warp = "0.3.7"
 tokio = { version = "1", features = ["full"] }
-env_logger = { version = "0.10", default-features = false, features = [
-  "auto-color",
-  "humantime",
-] }
+env_logger.workspace = true
