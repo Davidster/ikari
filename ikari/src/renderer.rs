@@ -2804,10 +2804,11 @@ impl Renderer {
         unscaled_framebuffer_size: winit::dpi::PhysicalSize<u32>,
     ) {
         let unscaled_framebuffer_size = (
-            unscaled_framebuffer_size.width,
-            unscaled_framebuffer_size.height,
+            unscaled_framebuffer_size.width.min(4096),
+            unscaled_framebuffer_size.height.min(4096),
         );
         let (new_width, new_height) = unscaled_framebuffer_size;
+        log::info!("{unscaled_framebuffer_size:?}");
 
         surface_data.surface_config.width = new_width;
         surface_data.surface_config.height = new_height;

@@ -192,7 +192,8 @@ fn get_misc_gltf_path() -> &'static str {
     // "src/models/gltf/TriangleWithoutIndices/TriangleWithoutIndices.gltf"
     // "src/models/gltf/EnvironmentTest/EnvironmentTest.gltf"
     // "src/models/gltf/Arrow/Arrow.gltf"
-    "src/models/gltf/DamagedHelmet/DamagedHelmet.gltf"
+    // "src/models/gltf/DamagedHelmet/DamagedHelmet.gltf"
+    "/Users/davidhuculak/Downloads/BrainStem.glb"
     // "src/models/gltf/VertexColorTest/VertexColorTest.gltf"
     // "src/models/gltf/Revolver/revolver_low_poly.gltf"
     // "src/models/gltf/NormalTangentMirrorTest/NormalTangentMirrorTest.gltf"
@@ -322,10 +323,10 @@ pub async fn init_game_state(
             gltf_paths.push("src/models/gltf/LegendaryRobot/Legendary_Robot.glb");
 
             // maze
-            gltf_paths.push("src/models/gltf/TestLevel/test_level.glb");
+            // gltf_paths.push("src/models/gltf/TestLevel/test_level.glb");
 
             // other
-            // gltf_paths.push(get_misc_gltf_path());
+            gltf_paths.push(get_misc_gltf_path());
 
             for path in gltf_paths {
                 asset_id_map_guard.insert(

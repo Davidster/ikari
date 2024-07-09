@@ -208,7 +208,10 @@ where
 
     pub fn resize(&mut self, framebuffer_size: winit::dpi::PhysicalSize<u32>, scale_factor: f64) {
         self.viewport = Viewport::with_physical_size(
-            Size::new(framebuffer_size.width, framebuffer_size.height),
+            Size::new(
+                framebuffer_size.width.min(4096),
+                framebuffer_size.height.min(4096),
+            ),
             scale_factor,
         );
     }
