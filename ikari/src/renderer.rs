@@ -2854,6 +2854,7 @@ impl Renderer {
                     buffer: vec![],
                     animated_bone_transforms: vec![],
                     identity_slice: (0, 0),
+                    // biggest_chunk_size: 0,
                 },
                 pbr_mesh_index_to_gpu_instances: HashMap::new(),
                 all_pbr_instances: ChunkedBuffer::new(),

@@ -8,6 +8,7 @@ pub struct AllBoneTransforms {
     pub buffer: Vec<u8>,
     pub animated_bone_transforms: Vec<AllBoneTransformsSlice>,
     pub identity_slice: (usize, usize),
+    // pub biggest_chunk_size: usize,
 }
 
 #[derive(Debug)]
@@ -34,6 +35,8 @@ pub fn get_all_bone_data(
 
     let mut animated_bone_transforms: Vec<AllBoneTransformsSlice> = Vec::new();
     let mut skin_index_to_slice_map: HashMap<usize, (usize, usize)> = HashMap::new();
+
+    let mut biggest_chunk_size = 0;
 
     for skin in &scene.skins {
         let Some(skin_node) = scene.get_node(skin.node_id) else {
@@ -83,6 +86,11 @@ pub fn get_all_bone_data(
                 let mut padding: Vec<_> = (0..needed_padding).map(|_| 0u8).collect();
                 buffer.append(&mut padding);
 
+                let chunk_size = needed_padding + end_index - start_index;
+                if chunk_size > biggest_chunk_size {
+                    biggest_chunk_size = chunk_size;
+                }
+
                 animated_bone_transforms.push(AllBoneTransformsSlice {
                     mesh_index: visual.mesh_index,
                     start_index,
@@ -93,10 +101,13 @@ pub fn get_all_bone_data(
         }
     }
 
+    buffer.resize(buffer.len() + biggest_chunk_size, 0);
+
     AllBoneTransforms {
         buffer,
         animated_bone_transforms,
         identity_slice,
+        // biggest_chunk_size,
     }
 }
 
@@ -107,19 +118,20 @@ pub fn get_bone_skeleton_space_transform(
     bone_index: usize,
     bone_node_id: GameNodeId,
 ) -> Mat4 {
-    let node_ancestry_list =
-        scene.get_skeleton_node_ancestry_list(bone_node_id, skeleton_skin_node_id);
+    Mat4::IDENTITY
+    // let node_ancestry_list =
+    //     scene.get_skeleton_node_ancestry_list(bone_node_id, skeleton_skin_node_id);
 
-    // goes from the bone's space into skeleton space given parent hierarchy
-    let bone_space_to_skeleton_space = node_ancestry_list
-        .iter()
-        .rev()
-        .fold(crate::transform::Transform::IDENTITY, |acc, node_id| {
-            acc * scene.get_node(*node_id).unwrap().transform
-        });
+    // // goes from the bone's space into skeleton space given parent hierarchy
+    // let bone_space_to_skeleton_space = node_ancestry_list
+    //     .iter()
+    //     .rev()
+    //     .fold(crate::transform::Transform::IDENTITY, |acc, node_id| {
+    //         acc * scene.get_node(*node_id).unwrap().transform
+    //     });
 
-    // goes from the skeletons's space into the bone's space
-    let skeleton_space_to_bone_space = skin.bone_inverse_bind_matrices[bone_index];
-    // see https://www.khronos.org/files/gltf20-reference-guide.pdf
-    Mat4::from(bone_space_to_skeleton_space) * skeleton_space_to_bone_space
+    // // goes from the skeletons's space into the bone's space
+    // let skeleton_space_to_bone_space = skin.bone_inverse_bind_matrices[bone_index];
+    // // see https://www.khronos.org/files/gltf20-reference-guide.pdf
+    // Mat4::from(bone_space_to_skeleton_space) * skeleton_space_to_bone_space
 }

@@ -213,12 +213,12 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
                     },
                 );
 
-                if visuals.len() == 1 {
-                    // don't bother adding 'auto-child' nodes, just put the visual on the 'parent' node.
+                if nodes[gltf_node.index()].visual.is_none() {
+                    // don't make the first visual be an 'auto-child' node. just put it directly on the 'parent' node.
                     // skinning breaks without this optimization 🙃
                     nodes[gltf_node.index()].visual = Some(visual);
                 } else {
-                    // child nodes which don't exist as gltf nodes but are used to display the visuals of the above 'parent node'
+                    // child nodes which don't exist as gltf nodes but are used to display the rest of the visuals of the above 'parent node'
                     nodes.push(IndexedGameNodeDesc {
                         transform: Default::default(),
                         skin_index: None,
@@ -227,6 +227,7 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
                             .name()
                             .map(|name| format!("{name} (auto-child {i})",)),
                         parent_index: Some(gltf_node.index()),
+                        // parent_index: Some(gltf_node.index()),
                     });
                 }
             }
