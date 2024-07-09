@@ -102,7 +102,7 @@ impl Transform {
         let (_scale, rotation, position) = self.to_scale_rotation_translation();
         Isometry::from_parts(
             Translation::from(position.as_dvec3().to_array()),
-            UnitQuaternion::from_quaternion(Quaternion::from(rotation.as_f64().to_array())),
+            UnitQuaternion::from_quaternion(Quaternion::from(rotation.as_dquat().to_array())),
         )
     }
 
