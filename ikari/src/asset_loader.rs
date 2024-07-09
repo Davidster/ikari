@@ -46,7 +46,6 @@ use crate::wasm_not_sync::{WasmNotSend, WasmNotSync};
 
 use anyhow::bail;
 use anyhow::Result;
-use image::ImageDecoder;
 use image::Pixel;
 use std::collections::HashMap;
 
