@@ -11,10 +11,10 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
-arboard = "3.2.1"
+arboard = "3.4.0"
 pico-args.workspace = true
-wasm-bindgen-cli-support = "0.2.87"
-warp = "0.3.5"
+wasm-bindgen-cli-support = "0.2.92"
+warp = "0.3.7"
 tokio = { version = "1", features = ["full"] }
 env_logger = { version = "0.10", default-features = false, features = [
   "auto-color",

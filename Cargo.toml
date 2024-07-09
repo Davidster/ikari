@@ -21,7 +21,7 @@ winit = { version = "0.29", git = "https://github.com/iced-rs/winit.git", rev = 
 ikari = { version = "0.0.1", path = "./ikari", default-features = false }
 log = "0.4"
 wgpu = { version = "0.19", features = ["trace"] }
-wgpu-profiler = "0.16.1"
+wgpu-profiler = "0.16.2"
 anyhow = { version = "1.0", features = ["backtrace"] }
 env_logger = { version = "0.10", default-features = false, features = [
   "auto-color",
@@ -33,10 +33,10 @@ image = { version = "0.24", default-features = false, features = [
   "jpeg",
   "png",
 ] }
-gltf = "1.3"
+gltf = "1.4"
 pico-args = "0.5.0"
-lazy_static = "1.4"
-glam = { version = "0.24.1", features = ["approx", "bytemuck"] }
+lazy_static = "1.5"
+glam = { version = "0.24.2", features = ["approx", "bytemuck"] }
 rand = { version = "0.8", features = ["small_rng"] }
 pollster = "0.3"
 
@@ -56,7 +56,7 @@ web-sys = { version = "0.3.64", features = [
   "ReadableStreamDefaultReader",
   "HtmlCollection",
 ] }
-wasm-bindgen = { version = "0.2.87", features = ["serde-serialize"] }
+wasm-bindgen = { version = "0.2.92", features = ["serde-serialize"] }
 wasm-bindgen-futures = "0.4.42"
 
 iced = { version = "0.12", features = ["canvas"] }

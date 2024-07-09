@@ -36,10 +36,10 @@ image.workspace = true
 iced.workspace = true
 iced_wgpu.workspace = true
 iced_winit.workspace = true
-tracing-tracy = { version = "0.10.3", optional = true }
+tracing-tracy = { version = "0.10.5", optional = true }
 
 plotters-iced = "0.10.0"
-plotters = { version = "0.3.5", default-features = false, features = [
+plotters = { version = "0.3.6", default-features = false, features = [
   "line_series",
 ] }
 
