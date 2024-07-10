@@ -46,7 +46,6 @@ use crate::wasm_not_sync::{WasmNotSend, WasmNotSync};
 
 use anyhow::bail;
 use anyhow::Result;
-use image::Pixel;
 use std::collections::HashMap;
 
 use std::collections::hash_map::Entry;
@@ -611,12 +610,14 @@ pub async fn make_bindable_skybox(paths: &SkyboxPaths) -> Result<BindableSkybox>
                 (metadata.width, metadata.height)
             };
             let skybox_rad_texture_decoded: Vec<F16> = {
-                let rgb_values = skybox_rad_texture_decoder.read_image_hdr()?;
-                rgb_values
-                    .iter()
-                    .copied()
-                    .flat_map(|rbg| rbg.to_rgba().0.into_iter().map(F16::from))
-                    .collect()
+                let dynamic_img = image::DynamicImage::from_decoder(skybox_rad_texture_decoder)?;
+                let image::DynamicImage::ImageRgb32F(img) = dynamic_img else {
+                    anyhow::bail!(
+                        "Expected HDR image to decode into rgb32f but it was {:?}",
+                        dynamic_img.color(),
+                    );
+                };
+                img.iter().copied().map(F16::from).collect()
             };
 
             bindable_environment_hdr =
