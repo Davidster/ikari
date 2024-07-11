@@ -334,8 +334,8 @@ pub async fn init_game_state(
 
             // legendary robot
             // https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model
-            asset_ids.legendary_robot =
-                load_gltf("src/models/gltf/LegendaryRobot/Legendary_Robot.gltf").into();
+            // asset_ids.legendary_robot =
+            //     load_gltf("src/models/gltf/LegendaryRobot/Legendary_Robot.gltf").into();
 
             asset_ids.test_level = load_gltf("src/models/gltf/TestLevel/test_level.gltf").into();
 

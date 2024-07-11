@@ -202,6 +202,8 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
         });
     }
 
+    let mut node_index_mapping: HashMap<usize, usize> = HashMap::new();
+
     for gltf_node in document.nodes() {
         if let Some(visuals) = node_visual_map.get(&gltf_node.index()) {
             for (i, (mesh_index, pbr_material_index)) in visuals.iter().enumerate() {
@@ -221,7 +223,7 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
                     // child nodes which don't exist as gltf nodes but are used to display the rest of the visuals of the above 'parent node'
                     nodes.push(IndexedGameNodeDesc {
                         transform: Default::default(),
-                        skin_index: None,
+                        skin_index: nodes[gltf_node.index()].skin_index,
                         visual: Some(visual),
                         name: gltf_node
                             .name()
@@ -272,13 +274,14 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
                     .iter()
                     .find(|node| node.skin_index == Some(skin_index))
                     .ok_or_else(|| anyhow!("Skin index should have been valid"))?;
+                // TODO: this is wrong since there can be several meshes for the skeleton, one per auto-child
                 let skeleton_mesh_index = skeleton_skin_node
                     .visual
                     .as_ref()
                     .ok_or_else(|| anyhow!("Skeleton skin node should have had a mesh"))?
                     .mesh_index;
-                let skeleton_mesh_vertices = &bindable_meshes[skeleton_mesh_index].vertices;
 
+                let skeleton_mesh_vertices = &bindable_meshes[skeleton_mesh_index].vertices;
                 let bone_bounding_box_transforms: Vec<_> = (0..bone_inverse_bind_matrices.len())
                     .map(|bone_index| {
                         let bone_inv_bind_matrix = bone_inverse_bind_matrices[bone_index];
