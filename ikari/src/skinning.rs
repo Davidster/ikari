@@ -35,6 +35,8 @@ pub fn get_all_bone_data(
     let mut animated_bone_transforms: Vec<AllBoneTransformsSlice> = Vec::new();
     let mut skin_index_to_slice_map: HashMap<usize, (usize, usize)> = HashMap::new();
 
+    let mut biggest_chunk_size = 0;
+
     for skin in &scene.skins {
         if let Some(GameNodeMesh {
             mesh_indices,
@@ -83,6 +85,11 @@ pub fn get_all_bone_data(
                         let mut padding: Vec<_> = (0..needed_padding).map(|_| 0u8).collect();
                         buffer.append(&mut padding);
 
+                        let chunk_size = needed_padding + end_index - start_index;
+                        if chunk_size > biggest_chunk_size {
+                            biggest_chunk_size = chunk_size;
+                        }
+
                         animated_bone_transforms.push(AllBoneTransformsSlice {
                             binded_pbr_mesh_index,
                             start_index,
@@ -94,6 +101,8 @@ pub fn get_all_bone_data(
             }
         }
     }
+
+    buffer.resize(buffer.len() + biggest_chunk_size, 0);
 
     AllBoneTransforms {
         buffer,
