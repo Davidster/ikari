@@ -34,8 +34,9 @@ pub struct Vertex {
 pub struct ShaderVertex {
     pub position: [f32; 3],
     pub bone_weights: [F16; 4],
-    pub normal: [F16; 2],
-    pub tangent: [F16; 2],
+    // TODO: make a type for oct encoding?
+    pub oct_encoded_normal: [F16; 2],
+    pub oct_encoded_tangent: [F16; 2],
     pub tex_coords: [F16; 2],
     // taking the alpha channel for tangent handedness which means we don't support transparent vertex colors
     pub color_and_tangent_handedness: [u8; 4],
@@ -86,8 +87,8 @@ impl Default for ShaderVertex {
     fn default() -> Self {
         Self {
             position: Default::default(),
-            normal: oct_encode_unit_vector([0.0, 1.0, 0.0].into()),
-            tangent: oct_encode_unit_vector([1.0, 0.0, 0.0].into()),
+            oct_encoded_normal: oct_encode_unit_vector([0.0, 1.0, 0.0].into()),
+            oct_encoded_tangent: oct_encode_unit_vector([1.0, 0.0, 0.0].into()),
             tex_coords: [F16::from(0.0), F16::from(0.0)],
             color_and_tangent_handedness: [255, 255, 255, 255],
             bone_indices: Default::default(),
@@ -112,8 +113,8 @@ impl From<Vertex> for ShaderVertex {
 
         Self {
             position: value.position.into(),
-            normal: oct_encode_unit_vector(value.normal),
-            tangent: oct_encode_unit_vector(value.tangent),
+            oct_encoded_normal: oct_encode_unit_vector(value.normal),
+            oct_encoded_tangent: oct_encode_unit_vector(value.tangent),
             tex_coords: [F16::from(value.tex_coords.x), F16::from(value.tex_coords.y)],
             color_and_tangent_handedness: [
                 (value.color.x * u8::MAX as f32).round() as u8,
