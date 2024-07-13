@@ -34,7 +34,7 @@ pub struct Vertex {
 pub struct ShaderVertex {
     pub position: [f32; 3],
     pub bone_weights: [F16; 4],
-    // TODO: make a type for oct encoding?
+    // TODO: make a CRATE for oct encoding?
     pub oct_encoded_normal: [F16; 2],
     pub oct_encoded_tangent: [F16; 2],
     pub tex_coords: [F16; 2],
