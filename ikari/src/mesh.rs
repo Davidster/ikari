@@ -9,7 +9,7 @@ use anyhow::{bail, Result};
 use approx::abs_diff_eq;
 use glam::{
     f32::{Vec2, Vec3, Vec4},
-    Mat4, UVec4, Vec2Swizzles, Vec3Swizzles, Vec4Swizzles,
+    Mat4, UVec4, Vec4Swizzles,
 };
 use obj::raw::parse_obj;
 
@@ -34,9 +34,8 @@ pub struct Vertex {
 pub struct ShaderVertex {
     pub position: glam::Vec3,
     pub bone_weights: [F16; 4],
-    // TODO: make a CRATE for oct encoding?
-    pub oct_encoded_normal: [F16; 2],
-    pub oct_encoded_tangent: [F16; 2],
+    pub normal: normal_pack::EncodedUnitVector3U8,
+    pub tangent: normal_pack::EncodedUnitVector3U8,
     pub tex_coords: [F16; 2],
     // taking the alpha channel for tangent handedness which means we don't support transparent vertex colors
     pub color_and_tangent_handedness: [u8; 4],
@@ -49,8 +48,8 @@ impl ShaderVertex {
     const ATTRIBS: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
         0 => Float32x3, // position
         1 => Float16x4, // bone_weights
-        2 => Float16x2, // normal
-        3 => Float16x2, // tangent
+        2 => Uint8x2, // normal
+        3 => Uint8x2, // tangent
         4 => Float16x2, // tex_coords
         5 => Unorm8x4,  // color_and_tangent_handedness
         6 => Uint8x4,  // bone_indices
@@ -65,30 +64,12 @@ impl ShaderVertex {
     }
 }
 
-// https://knarkowicz.wordpress.com/2014/04/16/octahedron-normal-vector-encoding/
-// https://cesium.com/blog/2015/05/18/vertex-compression/
-// https://jcgt.org/published/0003/02/01/
-pub fn oct_encode_unit_vector(mut n: Vec3) -> [F16; 2] {
-    n = n / (n.x.abs() + n.y.abs() + n.z.abs());
-    let mut result_vec2 = if n.z >= 0.0 { n.xy() } else { oct_wrap(n.xy()) };
-    result_vec2 = result_vec2 * Vec2::splat(0.5) + Vec2::splat(0.5);
-    [F16::from(result_vec2.x), F16::from(result_vec2.y)]
-}
-
-fn oct_wrap(v: Vec2) -> Vec2 {
-    (Vec2::splat(1.0) - v.yx().abs())
-        * Vec2::new(
-            if v.x >= 0.0 { 1.0 } else { -1.0 },
-            if v.y >= 0.0 { 1.0 } else { -1.0 },
-        )
-}
-
 impl Default for ShaderVertex {
     fn default() -> Self {
         Self {
             position: Default::default(),
-            oct_encoded_normal: oct_encode_unit_vector([0.0, 1.0, 0.0].into()),
-            oct_encoded_tangent: oct_encode_unit_vector([1.0, 0.0, 0.0].into()),
+            normal: normal_pack::EncodedUnitVector3U8::encode([0.0, 1.0, 0.0]),
+            tangent: normal_pack::EncodedUnitVector3U8::encode([1.0, 0.0, 0.0]),
             tex_coords: [F16::from(0.0), F16::from(0.0)],
             color_and_tangent_handedness: [255, 255, 255, 255],
             bone_indices: Default::default(),
@@ -113,8 +94,8 @@ impl From<Vertex> for ShaderVertex {
 
         Self {
             position: value.position,
-            oct_encoded_normal: oct_encode_unit_vector(value.normal),
-            oct_encoded_tangent: oct_encode_unit_vector(value.tangent),
+            normal: normal_pack::EncodedUnitVector3U8::encode(value.normal.to_array()),
+            tangent: normal_pack::EncodedUnitVector3U8::encode(value.tangent.to_array()),
             tex_coords: [F16::from(value.tex_coords.x), F16::from(value.tex_coords.y)],
             color_and_tangent_handedness: [
                 (value.color.x * u8::MAX as f32).round() as u8,
@@ -338,38 +319,45 @@ impl BasicMesh {
         generate_tangents_for_mesh(&mut tangent_collector);
 
         let mut composite_index_map: HashMap<(usize, usize, usize), ShaderVertex> = HashMap::new();
-        triangles
-            .iter()
-            .enumerate()
-            .for_each(|(triangle_index, triangle_vertices)| {
-                triangle_vertices
-                    .iter()
-                    .enumerate()
-                    .for_each(|(triangle_vertex_index, vti)| {
-                        let key = (vti.0, vti.2, vti.1);
-                        let pos = obj.positions[vti.0];
-                        let normal = obj.normals[vti.2];
-                        let uv = obj.tex_coords[vti.1];
-                        let position = Vec3::new(pos.0, pos.1, pos.2);
-                        let normal = Vec3::from(normal);
-                        // convert uv format into 0->1 range
-                        let tex_coords = Vec2::new(uv.0, 1.0 - uv.1);
-                        let tangent = tangent_collector.vertex_tangents
-                            [triangle_index * 3 + triangle_vertex_index];
 
-                        if let hash_map::Entry::Vacant(vacant_entry) =
-                            composite_index_map.entry(key)
-                        {
-                            vacant_entry.insert(ShaderVertex::from(Vertex {
-                                position,
-                                normal,
-                                tangent: Vec4::from(tangent).xyz(),
-                                tex_coords,
-                                ..Default::default()
-                            }));
-                        }
-                    });
-            });
+        for (triangle_index, triangle_vertices) in triangles.iter().enumerate() {
+            for (triangle_vertex_index, vti) in triangle_vertices.iter().enumerate() {
+                let key = (vti.0, vti.2, vti.1);
+                let pos = obj.positions[vti.0];
+                let normal = obj.normals[vti.2];
+                let uv = obj.tex_coords[vti.1];
+                let position = Vec3::new(pos.0, pos.1, pos.2);
+                let mut normal = Vec3::from(normal);
+
+                if !normal.is_normalized() {
+                    log::warn!("Vertex normal wasn't normalized: {normal:?}. Normalizing it to correct the problem");
+                    normal = normal.normalize();
+                }
+
+                // convert uv format into 0->1 range
+                let tex_coords = Vec2::new(uv.0, 1.0 - uv.1);
+                let mut tangent = Vec4::from(
+                    tangent_collector.vertex_tangents[triangle_index * 3 + triangle_vertex_index],
+                )
+                .xyz();
+
+                if !tangent.is_normalized() {
+                    log::warn!("Vertex tangent wasn't normalized: {tangent:?}. Normalizing it to correct the problem");
+                    tangent = tangent.normalize();
+                }
+
+                if let hash_map::Entry::Vacant(vacant_entry) = composite_index_map.entry(key) {
+                    vacant_entry.insert(ShaderVertex::from(Vertex {
+                        position,
+                        normal,
+                        tangent,
+                        tex_coords,
+                        ..Default::default()
+                    }));
+                }
+            }
+        }
+
         let mut index_map: HashMap<(usize, usize, usize), usize> = HashMap::new();
         let mut vertices: Vec<ShaderVertex> = Vec::new();
         composite_index_map

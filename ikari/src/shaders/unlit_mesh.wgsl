@@ -30,17 +30,17 @@ var<storage, read> instances_uniform: InstancesUniform;
 struct VertexInput {
     @location(0) object_position: vec3<f32>,
     @location(1) bone_weights: vec4<f32>,
-    @location(2) object_normal: vec3<f32>,
-    @location(3) object_tangent: vec3<f32>,
+    @location(2) object_normal: vec2<u32>,
+    @location(3) object_tangent: vec2<u32>,
     @location(4) object_tex_coords: vec2<f32>,
-    @location(5) object_color: vec4<f32>,
+    @location(5) object_color_tangent_handedness: vec4<f32>,
     @location(6) bone_indices: vec4<u32>, 
 }
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) color: vec4<f32>,
-    @location(1) vertex_color: vec4<f32>,
+    @location(1) vertex_color: vec3<f32>,
 }
 
 struct FragmentOutput {
@@ -78,7 +78,7 @@ fn vs_main(
 
     out.clip_position = clip_position;
     out.color = instance.color;
-    out.vertex_color = vshader_input.object_color;
+    out.vertex_color = vshader_input.object_color_tangent_handedness.xyz;
     return out;
 }
 
@@ -86,6 +86,6 @@ fn vs_main(
 fn fs_main(in: VertexOutput) -> FragmentOutput {
     var out: FragmentOutput;
     // out.color = vec4<f32>(0.996078431372549, 0.9725490196078431, 0.6627450980392157, 1.0);
-    out.color = in.color * in.vertex_color;
+    out.color = in.color * vec4(in.vertex_color, 1.0);
     return out;
 }

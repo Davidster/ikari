@@ -1073,15 +1073,31 @@ pub fn load_geometry(
     for index in 0..vertex_position_count {
         let tangent = Vec4::from(vertex_tangents[index]);
 
+        let mut normal = Vec3::from(vertex_normals[index]);
+
+        if !normal.is_normalized() {
+            log::warn!("Vertex normal wasn't normalized: {normal:?}. Normalizing it to correct the problem");
+            normal = normal.normalize();
+        }
+
+        let tangent_handedness = if tangent.w > 0.0 {
+            VertexTangentHandedness::Right
+        } else {
+            VertexTangentHandedness::Left
+        };
+
+        let mut tangent = tangent.xyz();
+
+        if !tangent.is_normalized() {
+            log::warn!("Vertex tangent wasn't normalized: {tangent:?}. Normalizing it to correct the problem");
+            tangent = tangent.normalize();
+        }
+
         vertices.push(ShaderVertex::from(Vertex {
             position: vertex_positions[index].into(),
-            normal: vertex_normals[index].into(),
-            tangent: tangent.xyz(),
-            tangent_handedness: if tangent.w > 0.0 {
-                VertexTangentHandedness::Right
-            } else {
-                VertexTangentHandedness::Left
-            },
+            normal,
+            tangent,
+            tangent_handedness,
             tex_coords: vertex_tex_coords[index].into(),
             color: Vec4::from(vertex_colors[index]).xyz(),
             bone_indices: vertex_bone_indices[index].into(),

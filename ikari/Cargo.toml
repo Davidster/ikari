@@ -53,6 +53,7 @@ obj-rs = "0.7"
 wgpu.workspace = true
 # wgpu = { path = "../../wgpu/wgpu" }
 winit.workspace = true
+normal_pack = { version = "0.1.4", features = ["bytemuck"] }
 
 # math
 rand.workspace = true

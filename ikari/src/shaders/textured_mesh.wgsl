@@ -95,8 +95,8 @@ var<storage, read> shadow_instances_uniform: InstancesUniform;
 struct VertexInput {
     @location(0) object_position: vec3<f32>,
     @location(1) bone_weights: vec4<f32>,
-    @location(2) object_normal: vec2<f32>,
-    @location(3) object_tangent: vec2<f32>,
+    @location(2) object_normal: vec2<u32>,
+    @location(3) object_tangent: vec2<u32>,
     @location(4) object_tex_coords: vec2<f32>,
     @location(5) object_color_tangent_handedness: vec4<f32>,
     @location(6) bone_indices: vec4<u32>, 
@@ -216,24 +216,18 @@ fn get_soft_shadows_max_distance() -> f32 {
     return shader_options.options_2[2];
 }
 
-fn oct_wrap(v: vec2<f32>) -> vec2<f32>
-{
-    return ( 1.0 - abs( v.yx ) ) * ( select(vec2(-1.0), vec2(1.0), v.xy >= vec2(0.0)) );
+fn oct_decode_unit_vector_float(encoded: vec2<f32>) -> vec3<f32> {
+    let abs = abs(encoded);
+    let z = 1.0 - abs.x - abs.y;
+    let t = vec2(max(-z, 0.0));
+    return vec3(
+        encoded + select(t, -t, encoded >= vec2(0)),
+        z
+    );
 }
 
-// https://knarkowicz.wordpress.com/2014/04/16/octahedron-normal-vector-encoding/
-// https://cesium.com/blog/2015/05/18/vertex-compression/
-// https://jcgt.org/published/0003/02/01/
-fn oct_decode_unit_vector(in: vec2<f32>) -> vec3<f32>
-{
-    var encN = in;
-    encN = encN * 2.0 - 1.0;
-
-    var n: vec3<f32>;
-    n.z = 1.0 - abs( encN.x ) - abs( encN.y );
-    n = vec3(select(oct_wrap( encN.xy ), encN.xy, n.z >= 0.0), n.z);
-    n = normalize( n );
-    return n;
+fn oct_decode_unit_vector_u8(encoded: vec2<u32>) -> vec3<f32> {
+    return oct_decode_unit_vector_float((vec2<f32>(encoded) / 255.0) * vec2(2.0) - vec2(1.0));
 }
 
 fn do_vertex_shade(
@@ -249,8 +243,8 @@ fn do_vertex_shade(
     occlusion_strength: f32,
     alpha_cutoff: f32
 ) -> VertexOutput {
-    let object_normal = oct_decode_unit_vector(vshader_input.object_normal);
-    let object_tangent = oct_decode_unit_vector(vshader_input.object_tangent);
+    let object_normal = oct_decode_unit_vector_u8(vshader_input.object_normal);
+    let object_tangent = oct_decode_unit_vector_u8(vshader_input.object_tangent);
 
     let object_position = vec4<f32>(vshader_input.object_position, 1.0);
     let skinned_model_transform = model_transform * skin_transform;
