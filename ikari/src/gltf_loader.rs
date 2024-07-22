@@ -202,8 +202,6 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
         });
     }
 
-    let mut node_index_mapping: HashMap<usize, usize> = HashMap::new();
-
     for gltf_node in document.nodes() {
         if let Some(visuals) = node_visual_map.get(&gltf_node.index()) {
             for (i, (mesh_index, pbr_material_index)) in visuals.iter().enumerate() {
@@ -257,7 +255,6 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
                             bail!("Expected f32 data but found: {:?}", data_type);
                         }
                         let matrices_u8 = get_buffer_slice_from_accessor(accessor, &buffers);
-                        // TODO: switch to glam::Mat4?
                         Ok(bytemuck::cast_slice::<_, [[f32; 4]; 4]>(matrices_u8)
                             .to_vec()
                             .iter()
@@ -299,9 +296,7 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
                                             && v_bone_weight.to_f32() > vertex_weight_threshold
                                     })
                             })
-                            .map(|vertex| {
-                                bone_inv_bind_matrix.transform_point3(Vec3::from(vertex.position))
-                            });
+                            .map(|vertex| bone_inv_bind_matrix.transform_point3(vertex.position));
                         match Aabb::make_from_points(vertex_positions_for_node) {
                             Some(aabb) => TransformBuilder::new()
                                 .scale((aabb.max - aabb.min) / 2.0)

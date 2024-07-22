@@ -75,13 +75,13 @@ struct KeyframeTime {
 }
 
 pub(crate) fn step_animations(scene: &mut Scene, delta_time_seconds: f64) {
-    enum Op {
-        SetTranslation(Vec3),
-        SetScale(Vec3),
-        SetRotation(Quat),
+    enum SetPropertyOperation {
+        Translation(Vec3),
+        Scale(Vec3),
+        Rotation(Quat),
     }
 
-    let mut ops: Vec<(GameNodeId, Op)> = Vec::new();
+    let mut ops: Vec<(GameNodeId, SetPropertyOperation)> = Vec::new();
     for animation in scene.animations.iter_mut() {
         let state = &mut animation.state;
         if !state.is_playing {
@@ -125,7 +125,7 @@ pub(crate) fn step_animations(scene: &mut Scene, delta_time_seconds: f64) {
 
                     match &channel.keyframes {
                         AnimationKeyframes::TranslationLinear(keyframe_values) => {
-                            Op::SetTranslation(
+                            SetPropertyOperation::Translation(
                                 keyframe_values[previous_keyframe.index].lerp(
                                     keyframe_values[next_keyframe.index],
                                     interpolation_factor,
@@ -133,40 +133,50 @@ pub(crate) fn step_animations(scene: &mut Scene, delta_time_seconds: f64) {
                             )
                         }
                         AnimationKeyframes::TranslationStep(keyframe_values) => {
-                            Op::SetTranslation(keyframe_values[previous_keyframe.index])
+                            SetPropertyOperation::Translation(
+                                keyframe_values[previous_keyframe.index],
+                            )
                         }
                         AnimationKeyframes::TranslationCubic(keyframe_values) => {
-                            Op::SetTranslation(do_cubic_interpolation(
+                            SetPropertyOperation::Translation(do_cubic_interpolation(
                                 keyframe_values[previous_keyframe.index],
                                 keyframe_values[next_keyframe.index],
                                 next_keyframe.time - previous_keyframe.time,
                                 interpolation_factor,
                             ))
                         }
-                        AnimationKeyframes::ScaleLinear(keyframe_values) => Op::SetScale(
-                            keyframe_values[previous_keyframe.index]
-                                .lerp(keyframe_values[next_keyframe.index], interpolation_factor),
-                        ),
+                        AnimationKeyframes::ScaleLinear(keyframe_values) => {
+                            SetPropertyOperation::Scale(
+                                keyframe_values[previous_keyframe.index].lerp(
+                                    keyframe_values[next_keyframe.index],
+                                    interpolation_factor,
+                                ),
+                            )
+                        }
                         AnimationKeyframes::ScaleStep(keyframe_values) => {
-                            Op::SetScale(keyframe_values[previous_keyframe.index])
+                            SetPropertyOperation::Scale(keyframe_values[previous_keyframe.index])
                         }
                         AnimationKeyframes::ScaleCubic(keyframe_values) => {
-                            Op::SetScale(do_cubic_interpolation(
+                            SetPropertyOperation::Scale(do_cubic_interpolation(
                                 keyframe_values[previous_keyframe.index],
                                 keyframe_values[next_keyframe.index],
                                 next_keyframe.time - previous_keyframe.time,
                                 interpolation_factor,
                             ))
                         }
-                        AnimationKeyframes::RotationLinear(keyframe_values) => Op::SetRotation(
-                            keyframe_values[previous_keyframe.index]
-                                .slerp(keyframe_values[next_keyframe.index], interpolation_factor),
-                        ),
+                        AnimationKeyframes::RotationLinear(keyframe_values) => {
+                            SetPropertyOperation::Rotation(
+                                keyframe_values[previous_keyframe.index].slerp(
+                                    keyframe_values[next_keyframe.index],
+                                    interpolation_factor,
+                                ),
+                            )
+                        }
                         AnimationKeyframes::RotationStep(keyframe_values) => {
-                            Op::SetRotation(keyframe_values[previous_keyframe.index])
+                            SetPropertyOperation::Rotation(keyframe_values[previous_keyframe.index])
                         }
                         AnimationKeyframes::RotationCubic(keyframe_values) => {
-                            Op::SetRotation(do_cubic_interpolation(
+                            SetPropertyOperation::Rotation(do_cubic_interpolation(
                                 keyframe_values[previous_keyframe.index],
                                 keyframe_values[next_keyframe.index],
                                 next_keyframe.time - previous_keyframe.time,
@@ -179,24 +189,24 @@ pub(crate) fn step_animations(scene: &mut Scene, delta_time_seconds: f64) {
                 None => match &channel.keyframes {
                     AnimationKeyframes::TranslationLinear(keyframe_values)
                     | AnimationKeyframes::TranslationStep(keyframe_values) => {
-                        Op::SetTranslation(keyframe_values[0])
+                        SetPropertyOperation::Translation(keyframe_values[0])
                     }
                     AnimationKeyframes::TranslationCubic(keyframe_values) => {
-                        Op::SetTranslation(keyframe_values[0][1])
+                        SetPropertyOperation::Translation(keyframe_values[0][1])
                     }
                     AnimationKeyframes::ScaleLinear(keyframe_values)
                     | AnimationKeyframes::ScaleStep(keyframe_values) => {
-                        Op::SetScale(keyframe_values[0])
+                        SetPropertyOperation::Scale(keyframe_values[0])
                     }
                     AnimationKeyframes::ScaleCubic(keyframe_values) => {
-                        Op::SetScale(keyframe_values[0][1])
+                        SetPropertyOperation::Scale(keyframe_values[0][1])
                     }
                     AnimationKeyframes::RotationLinear(keyframe_values)
                     | AnimationKeyframes::RotationStep(keyframe_values) => {
-                        Op::SetRotation(keyframe_values[0])
+                        SetPropertyOperation::Rotation(keyframe_values[0])
                     }
                     AnimationKeyframes::RotationCubic(keyframe_values) => {
-                        Op::SetRotation(keyframe_values[0][1])
+                        SetPropertyOperation::Rotation(keyframe_values[0][1])
                     }
                 },
             };
@@ -208,13 +218,13 @@ pub(crate) fn step_animations(scene: &mut Scene, delta_time_seconds: f64) {
         if let Some(node) = scene.get_node_mut(node_id) {
             let transform = &mut node.transform;
             match op {
-                Op::SetTranslation(translation) => {
+                SetPropertyOperation::Translation(translation) => {
                     transform.set_position(translation);
                 }
-                Op::SetScale(scale) => {
+                SetPropertyOperation::Scale(scale) => {
                     transform.set_scale(scale);
                 }
-                Op::SetRotation(rotation) => {
+                SetPropertyOperation::Rotation(rotation) => {
                     transform.set_rotation(rotation);
                 }
             }

@@ -229,7 +229,7 @@ pub struct ResolvedDirectionalLightCascade {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Default)]
 struct DirectionalLightCascadeUniform {
-    world_space_to_light_space: [[f32; 4]; 4], // TODO: switch to glam::Mat4?
+    world_space_to_light_space: glam::Mat4,
     frustum_slice_far_distance: f32,
     pixel_size: f32,
     _padding: [f32; 2],
@@ -249,8 +249,7 @@ impl DirectionalLightCascadeUniform {
         );
 
         Self {
-            world_space_to_light_space: (shader_camera_data.proj * shader_camera_data.view)
-                .to_cols_array_2d(),
+            world_space_to_light_space: shader_camera_data.proj * shader_camera_data.view,
             frustum_slice_far_distance: resolved_cascade.frustum_slice_far_distance,
             pixel_size: projection_volume.pixel_size,
             _padding: Default::default(),
@@ -3137,7 +3136,7 @@ impl Renderer {
         );
 
         let bounding_box = crate::collisions::Aabb::make_from_points(
-            mesh.vertices.iter().map(|vertex| vertex.position.into()),
+            mesh.vertices.iter().map(|vertex| vertex.position),
         )
         .expect("Expected model to have at least two vertex positions");
 
@@ -5927,17 +5926,15 @@ impl Renderer {
                                     let is_all_one = as_slice.iter().all(|&x| x == 1.0);
                                     !is_all_zero && !is_all_one
                                 };
-                                let base_color_factor_arr: [f32; 4] = base_color_factor.into();
-                                let emissive_factor_arr: [f32; 3] = emissive_factor.into();
                                 (
-                                    if should_take_color(&base_color_factor_arr[0..3]) {
+                                    if should_take_color(&base_color_factor.to_array()) {
                                         [
                                             base_color_factor.x,
                                             base_color_factor.y,
                                             base_color_factor.z,
                                             base_color_factor.w,
                                         ]
-                                    } else if should_take_color(&emissive_factor_arr) {
+                                    } else if should_take_color(&emissive_factor.to_array()) {
                                         [
                                             emissive_factor.x,
                                             emissive_factor.y,

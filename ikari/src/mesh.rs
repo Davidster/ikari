@@ -32,7 +32,7 @@ pub struct Vertex {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ShaderVertex {
-    pub position: [f32; 3],
+    pub position: glam::Vec3,
     pub bone_weights: [F16; 4],
     // TODO: make a CRATE for oct encoding?
     pub oct_encoded_normal: [F16; 2],
@@ -112,7 +112,7 @@ impl From<Vertex> for ShaderVertex {
         };
 
         Self {
-            position: value.position.into(),
+            position: value.position,
             oct_encoded_normal: oct_encode_unit_vector(value.normal),
             oct_encoded_tangent: oct_encode_unit_vector(value.tangent),
             tex_coords: [F16::from(value.tex_coords.x), F16::from(value.tex_coords.y)],

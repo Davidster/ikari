@@ -101,8 +101,8 @@ impl ShaderCameraData {
 #[repr(C)]
 #[derive(Default, Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MeshShaderCameraRaw {
-    view_proj: [[f32; 4]; 4], // TODO: switch to glam::Mat4?
-    position: [f32; 3],
+    view_proj: glam::Mat4,
+    position: glam::Vec3,
     far_plane_distance: f32,
 }
 
@@ -117,8 +117,8 @@ impl From<ShaderCameraData> for MeshShaderCameraRaw {
         }: ShaderCameraData,
     ) -> Self {
         Self {
-            view_proj: (proj * view).to_cols_array_2d(),
-            position: [position.x, position.y, position.z],
+            view_proj: proj * view,
+            position,
             far_plane_distance,
         }
     }
@@ -127,8 +127,8 @@ impl From<ShaderCameraData> for MeshShaderCameraRaw {
 #[repr(C)]
 #[derive(Default, Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SkyboxShaderCameraRaw {
-    rotation_only_view_proj: [[f32; 4]; 4], // TODO: switch to glam::Mat4?
-    position: [f32; 3],
+    rotation_only_view_proj: glam::Mat4,
+    position: glam::Vec3,
     far_plane_distance: f32,
 }
 
@@ -143,8 +143,8 @@ impl From<ShaderCameraData> for SkyboxShaderCameraRaw {
         }: ShaderCameraData,
     ) -> Self {
         Self {
-            rotation_only_view_proj: (proj * rotation_only_view).to_cols_array_2d(),
-            position: [position.x, position.y, position.z],
+            rotation_only_view_proj: proj * rotation_only_view,
+            position,
             far_plane_distance,
         }
     }

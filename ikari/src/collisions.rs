@@ -418,7 +418,7 @@ impl CameraFrustumDescriptor {
             self.to_basic_mesh()
                 .vertices
                 .iter()
-                .map(|vertex| vertex.position.into()),
+                .map(|vertex| vertex.position),
         )
         .expect("to_basic_mesh vertices should be non-empty")
         .center();
@@ -504,8 +504,9 @@ impl CameraFrustumDescriptor {
         BasicMesh {
             vertices: vertices
                 .iter()
-                .map(|pos| ShaderVertex {
-                    position: pos.to_array(),
+                .copied()
+                .map(|position| ShaderVertex {
+                    position,
                     ..Default::default()
                 })
                 .collect(),
