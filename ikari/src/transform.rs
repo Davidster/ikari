@@ -255,7 +255,7 @@ pub fn make_perspective_proj_matrix(
 ) -> Mat4 {
     let n = near_plane_distance;
     let f = far_plane_distance;
-    let fov_y = fov_x / aspect_ratio;
+    let fov_y = fov_x / aspect_ratio; // TODO: this is wrong!
     let cot = 1.0 / (fov_y / 2.0).tan();
     let ar = aspect_ratio;
     #[rustfmt::skip]

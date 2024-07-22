@@ -229,7 +229,7 @@ pub struct ResolvedDirectionalLightCascade {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Default)]
 struct DirectionalLightCascadeUniform {
-    world_space_to_light_space: [[f32; 4]; 4],
+    world_space_to_light_space: [[f32; 4]; 4], // TODO: switch to glam::Mat4?
     frustum_slice_far_distance: f32,
     pixel_size: f32,
     _padding: [f32; 2],

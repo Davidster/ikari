@@ -132,8 +132,5 @@ impl TimeTracker {
 }
 
 fn option_subtract(end: Option<Instant>, start: Option<Instant>) -> Option<Duration> {
-    match (end, start) {
-        (Some(end), Some(start)) => Some(end - start),
-        _ => None,
-    }
+    end.zip(start).map(|(end, start)| end - start)
 }

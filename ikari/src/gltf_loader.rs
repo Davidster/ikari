@@ -257,6 +257,7 @@ pub async fn load_scene(params: SceneAssetLoadParams) -> Result<BindableScene> {
                             bail!("Expected f32 data but found: {:?}", data_type);
                         }
                         let matrices_u8 = get_buffer_slice_from_accessor(accessor, &buffers);
+                        // TODO: switch to glam::Mat4?
                         Ok(bytemuck::cast_slice::<_, [[f32; 4]; 4]>(matrices_u8)
                             .to_vec()
                             .iter()
