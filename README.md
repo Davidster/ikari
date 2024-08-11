@@ -36,6 +36,9 @@ Hopefully one day it will be used in a real game 😃
 ## Try it out
 
 ```sh
+# install depdendencies (Debian)
+sudo apt install libasound2-dev
+
 # native
 cargo run --bin example_game
 # web
