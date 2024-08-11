@@ -36,7 +36,7 @@ Hopefully one day it will be used in a real game 😃
 ## Try it out
 
 ```sh
-# install depdendencies (Debian)
+# install dependencies (Debian)
 sudo apt install libasound2-dev
 
 # native
