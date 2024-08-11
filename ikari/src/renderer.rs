@@ -732,7 +732,7 @@ impl BaseRenderer {
             .map_err(|err| anyhow::anyhow!("Failed to create wgpu device: {err}"))?;
 
         log::info!(
-            "WGPU device initialized with:\nAdapter: {:?}\nFeatures: {:?}",
+            "wgpu device initialized with:\nAdapter: {:#?}\nFeatures: {:#?}",
             adapter.get_info(),
             device.features()
         );
@@ -4858,7 +4858,10 @@ impl Renderer {
 
         let fmt_bytes = |bytes: usize| {
             byte_unit::Byte::from_u128(bytes as u128)
-                .map(|byte| byte.get_appropriate_unit(byte_unit::UnitType::Decimal).to_string())
+                .map(|byte| {
+                    byte.get_appropriate_unit(byte_unit::UnitType::Decimal)
+                        .to_string()
+                })
                 .unwrap_or_else(|| format!("{bytes} bytes"))
         };
         log::debug!(
