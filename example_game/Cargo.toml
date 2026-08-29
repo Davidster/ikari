@@ -10,7 +10,10 @@ name = "example_game"
 path = "src/main.rs"
 
 [features]
-default = ["cpu-profiling", "gpu-profiling", "audio"]
+# TODO: restore "cpu-profiling" once the Windows SDK is new enough — it pulls
+# tracy-client-sys 0.29, which fails to compile against VS BuildTools 14.33.
+# See the matching TODO on wgpu-profiler below.
+default = ["gpu-profiling", "audio"]
 cpu-profiling = [
   "ikari/tracy-profiling",
   "profiling/profile-with-tracy",
@@ -38,19 +41,23 @@ iced_wgpu.workspace = true
 iced_winit.workspace = true
 tracing-tracy = { version = "0.10.5", optional = true }
 
-plotters-iced = "0.10.0"
+# plotters-iced is unmaintained and never gained iced 0.14 support; plotters-iced2
+# is the published continuation of it (same API, ported to iced 0.14).
+plotters-iced2 = "0.14.0"
 plotters = { version = "0.3.6", default-features = false, features = [
   "line_series",
 ] }
 
-iced_aw = { git = "https://github.com/iced-rs/iced_aw.git", rev = "ed594559ac8f5d84c5931a850663f1d17571aa80", default-features = false, features = [
-  "modal",
-  "card",
-  "floating_element",
-] }
+# iced_aw 0.14 dropped the `modal` and `floating_element` widgets; those are now
+# built with iced's own `stack` widget instead.
+iced_aw = { version = "0.14.1", default-features = false, features = ["card"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-wgpu-profiler = { workspace = true, features = ["tracy"] }
+# TODO: re-enable once the Windows SDK is new enough. wgpu-profiler 0.25's "tracy"
+# feature pulls tracy-client-sys 0.29, whose TracyETW.cpp needs
+# SystemSchedulerProviderGuid from a newer Windows SDK than VS BuildTools 14.33 has.
+# wgpu-profiler = { workspace = true, features = ["tracy"] }
+wgpu-profiler = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys.workspace = true

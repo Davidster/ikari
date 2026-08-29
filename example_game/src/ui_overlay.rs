@@ -2,7 +2,6 @@ use std::collections::hash_map::Entry;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::rc::Rc;
 
 use glam::Vec3;
 use iced::alignment::Horizontal;
@@ -14,13 +13,28 @@ use iced::Border;
 use iced::Font;
 
 use iced::widget::{
-    canvas, checkbox, container, radio, scrollable, slider, text, Column, Container, Row,
+    canvas, container, radio, scrollable, slider, stack, text, Column, Container, Row,
 };
+
+/// ikari drives iced through `iced_wgpu::Renderer` directly, which is not the default
+/// renderer parameter on `Element`, so annotations have to name it explicitly.
+type UiElement<'a> = Element<'a, Message, iced::Theme, iced::Renderer>;
+
+/// iced 0.14 changed `checkbox(label, is_checked)` into
+/// `Checkbox::new(is_checked).label(label)`. This keeps the old call shape so the
+/// ~18 call sites below don't all have to be rewritten.
+fn checkbox<'a, Message, Theme, Renderer>(
+    label: impl iced::widget::text::IntoFragment<'a>,
+    is_checked: bool,
+) -> iced::widget::Checkbox<'a, Message, Theme, Renderer>
+where
+    Theme: iced::widget::checkbox::Catalog + 'a,
+    Renderer: iced_wgpu::core::text::Renderer,
+{
+    iced::widget::Checkbox::new(is_checked).label(label)
+}
 use iced::Length;
-use iced::{mouse, Background, Command, Element, Rectangle, Theme};
-use iced_aw::style::modal;
-use iced_aw::{floating_element, Modal};
-use iced_winit::runtime;
+use iced::{mouse, Background, Element, Rectangle, Task, Theme};
 use ikari::file_manager::GameFilePath;
 use ikari::framerate_limiter::FramerateLimit;
 use ikari::framerate_limiter::FramerateLimitType;
@@ -36,9 +50,9 @@ use ikari::texture::apply_render_scale;
 use ikari::time::Instant;
 use ikari::time_tracker::FrameDurations;
 use ikari::time_tracker::FrameInstants;
-use ikari::ui::UiProgramEvents;
+use ikari::ui::{UiProgram, UiProgramEvents};
 use plotters::prelude::*;
-use plotters_iced::{Chart, ChartWidget, DrawingBackend};
+use plotters_iced2::{Chart, ChartWidget, DrawingBackend};
 
 use ikari::time::Duration;
 
@@ -349,81 +363,54 @@ pub struct UiOverlay {
     pub debug_settings: DebugSettings,
 }
 
-pub struct ContainerStyle;
+// iced 0.13 replaced the `StyleSheet` traits (and their `Appearance` structs) with
+// plain functions returning a `Style`, passed straight to `.style(..)`.
 
-impl container::StyleSheet for ContainerStyle {
-    type Style = Theme;
+const HOVERED_ALPHA: f32 = 0.5;
+const PRESSED_ALPHA: f32 = 0.3;
+const DISABLED_ALPHA: f32 = 0.3;
 
-    fn appearance(&self, _: &Self::Style) -> container::Appearance {
-        container::Appearance {
-            background: Some(Background::Color(iced::Color::from_rgba(
-                0.3, 0.3, 0.3, 0.6,
-            ))),
-            ..Default::default()
-        }
+fn transparent_color(color: iced::Color, alpha: f32) -> iced::Color {
+    iced::Color::from_rgba(color.r, color.g, color.b, color.a * alpha)
+}
+
+pub fn container_style(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(iced::Color::from_rgba(
+            0.3, 0.3, 0.3, 0.6,
+        ))),
+        ..Default::default()
     }
 }
 
-pub struct CollapsibleButtonStyle;
+pub fn collapsible_button_style(theme: &Theme, status: button::Status) -> button::Style {
+    let active = button::Style {
+        border: Border::default().rounded(2),
+        text_color: theme.palette().text,
+        ..button::Style::default()
+    };
 
-impl CollapsibleButtonStyle {
-    const HOVERED_ALPHA: f32 = 0.5;
-    const PRESSED_ALPHA: f32 = 0.3;
-    const DISABLED_ALPHA: f32 = 0.3;
+    let with_alpha = |alpha| button::Style {
+        text_color: transparent_color(active.text_color, alpha),
+        ..active
+    };
 
-    fn transparent_color(color: iced::Color, alpha: f32) -> iced::Color {
-        iced::Color::from_rgba(color.r, color.g, color.b, color.a * alpha)
+    match status {
+        button::Status::Active => active,
+        button::Status::Hovered => with_alpha(HOVERED_ALPHA),
+        button::Status::Pressed => with_alpha(PRESSED_ALPHA),
+        button::Status::Disabled => with_alpha(DISABLED_ALPHA),
     }
 }
 
-impl button::StyleSheet for CollapsibleButtonStyle {
-    type Style = Theme;
-
-    fn active(&self, style: &Self::Style) -> button::Appearance {
-        button::Appearance {
-            border: Border::with_radius(2),
-            text_color: style.palette().text,
-            ..button::Appearance::default()
-        }
-    }
-
-    fn hovered(&self, style: &Self::Style) -> button::Appearance {
-        let active = self.active(style);
-
-        button::Appearance {
-            text_color: Self::transparent_color(active.text_color, Self::HOVERED_ALPHA),
-            ..active
-        }
-    }
-
-    fn pressed(&self, style: &Self::Style) -> button::Appearance {
-        let active = self.active(style);
-
-        button::Appearance {
-            text_color: Self::transparent_color(active.text_color, Self::PRESSED_ALPHA),
-            ..active
-        }
-    }
-
-    fn disabled(&self, style: &Self::Style) -> button::Appearance {
-        let active = self.active(style);
-
-        button::Appearance {
-            text_color: Self::transparent_color(active.text_color, Self::DISABLED_ALPHA),
-            ..active
-        }
-    }
-}
-
-pub struct ModalStyle;
-
-impl modal::StyleSheet for ModalStyle {
-    type Style = Theme;
-
-    fn active(&self, _style: &Self::Style) -> modal::Appearance {
-        modal::Appearance {
-            background: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.5).into(),
-        }
+/// Dim layer behind the options modal. iced_aw 0.14 dropped its `Modal` widget, so
+/// this is now a plain container stacked over the rest of the UI.
+pub fn modal_overlay_style(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(iced::Color::from_rgba(
+            0.0, 0.0, 0.0, 0.5,
+        ))),
+        ..Default::default()
     }
 }
 
@@ -587,10 +574,14 @@ impl FpsChart {
         if !gpu_timer_query_results.is_empty() {
             let mut total_gpu_time_seconds = 0.0;
             for query_result in gpu_timer_query_results {
+                // wgpu-profiler 0.25 made `time` optional (a scope may not have had
+                // timer queries enabled), so skip the ones without a range.
+                let Some(time) = &query_result.time else {
+                    continue;
+                };
                 // start can occasionally be larger than end on macos :(
                 // see https://github.com/Wumpf/wgpu-profiler/issues/64
-                total_gpu_time_seconds +=
-                    (query_result.time.end - query_result.time.start).max(0.0);
+                total_gpu_time_seconds += (time.end - time.start).max(0.0);
             }
             Some(Duration::from_secs_f64(total_gpu_time_seconds))
         } else {
@@ -657,7 +648,10 @@ impl FpsChart {
         let mut span_totals: HashMap<String, f64> = HashMap::new();
 
         for query_result in gpu_timer_query_results {
-            let span_time_ms = (query_result.time.end - query_result.time.start) * 1000.0;
+            let Some(time) = &query_result.time else {
+                continue;
+            };
+            let span_time_ms = (time.end - time.start) * 1000.0;
             match span_totals.entry(query_result.label.clone()) {
                 Entry::Occupied(mut entry) => {
                     entry.insert(entry.get() + span_time_ms);
@@ -799,12 +793,11 @@ impl UiProgramEvents for UiOverlay {
 }
 
 // the iced ui
-impl runtime::Program for UiOverlay {
+impl UiProgram for UiOverlay {
     type Message = Message;
     type Theme = iced::Theme;
-    type Renderer = iced::Renderer;
 
-    fn update(&mut self, message: Message) -> Command<Message> {
+    fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::ViewportDimsChanged(new_state) => {
                 self.viewport_dims = new_state;
@@ -1000,15 +993,13 @@ impl runtime::Program for UiOverlay {
             }
         }
 
-        Command::none()
+        Task::none()
     }
 
     fn view(&self) -> Element<'_, Message, iced::Theme, iced::Renderer> {
         if self.fps_chart.recent_frame_times.is_empty() {
             return Row::new().into();
         }
-
-        let container_style = Box::new(ContainerStyle {});
 
         let get_chart_line_color = |i: usize| {
             iced::Color::from_rgba8(
@@ -1029,7 +1020,7 @@ impl runtime::Program for UiOverlay {
             ..
         } = self.debug_settings;
 
-        let mut rows: Vec<Element<_>> = vec![];
+        let mut rows: Vec<UiElement> = vec![];
 
         if is_showing_fps {
             if let Some(avg_frame_time_millis) = self.fps_chart.avg_total_frame_time_millis {
@@ -1040,43 +1031,43 @@ impl runtime::Program for UiOverlay {
                 ));
 
                 if is_showing_fps_chart {
-                    text = text.style(get_chart_line_color(0))
+                    text = text.color(get_chart_line_color(0))
                 }
                 rows.push(text.into());
             }
 
             if self.general_settings.framerate_limit_type != FramerateLimitType::None {
                 if let Some(millis) = self.fps_chart.avg_sleep_and_inputs_time_ms {
-                    let text = text(&format!("Sleep and inputs: {:.2}ms", millis));
+                    let text = text(format!("Sleep and inputs: {:.2}ms", millis));
                     rows.push(text.into());
                 }
             }
 
             if let Some(millis) = self.fps_chart.avg_get_surface_time_ms {
-                let text = text(&format!("Get surface: {:.2}ms", millis));
+                let text = text(format!("Get surface: {:.2}ms", millis));
                 rows.push(text.into());
             }
 
             if let Some(millis) = self.fps_chart.avg_update_time_ms {
-                let mut text = text(&format!("Update: {:.2}ms", millis));
+                let mut text = text(format!("Update: {:.2}ms", millis));
                 if is_showing_fps_chart {
-                    text = text.style(get_chart_line_color(1))
+                    text = text.color(get_chart_line_color(1))
                 }
                 rows.push(text.into());
             }
 
             if let Some(millis) = self.fps_chart.avg_render_time_ms {
-                let mut text = text(&format!("Render: {:.2}ms", millis));
+                let mut text = text(format!("Render: {:.2}ms", millis));
                 if is_showing_fps_chart {
-                    text = text.style(get_chart_line_color(2))
+                    text = text.color(get_chart_line_color(2))
                 }
                 rows.push(text.into());
             }
 
             if let Some(millis) = self.fps_chart.avg_gpu_frame_time_ms {
-                let mut text = text(&format!("GPU: {:.2}ms", millis));
+                let mut text = text(format!("GPU: {:.2}ms", millis));
                 if is_showing_fps_chart {
-                    text = text.style(get_chart_line_color(3))
+                    text = text.color(get_chart_line_color(3))
                 }
                 rows.push(text.into());
             }
@@ -1085,7 +1076,7 @@ impl runtime::Program for UiOverlay {
         if is_showing_camera_pose {
             if let Some((camera_position, camera_direction)) = self.camera_pose {
                 rows.push(
-                    text(&format!(
+                    text(format!(
                         "Camera position:  x={:.2}, y={:.2}, z={:.2}",
                         camera_position.x, camera_position.y, camera_position.z
                     ))
@@ -1095,7 +1086,7 @@ impl runtime::Program for UiOverlay {
                 let camera_horizontal = (camera_direction.horizontal + two_pi) % two_pi;
                 let camera_vertical = camera_direction.vertical;
                 rows.push(
-                    text(&format!(
+                    text(format!(
                         "Camera direction: h={:.2} ({:.2} deg), v={:.2} ({:.2} deg)",
                         camera_horizontal,
                         camera_horizontal.to_degrees(),
@@ -1120,7 +1111,7 @@ impl runtime::Program for UiOverlay {
                     .unwrap_or_default();
                 let buffered_pos = format_timestamp(stats.buffered_to_pos_seconds);
                 rows.push(
-                    text(&format!(
+                    text(format!(
                         "{file_path}: {pos}{length}, buffer to {buffered_pos}"
                     ))
                     .into(),
@@ -1133,7 +1124,7 @@ impl runtime::Program for UiOverlay {
             rows.push(text("Culling stats:").size(text_size).into());
 
             rows.push(
-                text(&format!("  Time to cull: {:?}", culling_stats.time_to_cull))
+                text(format!("  Time to cull: {:?}", culling_stats.time_to_cull))
                     .size(text_size)
                     .into(),
             );
@@ -1141,12 +1132,12 @@ impl runtime::Program for UiOverlay {
             let total_count = culling_stats.total_count;
 
             rows.push(
-                text(&format!("  Total objects: {}", total_count))
+                text(format!("  Total objects: {}", total_count))
                     .size(text_size)
                     .into(),
             );
             rows.push(
-                text(&format!(
+                text(format!(
                     "  Completely culled: {} ({:.2}%)",
                     culling_stats.completely_culled_count,
                     100.0 * culling_stats.completely_culled_count as f32 / total_count as f32
@@ -1155,7 +1146,7 @@ impl runtime::Program for UiOverlay {
                 .into(),
             );
             rows.push(
-                text(&format!(
+                text(format!(
                     "  Main camera: {} ({:.2}%)",
                     culling_stats.main_camera_culled_count,
                     100.0 * culling_stats.main_camera_culled_count as f32 / total_count as f32
@@ -1170,14 +1161,14 @@ impl runtime::Program for UiOverlay {
                 .enumerate()
             {
                 rows.push(
-                    text(&format!("  Directional light: {}", light_index))
+                    text(format!("  Directional light: {}", light_index))
                         .size(text_size)
                         .into(),
                 );
 
                 for (cascade_index, cascade_count) in cascades.iter().enumerate() {
                     rows.push(
-                        text(&format!(
+                        text(format!(
                             "    Cascade {}: {} ({:.2}%)",
                             cascade_index,
                             cascade_count,
@@ -1191,14 +1182,14 @@ impl runtime::Program for UiOverlay {
             for (light_index, frusta) in culling_stats.point_light_culled_counts.iter().enumerate()
             {
                 rows.push(
-                    text(&format!("  Point light: {}", light_index))
+                    text(format!("  Point light: {}", light_index))
                         .size(text_size)
                         .into(),
                 );
 
                 for (frustum_index, frustum_count) in frusta.iter().enumerate() {
                     rows.push(
-                        text(&format!(
+                        text(format!(
                             "    Frustum {}: {} ({:.2}%)",
                             frustum_index,
                             frustum_count,
@@ -1221,13 +1212,14 @@ impl runtime::Program for UiOverlay {
             });
             avg_span_times_vec.reverse();
             for (span, span_frame_time) in avg_span_times_vec {
-                let msg = &format!("{span:}: {span_frame_time:.2}ms");
+                let msg = format!("{span:}: {span_frame_time:.2}ms");
                 rows.push(text(msg).size(14).into());
             }
         }
 
         if is_showing_fps_chart {
-            let padding = [16, 20, 16, 0]; // top, right, bottom, left
+            // iced 0.14's Padding has no From<[_; 4]>; build it side by side instead
+            let padding = iced::Padding::new(0.0).top(16.0).right(20.0).bottom(16.0);
             rows.push(
                 Container::new(
                     ChartWidget::new(&self.fps_chart)
@@ -1239,7 +1231,7 @@ impl runtime::Program for UiOverlay {
             );
         }
 
-        let padding = if rows.is_empty() { 0 } else { 8 };
+        let padding = if rows.is_empty() { 0.0 } else { 8.0 };
         let background_content = Container::new(
             Row::new()
                 .width(Length::Shrink)
@@ -1253,17 +1245,18 @@ impl runtime::Program for UiOverlay {
                             .spacing(4),
                     )
                     .padding(padding)
-                    .style(iced::theme::Container::Custom(container_style)),
+                    .style(container_style),
                 ),
         )
         .width(Length::Fill)
         .height(Length::Fill);
 
-        let modal_content: Option<Element<_, _, _>> = self.is_showing_options_menu.then(|| {
-            let big_text_size: u16 = 18;
-            let small_text_size: u16 = 14;
-            let checkbox_size: u16 = small_text_size * 4 / 3;
-            let slider_size: u16 = small_text_size * 4 / 3;
+        let modal_content: Option<UiElement> = self.is_showing_options_menu.then(|| {
+            // iced 0.13+ takes sizes as f32 (Pixels no longer converts from u16)
+            let big_text_size: f32 = 18.0;
+            let small_text_size: f32 = 14.0;
+            let checkbox_size: f32 = small_text_size * 4.0 / 3.0;
+            let slider_size: f32 = small_text_size * 4.0 / 3.0;
 
             let collapse_title = |title, collapsed, on_press| {
                 let arrow = if collapsed { ">" } else { "v" };
@@ -1276,15 +1269,13 @@ impl runtime::Program for UiOverlay {
                         })
                         .size(big_text_size),
                 )
-                .style(iced::theme::Button::Custom(Box::new(
-                    CollapsibleButtonStyle,
-                )))
+                .style(collapsible_button_style)
                 .on_press(on_press)
             };
 
             let mut options = Column::new()
                 .spacing(4)
-                .padding([6, 48, 6, 6])
+                .padding(iced::Padding::new(6.0).right(48.0))
                 .width(Length::Fill);
 
             {
@@ -1365,7 +1356,7 @@ impl runtime::Program for UiOverlay {
 
                         options = options.push(
                             container(Column::with_children(framerate_limit_options).spacing(4))
-                                .padding([0, 0, 8, 0]),
+                                .padding(iced::Padding::new(0.0).bottom(8.0)),
                         );
 
                         if framerate_limit_type == FramerateLimitType::Custom {
@@ -1762,7 +1753,7 @@ impl runtime::Program for UiOverlay {
 
                         options = options.push(
                             container(Column::with_children(culling_lock_options).spacing(4))
-                                .padding([0, 0, 8, 0]),
+                                .padding(iced::Padding::new(0.0).bottom(8.0)),
                         );
                     }
 
@@ -1801,7 +1792,9 @@ impl runtime::Program for UiOverlay {
                 }
             }
 
-            let mut bottom_buttons = Column::new().spacing(8).padding([8, 0, 0, 0]);
+            let mut bottom_buttons = Column::new()
+                .spacing(8)
+                .padding(iced::Padding::new(0.0).top(8.0));
 
             if can_generate_profile_dump() {
                 if let Some(pending_perf_dump) = &self.pending_perf_dump {
@@ -1832,13 +1825,13 @@ impl runtime::Program for UiOverlay {
                             iced::Color::from_rgb(1.0, 0.7, 0.1),
                         )
                     };
-                    bottom_buttons = bottom_buttons.push(text(message).style(color));
+                    bottom_buttons = bottom_buttons.push(text(message).color(color));
                 } else {
                     bottom_buttons = bottom_buttons.push(
                         button(
                             text("Generate Profile Dump")
                                 .size(small_text_size)
-                                .horizontal_alignment(Horizontal::Center),
+                                .align_x(Horizontal::Center),
                         )
                         .width(Length::Shrink)
                         .on_press(Message::GenerateProfileDump),
@@ -1850,7 +1843,7 @@ impl runtime::Program for UiOverlay {
                 button(
                     text("Reset Defaults")
                         .size(small_text_size)
-                        .horizontal_alignment(Horizontal::Center),
+                        .align_x(Horizontal::Center),
                 )
                 .width(Length::Shrink)
                 .on_press(Message::DefaultSettingsButtonPressed),
@@ -1860,7 +1853,7 @@ impl runtime::Program for UiOverlay {
                 button(
                     text("Exit Game")
                         .size(small_text_size)
-                        .horizontal_alignment(Horizontal::Center),
+                        .align_x(Horizontal::Center),
                 )
                 .width(Length::Shrink)
                 .on_press(Message::ExitButtonPressed),
@@ -1878,7 +1871,7 @@ impl runtime::Program for UiOverlay {
             .into()
         });
 
-        let modal_background: Element<_> = if is_showing_cursor_marker {
+        let modal_background: UiElement = if is_showing_cursor_marker {
             let overlay = {
                 let canvas: canvas::Canvas<&Self, Message, iced::Theme, iced::Renderer> =
                     canvas(self as &Self)
@@ -1892,15 +1885,25 @@ impl runtime::Program for UiOverlay {
                         .padding(0),
                 )
             };
-            floating_element(background_content, overlay)
-                .anchor(floating_element::Anchor::NorthWest)
-                .into()
+            // iced_aw 0.14 dropped `floating_element`; the overlay filled the whole
+            // area anchored north-west, which a plain stack reproduces.
+            stack![background_content, overlay].into()
         } else {
             background_content.into()
         };
 
-        Modal::new(modal_background, modal_content)
-            .style(modal::ModalStyles::Custom(Rc::new(ModalStyle)))
-            .into()
+        // iced_aw 0.14 dropped `Modal` too. iced's own `stack` + `opaque` is the
+        // documented replacement: the dim layer swallows input to what's behind it.
+        match modal_content {
+            Some(modal_content) => stack![
+                modal_background,
+                iced::widget::opaque(
+                    iced::widget::center(iced::widget::opaque(modal_content))
+                        .style(modal_overlay_style)
+                )
+            ]
+            .into(),
+            None => modal_background,
+        }
     }
 }

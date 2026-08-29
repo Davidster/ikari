@@ -78,14 +78,14 @@ impl Texture {
                     view_formats: &[],
                 });
             base_renderer.queue.write_texture(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     aspect: wgpu::TextureAspect::All,
                     texture: &texture,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                 },
                 &raw_image.bytes,
-                wgpu::ImageDataLayout {
+                wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     // queue.write_texture is exempt from COPY_BYTES_PER_ROW_ALIGNMENT requirement
                     bytes_per_row: Some(format.block_copy_size(None).expect(
@@ -232,7 +232,7 @@ impl Texture {
                 });
 
                 encoder.copy_texture_to_buffer(
-                    wgpu::ImageCopyTexture {
+                    wgpu::TexelCopyTextureInfo {
                         aspect: wgpu::TextureAspect::All,
                         texture: &self.texture,
                         mip_level,
@@ -241,9 +241,9 @@ impl Texture {
                             ..wgpu::Origin3d::ZERO
                         },
                     },
-                    wgpu::ImageCopyBuffer {
+                    wgpu::TexelCopyBufferInfo {
                         buffer: &output_buffer,
-                        layout: wgpu::ImageDataLayout {
+                        layout: wgpu::TexelCopyBufferLayout {
                             offset: 0,
                             bytes_per_row: Some(padded_bytes_per_row),
                             rows_per_image: None,
@@ -265,7 +265,9 @@ impl Texture {
                     buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
                         tx.send(result).unwrap();
                     });
-                    base_renderer.device.poll(wgpu::Maintain::Wait);
+                    base_renderer
+                        .device
+                        .poll(wgpu::PollType::wait_indefinitely())?;
                     rx.receive().await.unwrap()?;
 
                     let data = &buffer_slice.get_mapped_range();
@@ -670,6 +672,7 @@ impl Texture {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &face_texture_view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                             store: wgpu::StoreOp::Store,
@@ -900,6 +903,7 @@ impl Texture {
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &face_texture_view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                             store: wgpu::StoreOp::Store,
@@ -1105,6 +1109,7 @@ impl Texture {
                                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                                         view: &face_texture_view,
                                         resolve_target: None,
+                                        depth_slice: None,
                                         ops: wgpu::Operations {
                                             load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                                             store: wgpu::StoreOp::Store,
@@ -1229,6 +1234,7 @@ impl Texture {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::RED),
                         store: wgpu::StoreOp::Store,
@@ -1319,12 +1325,14 @@ fn generate_mipmaps_for_texture(
                             layout: Some(&mip_pipeline_layout),
                             vertex: wgpu::VertexState {
                                 module: &blit_shader,
-                                entry_point: "vs_main",
+                                entry_point: Some("vs_main"),
+                                compilation_options: Default::default(),
                                 buffers: &[],
                             },
                             fragment: Some(wgpu::FragmentState {
                                 module: &blit_shader,
-                                entry_point: "fs_main",
+                                entry_point: Some("fs_main"),
+                                compilation_options: Default::default(),
                                 targets: &[Some(format.into())],
                             }),
                             primitive: wgpu::PrimitiveState {
@@ -1334,6 +1342,7 @@ fn generate_mipmaps_for_texture(
                             depth_stencil: None,
                             multisample: Default::default(),
                             multiview: None,
+                            cache: None,
                         },
                     );
                     WasmNotArc::new(mip_render_pipeline)
@@ -1351,6 +1360,7 @@ fn generate_mipmaps_for_texture(
                 label: USE_LABELS.then_some("mip"),
                 format: None,
                 dimension: None,
+                usage: None,
                 aspect: wgpu::TextureAspect::All,
                 base_mip_level: mip,
                 mip_level_count: Some(1),
@@ -1401,6 +1411,7 @@ fn generate_mipmaps_for_texture(
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &mip_texure_views[target_mip],
                 resolve_target: None,
+                depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                     store: wgpu::StoreOp::Store,

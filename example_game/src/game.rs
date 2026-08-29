@@ -269,7 +269,8 @@ pub async fn init_game_state(
     engine_state: &mut EngineState,
     renderer: &mut Renderer,
     surface_data: &mut SurfaceData,
-    window: &winit::window::Window,
+    // iced 0.14's Clipboard::connect wants an Arc<Window>, so this has to be shared
+    window: &std::sync::Arc<winit::window::Window>,
 ) -> Result<GameState> {
     log::info!("Controls:");
     [
@@ -1128,6 +1129,7 @@ pub async fn init_game_state(
         let surface_format = surface_data.surface_config.format;
         IkariUiContainer::new(
             window,
+            &renderer.base.adapter,
             &renderer.base.device,
             &renderer.base.queue,
             surface_format,
@@ -1140,7 +1142,8 @@ pub async fn init_game_state(
                 LATO_FONT_BYTES,
                 LATO_BOLD_FONT_BYTES,
                 PACIFICO_FONT_BYTES,
-                iced_aw::graphics::icons::BOOTSTRAP_FONT_BYTES,
+                // iced_aw 0.14 replaced the bootstrap icon font with its own
+                iced_aw::ICED_AW_FONT_BYTES,
             ],
             crate::ui_overlay::THEME,
         )

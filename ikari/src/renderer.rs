@@ -655,11 +655,23 @@ impl BaseRenderer {
 
     #[profiling::function]
     fn make_instance(backends: wgpu::Backends, dxc_path: Option<PathBuf>) -> wgpu::Instance {
-        wgpu::Instance::new(wgpu::InstanceDescriptor {
+        wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends,
-            dx12_shader_compiler: wgpu::Dx12Compiler::Dxc {
-                dxil_path: dxc_path.clone(),
-                dxc_path,
+            backend_options: wgpu::BackendOptions {
+                dx12: wgpu::Dx12BackendOptions {
+                    // wgpu 27 replaced the `Dxc { dxil_path, dxc_path }` variant with
+                    // `DynamicDxc`, which takes the path as a String and no longer
+                    // wants a separate dxil path.
+                    shader_compiler: match dxc_path {
+                        Some(path) => wgpu::Dx12Compiler::DynamicDxc {
+                            dxc_path: path.to_string_lossy().into_owned(),
+                            max_shader_model: wgpu::DxcShaderModel::V6_7,
+                        },
+                        None => wgpu::Dx12Compiler::default(),
+                    },
+                    ..Default::default()
+                },
+                ..Default::default()
             },
             flags: if ENABLE_GRAPHICS_API_VALIDATION {
                 wgpu::InstanceFlags::debugging()
@@ -680,7 +692,7 @@ impl BaseRenderer {
         let adapter = instance
             .request_adapter(&request_adapter_options)
             .await
-            .ok_or_else(|| {
+            .map_err(|_err| {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     anyhow::anyhow!(
@@ -720,14 +732,14 @@ impl BaseRenderer {
         }
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: features,
-                    required_limits,
-                },
-                None,
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                required_features: features,
+                required_limits,
+                memory_hints: Default::default(),
+                experimental_features: Default::default(),
+                trace: wgpu::Trace::Off,
+            })
             .await
             .map_err(|err| anyhow::anyhow!("Failed to create wgpu device: {err}"))?;
 
@@ -1638,12 +1650,14 @@ impl Renderer {
             layout: Some(&mesh_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
                 buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &textured_mesh_shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
                 targets: fragment_shader_color_targets,
             }),
             primitive: wgpu::PrimitiveState {
@@ -1668,6 +1682,7 @@ impl Renderer {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
+            cache: None,
         };
 
         let mesh_pipeline = base
@@ -1678,7 +1693,8 @@ impl Renderer {
         let mut depth_prepass_pipeline_descriptor = mesh_pipeline_descriptor.clone();
         depth_prepass_pipeline_descriptor.fragment = Some(wgpu::FragmentState {
             module: &textured_mesh_shader,
-            entry_point: "depth_prepass_fs_main",
+            entry_point: Some("depth_prepass_fs_main"),
+            compilation_options: Default::default(),
             targets: &[],
         });
         let depth_prepass_pipeline = base
@@ -1701,12 +1717,14 @@ impl Renderer {
         let unlit_mesh_pipeline_v_buffers = &[ShaderVertex::desc()];
         unlit_mesh_pipeline_descriptor.vertex = wgpu::VertexState {
             module: &unlit_mesh_shader,
-            entry_point: "vs_main",
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
             buffers: unlit_mesh_pipeline_v_buffers,
         };
         unlit_mesh_pipeline_descriptor.fragment = Some(wgpu::FragmentState {
             module: &unlit_mesh_shader,
-            entry_point: "fs_main",
+            entry_point: Some("fs_main"),
+            compilation_options: Default::default(),
             targets: fragment_shader_color_targets,
         });
         let unlit_mesh_pipeline = base
@@ -1721,7 +1739,8 @@ impl Renderer {
         let mut transparent_mesh_pipeline_descriptor = unlit_mesh_pipeline_descriptor.clone();
         transparent_mesh_pipeline_descriptor.fragment = Some(wgpu::FragmentState {
             module: &unlit_mesh_shader,
-            entry_point: "fs_main",
+            entry_point: Some("fs_main"),
+            compilation_options: Default::default(),
             targets: transparent_fragment_shader_color_targets,
         });
         if let Some(depth_stencil) = &mut transparent_mesh_pipeline_descriptor.depth_stencil {
@@ -1748,7 +1767,7 @@ impl Renderer {
             .features()
             .contains(wgpu::Features::RG11B10UFLOAT_RENDERABLE)
         {
-            wgpu::TextureFormat::Rg11b10Float
+            wgpu::TextureFormat::Rg11b10Ufloat
         } else {
             log::warn!(
                 "{:?} is missing. bloom quality will be slightly lower",
@@ -1784,12 +1803,14 @@ impl Renderer {
             layout: Some(&bloom_downscale_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &blit_shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
                 buffers: &[],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &blit_shader,
-                entry_point: "bloom_downscale_fs_main",
+                entry_point: Some("bloom_downscale_fs_main"),
+                compilation_options: Default::default(),
                 targets: bloom_color_targets,
             }),
             primitive: wgpu::PrimitiveState {
@@ -1799,6 +1820,7 @@ impl Renderer {
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
+            cache: None,
         };
         let bloom_downscale_pipeline = base
             .device
@@ -1807,7 +1829,8 @@ impl Renderer {
         let mut bloom_upscale_pipeline_descriptor = bloom_downscale_pipeline_descriptor.clone();
         bloom_upscale_pipeline_descriptor.fragment = Some(wgpu::FragmentState {
             module: &blit_shader,
-            entry_point: "bloom_upscale_fs_main",
+            entry_point: Some("bloom_upscale_fs_main"),
+            compilation_options: Default::default(),
             targets: bloom_color_targets,
         });
         let bloom_upscale_pipeline = base
@@ -1834,12 +1857,14 @@ impl Renderer {
             layout: Some(&surface_blit_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &blit_shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
                 buffers: &[],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &blit_shader,
-                entry_point: "surface_blit_fs_main",
+                entry_point: Some("surface_blit_fs_main"),
+                compilation_options: Default::default(),
                 targets: surface_blit_color_targets,
             }),
             primitive: wgpu::PrimitiveState {
@@ -1849,6 +1874,7 @@ impl Renderer {
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
+            cache: None,
         };
         let surface_blit_pipeline = base
             .device
@@ -1881,12 +1907,14 @@ impl Renderer {
             layout: Some(&tone_mapping_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &blit_shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
                 buffers: &[],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &blit_shader,
-                entry_point: "tone_mapping_fs_main",
+                entry_point: Some("tone_mapping_fs_main"),
+                compilation_options: Default::default(),
                 targets: tone_mapping_colors_targets,
             }),
             primitive: wgpu::PrimitiveState {
@@ -1896,6 +1924,7 @@ impl Renderer {
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
+            cache: None,
         };
         let tone_mapping_pipeline = base
             .device
@@ -1928,18 +1957,21 @@ impl Renderer {
             layout: Some(&skybox_render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
                 buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
-                entry_point: "background_fs_main",
+                entry_point: Some("background_fs_main"),
+                compilation_options: Default::default(),
                 targets: fragment_shader_color_targets,
             }),
             primitive: skybox_pipeline_primitive_state,
             depth_stencil: skybox_depth_stencil_state,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
+            cache: None,
         };
         let skybox_pipeline = base
             .device
@@ -1967,18 +1999,21 @@ impl Renderer {
             layout: Some(&equirectangular_to_cubemap_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
                 buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
-                entry_point: "equirectangular_to_cubemap_fs_main",
+                entry_point: Some("equirectangular_to_cubemap_fs_main"),
+                compilation_options: Default::default(),
                 targets: equirectangular_to_cubemap_color_targets,
             }),
             primitive: skybox_pipeline_primitive_state,
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
+            cache: None,
         };
         let equirectangular_to_cubemap_pipeline = base
             .device
@@ -2019,18 +2054,21 @@ impl Renderer {
             layout: Some(&diffuse_env_map_gen_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
                 buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
-                entry_point: "diffuse_env_map_gen_fs_main",
+                entry_point: Some("diffuse_env_map_gen_fs_main"),
+                compilation_options: Default::default(),
                 targets: diffuse_env_map_color_targets,
             }),
             primitive: skybox_pipeline_primitive_state,
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
+            cache: None,
         };
         let diffuse_env_map_gen_pipeline = base
             .device
@@ -2057,18 +2095,21 @@ impl Renderer {
             layout: Some(&specular_env_map_gen_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &skybox_shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
                 buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &skybox_shader,
-                entry_point: "specular_env_map_gen_fs_main",
+                entry_point: Some("specular_env_map_gen_fs_main"),
+                compilation_options: Default::default(),
                 targets: specular_env_map_color_targets,
             }),
             primitive: skybox_pipeline_primitive_state,
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
+            cache: None,
         };
         let specular_env_map_gen_pipeline = base
             .device
@@ -2092,12 +2133,14 @@ impl Renderer {
             layout: Some(&brdf_lut_gen_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &blit_shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
                 buffers: &[],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &blit_shader,
-                entry_point: "brdf_lut_gen_fs_main",
+                entry_point: Some("brdf_lut_gen_fs_main"),
+                compilation_options: Default::default(),
                 targets: brdf_lut_gen_color_targets,
             }),
             primitive: wgpu::PrimitiveState {
@@ -2107,6 +2150,7 @@ impl Renderer {
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
+            cache: None,
         };
         let brdf_lut_gen_pipeline = base
             .device
@@ -2128,12 +2172,14 @@ impl Renderer {
             layout: Some(&shadow_map_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
-                entry_point: "shadow_map_vs_main",
+                entry_point: Some("shadow_map_vs_main"),
+                compilation_options: Default::default(),
                 buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &textured_mesh_shader,
-                entry_point: "point_shadow_map_fs_main",
+                entry_point: Some("point_shadow_map_fs_main"),
+                compilation_options: Default::default(),
                 targets: &[],
             }),
             primitive: wgpu::PrimitiveState {
@@ -2159,6 +2205,7 @@ impl Renderer {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
+            cache: None,
         };
         let point_shadow_map_pipeline = base
             .device
@@ -2169,12 +2216,14 @@ impl Renderer {
             layout: Some(&shadow_map_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &textured_mesh_shader,
-                entry_point: "shadow_map_vs_main",
+                entry_point: Some("shadow_map_vs_main"),
+                compilation_options: Default::default(),
                 buffers: &[ShaderVertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &textured_mesh_shader,
-                entry_point: "directional_shadow_map_fs_main",
+                entry_point: Some("directional_shadow_map_fs_main"),
+                compilation_options: Default::default(),
                 targets: &[],
             }),
             primitive: wgpu::PrimitiveState {
@@ -2200,6 +2249,7 @@ impl Renderer {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
+            cache: None,
         };
         let directional_shadow_map_pipeline = base
             .device
@@ -2842,7 +2892,7 @@ impl Renderer {
             feature = "tracy-profiling",
             not(target_arch = "wasm32")
         )))]
-        let profiler = wgpu_profiler::GpuProfiler::new(wgpu_profiler_settings)?;
+        let profiler = wgpu_profiler::GpuProfiler::new(&base.device, wgpu_profiler_settings)?;
 
         let renderer = Self {
             base: WasmNotArc::new(base),
@@ -3823,8 +3873,7 @@ impl Renderer {
         ui_overlay: &mut IkariUiContainer<UiOverlay>,
     ) -> anyhow::Result<()>
     where
-        UiOverlay:
-            iced_winit::runtime::Program<Renderer = iced::Renderer> + UiProgramEvents + 'static,
+        UiOverlay: crate::ui::UiProgram + UiProgramEvents + 'static,
     {
         if surface_data.surface_config.width == 0 || surface_data.surface_config.height == 0 {
             return Ok(());
@@ -4966,8 +5015,7 @@ impl Renderer {
         ui_overlay: &mut IkariUiContainer<UiOverlay>,
     ) -> anyhow::Result<()>
     where
-        UiOverlay:
-            iced_winit::runtime::Program<Renderer = iced::Renderer> + UiProgramEvents + 'static,
+        UiOverlay: crate::ui::UiProgram + UiProgramEvents + 'static,
     {
         let mut data_guard = self.data.lock();
         let data: &mut RendererData = &mut data_guard;
@@ -5047,14 +5095,10 @@ impl Renderer {
                         timestamp_writes: None, // overwritten by wgpu_profiler
                     };
 
-                    let mut profiler_scope =
-                        profiler.scope(pass_label, &mut encoder, &self.base.device);
+                    let mut profiler_scope = profiler.scope(pass_label, &mut encoder);
 
-                    let mut render_pass = profiler_scope.scoped_render_pass(
-                        pass_label,
-                        &self.base.device,
-                        shadow_render_pass_desc,
-                    );
+                    let mut render_pass =
+                        profiler_scope.scoped_render_pass(pass_label, shadow_render_pass_desc);
 
                     if shadow_settings.enable_shadows {
                         Self::render_pbr_meshes(
@@ -5107,14 +5151,10 @@ impl Renderer {
                         timestamp_writes: None, // overwritten by wgpu_profiler
                     };
 
-                    let mut profiler_scope =
-                        profiler.scope(pass_label, &mut encoder, &self.base.device);
+                    let mut profiler_scope = profiler.scope(pass_label, &mut encoder);
 
-                    let mut render_pass = profiler_scope.scoped_render_pass(
-                        pass_label,
-                        &self.base.device,
-                        shadow_render_pass_desc,
-                    );
+                    let mut render_pass =
+                        profiler_scope.scoped_render_pass(pass_label, shadow_render_pass_desc);
 
                     if shadow_settings.enable_shadows {
                         build_cubemap_face_camera_views(
@@ -5184,14 +5224,10 @@ impl Renderer {
                 timestamp_writes: None, // overwritten by wgpu_profiler
             };
 
-            let mut profiler_scope =
-                profiler.scope(depth_prepass_pass_label, &mut encoder, &self.base.device);
+            let mut profiler_scope = profiler.scope(depth_prepass_pass_label, &mut encoder);
 
-            let mut render_pass = profiler_scope.scoped_render_pass(
-                depth_prepass_pass_label,
-                &self.base.device,
-                depth_prepass_render_pass_desc,
-            );
+            let mut render_pass = profiler_scope
+                .scoped_render_pass(depth_prepass_pass_label, depth_prepass_render_pass_desc);
 
             Self::render_pbr_meshes(
                 data,
@@ -5212,6 +5248,7 @@ impl Renderer {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &private_data.shading_texture.view,
                     resolve_target: None,
+                    depth_slice: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(black),
                         store: wgpu::StoreOp::Store,
@@ -5233,14 +5270,10 @@ impl Renderer {
                 timestamp_writes: None, // overwritten by wgpu_profiler
             };
 
-            let mut profiler_scope =
-                profiler.scope(pbr_meshes_pass_label, &mut encoder, &self.base.device);
+            let mut profiler_scope = profiler.scope(pbr_meshes_pass_label, &mut encoder);
 
-            let mut render_pass = profiler_scope.scoped_render_pass(
-                pbr_meshes_pass_label,
-                &self.base.device,
-                shading_render_pass_desc,
-            );
+            let mut render_pass =
+                profiler_scope.scoped_render_pass(pbr_meshes_pass_label, shading_render_pass_desc);
 
             Self::render_pbr_meshes(
                 data,
@@ -5256,16 +5289,16 @@ impl Renderer {
         {
             let pass_label = "Unlit and wireframe";
 
-            let mut profiler_scope = profiler.scope(pass_label, &mut encoder, &self.base.device);
+            let mut profiler_scope = profiler.scope(pass_label, &mut encoder);
 
             let mut render_pass = profiler_scope.scoped_render_pass(
                 pass_label,
-                &self.base.device,
                 wgpu::RenderPassDescriptor {
                     label: USE_LABELS.then_some(pass_label),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &private_data.shading_texture.view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
@@ -5371,8 +5404,7 @@ impl Renderer {
             for mip_index in 0..private_data.bloom_mip_count as usize {
                 let pass_label = "Bloom Downscale";
 
-                let mut profiler_scope =
-                    profiler.scope(pass_label, &mut encoder, &self.base.device);
+                let mut profiler_scope = profiler.scope(pass_label, &mut encoder);
 
                 let src_texture_bind_group = if mip_index == 0 {
                     &private_data.shading_texture_bind_group
@@ -5383,12 +5415,12 @@ impl Renderer {
 
                 let mut render_pass = profiler_scope.scoped_render_pass(
                     pass_label,
-                    &self.base.device,
                     wgpu::RenderPassDescriptor {
                         label: USE_LABELS.then_some(pass_label),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: dst_texture_view,
                             resolve_target: None,
+                            depth_slice: None,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(black),
                                 store: wgpu::StoreOp::Store,
@@ -5413,20 +5445,19 @@ impl Renderer {
             for mip_index in (1..private_data.bloom_mip_count as usize).rev() {
                 let pass_label = "Bloom Upscale";
 
-                let mut profiler_scope =
-                    profiler.scope(pass_label, &mut encoder, &self.base.device);
+                let mut profiler_scope = profiler.scope(pass_label, &mut encoder);
 
                 let src_texture_bind_group = &private_data.bloom_texture_mip_bind_groups[mip_index];
                 let dst_texture_view = &private_data.bloom_texture_mip_views[mip_index - 1];
 
                 let mut render_pass = profiler_scope.scoped_render_pass(
                     pass_label,
-                    &self.base.device,
                     wgpu::RenderPassDescriptor {
                         label: USE_LABELS.then_some(pass_label),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                             view: dst_texture_view,
                             resolve_target: None,
+                            depth_slice: None,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Load,
                                 store: wgpu::StoreOp::Store,
@@ -5448,16 +5479,16 @@ impl Renderer {
         if !enable_bloom && !private_data.bloom_cleared {
             let pass_label = "Bloom clear";
 
-            let mut profiler_scope = profiler.scope(pass_label, &mut encoder, &self.base.device);
+            let mut profiler_scope = profiler.scope(pass_label, &mut encoder);
 
             profiler_scope.scoped_render_pass(
                 pass_label,
-                &self.base.device,
                 wgpu::RenderPassDescriptor {
                     label: USE_LABELS.then_some(pass_label),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &private_data.bloom_texture_mip_views[0],
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(black),
                             store: wgpu::StoreOp::Store,
@@ -5474,16 +5505,16 @@ impl Renderer {
         {
             let pass_label = "Skybox";
 
-            let mut profiler_scope = profiler.scope(pass_label, &mut encoder, &self.base.device);
+            let mut profiler_scope = profiler.scope(pass_label, &mut encoder);
 
             let mut render_pass = profiler_scope.scoped_render_pass(
                 pass_label,
-                &self.base.device,
                 wgpu::RenderPassDescriptor {
                     label: USE_LABELS.then_some(pass_label),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &private_data.tone_mapping_texture.view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(black),
                             store: wgpu::StoreOp::Store,
@@ -5534,16 +5565,16 @@ impl Renderer {
         {
             let pass_label = "Tone mapping";
 
-            let mut profiler_scope = profiler.scope(pass_label, &mut encoder, &self.base.device);
+            let mut profiler_scope = profiler.scope(pass_label, &mut encoder);
 
             let mut render_pass = profiler_scope.scoped_render_pass(
                 pass_label,
-                &self.base.device,
                 wgpu::RenderPassDescriptor {
                     label: USE_LABELS.then_some(pass_label),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &private_data.tone_mapping_texture.view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
@@ -5563,16 +5594,16 @@ impl Renderer {
         {
             let pass_label = "Transparent";
 
-            let mut profiler_scope = profiler.scope(pass_label, &mut encoder, &self.base.device);
+            let mut profiler_scope = profiler.scope(pass_label, &mut encoder);
 
             let mut render_pass = profiler_scope.scoped_render_pass(
                 pass_label,
-                &self.base.device,
                 wgpu::RenderPassDescriptor {
                     label: USE_LABELS.then_some(pass_label),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &private_data.tone_mapping_texture.view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
@@ -5629,16 +5660,16 @@ impl Renderer {
         {
             let pass_label = "Surface blit";
 
-            let mut profiler_scope = profiler.scope(pass_label, &mut encoder, &self.base.device);
+            let mut profiler_scope = profiler.scope(pass_label, &mut encoder);
 
             let mut render_pass = profiler_scope.scoped_render_pass(
                 pass_label,
-                &self.base.device,
                 wgpu::RenderPassDescriptor {
                     label: USE_LABELS.then_some(pass_label),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &surface_texture_view,
                         resolve_target: None,
+                        depth_slice: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(black),
                             store: wgpu::StoreOp::Store,
@@ -5656,20 +5687,14 @@ impl Renderer {
             render_pass.draw(0..3, 0..1);
         }
 
-        {
-            let profiler_scope = profiler.scope("UI overlay", &mut encoder, &self.base.device);
-
-            ui_overlay.render(
-                &self.base.device,
-                &self.base.queue,
-                profiler_scope.recorder,
-                &surface_texture_view,
-            );
-        }
-
         profiler.resolve_queries(&mut encoder);
 
         self.base.queue.submit(std::iter::once(encoder.finish()));
+
+        // iced 0.14 records and submits its own command buffer rather than appending
+        // to ours, so the scene has to be submitted first for the draw order to hold.
+        // This also means the UI can no longer sit inside a wgpu-profiler GPU scope.
+        ui_overlay.render(&surface_texture_view);
 
         surface_texture.present();
 
@@ -5738,7 +5763,7 @@ impl Renderer {
             );
             render_pass.set_bind_group(
                 if is_shadow { 2 } else { 3 },
-                &material.textures_bind_group,
+                Some(material.textures_bind_group.as_ref()),
                 &[],
             );
             render_pass.set_vertex_buffer(0, geometry_buffers.vertex_buffer.src().slice(..));

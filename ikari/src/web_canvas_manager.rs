@@ -10,7 +10,9 @@ mod native {
             Self
         }
 
-        pub fn on_update(&self, _event: &winit::event::Event<()>) {}
+        pub fn on_update(&self) {}
+
+        pub fn on_exiting(&self) {}
     }
 }
 
@@ -18,7 +20,6 @@ mod native {
 mod web {
     use std::sync::Arc;
     use wasm_bindgen::prelude::*;
-    use winit::event::Event;
     use winit::window::Window;
 
     pub struct WebCanvasManager {
@@ -41,7 +42,7 @@ mod web {
             }
         }
 
-        pub fn on_update(&self, event: &Event<()>) {
+        pub fn on_update(&self) {
             let new_size = winit::dpi::PhysicalSize::new(
                 (self.canvas_container.offset_width() as f64 * self.window.scale_factor()) as u32,
                 (self.canvas_container.offset_height() as f64 * self.window.scale_factor()) as u32,
@@ -49,10 +50,10 @@ mod web {
             if self.window.inner_size() != new_size {
                 let _resized_immediately = self.window.request_inner_size(new_size);
             }
+        }
 
-            if matches!(event, Event::LoopExiting) {
-                self.canvas_container.remove();
-            }
+        pub fn on_exiting(&self) {
+            self.canvas_container.remove();
         }
     }
 }

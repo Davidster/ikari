@@ -30,23 +30,34 @@ async fn start() {
         let event_loop = winit::event_loop::EventLoop::new()?;
 
         let window = {
-            let (width, height) = match event_loop.primary_monitor() {
+            let title = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+
+            // winit 0.30 wants windows created inside ApplicationHandler::resumed via
+            // ActiveEventLoop, but ikari builds the renderer and surface from the window
+            // before the loop starts. EventLoop::create_window is deprecated but still
+            // supported and keeps that init order intact.
+            #[allow(deprecated)]
+            let window = Arc::new(
+                event_loop
+                    .create_window(
+                        winit::window::Window::default_attributes()
+                            //.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
+                            .with_title(title)
+                            .with_maximized(false), // .with_visible(false)
+                    )
+                    .expect("Failed to create window"),
+            );
+
+            // winit 0.30 also removed EventLoop::primary_monitor, so the monitor is
+            // queried through the window and the size applied afterwards.
+            let (width, height) = match window.current_monitor() {
                 None => (1920, 1080), // Most widespread resolution in 2022.
                 Some(handle) => (handle.size().width, handle.size().height),
             };
+            let _ = window
+                .request_inner_size(winit::dpi::PhysicalSize::new(width * 3 / 4, height * 3 / 4));
 
-            let inner_size = winit::dpi::PhysicalSize::new(width * 3 / 4, height * 3 / 4);
-            let title = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
-            Arc::new(
-                winit::window::WindowBuilder::new()
-                    //.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
-                    .with_inner_size(inner_size)
-                    .with_title(title)
-                    .with_maximized(false)
-                    // .with_visible(false)
-                    .build(&event_loop)
-                    .expect("Failed to create window"),
-            )
+            window
         };
 
         #[cfg(target_arch = "wasm32")]
