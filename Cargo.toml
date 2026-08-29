@@ -56,7 +56,7 @@ web-sys = { version = "0.3.64", features = [
   "ReadableStreamDefaultReader",
   "HtmlCollection",
 ] }
-wasm-bindgen = { version = "0.2.92", features = ["serde-serialize"] }
+wasm-bindgen = { version = "0.2.127", features = ["serde-serialize"] }
 wasm-bindgen-futures = "0.4.42"
 
 iced = { version = "0.12", features = ["canvas"] }

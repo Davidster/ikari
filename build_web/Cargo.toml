@@ -13,7 +13,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 arboard = "3.4.0"
 pico-args.workspace = true
-wasm-bindgen-cli-support = "0.2.92"
+wasm-bindgen-cli-support = "0.2.127"
 warp = "0.3.7"
 tokio = { version = "1", features = ["full"] }
 env_logger.workspace = true

@@ -206,7 +206,13 @@ fn main() -> anyhow::Result<()> {
         .env(
             "RUSTFLAGS",
             // for max-memory arg, see https://stackoverflow.com/questions/72334989/only-1-4th-of-max-memory-available-when-rust-wasm-compiled-with-atomics-flag-we
-            "--cfg=web_sys_unstable_apis -C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--max-memory=4294967296",
+            // --shared-memory and --import-memory used to be implied by +atomics, but rustc stopped
+            // doing that (https://github.com/rust-lang/rust/pull/147225). without them the wasm memory
+            // isn't backed by a SharedArrayBuffer and Atomics.waitAsync throws at runtime.
+            // the four __tls_* exports are looked up (and then deleted again) by wasm-bindgen's
+            // threading transform, see transforms/threads/mod.rs. all four are required; it used to
+            // synthesize them itself back when wasm-bindgen-threads-xform existed.
+            "--cfg=web_sys_unstable_apis -C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-arg=--shared-memory -C link-arg=--import-memory -C link-arg=--max-memory=4294967296 -C link-arg=--export=__wasm_init_tls -C link-arg=--export=__tls_size -C link-arg=--export=__tls_align -C link-arg=--export=__tls_base",
         )
         .args(&cargo_args)
         .status()?;
