@@ -10,10 +10,7 @@ name = "example_game"
 path = "src/main.rs"
 
 [features]
-# TODO: restore "cpu-profiling" once the Windows SDK is new enough — it pulls
-# tracy-client-sys 0.29, which fails to compile against VS BuildTools 14.33.
-# See the matching TODO on wgpu-profiler below.
-default = ["gpu-profiling", "audio"]
+default = ["cpu-profiling", "gpu-profiling", "audio"]
 cpu-profiling = [
   "ikari/tracy-profiling",
   "profiling/profile-with-tracy",
@@ -53,11 +50,7 @@ plotters = { version = "0.3.6", default-features = false, features = [
 iced_aw = { version = "0.14.1", default-features = false, features = ["card"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# TODO: re-enable once the Windows SDK is new enough. wgpu-profiler 0.25's "tracy"
-# feature pulls tracy-client-sys 0.29, whose TracyETW.cpp needs
-# SystemSchedulerProviderGuid from a newer Windows SDK than VS BuildTools 14.33 has.
-# wgpu-profiler = { workspace = true, features = ["tracy"] }
-wgpu-profiler = { workspace = true }
+wgpu-profiler = { workspace = true, features = ["tracy"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys.workspace = true
