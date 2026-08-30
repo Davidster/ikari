@@ -85,7 +85,7 @@ where
         let cursor_position = winit::dpi::PhysicalPosition::new(-1.0, -1.0);
 
         let default_font = default_font.unwrap_or(Font::DEFAULT);
-        let surface_format = surface_format.add_srgb_suffix();
+        let surface_format = ui_surface_format(surface_format);
 
         // iced 0.14 owns its own encoder and submits directly through the engine's
         // queue, so it needs owned handles rather than the caller's encoder.
@@ -168,8 +168,15 @@ where
             self.viewport.scale_factor(),
         ));
 
-        let events = std::mem::take(&mut self.queued_events);
+        let mut events = std::mem::take(&mut self.queued_events);
         let mut messages = std::mem::take(&mut self.queued_messages);
+
+        // Widgets only compute their status (active / hovered / disabled) when they see
+        // a RedrawRequested event, and fall back to Disabled in draw() if they never
+        // did. iced_winit pushes one right before every draw, so do the same here.
+        events.push(IcedEvent::Window(iced::window::Event::RedrawRequested(
+            iced_winit::core::time::Instant::now(),
+        )));
 
         // iced 0.14 rebuilds the UserInterface every frame from a persisted cache,
         // rather than holding a long-lived program::State like 0.12 did.
@@ -227,6 +234,20 @@ where
 
     pub fn get_state(&self) -> &UiOverlay {
         &self.state
+    }
+}
+
+/// Format of the swapchain view that iced renders into.
+///
+/// iced either linearizes its colors and expects an sRGB target (hardware does the
+/// encode), or passes sRGB values through and expects a non-sRGB target. Which one
+/// depends on its `web-colors` feature (enabled by default since iced 0.13), so the view
+/// format is derived from that rather than assumed.
+pub fn ui_surface_format(surface_format: wgpu::TextureFormat) -> wgpu::TextureFormat {
+    if iced_wgpu::graphics::color::GAMMA_CORRECTION {
+        surface_format.add_srgb_suffix()
+    } else {
+        surface_format.remove_srgb_suffix()
     }
 }
 

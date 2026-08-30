@@ -631,7 +631,12 @@ impl BaseRenderer {
         // surface_config.format = wgpu::TextureFormat::Bgra8UnormSrgb;
         surface_config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
         surface_config.present_mode = wgpu::PresentMode::AutoVsync;
-        surface_config.view_formats = vec![surface_config.format.add_srgb_suffix()];
+        // The scene renders through an sRGB view of the swapchain; the UI renders through
+        // whichever sibling iced's color pipeline expects (see `ui::ui_surface_format`).
+        surface_config.view_formats = vec![
+            surface_config.format.add_srgb_suffix(),
+            surface_config.format.remove_srgb_suffix(),
+        ];
         surface_config.desired_maximum_frame_latency = 2;
         surface.configure(&base.device, &surface_config);
 
@@ -5042,6 +5047,14 @@ impl Renderer {
                     format: Some(surface_texture.texture.format().add_srgb_suffix()),
                     ..Default::default()
                 });
+        let ui_texture_view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor {
+                format: Some(crate::ui::ui_surface_format(
+                    surface_texture.texture.format(),
+                )),
+                ..Default::default()
+            });
 
         let mut encoder = self
             .base
@@ -5694,7 +5707,7 @@ impl Renderer {
         // iced 0.14 records and submits its own command buffer rather than appending
         // to ours, so the scene has to be submitted first for the draw order to hold.
         // This also means the UI can no longer sit inside a wgpu-profiler GPU scope.
-        ui_overlay.render(&surface_texture_view);
+        ui_overlay.render(&ui_texture_view);
 
         surface_texture.present();
 
