@@ -28,7 +28,7 @@ pub struct GameContext<'a, GameState> {
     pub renderer: &'a mut Renderer,
     pub surface_data: &'a mut SurfaceData,
     pub window: &'a winit::window::Window,
-    pub elwt: &'a ActiveEventLoop,
+    pub event_loop: &'a ActiveEventLoop,
 }
 
 struct IkariApp<
@@ -83,7 +83,7 @@ where
     UiOverlay: UiProgram + UiProgramEvents + 'static,
     GameStateType: GameState<UiOverlay> + 'static,
 {
-    fn on_redraw_requested(&mut self, elwt: &ActiveEventLoop) {
+    fn on_redraw_requested(&mut self, event_loop: &ActiveEventLoop) {
         self.window.request_redraw();
 
         let is_vsync_is_on = !matches!(
@@ -109,7 +109,7 @@ where
             renderer: &mut self.renderer,
             surface_data: &mut self.surface_data,
             window: &self.window,
-            elwt,
+            event_loop,
         });
 
         self.engine_state.time_tracker.on_update_completed();
@@ -142,7 +142,7 @@ where
                     renderer: &mut self.renderer,
                     surface_data: &mut self.surface_data,
                     window: &self.window,
-                    elwt,
+                    event_loop,
                 },
                 new_size,
             );
@@ -163,7 +163,7 @@ where
             Err(err) => match err {
                 wgpu::SurfaceError::OutOfMemory => {
                     log::error!("Received surface error: {err:?}. Application will exit");
-                    elwt.exit();
+                    event_loop.exit();
                 }
                 wgpu::SurfaceError::Timeout => {
                     log::warn!("Received surface error: {err:?}. Frame will be skipped");
@@ -219,9 +219,14 @@ where
 {
     /// The window is created before the loop starts, so there is nothing to do here.
     /// TODO: window/renderer creation should happen here instead, see example_game main.rs
-    fn resumed(&mut self, _elwt: &ActiveEventLoop) {}
+    fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
 
-    fn window_event(&mut self, elwt: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
         self.web_canvas_manager.on_update();
 
         if window_id != self.window.id() {
@@ -229,7 +234,7 @@ where
         }
 
         if matches!(event, WindowEvent::RedrawRequested) {
-            self.on_redraw_requested(elwt);
+            self.on_redraw_requested(event_loop);
             return;
         }
 
@@ -242,7 +247,7 @@ where
                     .resize_surface(&self.surface_data, self.window.inner_size());
             }
             WindowEvent::CloseRequested => {
-                elwt.exit();
+                event_loop.exit();
             }
             WindowEvent::Moved(_) => {
                 self.engine_state
@@ -264,13 +269,18 @@ where
                 renderer: &mut self.renderer,
                 surface_data: &mut self.surface_data,
                 window: &self.window,
-                elwt,
+                event_loop,
             },
             &event,
         );
     }
 
-    fn device_event(&mut self, elwt: &ActiveEventLoop, _device_id: DeviceId, event: DeviceEvent) {
+    fn device_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _device_id: DeviceId,
+        event: DeviceEvent,
+    ) {
         self.web_canvas_manager.on_update();
 
         (self.on_device_event)(
@@ -280,13 +290,13 @@ where
                 renderer: &mut self.renderer,
                 surface_data: &mut self.surface_data,
                 window: &self.window,
-                elwt,
+                event_loop,
             },
             &event,
         );
     }
 
-    fn exiting(&mut self, _elwt: &ActiveEventLoop) {
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         self.web_canvas_manager.on_exiting();
         self.engine_state.asset_loader.exit();
     }

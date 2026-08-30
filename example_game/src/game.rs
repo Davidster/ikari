@@ -1188,7 +1188,7 @@ pub fn handle_window_event(
         engine_state,
         renderer,
         window,
-        elwt,
+        event_loop,
         ..
     }: GameContext<GameState>,
     event: &winit::event::WindowEvent,
@@ -1242,7 +1242,7 @@ pub fn handle_window_event(
                         _ => {}
                     },
                     Key::Named(NamedKey::Escape) => {
-                        elwt.exit();
+                        event_loop.exit();
                     }
                     _ => {}
                 };
@@ -1328,7 +1328,7 @@ pub fn update_game_state(
         renderer,
         surface_data,
         window,
-        elwt,
+        event_loop,
         ..
     }: GameContext<GameState>,
 ) {
@@ -1971,7 +1971,7 @@ pub fn update_game_state(
         let ui_state = game_state.ui_overlay.get_state();
 
         if ui_state.was_exit_button_pressed {
-            elwt.exit();
+            event_loop.exit();
         }
 
         engine_state.framerate_limiter.set_framerate_limit(
