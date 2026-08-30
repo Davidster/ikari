@@ -20,7 +20,6 @@ authors = [
 winit = "0.30"
 ikari = { version = "0.0.1", path = "./ikari", default-features = false }
 log = "0.4"
-# "serde" is needed because ikari serializes wgpu::TextureFormat in raw_image.rs
 wgpu = { version = "27.0", features = ["serde"] }
 wgpu-profiler = "0.25.0"
 anyhow = { version = "1.0", features = ["backtrace"] }

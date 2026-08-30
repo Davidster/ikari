@@ -632,7 +632,7 @@ impl BaseRenderer {
         surface_config.alpha_mode = wgpu::CompositeAlphaMode::Auto;
         surface_config.present_mode = wgpu::PresentMode::AutoVsync;
         // The scene renders through an sRGB view of the swapchain; the UI renders through
-        // whichever sibling iced's color pipeline expects (see `ui::ui_surface_format`).
+        // whichever sibling iced's color pipeline expects (see `crate::ui::ui_surface_format`).
         surface_config.view_formats = vec![
             surface_config.format.add_srgb_suffix(),
             surface_config.format.remove_srgb_suffix(),
@@ -664,9 +664,6 @@ impl BaseRenderer {
             backends,
             backend_options: wgpu::BackendOptions {
                 dx12: wgpu::Dx12BackendOptions {
-                    // wgpu 27 replaced the `Dxc { dxil_path, dxc_path }` variant with
-                    // `DynamicDxc`, which takes the path as a String and no longer
-                    // wants a separate dxil path.
                     shader_compiler: match dxc_path {
                         Some(path) => wgpu::Dx12Compiler::DynamicDxc {
                             dxc_path: path.to_string_lossy().into_owned(),
@@ -5704,9 +5701,6 @@ impl Renderer {
 
         self.base.queue.submit(std::iter::once(encoder.finish()));
 
-        // iced 0.14 records and submits its own command buffer rather than appending
-        // to ours, so the scene has to be submitted first for the draw order to hold.
-        // This also means the UI can no longer sit inside a wgpu-profiler GPU scope.
         ui_overlay.render(&ui_texture_view);
 
         surface_texture.present();

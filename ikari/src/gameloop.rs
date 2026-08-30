@@ -31,9 +31,6 @@ pub struct GameContext<'a, GameState> {
     pub elwt: &'a ActiveEventLoop,
 }
 
-/// Holds everything the old event-loop closure used to capture. winit 0.30 replaced
-/// the closure-based `EventLoop::run` with the `ApplicationHandler` trait, so this
-/// state has to live in a struct rather than in a closure's environment.
 struct IkariApp<
     OnUpdateFunction,
     OnWindowEventFunction,

@@ -13,26 +13,13 @@ use iced::Border;
 use iced::Font;
 
 use iced::widget::{
-    canvas, container, radio, scrollable, slider, stack, text, Column, Container, Row,
+    canvas, checkbox, container, radio, scrollable, slider, stack, text, Column, Container, Row,
 };
 
 /// ikari drives iced through `iced_wgpu::Renderer` directly, which is not the default
 /// renderer parameter on `Element`, so annotations have to name it explicitly.
 type UiElement<'a> = Element<'a, Message, iced::Theme, iced::Renderer>;
 
-/// iced 0.14 changed `checkbox(label, is_checked)` into
-/// `Checkbox::new(is_checked).label(label)`. This keeps the old call shape so the
-/// ~18 call sites below don't all have to be rewritten.
-fn checkbox<'a, Message, Theme, Renderer>(
-    label: impl iced::widget::text::IntoFragment<'a>,
-    is_checked: bool,
-) -> iced::widget::Checkbox<'a, Message, Theme, Renderer>
-where
-    Theme: iced::widget::checkbox::Catalog + 'a,
-    Renderer: iced_wgpu::core::text::Renderer,
-{
-    iced::widget::Checkbox::new(is_checked).label(label)
-}
 use iced::Length;
 use iced::{mouse, Background, Element, Rectangle, Task, Theme};
 use ikari::file_manager::GameFilePath;
@@ -363,9 +350,6 @@ pub struct UiOverlay {
     pub debug_settings: DebugSettings,
 }
 
-// iced 0.13 replaced the `StyleSheet` traits (and their `Appearance` structs) with
-// plain functions returning a `Style`, passed straight to `.style(..)`.
-
 const HOVERED_ALPHA: f32 = 0.5;
 const PRESSED_ALPHA: f32 = 0.3;
 const DISABLED_ALPHA: f32 = 0.3;
@@ -403,8 +387,7 @@ pub fn collapsible_button_style(theme: &Theme, status: button::Status) -> button
     }
 }
 
-/// Dim layer behind the options modal. iced_aw 0.14 dropped its `Modal` widget, so
-/// this is now a plain container stacked over the rest of the UI.
+/// Dim layer behind the options modal.
 pub fn modal_overlay_style(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Background::Color(iced::Color::from_rgba(
@@ -574,8 +557,6 @@ impl FpsChart {
         if !gpu_timer_query_results.is_empty() {
             let mut total_gpu_time_seconds = 0.0;
             for query_result in gpu_timer_query_results {
-                // wgpu-profiler 0.25 made `time` optional (a scope may not have had
-                // timer queries enabled), so skip the ones without a range.
                 let Some(time) = &query_result.time else {
                     continue;
                 };
@@ -1218,7 +1199,6 @@ impl UiProgram for UiOverlay {
         }
 
         if is_showing_fps_chart {
-            // iced 0.14's Padding has no From<[_; 4]>; build it side by side instead
             let padding = iced::Padding::new(0.0).top(16.0).right(20.0).bottom(16.0);
             rows.push(
                 Container::new(
@@ -1252,7 +1232,6 @@ impl UiProgram for UiOverlay {
         .height(Length::Fill);
 
         let modal_content: Option<UiElement> = self.is_showing_options_menu.then(|| {
-            // iced 0.13+ takes sizes as f32 (Pixels no longer converts from u16)
             let big_text_size: f32 = 18.0;
             let small_text_size: f32 = 14.0;
             let checkbox_size: f32 = small_text_size * 4.0 / 3.0;
@@ -1300,7 +1279,8 @@ impl UiProgram for UiOverlay {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         options = options.push(
-                            checkbox("VSync", enable_vsync)
+                            checkbox(enable_vsync)
+                                .label("VSync")
                                 .size(checkbox_size)
                                 .text_size(small_text_size)
                                 .on_toggle(Message::VsyncChanged),
@@ -1373,7 +1353,8 @@ impl UiProgram for UiOverlay {
                     }
 
                     options = options.push(
-                        checkbox("Depth Pre-pass", enable_depth_prepass)
+                        checkbox(enable_depth_prepass)
+                            .label("Depth Pre-pass")
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleDepthPrepass),
@@ -1464,7 +1445,8 @@ impl UiProgram for UiOverlay {
                         .push(slider(0.05..=10.0, exposure, Message::ExposureChanged).step(0.05));
 
                     options = options.push(
-                        checkbox("Enable Bloom", enable_bloom)
+                        checkbox(enable_bloom)
+                            .label("Enable Bloom")
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleBloom),
@@ -1523,13 +1505,15 @@ impl UiProgram for UiOverlay {
 
                 if !collapsed {
                     options = options.push(
-                        checkbox("Enable Shadows", enable_shadows)
+                        checkbox(enable_shadows)
+                            .label("Enable Shadows")
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleShadows),
                     );
                     options = options.push(
-                        checkbox("Enable Soft Shadows", enable_soft_shadows)
+                        checkbox(enable_soft_shadows)
+                            .label("Enable Soft Shadows")
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleSoftShadows),
@@ -1658,21 +1642,24 @@ impl UiProgram for UiOverlay {
 
                 if !collapsed {
                     options = options.push(
-                        checkbox("FPS", is_showing_fps)
+                        checkbox(is_showing_fps)
+                            .label("FPS")
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleFps),
                     );
 
                     options = options.push(
-                        checkbox("FPS Chart", is_showing_fps_chart)
+                        checkbox(is_showing_fps_chart)
+                            .label("FPS Chart")
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleFpsChart),
                     );
 
                     options = options.push(
-                        checkbox("Culling Stats", record_culling_stats)
+                        checkbox(record_culling_stats)
+                            .label("Culling Stats")
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleCullingStats),
@@ -1685,7 +1672,8 @@ impl UiProgram for UiOverlay {
                         .any(|(_, _, gpu_duration)| gpu_duration.is_some())
                     {
                         options = options.push(
-                            checkbox("Detailed GPU Frametimes", is_showing_gpu_spans)
+                            checkbox(is_showing_gpu_spans)
+                                .label("Detailed GPU Frametimes")
                                 .size(checkbox_size)
                                 .text_size(small_text_size)
                                 .on_toggle(Message::ToggleGpuSpans),
@@ -1693,42 +1681,48 @@ impl UiProgram for UiOverlay {
                     }
 
                     options = options.push(
-                        checkbox("Camera Pose", is_showing_camera_pose)
+                        checkbox(is_showing_camera_pose)
+                            .label("Camera Pose")
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleCameraPose),
                     );
 
                     options = options.push(
-                        checkbox("Wireframe", enable_wireframe)
+                        checkbox(enable_wireframe)
+                            .label("Wireframe")
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleWireframe),
                     );
 
                     options = options.push(
-                        checkbox("Bounding Spheres", bounding_spheres_debug)
+                        checkbox(bounding_spheres_debug)
+                            .label("Bounding Spheres")
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleBoundingSpheresDebug),
                     );
 
                     options = options.push(
-                        checkbox("Cascade Debug", enable_cascade_debug)
+                        checkbox(enable_cascade_debug)
+                            .label("Cascade Debug")
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleCascadeDebug),
                     );
 
                     options = options.push(
-                        checkbox("Shadow Debug", enable_shadow_debug)
+                        checkbox(enable_shadow_debug)
+                            .label("Shadow Debug")
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleShadowDebug),
                     );
 
                     options = options.push(
-                        checkbox("Frustum Culling Overlay", draw_culling_frustum)
+                        checkbox(draw_culling_frustum)
+                            .label("Frustum Culling Overlay")
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleDrawCullingFrustum),
@@ -1758,33 +1752,31 @@ impl UiProgram for UiOverlay {
                     }
 
                     options = options.push(
-                        checkbox(
-                            "Point Light Frustum Culling Overlay",
-                            draw_point_light_culling_frusta,
-                        )
-                        .size(checkbox_size)
-                        .text_size(small_text_size)
-                        .on_toggle(Message::ToggleDrawPointLightCullingFrusta),
+                        checkbox(draw_point_light_culling_frusta)
+                            .label("Point Light Frustum Culling Overlay")
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleDrawPointLightCullingFrusta),
                     );
                     options = options.push(
-                        checkbox(
-                            "Directional Light Frustum Culling Overlay",
-                            draw_directional_light_culling_frusta,
-                        )
-                        .size(checkbox_size)
-                        .text_size(small_text_size)
-                        .on_toggle(Message::ToggleDrawDirectionalLightCullingFrusta),
+                        checkbox(draw_directional_light_culling_frusta)
+                            .label("Directional Light Frustum Culling Overlay")
+                            .size(checkbox_size)
+                            .text_size(small_text_size)
+                            .on_toggle(Message::ToggleDrawDirectionalLightCullingFrusta),
                     );
 
                     options = options.push(
-                        checkbox("Audio Stats", is_showing_audio_stats)
+                        checkbox(is_showing_audio_stats)
+                            .label("Audio Stats")
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleAudioStats),
                     );
 
                     options = options.push(
-                        checkbox("Cursor Marker", is_showing_cursor_marker)
+                        checkbox(is_showing_cursor_marker)
+                            .label("Cursor Marker")
                             .size(checkbox_size)
                             .text_size(small_text_size)
                             .on_toggle(Message::ToggleCursorMarker),
@@ -1885,15 +1877,11 @@ impl UiProgram for UiOverlay {
                         .padding(0),
                 )
             };
-            // iced_aw 0.14 dropped `floating_element`; the overlay filled the whole
-            // area anchored north-west, which a plain stack reproduces.
             stack![background_content, overlay].into()
         } else {
             background_content.into()
         };
 
-        // iced_aw 0.14 dropped `Modal` too. iced's own `stack` + `opaque` is the
-        // documented replacement: the dim layer swallows input to what's behind it.
         match modal_content {
             Some(modal_content) => stack![
                 modal_background,

@@ -21,8 +21,6 @@ use ikari::renderer::Renderer;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-// wgpu 27's Dx12Compiler::DynamicDxc wants the path to dxcompiler.dll itself; the old
-// Dxc variant took the containing directory. dxil.dll is picked up alongside it.
 const DXC_PATH: &str = "dxc/dxcompiler.dll";
 
 async fn start() {

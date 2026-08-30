@@ -43,10 +43,6 @@ pub struct IkariUiContainer<UiOverlay>
 where
     UiOverlay: UiProgram + UiProgramEvents + 'static,
 {
-    // `iced::Renderer` is an enum over the wgpu and tiny-skia renderers. ikari always
-    // uses the wgpu one, but holding the enum keeps ikari compatible with third-party
-    // iced widgets, which are written against `iced::Renderer` rather than
-    // `iced_wgpu::Renderer`.
     renderer: iced::Renderer,
     viewport: Viewport,
     clipboard: Clipboard,
@@ -87,8 +83,6 @@ where
         let default_font = default_font.unwrap_or(Font::DEFAULT);
         let surface_format = ui_surface_format(surface_format);
 
-        // iced 0.14 owns its own encoder and submits directly through the engine's
-        // queue, so it needs owned handles rather than the caller's encoder.
         let engine = Engine::new(
             adapter,
             device.clone(),
@@ -101,8 +95,6 @@ where
         let mut renderer =
             iced::Renderer::Primary(WgpuRenderer::new(engine, default_font, Pixels::from(16)));
 
-        // iced 0.14 loads fonts into a process-global font system rather than through
-        // the renderer.
         for font_bytes in load_fonts {
             iced_wgpu::graphics::text::font_system()
                 .write()
@@ -171,15 +163,10 @@ where
         let mut events = std::mem::take(&mut self.queued_events);
         let mut messages = std::mem::take(&mut self.queued_messages);
 
-        // Widgets only compute their status (active / hovered / disabled) when they see
-        // a RedrawRequested event, and fall back to Disabled in draw() if they never
-        // did. iced_winit pushes one right before every draw, so do the same here.
         events.push(IcedEvent::Window(iced::window::Event::RedrawRequested(
             iced_winit::core::time::Instant::now(),
         )));
 
-        // iced 0.14 rebuilds the UserInterface every frame from a persisted cache,
-        // rather than holding a long-lived program::State like 0.12 did.
         {
             let mut interface = UserInterface::build(
                 self.state.view(),
