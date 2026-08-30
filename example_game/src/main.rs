@@ -38,6 +38,10 @@ async fn start() {
             // ActiveEventLoop, but ikari builds the renderer and surface from the window
             // before the loop starts. EventLoop::create_window is deprecated but still
             // supported and keeps that init order intact.
+            // TODO: move window + renderer init into resumed(). On macOS this path logs
+            // "tried to run event handler, but no handler was set" a few times at startup
+            // and once on exit since AppKit fires window events before run_app is called.
+            // Harmless, but the wasm init would need to become async inside resumed().
             #[allow(deprecated)]
             let window = Arc::new(
                 event_loop

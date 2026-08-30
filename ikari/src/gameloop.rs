@@ -222,6 +222,7 @@ where
     GameStateType: GameState<UiOverlay> + 'static,
 {
     /// The window is created before the loop starts, so there is nothing to do here.
+    /// TODO: window/renderer creation should happen here instead, see example_game main.rs
     fn resumed(&mut self, _elwt: &ActiveEventLoop) {}
 
     fn window_event(&mut self, elwt: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
