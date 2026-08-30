@@ -106,17 +106,14 @@ where
             .time_tracker
             .on_sleep_and_inputs_completed();
 
-        {
-            let context = GameContext {
-                game_state: &mut self.game_state,
-                engine_state: &mut self.engine_state,
-                renderer: &mut self.renderer,
-                surface_data: &mut self.surface_data,
-                window: &self.window,
-                elwt,
-            };
-            (self.on_update)(context);
-        }
+        (self.on_update)(GameContext {
+            game_state: &mut self.game_state,
+            engine_state: &mut self.engine_state,
+            renderer: &mut self.renderer,
+            surface_data: &mut self.surface_data,
+            window: &self.window,
+            elwt,
+        });
 
         self.engine_state.time_tracker.on_update_completed();
 
@@ -141,15 +138,17 @@ where
         self.engine_state.time_tracker.on_get_surface_completed();
 
         if let Some(new_size) = self.pending_resize_event.take() {
-            let context = GameContext {
-                game_state: &mut self.game_state,
-                engine_state: &mut self.engine_state,
-                renderer: &mut self.renderer,
-                surface_data: &mut self.surface_data,
-                window: &self.window,
-                elwt,
-            };
-            (self.on_surface_resize)(context, new_size);
+            (self.on_surface_resize)(
+                GameContext {
+                    game_state: &mut self.game_state,
+                    engine_state: &mut self.engine_state,
+                    renderer: &mut self.renderer,
+                    surface_data: &mut self.surface_data,
+                    window: &self.window,
+                    elwt,
+                },
+                new_size,
+            );
         }
 
         self.force_reconfigure_surface = false;
@@ -261,29 +260,33 @@ where
             _ => {}
         };
 
-        let context = GameContext {
-            game_state: &mut self.game_state,
-            engine_state: &mut self.engine_state,
-            renderer: &mut self.renderer,
-            surface_data: &mut self.surface_data,
-            window: &self.window,
-            elwt,
-        };
-        (self.on_window_event)(context, &event);
+        (self.on_window_event)(
+            GameContext {
+                game_state: &mut self.game_state,
+                engine_state: &mut self.engine_state,
+                renderer: &mut self.renderer,
+                surface_data: &mut self.surface_data,
+                window: &self.window,
+                elwt,
+            },
+            &event,
+        );
     }
 
     fn device_event(&mut self, elwt: &ActiveEventLoop, _device_id: DeviceId, event: DeviceEvent) {
         self.web_canvas_manager.on_update();
 
-        let context = GameContext {
-            game_state: &mut self.game_state,
-            engine_state: &mut self.engine_state,
-            renderer: &mut self.renderer,
-            surface_data: &mut self.surface_data,
-            window: &self.window,
-            elwt,
-        };
-        (self.on_device_event)(context, &event);
+        (self.on_device_event)(
+            GameContext {
+                game_state: &mut self.game_state,
+                engine_state: &mut self.engine_state,
+                renderer: &mut self.renderer,
+                surface_data: &mut self.surface_data,
+                window: &self.window,
+                elwt,
+            },
+            &event,
+        );
     }
 
     fn exiting(&mut self, _elwt: &ActiveEventLoop) {
