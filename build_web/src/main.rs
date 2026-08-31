@@ -15,6 +15,7 @@ Usage: cargo build_web [OPTIONS]
 Options:
   cargo build_web custom options:
     --build-only                 Only build the WASM artifacts, do not run the dev server
+    --coi-serviceworker          Include the COOP/COEP shim for static hosts such as GitHub Pages
     --port <PORT>                Makes the dev server listen on port (default '8000')
 
   cargo run default options:
@@ -54,6 +55,7 @@ struct Args {
     help: bool,
     profile: Option<String>,
     build_only: bool,
+    coi_serviceworker: bool,
     port: Option<String>,
     build_args: Vec<String>,
     package: Option<String>,
@@ -83,6 +85,7 @@ Remove one flag or the other to continue."#
         });
 
         let build_only = args.contains("--build-only");
+        let coi_serviceworker = args.contains("--coi-serviceworker");
         let help = args.contains("--help") || args.contains("-h");
 
         let port: Option<String> = args.opt_value_from_str("--port")?;
@@ -122,6 +125,7 @@ Remove one flag or the other to continue."#
             help,
             profile,
             build_only,
+            coi_serviceworker,
             port,
             build_args,
             package,
@@ -248,10 +252,18 @@ fn main() -> anyhow::Result<()> {
 
     // process template html and write to the destination folder
     let index_template = include_str!("ikari-web.template.html");
-    let index_processed = index_template.replace("{{name}}", &binary_name).replace(
-        "{{jspath}}",
-        &format!("./target/{examples_dir_name}/{binary_name}/{binary_name}.js"),
-    );
+    let coi_script = if args.coi_serviceworker {
+        r#"<script src="./coi-serviceworker.js"></script>"#
+    } else {
+        ""
+    };
+    let index_processed = index_template
+        .replace("{{name}}", &binary_name)
+        .replace("{{coiscript}}", coi_script)
+        .replace(
+            "{{jspath}}",
+            &format!("./target/{examples_dir_name}/{binary_name}/{binary_name}.js"),
+        );
 
     let html_file_name = "ikari-web.html";
 

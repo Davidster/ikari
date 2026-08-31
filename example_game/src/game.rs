@@ -126,7 +126,23 @@ lazy_static::lazy_static! {
 
 #[cfg(target_arch = "wasm32")]
 lazy_static::lazy_static! {
-    pub static ref GAME_PATH_MAKER: GamePathMaker = GamePathMaker::new(Some("ikari".into()), String::from("http://localhost:8000"));
+    pub static ref GAME_PATH_MAKER: GamePathMaker = GamePathMaker::new(
+        Some("ikari".into()),
+        web_asset_server(),
+    );
+}
+
+#[cfg(target_arch = "wasm32")]
+fn web_asset_server() -> String {
+    let page_url = web_sys::window()
+        .expect("Ikari web can't determine its asset URL without a window")
+        .location()
+        .href()
+        .expect("Ikari web couldn't read the page URL");
+    let page_directory = web_sys::Url::new_with_base(".", &page_url)
+        .expect("Ikari web couldn't resolve the page directory");
+
+    page_directory.href().trim_end_matches('/').to_owned()
 }
 
 // order of the images for a cubemap is documented here:
@@ -169,22 +185,22 @@ pub fn get_skybox_path() -> SkyboxPaths {
 
     let background = SkyboxBackgroundPath::ProcessedCube([
         GAME_PATH_MAKER.make(format!(
-            "src/skyboxes/{preprocessed_skybox_folder}/background/pos_x.png"
+            "src/skyboxes/{preprocessed_skybox_folder}/background/pos_x.jpg"
         )),
         GAME_PATH_MAKER.make(format!(
-            "src/skyboxes/{preprocessed_skybox_folder}/background/neg_x.png"
+            "src/skyboxes/{preprocessed_skybox_folder}/background/neg_x.jpg"
         )),
         GAME_PATH_MAKER.make(format!(
-            "src/skyboxes/{preprocessed_skybox_folder}/background/pos_y.png"
+            "src/skyboxes/{preprocessed_skybox_folder}/background/pos_y.jpg"
         )),
         GAME_PATH_MAKER.make(format!(
-            "src/skyboxes/{preprocessed_skybox_folder}/background/neg_y.png"
+            "src/skyboxes/{preprocessed_skybox_folder}/background/neg_y.jpg"
         )),
         GAME_PATH_MAKER.make(format!(
-            "src/skyboxes/{preprocessed_skybox_folder}/background/pos_z.png"
+            "src/skyboxes/{preprocessed_skybox_folder}/background/pos_z.jpg"
         )),
         GAME_PATH_MAKER.make(format!(
-            "src/skyboxes/{preprocessed_skybox_folder}/background/neg_z.png"
+            "src/skyboxes/{preprocessed_skybox_folder}/background/neg_z.jpg"
         )),
     ]);
     let environment_hdr: Option<SkyboxEnvironmentHDRPath> =

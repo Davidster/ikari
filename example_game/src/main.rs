@@ -225,5 +225,8 @@ fn panic_hook(info: &std::panic::PanicInfo) {
 pub async fn run() {
     std::panic::set_hook(Box::new(panic_hook));
     console_log::init_with_level(log::Level::Info).expect("Couldn't initialize logger");
+    // Asset loading starts on a web worker. Resolve the page-relative base URL
+    // while the Window global is still available on the main thread.
+    lazy_static::initialize(&crate::game::GAME_PATH_MAKER);
     start().await;
 }
