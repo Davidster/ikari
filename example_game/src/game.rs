@@ -429,10 +429,10 @@ pub async fn init_game_state(
     let player_controller = PlayerController::new(
         physics_state,
         PLAYER_MOVEMENT_SPEED,
-        Vec3::new(8.0, 30.0, -13.0),
+        Vec3::new(1.62, 2.94, 10.24),
         ControlledViewDirection {
-            horizontal: 180.0_f32.to_radians(),
-            vertical: 0.0,
+            horizontal: 360.0_f32.to_radians(),
+            vertical: 0.0_f32.to_radians(),
         },
         ColliderBuilder::capsule_y(0.5, 0.25)
             .restitution_combine_rule(CoefficientCombineRule::Min)
