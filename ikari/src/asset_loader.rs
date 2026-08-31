@@ -609,7 +609,7 @@ pub async fn make_bindable_skybox(paths: &SkyboxPaths) -> Result<BindableSkybox>
                 let metadata = skybox_rad_texture_decoder.metadata();
                 (metadata.width, metadata.height)
             };
-            let skybox_rad_texture_decoded: Vec<F16> = {
+            let skybox_rad_texture_decoded: Vec<[F16; 4]> = {
                 let dynamic_img = image::DynamicImage::from_decoder(skybox_rad_texture_decoder)?;
                 let image::DynamicImage::ImageRgb32F(img) = dynamic_img else {
                     anyhow::bail!(
@@ -617,7 +617,16 @@ pub async fn make_bindable_skybox(paths: &SkyboxPaths) -> Result<BindableSkybox>
                         dynamic_img.color(),
                     );
                 };
-                img.iter().copied().map(F16::from).collect()
+                img.pixels()
+                    .map(|pixel| {
+                        [
+                            F16::from(pixel[0]),
+                            F16::from(pixel[1]),
+                            F16::from(pixel[2]),
+                            F16::from(1.0),
+                        ]
+                    })
+                    .collect()
             };
 
             bindable_environment_hdr =

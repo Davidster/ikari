@@ -559,14 +559,8 @@ impl Texture {
             _ => anyhow::bail!("create_cubemap_from_equirectangular called with unsupported texture format: {format:?}"),
         };
 
-        // Temporary generation override: preserve the full-resolution HDR source while
-        // rendering only its radiance cubemap (and therefore the specular map) at 256px.
-        let size = if format == wgpu::TextureFormat::Rgba16Float {
-            256
-        } else {
-            // make sure it's a multiple of 4 (cheap trick to support Bc7 compression)
-            ((((er_texture.size.width as f32 / 3.0) / 4.0).ceil() * 4.0) as u32).max(4)
-        };
+        // make sure it's a multiple of 4 (cheap trick to support Bc7 compression)
+        let size = ((((er_texture.size.width as f32 / 3.0) / 4.0).ceil() * 4.0) as u32).max(4);
 
         let size = wgpu::Extent3d {
             width: size,

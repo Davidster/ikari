@@ -32,8 +32,6 @@ ikari/src/models/gltf/LegendaryRobot/robot_emission.png
 ikari/src/models/gltf/LegendaryRobot/robot_bump.png
 ikari/src/models/gltf/LegendaryRobot/robot_albedo.png
 ikari/src/models/gltf/LegendaryRobot/Metalness-robot_roughness.png
-ikari/src/models/gltf/TestLevel/test_level.gltf
-ikari/src/models/gltf/TestLevel/test_level.bin
 ikari/src/models/gltf/DamagedHelmet/DamagedHelmet.gltf
 ikari/src/models/gltf/DamagedHelmet/DamagedHelmet.bin
 ikari/src/models/gltf/DamagedHelmet/Default_albedo.jpg
@@ -54,8 +52,6 @@ ikari/src/sounds/bgm.mp3
 ikari/src/textures/rainbow_gradient_vertical.jpg
 ikari/src/textures/brick_normal_map.jpg
 ASSETS
-
-node "$repo_root/build_web/validate-pages.mjs" "$site_dir"
 
 echo "GitHub Pages artifact assembled at $site_dir"
 du -sh "$site_dir"

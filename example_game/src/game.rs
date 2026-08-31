@@ -119,30 +119,8 @@ pub const POINT_LIGHT_COLOR_B: Vec3 = Vec3::new(0.25, 0.973, 0.663);
 
 pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: Group = Group::GROUP_1;
 
-#[cfg(not(target_arch = "wasm32"))]
 lazy_static::lazy_static! {
     pub static ref GAME_PATH_MAKER: GamePathMaker = GamePathMaker::new(Some("ikari".into()));
-}
-
-#[cfg(target_arch = "wasm32")]
-lazy_static::lazy_static! {
-    pub static ref GAME_PATH_MAKER: GamePathMaker = GamePathMaker::new(
-        Some("ikari".into()),
-        web_asset_server(),
-    );
-}
-
-#[cfg(target_arch = "wasm32")]
-fn web_asset_server() -> String {
-    let page_url = web_sys::window()
-        .expect("Ikari web can't determine its asset URL without a window")
-        .location()
-        .href()
-        .expect("Ikari web couldn't read the page URL");
-    let page_directory = web_sys::Url::new_with_base(".", &page_url)
-        .expect("Ikari web couldn't resolve the page directory");
-
-    page_directory.href().trim_end_matches('/').to_owned()
 }
 
 // order of the images for a cubemap is documented here:
@@ -353,7 +331,8 @@ pub async fn init_game_state(
             asset_ids.legendary_robot =
                 load_gltf("src/models/gltf/LegendaryRobot/Legendary_Robot.gltf").into();
 
-            asset_ids.test_level = load_gltf("src/models/gltf/TestLevel/test_level.gltf").into();
+            // asset_ids.test_level =
+            //     load_gltf("src/models/gltf/TestLevel/test_level.gltf").into();
 
             for path in get_misc_gltf_paths() {
                 asset_ids.anonymous_scenes.push(load_gltf(path));

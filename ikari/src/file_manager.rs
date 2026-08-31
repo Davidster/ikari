@@ -4,14 +4,28 @@ use std::path::PathBuf;
 pub struct GameFilePath {
     pub root: PathBuf,
     pub relative_path: PathBuf,
-    #[cfg(target_arch = "wasm32")]
-    pub asset_server: String, // e.g. "http://localhost:8000"
 }
 
 pub struct GamePathMaker {
     root: PathBuf,
-    #[cfg(target_arch = "wasm32")]
-    pub asset_server: String, // e.g. "http://localhost:8000"
+}
+
+impl GamePathMaker {
+    pub fn new(root: Option<PathBuf>) -> Self {
+        Self {
+            root: root.unwrap_or_else(|| "".into()),
+        }
+    }
+
+    pub fn make<T>(&self, relative_path: T) -> GameFilePath
+    where
+        T: Into<PathBuf>,
+    {
+        GameFilePath {
+            root: self.root.clone(),
+            relative_path: relative_path.into(),
+        }
+    }
 }
 
 pub struct FileManager;
@@ -20,7 +34,7 @@ pub struct FileManager;
 mod native {
     use std::{io::Read, path::PathBuf};
 
-    use super::{FileManager, GameFilePath, GamePathMaker};
+    use super::{FileManager, GameFilePath};
 
     pub mod native_fs {
         pub use std::fs::*;
@@ -29,24 +43,6 @@ mod native {
     impl GameFilePath {
         pub fn resolve(&self) -> PathBuf {
             self.root.join(&self.relative_path)
-        }
-    }
-
-    impl GamePathMaker {
-        pub fn new(root: Option<PathBuf>) -> Self {
-            Self {
-                root: root.unwrap_or_else(|| "".into()),
-            }
-        }
-
-        pub fn make<T>(&self, relative_path: T) -> GameFilePath
-        where
-            T: Into<PathBuf>,
-        {
-            GameFilePath {
-                root: self.root.clone(),
-                relative_path: relative_path.into(),
-            }
         }
     }
 
@@ -74,43 +70,53 @@ mod native {
 #[cfg(target_arch = "wasm32")]
 mod web {
     use js_sys::Reflect;
-    use std::path::PathBuf;
-    use std::sync::Arc;
+    use std::sync::{Arc, OnceLock};
     use wasm_bindgen::prelude::*;
     use wasm_bindgen_futures::JsFuture;
 
-    use super::{FileManager, GameFilePath, GamePathMaker};
+    use super::{FileManager, GameFilePath};
     use crate::mutex::Mutex;
     use crate::thread::sleep_async;
     use crate::time::Duration;
 
+    /// Base URL that all game asset paths are resolved against, e.g.
+    /// "http://localhost:8000" or "https://user.github.io/repo".
+    /// Set once by `EngineState::new` from the page's own URL.
+    static ASSET_BASE_URL: OnceLock<String> = OnceLock::new();
+
     impl GameFilePath {
         pub fn resolve(&self) -> String {
+            let base_url = ASSET_BASE_URL
+                .get()
+                .expect("EngineState must be initialized before resolving web asset paths");
             format!(
                 "{}/{}",
-                self.asset_server,
+                base_url,
                 self.root.join(&self.relative_path).display()
             )
         }
     }
 
-    impl GamePathMaker {
-        pub fn new(root: Option<PathBuf>, asset_server: String) -> Self {
-            Self {
-                root: root.unwrap_or_else(|| "".into()),
-                asset_server,
+    impl FileManager {
+        pub(crate) fn initialize_web_asset_base_url() -> anyhow::Result<()> {
+            if ASSET_BASE_URL.get().is_some() {
+                return Ok(());
             }
-        }
 
-        pub fn make<T>(&self, relative_path: T) -> GameFilePath
-        where
-            T: Into<PathBuf>,
-        {
-            GameFilePath {
-                root: self.root.clone(),
-                relative_path: relative_path.into(),
-                asset_server: self.asset_server.clone(),
-            }
+            let page_url = web_sys::window()
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Ikari web can't determine its asset URL without a window")
+                })?
+                .location()
+                .href()
+                .map_err(|_| anyhow::anyhow!("Ikari web couldn't read the page URL"))?;
+            let page_directory = web_sys::Url::new_with_base(".", &page_url)
+                .map_err(|_| anyhow::anyhow!("Ikari web couldn't resolve the page directory"))?;
+            let asset_base_url = page_directory.href().trim_end_matches('/').to_owned();
+
+            ASSET_BASE_URL
+                .set(asset_base_url)
+                .map_err(|_| anyhow::anyhow!("Ikari web asset URL was already initialized"))
         }
     }
 
