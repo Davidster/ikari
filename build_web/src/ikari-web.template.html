@@ -51,8 +51,31 @@
             color: inherit;
         }
 
+        .credits {
+            margin-top: 1.5rem;
+            font-size: 0.85rem;
+            color: #aaa;
+        }
+
+        .credits summary {
+            cursor: pointer;
+        }
+
+        .credits ul {
+            margin: 0.5rem 0 0;
+            padding-left: 1.2rem;
+        }
+
+        .credits li {
+            margin-bottom: 0.3rem;
+        }
+
         .fatalerror {
             padding: 1rem;
+            color: #f88;
+        }
+
+        .unsupported {
             color: #f88;
         }
 
@@ -73,6 +96,41 @@
             Mouse to look, WASD to move, Space and Control to move vertically, and Tab for options.
         </p>
         <button id="start_game" type="button">Start demo</button>
+        <details class="credits">
+            <summary>Asset credits</summary>
+            <ul>
+                <li>
+                    <a href="https://sketchfab.com/3d-models/free-low-poly-forest-6dc8c85121234cb59dbd53a673fa2b8f"
+                        target="_blank" rel="noreferrer">Free Low Poly Forest</a> by
+                    <a href="https://sketchfab.com/purepoly" target="_blank" rel="noreferrer">purepoly</a>,
+                    licensed under <a href="http://creativecommons.org/licenses/by/4.0/" target="_blank"
+                        rel="noreferrer">CC BY 4.0</a>
+                </li>
+                <li>
+                    <a href="https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/DamagedHelmet"
+                        target="_blank" rel="noreferrer">Damaged Helmet</a> by theblueturtle_,
+                    licensed under <a href="https://creativecommons.org/licenses/by-nc/4.0/" target="_blank"
+                        rel="noreferrer">CC BY-NC 4.0</a>; glTF conversion by ctxwing
+                </li>
+                <li>
+                    <a href="https://www.cgtrader.com/free-3d-models/character/sci-fi-character/legendary-robot-free-low-poly-3d-model"
+                        target="_blank" rel="noreferrer">Legendary Robot</a> by manoeldarochadeoliveira, from
+                    CGTrader (Royalty Free License)
+                </li>
+                <li>
+                    <a href="https://done3d.com/colt-python-8-inch/" target="_blank" rel="noreferrer">Colt Python 8
+                        inch</a> by Alpen wolf, from done3d
+                </li>
+                <li>
+                    Milkyway skybox by Blochi (Christian Bloch), from the
+                    <a href="https://web.archive.org/web/2024/http://www.hdrlabs.com/sibl/archive.html"
+                        target="_blank" rel="noreferrer">sIBL Archive</a> (site since offline; archived copy),
+                    licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/3.0/us/" target="_blank"
+                        rel="noreferrer">CC BY-NC-SA 3.0 US</a>
+                </li>
+                <!-- TODO: add credits for src/sounds/gunshot.wav and src/sounds/bgm.mp3 (sources unknown) -->
+            </ul>
+        </details>
     </main>
     <div id="canvas_container"></div>
 
@@ -88,6 +146,46 @@
                 startButton.textContent = "Preparing demo…";
                 return;
             }
+
+            // The engine requires WebGPU with BC texture compression, which mobile GPUs
+            // generally lack. Check up front so the failure is a readable message
+            // rather than a requestDevice exception after the splash is gone.
+            const showUnsupported = (message) => {
+                const notice = document.createElement("p");
+                notice.className = "unsupported";
+                notice.textContent = message;
+                startButton.replaceWith(notice);
+            };
+
+            const checkSupport = async () => {
+                if (!navigator.gpu) {
+                    return "This browser doesn't support WebGPU. Try a recent desktop version of Chrome, Edge, or Firefox.";
+                }
+                let adapter = null;
+                try {
+                    adapter = await navigator.gpu.requestAdapter();
+                } catch (err) {
+                    console.error(err);
+                }
+                if (!adapter) {
+                    return "WebGPU is available but no compatible GPU adapter was found.";
+                }
+                if (!adapter.features.has("texture-compression-bc")) {
+                    return "This device's GPU doesn't support BC texture compression, which the demo requires. Phones and tablets generally don't; try a desktop browser.";
+                }
+                return null;
+            };
+
+            startButton.disabled = true;
+            startButton.textContent = "Checking GPU support…";
+            checkSupport().then((problem) => {
+                if (problem) {
+                    showUnsupported(problem);
+                    return;
+                }
+                startButton.disabled = false;
+                startButton.textContent = "Start demo";
+            });
 
             startButton.addEventListener("click", () => {
                 startScreen.remove();
