@@ -8,6 +8,8 @@ Most of the rendering features were implemented by following the awesome tutoria
 
 Hopefully one day it will be used in a real game 😃
 
+**[▶ Live web demo](https://davidster.github.io/ikari/)** — runs in the browser via WebGPU. Needs a desktop browser with WebGPU (Chrome, Edge, Firefox, or Safari 26+); phones aren't supported yet.
+
 ## Features:
 
 - Linux, Windows & MacOS support
@@ -34,6 +36,8 @@ Hopefully one day it will be used in a real game 😃
   - [wgpu-profiler](https://github.com/Wumpf/wgpu-profiler) GPU profiling
 
 ## Try it out
+
+The quickest way is the [live web demo](https://davidster.github.io/ikari/). To run it locally:
 
 ```sh
 # install dependencies (Debian)
