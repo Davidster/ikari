@@ -431,18 +431,27 @@ impl Chart<Message> for FpsChart {
             for (start_time, durations, gpu_duration) in self.recent_frame_times.iter() {
                 let x = -(most_recent_start_time - *start_time).as_secs_f32();
 
-                chart_data[0].push((x, (1.0 / durations.total.as_secs_f32()).round() as i32));
+                // skip near-zero durations (e.g. GPU timers unavailable on web),
+                // which would otherwise plot as a near-infinite fps and blow up the y-axis
+                let fps = |duration: Duration| {
+                    (duration >= Duration::from_micros(10))
+                        .then(|| (1.0 / duration.as_secs_f32()).round() as i32)
+                };
 
-                if let Some(update_duration) = durations.update {
-                    chart_data[1].push((x, (1.0 / update_duration.as_secs_f32()).round() as i32));
+                if let Some(fps) = fps(durations.total) {
+                    chart_data[0].push((x, fps));
                 }
 
-                if let Some(render_duration) = durations.render {
-                    chart_data[2].push((x, (1.0 / render_duration.as_secs_f32()).round() as i32));
+                if let Some(fps) = durations.update.and_then(fps) {
+                    chart_data[1].push((x, fps));
                 }
 
-                if let Some(gpu_duration) = gpu_duration {
-                    chart_data[3].push((x, (1.0 / gpu_duration.as_secs_f32()).round() as i32));
+                if let Some(fps) = durations.render.and_then(fps) {
+                    chart_data[2].push((x, fps));
+                }
+
+                if let Some(fps) = gpu_duration.and_then(fps) {
+                    chart_data[3].push((x, fps));
                 }
             }
 
