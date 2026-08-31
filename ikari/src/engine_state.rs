@@ -9,6 +9,9 @@ use crate::{
     wasm_not_sync::WasmNotArc,
 };
 
+#[cfg(target_arch = "wasm32")]
+use crate::file_manager::FileManager;
+
 use std::sync::Arc;
 
 pub struct EngineState {
@@ -25,6 +28,9 @@ pub struct EngineState {
 impl EngineState {
     #[profiling::function]
     pub fn new(enable_audio: bool) -> anyhow::Result<Self> {
+        #[cfg(target_arch = "wasm32")]
+        FileManager::initialize_web_asset_base_url()?;
+
         let (audio_manager, _audio_streams) = create_audio_manager(enable_audio);
         let audio_manager = Arc::new(Mutex::new(audio_manager));
         let asset_loader = Arc::new(AssetLoader::new(audio_manager.clone()));

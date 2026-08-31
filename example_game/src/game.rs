@@ -119,14 +119,8 @@ pub const POINT_LIGHT_COLOR_B: Vec3 = Vec3::new(0.25, 0.973, 0.663);
 
 pub const COLLISION_GROUP_PLAYER_UNSHOOTABLE: Group = Group::GROUP_1;
 
-#[cfg(not(target_arch = "wasm32"))]
 lazy_static::lazy_static! {
     pub static ref GAME_PATH_MAKER: GamePathMaker = GamePathMaker::new(Some("ikari".into()));
-}
-
-#[cfg(target_arch = "wasm32")]
-lazy_static::lazy_static! {
-    pub static ref GAME_PATH_MAKER: GamePathMaker = GamePathMaker::new(Some("ikari".into()), String::from("http://localhost:8000"));
 }
 
 // order of the images for a cubemap is documented here:
@@ -169,22 +163,22 @@ pub fn get_skybox_path() -> SkyboxPaths {
 
     let background = SkyboxBackgroundPath::ProcessedCube([
         GAME_PATH_MAKER.make(format!(
-            "src/skyboxes/{preprocessed_skybox_folder}/background/pos_x.png"
+            "src/skyboxes/{preprocessed_skybox_folder}/background/pos_x.jpg"
         )),
         GAME_PATH_MAKER.make(format!(
-            "src/skyboxes/{preprocessed_skybox_folder}/background/neg_x.png"
+            "src/skyboxes/{preprocessed_skybox_folder}/background/neg_x.jpg"
         )),
         GAME_PATH_MAKER.make(format!(
-            "src/skyboxes/{preprocessed_skybox_folder}/background/pos_y.png"
+            "src/skyboxes/{preprocessed_skybox_folder}/background/pos_y.jpg"
         )),
         GAME_PATH_MAKER.make(format!(
-            "src/skyboxes/{preprocessed_skybox_folder}/background/neg_y.png"
+            "src/skyboxes/{preprocessed_skybox_folder}/background/neg_y.jpg"
         )),
         GAME_PATH_MAKER.make(format!(
-            "src/skyboxes/{preprocessed_skybox_folder}/background/pos_z.png"
+            "src/skyboxes/{preprocessed_skybox_folder}/background/pos_z.jpg"
         )),
         GAME_PATH_MAKER.make(format!(
-            "src/skyboxes/{preprocessed_skybox_folder}/background/neg_z.png"
+            "src/skyboxes/{preprocessed_skybox_folder}/background/neg_z.jpg"
         )),
     ]);
     let environment_hdr: Option<SkyboxEnvironmentHDRPath> =
@@ -337,7 +331,8 @@ pub async fn init_game_state(
             asset_ids.legendary_robot =
                 load_gltf("src/models/gltf/LegendaryRobot/Legendary_Robot.gltf").into();
 
-            asset_ids.test_level = load_gltf("src/models/gltf/TestLevel/test_level.gltf").into();
+            // asset_ids.test_level =
+            //     load_gltf("src/models/gltf/TestLevel/test_level.gltf").into();
 
             for path in get_misc_gltf_paths() {
                 asset_ids.anonymous_scenes.push(load_gltf(path));
@@ -434,10 +429,10 @@ pub async fn init_game_state(
     let player_controller = PlayerController::new(
         physics_state,
         PLAYER_MOVEMENT_SPEED,
-        Vec3::new(8.0, 30.0, -13.0),
+        Vec3::new(1.62, 2.94, 10.24),
         ControlledViewDirection {
-            horizontal: 180.0_f32.to_radians(),
-            vertical: 0.0,
+            horizontal: 360.0_f32.to_radians(),
+            vertical: 0.0_f32.to_radians(),
         },
         ColliderBuilder::capsule_y(0.5, 0.25)
             .restitution_combine_rule(CoefficientCombineRule::Min)
